@@ -85,7 +85,7 @@ export function useSmartTransactions() {
    */
   const buildFeeCall = useCallback((sofAmount) => {
     const contracts = getContractAddresses(getStoredNetworkKey());
-    const treasury = import.meta.env.VITE_TREASURY_ADDRESS || contracts.SOF_EXCHANGE;
+    const treasury = contracts.SOF_EXCHANGE;
     const fee = (sofAmount * SOF_FEE_BPS) / 10_000n;
     return {
       to: contracts.SOF,

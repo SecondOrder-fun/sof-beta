@@ -21,11 +21,8 @@ export function useCurveEvents(bondingCurveAddress, { onPositionUpdate } = {}) {
     let mounted = true;
     (async () => {
       try {
-        const SOFBondingCurveJson = (
-          await import("@/contracts/abis/SOFBondingCurve.json")
-        ).default;
-        const SOFBondingCurveAbi =
-          SOFBondingCurveJson?.abi ?? SOFBondingCurveJson;
+        const { SOFBondingCurveABI: SOFBondingCurveAbi } =
+          await import("@sof/contracts");
         // watch for PositionUpdate(seasonId, player, oldTickets, newTickets, totalTickets)
         unwatch = client.watchContractEvent({
           address: bondingCurveAddress,

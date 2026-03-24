@@ -44,11 +44,8 @@ export function useCurveState(
       const netKey = getStoredNetworkKey();
       const client = buildPublicClient(netKey);
       if (!client) return;
-      const SOFBondingCurveJson = (
-        await import("@/contracts/abis/SOFBondingCurve.json")
-      ).default;
-      const SOFBondingCurveAbi =
-        SOFBondingCurveJson?.abi ?? SOFBondingCurveJson;
+      const { SOFBondingCurveABI: SOFBondingCurveAbi } =
+        await import("@sof/contracts");
 
       // Should we fetch steps this cycle?
       const shouldFetchSteps = includeSteps && !stepsLoadedRef.current;

@@ -1,6 +1,6 @@
 // src/hooks/useSOFBalance.js
 import { useAccount, useReadContract } from "wagmi";
-import { CONTRACTS } from "@/config/contracts";
+import { getContractAddresses } from "@/config/contracts";
 
 const ERC20_BALANCE_ABI = [
   {
@@ -19,7 +19,7 @@ const ERC20_BALANCE_ABI = [
 export function useSOFBalance() {
   const { address, isConnected } = useAccount();
   const network = (import.meta.env.VITE_DEFAULT_NETWORK || "TESTNET").toUpperCase();
-  const sofAddress = CONTRACTS[network]?.SOF;
+  const sofAddress = getContractAddresses(network).SOF;
 
   const { data, isLoading, refetch } = useReadContract({
     address: sofAddress,

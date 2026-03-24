@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { useSponsorStaking } from "@/hooks/useSponsorStaking";
 import { useSOFBalance } from "@/hooks/useSOFBalance";
 import { HATS_CONFIG } from "@/config/hats";
-import { CONTRACTS } from "@/config/contracts";
+import { getContractAddresses } from "@/config/contracts";
 import { StakingEligibilityAbi } from "@/utils/abis";
 import { useTranslation } from "react-i18next";
 import { Crown, Loader2, Check, Clock, AlertTriangle, RefreshCw } from "lucide-react";
@@ -54,7 +54,7 @@ export function SponsorStakingCard() {
   const { t } = useTranslation("raffle");
   const { address, isConnected } = useAccount();
   const network = (import.meta.env.VITE_DEFAULT_NETWORK || "TESTNET").toUpperCase();
-  const sofAddress = CONTRACTS[network]?.SOF;
+  const sofAddress = getContractAddresses(network).SOF;
   
   const {
     stakeAmount,
