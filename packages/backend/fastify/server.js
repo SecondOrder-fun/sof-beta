@@ -13,10 +13,8 @@ import { startTradeListener } from "../src/listeners/tradeListener.js";
 import { startSponsorHatListener } from "../src/listeners/sponsorHatListener.js";
 import { infoFiPositionService } from "../src/services/infoFiPositionService.js";
 import { historicalOddsService } from "../shared/historicalOddsService.js";
-import raffleAbi from "../src/abis/RaffleAbi.js";
-import sofBondingCurveAbi from "../src/abis/SOFBondingCurveAbi.js";
-import infoFiMarketFactoryAbi from "../src/abis/InfoFiMarketFactoryAbi.js";
-import simpleFpmmAbi from "../src/abis/SimpleFPMMAbi.js";
+import { RaffleABI as raffleAbi, SOFBondingCurveABI as sofBondingCurveAbi, InfoFiMarketFactoryABI as infoFiMarketFactoryAbi, SimpleFPMMABI as simpleFpmmAbi } from '@sof/contracts';
+import { getChainByKey } from "../src/config/chain.js";
 import { authenticateFastify } from "../shared/auth.js";
 
 // Create Fastify instance
@@ -292,13 +290,10 @@ async function startListeners() {
   try {
     const isTestnet = NETWORK === "TESTNET";
 
-    const raffleAddress = isTestnet
-      ? process.env.RAFFLE_ADDRESS_TESTNET
-      : process.env.RAFFLE_ADDRESS_LOCAL;
+    const chain = getChainByKey(NETWORK);
+    const raffleAddress = chain.raffle;
 
-    const infoFiFactoryAddress = isTestnet
-      ? process.env.INFOFI_FACTORY_ADDRESS_TESTNET
-      : process.env.INFOFI_FACTORY_ADDRESS_LOCAL;
+    const infoFiFactoryAddress = chain.infofiFactory;
 
     if (!raffleAddress) {
       app.log.warn(

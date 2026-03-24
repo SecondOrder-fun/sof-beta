@@ -15,7 +15,7 @@
  */
 
 import { publicClient, getWalletClient } from "../lib/viemClient.js";
-import RaffleAbi from "../abis/RaffleAbi.js";
+import { RaffleABI as RaffleAbi } from '@sof/contracts';
 import { adminAlertService } from "./adminAlertService.js";
 
 // SeasonStatus enum from contract

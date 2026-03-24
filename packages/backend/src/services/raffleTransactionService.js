@@ -1,7 +1,7 @@
 import { publicClient } from "../lib/viemClient.js";
 import { db } from "../../shared/supabaseClient.js";
 import { queryLogsInChunks } from "../utils/blockRangeQuery.js";
-import SOFBondingCurveAbi from "../abis/SOFBondingCurveAbi.js";
+import { SOFBondingCurveABI as SOFBondingCurveAbi } from '@sof/contracts';
 
 /**
  * Service for recording and querying raffle transaction history

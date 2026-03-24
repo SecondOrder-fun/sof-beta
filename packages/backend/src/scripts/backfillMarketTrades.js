@@ -6,7 +6,7 @@
 
 import { publicClient } from "../lib/viemClient.js";
 import { infoFiPositionService } from "../services/infoFiPositionService.js";
-import simpleFpmmAbi from "../abis/SimpleFPMMAbi.js";
+import { SimpleFPMMABI as simpleFpmmAbi } from '@sof/contracts';
 import { db } from "../../shared/supabaseClient.js";
 
 const NETWORK = process.env.DEFAULT_NETWORK || "LOCAL";

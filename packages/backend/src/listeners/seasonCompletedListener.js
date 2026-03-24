@@ -1,7 +1,7 @@
 import { publicClient, getWalletClient } from "../lib/viemClient.js";
 import { db, supabase } from "../../shared/supabaseClient.js";
 import { getChainByKey } from "../config/chain.js";
-import InfoFiMarketFactoryAbi from "../abis/InfoFiMarketFactoryAbi.js";
+import { InfoFiMarketFactoryABI as InfoFiMarketFactoryAbi } from '@sof/contracts';
 import {
   getContractEventsInChunks,
   startContractEventPolling,

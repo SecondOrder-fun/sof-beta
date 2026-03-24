@@ -12,7 +12,8 @@
  */
 
 import { getWalletClient, publicClient } from "../lib/viemClient.js";
-import InfoFiPriceOracleAbi from "../abis/InfoFiPriceOracleAbi.js";
+import { InfoFiPriceOracleABI as InfoFiPriceOracleAbi } from '@sof/contracts';
+import { getDeployment } from '@sof/contracts/deployments';
 import { adminAlertService } from "./adminAlertService.js";
 
 /**
@@ -30,18 +31,16 @@ export class OracleCallService {
       );
     }
 
-    // Select oracle address based on network
-    if (network === "TESTNET") {
-      this.oracleAddress = process.env.INFOFI_ORACLE_ADDRESS_TESTNET;
-    } else if (network === "MAINNET") {
-      this.oracleAddress = process.env.INFOFI_ORACLE_ADDRESS_MAINNET;
-    } else if (network === "LOCAL") {
-      this.oracleAddress = process.env.INFOFI_ORACLE_ADDRESS_LOCAL;
-    } else {
+    // Select oracle address from deployment JSON
+    const networkMap = { LOCAL: 'local', TESTNET: 'testnet', MAINNET: 'mainnet' };
+    const deployNetwork = networkMap[network];
+    if (!deployNetwork) {
       throw new Error(
         `Invalid DEFAULT_NETWORK value: ${network}. Must be LOCAL, TESTNET, or MAINNET.`,
       );
     }
+    const deployment = getDeployment(deployNetwork);
+    this.oracleAddress = deployment.InfoFiPriceOracle || "";
 
     this.maxRetries = parseInt(process.env.ORACLE_MAX_RETRIES || "5", 10);
     this.alertCutoff = parseInt(process.env.ORACLE_ALERT_CUTOFF || "3", 10);

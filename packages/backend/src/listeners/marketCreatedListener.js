@@ -1,6 +1,6 @@
 import { publicClient } from "../lib/viemClient.js";
 import { db } from "../../shared/supabaseClient.js";
-import SOFBondingCurveAbi from "../abis/SOFBondingCurveAbi.js";
+import { SOFBondingCurveABI as SOFBondingCurveAbi } from '@sof/contracts';
 import { startContractEventPolling } from "../lib/contractEventPolling.js";
 import { createBlockCursor } from "../lib/blockCursor.js";
 import { historicalOddsService } from "../../shared/historicalOddsService.js";

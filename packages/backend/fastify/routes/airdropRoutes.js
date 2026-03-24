@@ -8,6 +8,7 @@
 import process from "node:process";
 import { privateKeyToAccount } from "viem/accounts";
 import { recoverMessageAddress } from "viem";
+import { getDeployment } from '@sof/contracts/deployments';
 import { getPaymasterService } from "../../src/services/paymasterService.js";
 
 // EIP-712 domain and type constants
@@ -84,11 +85,11 @@ export default async function airdropRoutes(fastify) {
     }
 
     // ── Resolve airdrop contract address ───────────────────────────────
-    const verifyingContract = process.env.SOF_AIRDROP_ADDRESS_TESTNET;
+    const verifyingContract = getDeployment('testnet').SOFAirdrop;
 
     if (!verifyingContract) {
       fastify.log.error(
-        "SOF_AIRDROP_ADDRESS_TESTNET env var is not set — cannot produce attestation",
+        "SOFAirdrop address not found in testnet deployment — cannot produce attestation",
       );
       return reply.code(503).send({
         error: "Airdrop contract not configured. Please try again later.",
@@ -175,7 +176,7 @@ export default async function airdropRoutes(fastify) {
           .send({ error: 'Invalid type. Must be "initial", "basic", or "daily"' });
       }
 
-      const airdropAddress = process.env.SOF_AIRDROP_ADDRESS_TESTNET;
+      const airdropAddress = getDeployment('testnet').SOFAirdrop;
       if (!airdropAddress) {
         return reply
           .code(503)

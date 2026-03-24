@@ -1,6 +1,6 @@
 import { publicClient } from "../lib/viemClient.js";
 import { db } from "../../shared/supabaseClient.js";
-import simpleFpmmAbi from "../abis/SimpleFPMMAbi.js";
+import { SimpleFPMMABI as simpleFpmmAbi } from '@sof/contracts';
 import { queryLogsInChunks } from "../utils/blockRangeQuery.js";
 
 /**

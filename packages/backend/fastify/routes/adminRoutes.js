@@ -6,7 +6,7 @@ import { parseAbi, formatEther } from "viem";
 import { db, hasSupabase } from "../../shared/supabaseClient.js";
 import { publicClient } from "../../src/lib/viemClient.js";
 import { getChainByKey } from "../../src/config/chain.js";
-import raffleAbi from "../../src/abis/RaffleAbi.js";
+import { RaffleABI as raffleAbi } from '@sof/contracts';
 import { getPaymasterService } from "../../src/services/paymasterService.js";
 import {
   sendNotificationToUser,
@@ -248,13 +248,10 @@ export default async function adminRoutes(fastify) {
 
       const isTestnet = NETWORK === "TESTNET";
 
-      const raffleAddress = isTestnet
-        ? process.env.RAFFLE_ADDRESS_TESTNET
-        : process.env.RAFFLE_ADDRESS_LOCAL;
+      const chain = getChainByKey(NETWORK);
+      const raffleAddress = chain.raffle;
 
-      const infoFiFactoryAddress = isTestnet
-        ? process.env.INFOFI_FACTORY_ADDRESS_TESTNET
-        : process.env.INFOFI_FACTORY_ADDRESS_LOCAL;
+      const infoFiFactoryAddress = chain.infofiFactory;
 
       if (!raffleAddress || !infoFiFactoryAddress) {
         return reply.code(500).send({
