@@ -1,6 +1,17 @@
 {
   "name": "@sof/contracts",
-  "version": "0.0.1",
+  "version": "0.15.3",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "build": "forge build && node ../../scripts/export-abis.js",
+    "test": "forge test",
+    "deploy:local": "source env/.env.local && forge script script/deploy/Deploy.s.sol --broadcast",
+    "deploy:testnet": "source env/.env.testnet && forge script script/deploy/Deploy.s.sol --broadcast --verify",
+    "deploy:mainnet": "source env/.env.mainnet && forge script script/deploy/Deploy.s.sol --broadcast --verify"
+  },
+  "exports": {
+    ".": "./abi/index.js",
+    "./deployments": "./deployments/index.js"
+  }
 }
