@@ -1,0 +1,5 @@
+# Collapse auto-generated ABI JSON in PR diffs
+packages/contracts/abi/*.json linguist-generated=true
+
+# Lock files
+pnpm-lock.yaml linguist-generated=true

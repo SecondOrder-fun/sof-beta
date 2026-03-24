@@ -1,0 +1,19 @@
+{
+  "name": "sof-beta",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "NETWORK=local turbo dev",
+    "build": "turbo build",
+    "test": "turbo test",
+    "lint": "turbo lint",
+    "deploy:contracts": "turbo deploy:contracts",
+    "deploy:env": "./scripts/deploy-env.sh",
+    "deploy:env:dry": "./scripts/deploy-env.sh --dry-run"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0"
+  },
+  "packageManager": "pnpm@9.15.0"
+}

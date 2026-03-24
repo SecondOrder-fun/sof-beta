@@ -1,0 +1,64 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+out/
+
+# Environment variables (secrets)
+.env
+.env.local
+.env.platform
+packages/*/env/.env.local
+packages/*/env/.env.testnet
+packages/*/env/.env.mainnet
+
+# Foundry
+packages/contracts/cache/
+packages/contracts/broadcast/
+
+# Turborepo
+.turbo/
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Test
+coverage/
+test-results/
+.playwright-mcp/
+
+# Redis
+dump.rdb
+*.rdb
+*.aof
+
+# Security
+*.pem
+*.key
+mnemonic.txt
+seed.txt
+
+# Misc
+*.tmp
+*.temp
+.temp/
+*.bak
+
+# Vercel / Railway
+.vercel/
+
+# Worktrees
+.worktrees/
