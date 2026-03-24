@@ -1,0 +1,17 @@
+{
+  "title": "Get $SOF",
+  "youPay": "You pay",
+  "youReceive": "You receive",
+  "rate": "Rate",
+  "swap": "Swap",
+  "max": "Max",
+  "dailyLimit": "Daily sell limit",
+  "remaining": "remaining",
+  "insufficientBalance": "Insufficient balance",
+  "swapping": "Swapping...",
+  "swapSuccess": "Swap successful!",
+  "swapError": "Swap failed",
+  "selectToken": "Select token",
+  "enterAmount": "Enter amount",
+  "testnetNotice": "Necesitarás $ETH de Base Sepolia para intercambiar por $SOF. Estos son tokens de testnet y no tienen ningún valor."
+}

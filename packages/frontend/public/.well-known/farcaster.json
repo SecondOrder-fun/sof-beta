@@ -1,0 +1,26 @@
+{
+  "accountAssociation": {
+    "header": "eyJmaWQiOjEwNDczODIsInR5cGUiOiJhdXRoIiwia2V5IjoiMHg2YkI3MEFFRkQyZjNjNTc4RmUyNTk1YUIyQjJGMTIxOTU3MjI0YzI0In0",
+    "payload": "eyJkb21haW4iOiJzZWNvbmRvcmRlci5mdW4ifQ",
+    "signature": "FYzz+K+LaA+WlfnJw3sQJzpiv4/q4o2bm/V19633VwMs9Irtp8TxjiYxwglqzs4uVVKeMRiOCrQWWFq+BJPnthw="
+  },
+  "miniapp": {
+    "version": "1",
+    "name": "SecondOrder.fun",
+    "subtitle": "Memecoins without the hangover",
+    "description": "SecondOrder.fun transforms memecoins from chaotic infinite games into structured, fair finite games using game theory principles.",
+    "iconUrl": "https://secondorder.fun/images/logo.png",
+    "homeUrl": "https://secondorder.fun",
+    "imageUrl": "https://secondorder.fun/images/image.png",
+    "splashImageUrl": "https://secondorder.fun/images/logo.png",
+    "splashBackgroundColor": "#0d0d0d",
+    "webhookUrl": "https://sof-alpha-production.up.railway.app/api/webhook/farcaster",
+    "primaryCategory": "games",
+    "tags": [
+      "raffle",
+      "memecoin",
+      "prediction-markets",
+      "web3"
+    ]
+  }
+}

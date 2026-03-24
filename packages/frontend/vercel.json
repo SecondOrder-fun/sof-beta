@@ -1,0 +1,40 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "headers": [
+    {
+      "source": "/.well-known/farcaster.json",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/json"
+        },
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        }
+      ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/s/:seasonId",
+      "destination": "/api/embed-season?seasonId=:seasonId"
+    },
+    {
+      "source": "/m/:marketId",
+      "destination": "/api/embed-market?marketId=:marketId"
+    },
+    {
+      "source": "/og/season/:seasonId",
+      "destination": "/api/og-season?seasonId=:seasonId"
+    },
+    {
+      "source": "/og/market/:marketId",
+      "destination": "/api/og-market?marketId=:marketId"
+    },
+    {
+      "source": "/((?!.well-known).*)",
+      "destination": "/"
+    }
+  ]
+}

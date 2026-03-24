@@ -1,0 +1,14 @@
+{
+  "welcomeTitle": "Welcome to SecondOrder.fun!",
+  "welcomeMessage": "Claim your initial $SOF to get started. Link Farcaster for a bigger drop!",
+  "claimInitial": "Claim {{amount}} $SOF with Farcaster",
+  "claimBasic": "Claim {{amount}} $SOF",
+  "claimDaily": "Claim {{amount}} $SOF",
+  "dailyCooldown": "Next claim in",
+  "claiming": "Claiming...",
+  "claimed": "Claimed!",
+  "claimError": "Claim failed",
+  "dismiss": "Dismiss",
+  "dailyDrip": "Daily Drip",
+  "connectFarcaster": "Link your Farcaster account to claim your initial $SOF"
+}

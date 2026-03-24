@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+  <head>
+    <!-- Inline theme script - runs before React to prevent flash of wrong theme -->
+    <script>
+      (function() {
+        var STORAGE_KEY = 'sof-theme';
+        var theme = localStorage.getItem(STORAGE_KEY) || 'system';
+        var isDark = theme === 'dark';
+        if (theme === 'system') {
+          isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        }
+        if (isDark) {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+      })();
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
+    <meta
+      name="description"
+      content="SecondOrder.fun - InfoFi-powered raffle platform"
+    />
+    <meta
+      name="keywords"
+      content="Web3, raffle, prediction markets, InfoFi, blockchain, crypto"
+    />
+    <title>SecondOrder.fun - InfoFi-Powered Raffle Platform</title>
+
+    <!-- Favicons -->
+    <link rel="icon" type="image/x-icon" href="/images/favicon.ico" />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="32x32"
+      href="/images/favicon-32x32.png"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="16x16"
+      href="/images/favicon-16x16.png"
+    />
+    <link
+      rel="apple-touch-icon"
+      sizes="180x180"
+      href="/images/apple-touch-icon.png"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="192x192"
+      href="/images/android-chrome-192x192.png"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="512x512"
+      href="/images/android-chrome-512x512.png"
+    />
+
+    <!-- Farcaster MiniApp Embed Metadata -->
+    <meta name="fc:miniapp" content='{"version":"next","imageUrl":"https://secondorder.fun/images/image.png","button":{"title":"Join Raffle","action":{"type":"launch_miniapp","name":"SecondOrder.fun","url":"https://secondorder.fun","splashImageUrl":"https://secondorder.fun/images/splash.png","splashBackgroundColor":"#0d0d0d"}}}' />
+    
+    <!-- Base App ID -->
+    <meta name="base:app_id" content="6943e695d19763ca26ddc3ff" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
