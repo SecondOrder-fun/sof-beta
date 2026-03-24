@@ -1,0 +1,25 @@
+{
+  "network": "anvil",
+  "chainId": 31337,
+  "deployedAt": "local",
+  "contracts": {
+    "Raffle": "0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9",
+    "SOFToken": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+    "SeasonFactory": "0x0165878A594ca255338adfa4d48449f69242Eb8F",
+    "SOFBondingCurve": "",
+    "InfoFiFactory": "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1",
+    "InfoFiFPMM": "0x9A676e781A523b5d0C0e43731313A708CB607508",
+    "InfoFiPriceOracle": "0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e",
+    "InfoFiSettlement": "0x5fBdA814c7972eB956C9628C930b82365122F53B",
+    "ConditionalTokens": "0xA51c1fc2f0D1a1b8494Ed1FE312d7C3a78Ed91C0",
+    "VRFCoordinator": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+    "PrizeDistributor": "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1",
+    "SOFFaucet": "0x4A679253410272dd5232B3Ff7cF5dbB88f295319",
+    "SOFExchange": "",
+    "SOFAirdrop": "",
+    "USDC": "",
+    "RaffleOracleAdapter": "",
+    "SeasonGating": "",
+    "MarketTypeRegistry": ""
+  }
+}

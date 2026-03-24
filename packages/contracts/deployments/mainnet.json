@@ -1,0 +1,25 @@
+{
+  "network": "base",
+  "chainId": 8453,
+  "deployedAt": null,
+  "contracts": {
+    "Raffle": "",
+    "SOFToken": "",
+    "SeasonFactory": "",
+    "SOFBondingCurve": "",
+    "InfoFiFactory": "",
+    "InfoFiPriceOracle": "",
+    "InfoFiSettlement": "",
+    "InfoFiFPMM": "",
+    "ConditionalTokens": "",
+    "MarketTypeRegistry": "",
+    "VRFCoordinator": "",
+    "PrizeDistributor": "",
+    "SOFFaucet": "",
+    "RaffleOracleAdapter": "",
+    "SeasonGating": "",
+    "SOFExchange": "",
+    "SOFAirdrop": "",
+    "USDC": ""
+  }
+}
