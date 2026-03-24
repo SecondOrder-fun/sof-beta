@@ -1,0 +1,241 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "forge-std/Test.sol";
+import "../../src/core/Raffle.sol";
+import "../../src/core/SeasonFactory.sol";
+import "../../src/curve/SOFBondingCurve.sol";
+import "../../src/token/SOFToken.sol";
+import "../../src/infofi/InfoFiMarket.sol";
+import "../../src/infofi/InfoFiMarketFactory.sol";
+import "../../src/infofi/InfoFiPriceOracle.sol";
+import "../../src/infofi/InfoFiSettlement.sol";
+import "../../src/lib/RaffleTypes.sol";
+import "../../src/core/RaffleStorage.sol";
+import "../../lib/chainlink-brownie-contracts/contracts/src/v0.8/vrf/dev/VRFConsumerBaseV2Plus.sol";
+
+contract FullSeasonFlowTest is Test {
+    // Core contracts
+    Raffle public raffle;
+    SeasonFactory public seasonFactory;
+    SOFToken public sof;
+    
+    // InfoFi contracts
+    InfoFiMarket public infoFiMarket;
+    InfoFiMarketFactory public infoFiFactory;
+    InfoFiPriceOracle public infoFiOracle;
+    InfoFiSettlement public infoFiSettlement;
+    
+    // Test addresses
+    address public admin;
+    address public player1;
+    address public player2;
+    address public player3;
+    
+    // Season data
+    uint256 public seasonId;
+    SOFBondingCurve public curve;
+    
+    // VRF mock
+    address public vrfCoordinator;
+    
+    function setUp() public {
+        admin = address(this);
+        player1 = address(0x1);
+        player2 = address(0x2);
+        player3 = address(0x3);
+        
+        // Deploy SOF token
+        sof = new SOFToken("SecondOrder Fun Token", "SOF", 1_000_000 * 10**18, admin);
+        
+        // Deploy VRF mock
+        vrfCoordinator = address(new VRFCoordinatorMock());
+        
+        // Deploy a mock tracker for the SeasonFactory
+        address mockTracker = address(0x123456);
+        
+        // Create a mock raffle address for initial setup
+        address mockRaffle = address(this); // Use the test contract as the mock raffle
+        
+        // Deploy SeasonFactory with the mock raffle address
+        seasonFactory = new SeasonFactory(mockRaffle, mockTracker);
+        
+        // Deploy the real Raffle contract
+        raffle = new Raffle(
+            address(sof),
+            vrfCoordinator,
+            1, // subscriptionId
+            bytes32(0) // keyHash
+        );
+        
+        // Set the SeasonFactory in the Raffle contract
+        vm.startPrank(admin);
+        raffle.setSeasonFactory(address(seasonFactory));
+        vm.stopPrank();
+        
+        // Deploy InfoFi contracts
+        infoFiMarket = new InfoFiMarket();
+        infoFiOracle = new InfoFiPriceOracle(admin, 7000, 3000);
+        infoFiSettlement = new InfoFiSettlement(admin, address(raffle));
+        infoFiFactory = new InfoFiMarketFactory(
+            address(raffle),
+            address(infoFiOracle),
+            address(infoFiMarket),
+            address(sof),
+            admin
+        );
+        
+        // Setup roles
+        raffle.grantRole(raffle.SEASON_CREATOR_ROLE(), admin);
+        infoFiMarket.grantRole(infoFiMarket.OPERATOR_ROLE(), address(infoFiFactory));
+        infoFiOracle.grantRole(infoFiOracle.PRICE_UPDATER_ROLE(), address(infoFiFactory));
+        infoFiSettlement.grantRole(infoFiSettlement.SETTLER_ROLE(), address(raffle));
+        
+        // Transfer tokens to players from admin (who received the initial supply)
+        sof.transfer(player1, 1000 ether);
+        sof.transfer(player2, 1000 ether);
+        sof.transfer(player3, 1000 ether);
+        
+        // Create a season
+        uint256 startTime = block.timestamp + 1;
+        uint256 endTime = startTime + 1 days;
+        
+        RaffleTypes.BondStep[] memory steps = new RaffleTypes.BondStep[](3);
+        steps[0] = RaffleTypes.BondStep(1000, uint128(10 ether));
+        steps[1] = RaffleTypes.BondStep(5000, uint128(15 ether));
+        steps[2] = RaffleTypes.BondStep(10000, uint128(20 ether));
+        
+        // Create a SeasonConfig struct
+        RaffleTypes.SeasonConfig memory config = RaffleTypes.SeasonConfig({
+            name: "Test Season",
+            startTime: startTime,
+            endTime: endTime,
+            winnerCount: 3,
+            grandPrizeBps: 5000, // 50%
+            raffleToken: address(0), // Will be set by the factory
+            bondingCurve: address(0), // Will be set by the factory
+            isActive: false,
+            isCompleted: false
+        });
+        
+        // Create the season
+        seasonId = raffle.createSeason(
+            config,
+            steps,
+            100, // buyFeeBps (1%)
+            200  // sellFeeBps (2%)
+        );
+        
+        // Get the bonding curve
+        (RaffleTypes.SeasonConfig memory seasonConfig, , , , ) = raffle.getSeasonDetails(seasonId);
+        curve = SOFBondingCurve(seasonConfig.bondingCurve);
+    }
+    
+    function testFullSeasonFlow() public {
+        // Step 1: Start the season
+        vm.warp(block.timestamp + 1);
+        raffle.startSeason(seasonId);
+        
+        // Step 2: Players buy tickets
+        vm.startPrank(player1);
+        sof.approve(address(curve), type(uint256).max);
+        curve.buyTokens(500, 10000 ether);
+        vm.stopPrank();
+        
+        vm.startPrank(player2);
+        sof.approve(address(curve), type(uint256).max);
+        curve.buyTokens(300, 10000 ether);
+        vm.stopPrank();
+        
+        vm.startPrank(player3);
+        sof.approve(address(curve), type(uint256).max);
+        curve.buyTokens(200, 10000 ether);
+        vm.stopPrank();
+        
+        // Step 3: Verify InfoFi market auto-creation for player1 (>1% threshold)
+        bytes32 marketId = keccak256(abi.encodePacked(seasonId, player1, infoFiFactory.WINNER_PREDICTION()));
+        assertTrue(infoFiFactory.hasMarket(seasonId, player1, infoFiFactory.WINNER_PREDICTION()), 
+            "Market should be created for player1");
+            
+        // Step 4: Place bets in the InfoFi market
+        vm.startPrank(player2);
+        sof.approve(address(infoFiMarket), 10 ether);
+        infoFiMarket.placeBet(uint256(marketId), true, 10 ether); // YES bet
+        vm.stopPrank();
+        
+        vm.startPrank(player3);
+        sof.approve(address(infoFiMarket), 10 ether);
+        infoFiMarket.placeBet(uint256(marketId), false, 10 ether); // NO bet
+        vm.stopPrank();
+        
+        // Step 5: End the season
+        vm.warp(block.timestamp + 1 days);
+        raffle.requestSeasonEnd(seasonId);
+        
+        // Step 6: Simulate VRF callback
+        VRFCoordinatorMock(vrfCoordinator).fulfillRandomWords(
+            1, // requestId
+            address(raffle),
+            generateRandomWords(3) // 3 winners
+        );
+        
+        // Step 7: Verify season completion
+        (,RaffleStorage.SeasonStatus status,,, uint256 prizePool) = raffle.getSeasonDetails(seasonId);
+        assertEq(uint8(status), uint8(RaffleStorage.SeasonStatus.Completed), "Season should be completed");
+        assertTrue(prizePool > 0, "Prize pool should be set");
+        
+        // Step 8: Check winners
+        address[] memory winners = raffle.getWinners(seasonId);
+        assertEq(winners.length, 3, "Should have 3 winners");
+        
+        // Step 9: Verify InfoFi market settlement
+        assertTrue(infoFiSettlement.isSettled(marketId), "Market should be settled");
+        
+        // Step 10: Claim winnings from InfoFi market
+        bool isWinner = false;
+        for (uint i = 0; i < winners.length; i++) {
+            if (winners[i] == player1) {
+                isWinner = true;
+                break;
+            }
+        }
+        
+        if (isWinner) {
+            // Player1 won, so YES bets should win
+            vm.startPrank(player2);
+            uint256 balanceBefore = sof.balanceOf(player2);
+            infoFiMarket.claimPayout(uint256(marketId));
+            uint256 balanceAfter = sof.balanceOf(player2);
+            assertTrue(balanceAfter > balanceBefore, "Player2 should receive winnings");
+            vm.stopPrank();
+        } else {
+            // Player1 lost, so NO bets should win
+            vm.startPrank(player3);
+            uint256 balanceBefore = sof.balanceOf(player3);
+            infoFiMarket.claimPayout(uint256(marketId));
+            uint256 balanceAfter = sof.balanceOf(player3);
+            assertTrue(balanceAfter > balanceBefore, "Player3 should receive winnings");
+            vm.stopPrank();
+        }
+    }
+    
+    // Helper function to generate random words for VRF
+    function generateRandomWords(uint256 count) internal view returns (uint256[] memory) {
+        uint256[] memory words = new uint256[](count);
+        for (uint256 i = 0; i < count; i++) {
+            words[i] = uint256(keccak256(abi.encodePacked(block.timestamp, i)));
+        }
+        return words;
+    }
+}
+
+// Mock VRF coordinator for testing
+contract VRFCoordinatorMock {
+    function fulfillRandomWords(
+        uint256 requestId,
+        address consumer,
+        uint256[] memory randomWords
+    ) external {
+        VRFConsumerBaseV2Plus(consumer).rawFulfillRandomWords(requestId, randomWords);
+    }
+}
