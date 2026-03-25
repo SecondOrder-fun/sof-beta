@@ -24,9 +24,8 @@ const app = fastify({ logger: true });
 await authenticateFastify(app);
 
 // Select network ("LOCAL" or "TESTNET") for on-chain listeners
-// Respect DEFAULT_NETWORK from .env, with LOCAL as final fallback
-const NETWORK =
-  process.env.DEFAULT_NETWORK || process.env.VITE_DEFAULT_NETWORK || "LOCAL";
+// Respect NETWORK from .env, with LOCAL as final fallback
+const NETWORK = process.env.NETWORK || "LOCAL";
 app.log.info({ NETWORK }, "Using backend network configuration");
 
 // Log Supabase connection status at startup

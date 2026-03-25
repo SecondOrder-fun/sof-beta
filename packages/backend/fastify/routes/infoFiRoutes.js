@@ -1132,7 +1132,7 @@ export default async function infoFiRoutes(fastify) {
           await import("../../src/abis/InfoFiMarketFactoryAbi.js")
         ).default;
 
-        const network = process.env.DEFAULT_NETWORK || "TESTNET";
+        const network = process.env.NETWORK || "TESTNET";
         const chain = getChainByKey(network);
         const infoFiFactoryAddress = chain.infofiFactory;
         if (!infoFiFactoryAddress) {

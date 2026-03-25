@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 
 const viemMocks = vi.hoisted(() => {
   // Must set env before oracleCallService.js singleton instantiates
-  process.env.DEFAULT_NETWORK = "LOCAL";
+  process.env.NETWORK = "LOCAL";
   process.env.INFOFI_ORACLE_ADDRESS_LOCAL =
     "0x1234567890123456789012345678901234567890";
 
@@ -54,7 +54,7 @@ describe("Oracle Integration Tests", () => {
     viemMocks.mockPublicClient.waitForTransactionReceipt?.mockReset?.();
     viemMocks.mockGetWalletClient.mockReset();
 
-    vi.stubEnv("DEFAULT_NETWORK", "LOCAL");
+    vi.stubEnv("NETWORK", "LOCAL");
     vi.stubEnv(
       "INFOFI_ORACLE_ADDRESS_LOCAL",
       "0x1234567890123456789012345678901234567890",

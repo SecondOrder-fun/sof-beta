@@ -33,7 +33,7 @@ async function scanHistoricalPositionUpdateEvents(
     );
 
     const currentBlock = await publicClient.getBlockNumber();
-    const chain = getChainByKey(process.env.DEFAULT_NETWORK);
+    const chain = getChainByKey(process.env.NETWORK);
     const lookbackBlocks = chain.lookbackBlocks;
     const fromBlock =
       currentBlock > lookbackBlocks ? currentBlock - lookbackBlocks : 0n;

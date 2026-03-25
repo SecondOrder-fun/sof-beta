@@ -17,7 +17,7 @@ import { createBlockCursor } from "../lib/blockCursor.js";
  */
 async function resolveMarketsOnchain(seasonId, winnerAddress, logger) {
   try {
-    const network = process.env.DEFAULT_NETWORK || "TESTNET";
+    const network = process.env.NETWORK || "TESTNET";
     const chain = getChainByKey(network);
     const infoFiFactoryAddress = chain.infofiFactory;
     if (!infoFiFactoryAddress) {
@@ -235,7 +235,7 @@ async function scanHistoricalSeasonCompletedEvents(
     const currentBlock = await publicClient.getBlockNumber();
 
     // Scan using network-specific lookback blocks
-    const chain = getChainByKey(process.env.DEFAULT_NETWORK);
+    const chain = getChainByKey(process.env.NETWORK);
     const lookbackBlocks = chain.lookbackBlocks;
     const fromBlock =
       currentBlock > lookbackBlocks ? currentBlock - lookbackBlocks : 0n;

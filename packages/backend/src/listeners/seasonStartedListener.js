@@ -112,7 +112,7 @@ async function scanHistoricalSeasonEvents(
     const currentBlock = await publicClient.getBlockNumber();
 
     // Scan using network-specific lookback blocks
-    const chain = getChainByKey(process.env.DEFAULT_NETWORK);
+    const chain = getChainByKey(process.env.NETWORK);
     const lookbackBlocks = chain.lookbackBlocks;
     const fromBlock =
       currentBlock > lookbackBlocks ? currentBlock - lookbackBlocks : 0n;

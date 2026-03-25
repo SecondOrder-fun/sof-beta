@@ -7,14 +7,11 @@ import { privateKeyToAccount } from "viem/accounts";
 import { getChainByKey } from "../config/chain.js";
 
 // Select network from environment - NO FALLBACKS
-const NETWORK =
-  process.env.NETWORK ||
-  process.env.DEFAULT_NETWORK ||
-  process.env.VITE_DEFAULT_NETWORK;
+const NETWORK = process.env.NETWORK;
 
 if (!NETWORK) {
   throw new Error(
-    "DEFAULT_NETWORK environment variable not set. Cannot initialize viem clients.",
+    "NETWORK environment variable not set. Cannot initialize viem clients.",
   );
 }
 

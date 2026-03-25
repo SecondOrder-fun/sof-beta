@@ -5,9 +5,8 @@ import fastify from "fastify";
 
 // Set env vars before the route module is imported so paymasterUrl closure is populated
 process.env.PAYMASTER_RPC_URL = "https://mock-paymaster.example.com/rpc";
-process.env.PAYMASTER_RPC_URL_TESTNET = "https://mock-paymaster.example.com/rpc";
-process.env.PIMLICO_API_KEY_TESTNET = "test-pimlico-key";
-process.env.DEFAULT_NETWORK = "TESTNET";
+process.env.PIMLICO_API_KEY = "test-pimlico-key";
+process.env.NETWORK = "TESTNET";
 
 const mockRedisClient = {
   set: vi.fn().mockResolvedValue("OK"),

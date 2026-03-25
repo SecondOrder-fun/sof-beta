@@ -7,7 +7,7 @@
  * - HATS_PROTOCOL: Hats Protocol contract address
  * - HATS_SPONSOR_HAT_ID: The Sponsor hat ID (uint256)
  * - BACKEND_WALLET_PRIVATE_KEY: Private key for minting (must wear Top Hat)
- * - RPC_URL_TESTNET: Base Sepolia RPC URL
+ * - RPC_URL: RPC URL for the active network
  */
 
 import { createPublicClient, createWalletClient, http, parseAbi } from 'viem';
@@ -31,7 +31,7 @@ export async function startSponsorHatListener() {
   const hatsAddress = process.env.HATS_PROTOCOL;
   const sponsorHatId = process.env.HATS_SPONSOR_HAT_ID;
   const privateKey = process.env.BACKEND_WALLET_PRIVATE_KEY;
-  const rpcUrl = process.env.RPC_URL_TESTNET;
+  const rpcUrl = process.env.RPC_URL;
 
   if (!stakingAddress || !hatsAddress || !sponsorHatId) {
     console.log('[SponsorHat] Missing Hats config (HATS_STAKING_ELIGIBILITY, HATS_PROTOCOL, HATS_SPONSOR_HAT_ID), skipping listener');
@@ -44,7 +44,7 @@ export async function startSponsorHatListener() {
   }
 
   if (!rpcUrl) {
-    console.log('[SponsorHat] No RPC_URL_TESTNET, skipping listener');
+    console.log('[SponsorHat] No RPC_URL, skipping listener');
     return;
   }
 

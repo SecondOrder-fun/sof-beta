@@ -43,24 +43,9 @@ async function healthRoutes(fastify) {
     }
 
     // RPC check: call eth_blockNumber on configured RPC, if available
-    // Respect DEFAULT_NETWORK from .env, with LOCAL as final fallback
-    const network =
-      process.env.DEFAULT_NETWORK ||
-      process.env.VITE_DEFAULT_NETWORK ||
-      "LOCAL";
-    let rpcUrl = null;
-
-    if (network === "TESTNET") {
-      // Prefer explicit backend RPC for Base Sepolia / testnet
-      rpcUrl =
-        process.env.RPC_URL_TESTNET ||
-        process.env.BASE_SEPOLIA_RPC_URL ||
-        process.env.BASE_RPC_URL ||
-        null;
-    } else {
-      // Local / dev
-      rpcUrl = process.env.RPC_URL_LOCAL || null;
-    }
+    // Respect NETWORK from .env, with LOCAL as final fallback
+    const network = process.env.NETWORK || "LOCAL";
+    const rpcUrl = process.env.RPC_URL || null;
 
     if (rpcUrl) {
       try {
@@ -89,9 +74,7 @@ async function healthRoutes(fastify) {
     } else {
       checks.rpc.ok = false;
       checks.rpc.error =
-        network === "TESTNET"
-          ? "RPC_URL_TESTNET / BASE_SEPOLIA_RPC_URL / BASE_RPC_URL not configured in this environment"
-          : "RPC_URL_LOCAL not configured in this environment";
+        "RPC_URL not configured in this environment";
     }
 
     const overallStatus =

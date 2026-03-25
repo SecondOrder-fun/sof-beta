@@ -17,7 +17,7 @@ const __dirname = dirname(__filename);
 
 config({ path: join(__dirname, '..', '.env') });
 
-const NETWORK_KEY = process.env.DEFAULT_NETWORK || 'LOCAL';
+const NETWORK_KEY = process.env.NETWORK || 'LOCAL';
 const SEASON_ID = process.env.SEASON_ID ? parseInt(process.env.SEASON_ID) : null;
 
 // Simple console logger

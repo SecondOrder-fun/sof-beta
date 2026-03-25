@@ -31,24 +31,17 @@ export class PaymasterService {
   async initialize() {
     try {
       const {
-        DEFAULT_NETWORK,
         PAYMASTER_RPC_URL,
-        PAYMASTER_RPC_URL_TESTNET,
         BACKEND_WALLET_PRIVATE_KEY,
         BACKEND_WALLET_ADDRESS,
       } = process.env;
 
-      const isTestnet = DEFAULT_NETWORK === "TESTNET";
-      const paymasterUrl = isTestnet
-        ? PAYMASTER_RPC_URL_TESTNET
-        : PAYMASTER_RPC_URL;
+      const paymasterUrl = PAYMASTER_RPC_URL;
 
       // Validate required environment variables
       if (!paymasterUrl) {
         throw new Error(
-          isTestnet
-            ? "PAYMASTER_RPC_URL_TESTNET not configured"
-            : "PAYMASTER_RPC_URL not configured",
+          "PAYMASTER_RPC_URL not configured",
         );
       }
 

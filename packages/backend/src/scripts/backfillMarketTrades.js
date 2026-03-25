@@ -9,7 +9,7 @@ import { infoFiPositionService } from "../services/infoFiPositionService.js";
 import { SimpleFPMMABI as simpleFpmmAbi } from '@sof/contracts';
 import { db } from "../../shared/supabaseClient.js";
 
-const NETWORK = process.env.DEFAULT_NETWORK || "LOCAL";
+const NETWORK = process.env.NETWORK || "LOCAL";
 
 async function backfillMarketTrades(fpmmAddress, fromBlock = "earliest") {
   console.log(`\n🔄 Backfilling trades for market: ${fpmmAddress}`);

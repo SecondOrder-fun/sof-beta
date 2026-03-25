@@ -13,23 +13,15 @@ import { AuthService } from "../../shared/auth.js";
 
 const CHAIN_IDS = { TESTNET: 84532, MAINNET: 8453 };
 
-const networkKey = (process.env.DEFAULT_NETWORK || process.env.VITE_DEFAULT_NETWORK || "LOCAL").toUpperCase();
-const isTestnetModule = networkKey === "TESTNET";
+const networkKey = (process.env.NETWORK || "LOCAL").toUpperCase();
 const chainId = CHAIN_IDS[networkKey] || CHAIN_IDS.TESTNET;
-const pimlicoApiKey = isTestnetModule
-  ? process.env.PIMLICO_API_KEY_TESTNET
-  : process.env.PIMLICO_API_KEY;
+const pimlicoApiKey = process.env.PIMLICO_API_KEY || "";
 const pimlicoUrl = pimlicoApiKey
   ? `https://api.pimlico.io/v2/${chainId}/rpc?apikey=${pimlicoApiKey}`
   : null;
 
 export default async function paymasterProxyRoutes(fastify) {
-  const isTestnet =
-    (process.env.DEFAULT_NETWORK || process.env.VITE_DEFAULT_NETWORK || "LOCAL") === "TESTNET";
-
-  const paymasterUrl = isTestnet
-    ? process.env.PAYMASTER_RPC_URL_TESTNET
-    : process.env.PAYMASTER_RPC_URL;
+  const paymasterUrl = process.env.PAYMASTER_RPC_URL;
 
   // ─── Coinbase CDP proxy handler ───────────────────────────────────────────
 

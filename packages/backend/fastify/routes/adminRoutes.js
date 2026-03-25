@@ -25,12 +25,8 @@ const erc20BalanceOfAbi = parseAbi([
  */
 export default async function adminRoutes(fastify) {
   const requireAdmin = createRequireAdmin();
-  // Respect DEFAULT_NETWORK from .env, with LOCAL as final fallback
-  const NETWORK =
-    process.env.NETWORK ||
-    process.env.DEFAULT_NETWORK ||
-    process.env.VITE_DEFAULT_NETWORK ||
-    "LOCAL";
+  // Respect NETWORK from .env, with LOCAL as final fallback
+  const NETWORK = process.env.NETWORK || "LOCAL";
 
   /**
    * GET /api/admin/backend-wallet
@@ -416,21 +412,12 @@ export default async function adminRoutes(fastify) {
   fastify.get("/paymaster-status", { preHandler: requireAdmin }, async (_request, reply) => {
     try {
       const {
-        DEFAULT_NETWORK,
         PAYMASTER_RPC_URL,
-        PAYMASTER_RPC_URL_TESTNET,
         ENTRY_POINT_ADDRESS,
       } = process.env;
 
-      const network =
-        DEFAULT_NETWORK ||
-        NETWORK ||
-        process.env.VITE_DEFAULT_NETWORK ||
-        "LOCAL";
-      const isTestnet = network === "TESTNET";
-      const paymasterUrl = isTestnet
-        ? PAYMASTER_RPC_URL_TESTNET
-        : PAYMASTER_RPC_URL;
+      const network = NETWORK;
+      const paymasterUrl = PAYMASTER_RPC_URL;
 
       const paymasterService = getPaymasterService(fastify.log);
 

@@ -22,12 +22,11 @@ import { adminAlertService } from "./adminAlertService.js";
 export class OracleCallService {
   constructor() {
     // Get network from environment - NO FALLBACKS
-    const network =
-      process.env.DEFAULT_NETWORK || process.env.VITE_DEFAULT_NETWORK;
+    const network = process.env.NETWORK;
 
     if (!network) {
       throw new Error(
-        "DEFAULT_NETWORK environment variable not set. Cannot initialize OracleCallService.",
+        "NETWORK environment variable not set. Cannot initialize OracleCallService.",
       );
     }
 
@@ -36,7 +35,7 @@ export class OracleCallService {
     const deployNetwork = networkMap[network];
     if (!deployNetwork) {
       throw new Error(
-        `Invalid DEFAULT_NETWORK value: ${network}. Must be LOCAL, TESTNET, or MAINNET.`,
+        `Invalid NETWORK value: ${network}. Must be LOCAL, TESTNET, or MAINNET.`,
       );
     }
     const deployment = getDeployment(deployNetwork);
@@ -160,16 +159,15 @@ export class OracleCallService {
     }
 
     // Get network from environment - NO FALLBACKS
-    const network =
-      process.env.DEFAULT_NETWORK || process.env.VITE_DEFAULT_NETWORK;
+    const network = process.env.NETWORK;
 
     if (!network) {
       logger?.error(
-        "❌ DEFAULT_NETWORK not set - cannot determine which network to use",
+        "NETWORK not set - cannot determine which network to use",
       );
       return {
         success: false,
-        error: "DEFAULT_NETWORK environment variable not set",
+        error: "NETWORK environment variable not set",
         attempts: 0,
       };
     }
