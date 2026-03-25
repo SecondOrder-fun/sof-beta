@@ -62,7 +62,7 @@ export function setStoredNetworkKey(key) {
   try {
     // Respect DEFAULT_NETWORK from .env instead of hardcoding LOCAL
     const defaultNet = (
-      import.meta.env.VITE_DEFAULT_NETWORK || "LOCAL"
+      import.meta.env.VITE_NETWORK || "LOCAL"
     ).toUpperCase();
     localStorage.setItem(STORAGE_KEY, (key || defaultNet).toUpperCase());
     // Notify app to re-initialize providers if needed

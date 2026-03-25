@@ -53,7 +53,7 @@ function formatTimeRemaining(seconds, readyLabel) {
 export function SponsorStakingCard() {
   const { t } = useTranslation("raffle");
   const { address, isConnected } = useAccount();
-  const network = (import.meta.env.VITE_DEFAULT_NETWORK || "TESTNET").toUpperCase();
+  const network = (import.meta.env.VITE_NETWORK || "TESTNET").toUpperCase();
   const sofAddress = getContractAddresses(network).SOF;
   
   const {

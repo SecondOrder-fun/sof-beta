@@ -11,7 +11,7 @@ import { useSeasonDetailsQuery } from "@/hooks/useRaffleRead";
  */
 export function useMarketCardData(market, seasonId) {
   const netKey = (
-    import.meta.env.VITE_DEFAULT_NETWORK || "LOCAL"
+    import.meta.env.VITE_NETWORK || "LOCAL"
   ).toUpperCase();
   const publicClient = useMemo(() => {
     return buildPublicClient(netKey);

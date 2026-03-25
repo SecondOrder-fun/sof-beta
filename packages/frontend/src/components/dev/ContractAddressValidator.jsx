@@ -6,6 +6,7 @@ import { usePublicClient } from "wagmi";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertCircle, CheckCircle2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { getContractAddresses } from "@/config/contracts";
 
 /**
  * Validates that contract addresses have deployed code
@@ -23,15 +24,8 @@ export function ContractAddressValidator() {
     setIsValidating(true);
     const results = {};
 
-    // Use env variables directly - they should be set in .env
-    const contracts = {
-      SOF: import.meta.env.VITE_SOF_ADDRESS_TESTNET || "",
-      RAFFLE: import.meta.env.VITE_RAFFLE_ADDRESS_TESTNET || "",
-      SEASON_FACTORY: import.meta.env.VITE_SEASON_FACTORY_ADDRESS_TESTNET || "",
-      SOF_FAUCET: import.meta.env.VITE_SOF_FAUCET_ADDRESS_TESTNET || "",
-      PRIZE_DISTRIBUTOR:
-        import.meta.env.VITE_PRIZE_DISTRIBUTOR_ADDRESS_TESTNET || "",
-    };
+    // Use centralized contract address layer
+    const contracts = getContractAddresses();
 
     // eslint-disable-next-line no-console
     //console.log('[ContractAddressValidator] Using addresses:', contracts);

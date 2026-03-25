@@ -244,7 +244,7 @@ export const BuySellSheet = ({
 
   const rpcMissing = !net?.rpcUrl;
   const disabledTip = rpcMissing
-    ? "Testnet RPC not configured. Set VITE_RPC_URL_TESTNET in .env and restart dev servers."
+    ? "RPC not configured. Set VITE_RPC_URL in env/.env.{network} and restart dev servers."
     : undefined;
   const walletNotConnected = !connectedAddress;
 

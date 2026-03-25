@@ -13,7 +13,7 @@ const SEPOLIA_BASE_HOST = "sepolia.base.org";
 function allowRpcUrl(url) {
   if (!url) return false;
   if (url.includes(SEPOLIA_BASE_HOST)) {
-    return (import.meta.env.VITE_RPC_URL_TESTNET || "").includes(
+    return (import.meta.env.VITE_RPC_URL || "").includes(
       SEPOLIA_BASE_HOST,
     );
   }

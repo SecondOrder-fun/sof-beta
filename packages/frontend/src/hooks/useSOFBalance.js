@@ -18,7 +18,7 @@ const ERC20_BALANCE_ABI = [
  */
 export function useSOFBalance() {
   const { address, isConnected } = useAccount();
-  const network = (import.meta.env.VITE_DEFAULT_NETWORK || "TESTNET").toUpperCase();
+  const network = (import.meta.env.VITE_NETWORK || "TESTNET").toUpperCase();
   const sofAddress = getContractAddresses(network).SOF;
 
   const { data, isLoading, refetch } = useReadContract({
