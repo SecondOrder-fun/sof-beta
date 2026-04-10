@@ -17,6 +17,8 @@ import {
   walletConnectWallet,
 } from "@rainbow-me/rainbowkit/wallets";
 import { getChainConfig, getStoredNetworkKey } from "@/lib/wagmi";
+import { useDelegationStatus } from "@/hooks/useDelegationStatus";
+import { DelegationModal } from "@/components/delegation/DelegationModal";
 
 // Get initial network configuration
 const initialNetworkKey = (() => {
@@ -136,6 +138,63 @@ const EnsureActiveChain = () => {
   return null;
 };
 
+const OPT_OUT_KEY = "sof:delegation-opt-out";
+
+const DelegationGate = () => {
+  const { connector, isConnected } = useAccount();
+  const { isDelegated, isSOFDelegate, isLoading } = useDelegationStatus();
+  const [showModal, setShowModal] = useState(false);
+  const [hasChecked, setHasChecked] = useState(false);
+
+  useEffect(() => {
+    if (!isConnected || isLoading || hasChecked) return;
+
+    // Skip Coinbase Wallet (already smart)
+    if (connector?.id === "coinbaseWalletSDK") {
+      setHasChecked(true);
+      return;
+    }
+
+    // Skip if already delegated to our contract
+    if (isSOFDelegate) {
+      setHasChecked(true);
+      return;
+    }
+
+    // Skip if delegated to someone else (don't overwrite)
+    if (isDelegated) {
+      setHasChecked(true);
+      return;
+    }
+
+    // Skip if user previously opted out
+    if (localStorage.getItem(OPT_OUT_KEY) === "true") {
+      setHasChecked(true);
+      return;
+    }
+
+    // Show delegation modal
+    setShowModal(true);
+    setHasChecked(true);
+  }, [isConnected, isLoading, hasChecked, connector, isDelegated, isSOFDelegate]);
+
+  // Reset when wallet disconnects
+  useEffect(() => {
+    if (!isConnected) {
+      setHasChecked(false);
+      setShowModal(false);
+    }
+  }, [isConnected]);
+
+  return (
+    <DelegationModal
+      open={showModal}
+      onOpenChange={setShowModal}
+      onDelegated={() => setShowModal(false)}
+    />
+  );
+};
+
 export const WagmiConfigProvider = ({ children }) => {
   useEffect(() => {
     const handleNetworkChange = (event) => {
@@ -163,6 +222,7 @@ export const WagmiConfigProvider = ({ children }) => {
     <WagmiProvider config={config}>
       <FarcasterAutoConnect />
       <EnsureActiveChain />
+      <DelegationGate />
       {children}
     </WagmiProvider>
   );
