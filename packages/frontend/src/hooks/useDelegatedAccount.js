@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useAccount, useChainId, useWalletClient } from 'wagmi';
 import { http } from 'viem';
-import { toSimple7702SmartAccount } from 'permissionless/accounts';
+import { to7702SimpleSmartAccount } from 'permissionless/accounts';
 import { createSmartAccountClient } from 'permissionless';
 import { createPimlicoClient } from 'permissionless/clients/pimlico';
 import { entryPoint08Address } from 'viem/account-abstraction';
@@ -25,7 +25,7 @@ export function useDelegatedAccount() {
 
     // Lazy-create on first use — these are stateless clients
     const create = async (paymasterUrl) => {
-      const smartAccount = await toSimple7702SmartAccount({
+      const smartAccount = await to7702SimpleSmartAccount({
         client: walletClient,
         entryPoint: { address: entryPoint08Address, version: '0.8' },
       });
