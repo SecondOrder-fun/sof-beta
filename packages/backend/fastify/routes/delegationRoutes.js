@@ -1,7 +1,8 @@
 // backend/fastify/routes/delegationRoutes.js
 // POST /api/wallet/delegate — relay ERC-7702 authorization on-chain
 
-import { createWalletClient, http, createPublicClient, recoverAuthorizationAddress } from 'viem';
+import { createWalletClient, http, createPublicClient } from 'viem';
+import { recoverAuthorizationAddress } from 'viem/experimental';
 import { privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia, base } from 'viem/chains';
 import { AuthService } from '../../shared/auth.js';
