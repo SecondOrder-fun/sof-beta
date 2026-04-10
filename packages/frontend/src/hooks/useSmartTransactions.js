@@ -5,6 +5,8 @@ import { ERC20Abi } from '@/utils/abis';
 import { getContractAddresses } from '@/config/contracts';
 import { getStoredNetworkKey } from '@/lib/wagmi';
 import FarcasterContext from '@/context/farcasterContext';
+import { useDelegationStatus } from './useDelegationStatus';
+import { useDelegatedAccount } from './useDelegatedAccount';
 
 /**
  * SOF fee rate charged per sponsored transaction batch (0.05%).
@@ -39,6 +41,8 @@ export function useSmartTransactions() {
   const farcasterAuth = useContext(FarcasterContext);
   const backendJwt = farcasterAuth?.backendJwt ?? null;
   const sessionCacheRef = useRef({ token: null, expiresAt: 0 });
+  const { isSOFDelegate, isDelegated } = useDelegationStatus();
+  const delegatedAccount = useDelegatedAccount();
   const apiBase = import.meta.env.VITE_API_BASE_URL || '';
 
   const { data: callsStatus } = useCallsStatus({
@@ -110,6 +114,47 @@ export function useSmartTransactions() {
    */
   const executeBatch = useCallback(async (calls, options = {}) => {
     const { sofAmount, ...sendOptions } = options;
+
+    // ─── Path A: Delegated EOA → ERC-4337 UserOp via Pimlico bundler ───
+    if (isSOFDelegate && delegatedAccount && apiBase && backendJwt) {
+      let finalCalls = calls;
+      if (sofAmount && sofAmount > 0n) {
+        finalCalls = [buildFeeCall(sofAmount), ...calls];
+      }
+
+      // Get a paymaster session token
+      const now = Date.now();
+      let sessionToken;
+      if (sessionCacheRef.current.token && sessionCacheRef.current.expiresAt > now) {
+        sessionToken = sessionCacheRef.current.token;
+      } else {
+        sessionToken = await fetchPaymasterSession(apiBase, backendJwt);
+        if (sessionToken) {
+          sessionCacheRef.current = { token: sessionToken, expiresAt: now + 4 * 60 * 1000 };
+        }
+      }
+
+      if (!sessionToken) {
+        throw new Error('Failed to obtain paymaster session for delegated account');
+      }
+
+      const paymasterUrl = `${apiBase}/paymaster/pimlico?session=${sessionToken}`;
+      const client = await delegatedAccount.create(paymasterUrl);
+
+      const userOpHash = await client.sendUserOperation({
+        calls: finalCalls,
+      });
+
+      // Wait for UserOp receipt
+      const receipt = await client.waitForUserOperationReceipt({
+        hash: userOpHash,
+        timeout: 30_000,
+      });
+
+      return receipt.userOpHash;
+    }
+
+    // ─── Path B: Coinbase Wallet → ERC-5792 + CDP paymaster (unchanged) ───
     const batchCapabilities = {};
     let finalCalls = calls;
 
@@ -162,7 +207,7 @@ export function useSmartTransactions() {
         ),
       ),
     ]);
-  }, [address, apiBase, backendJwt, connector, sendCallsAsync, buildFeeCall]);
+  }, [address, apiBase, backendJwt, connector, sendCallsAsync, buildFeeCall, isSOFDelegate, delegatedAccount]);
 
   return {
     ...chainCaps,
@@ -171,5 +216,7 @@ export function useSmartTransactions() {
     callsStatus,
     sofFeeBps: SOF_FEE_BPS,
     needsSmartAccountUpgrade: chainCaps.atomicStatus === 'ready',
+    isDelegated: isSOFDelegate,
+    needsDelegation: !isSOFDelegate && !isDelegated && connector?.id !== 'coinbaseWalletSDK',
   };
 }
