@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAccount, useChainId } from 'wagmi';
-import { getCode } from '@wagmi/core';
+import { getBytecode } from '@wagmi/core';
 import { config } from '@/context/WagmiConfigProvider';
 import { getContractAddresses } from '@/config/contracts';
 import { getStoredNetworkKey } from '@/lib/wagmi';
@@ -48,7 +48,7 @@ export function useDelegationStatus() {
     setState(prev => ({ ...prev, isLoading: true }));
 
     try {
-      const code = await getCode(config, { address });
+      const code = await getBytecode(config, { address });
 
       if (!code || code === '0x' || code === '0x0') {
         setState({ isDelegated: false, delegateAddress: null, isSOFDelegate: false, isLoading: false });

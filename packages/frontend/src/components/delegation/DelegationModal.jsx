@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import { useTranslation } from 'react-i18next';
 import { useWalletClient, useChainId } from 'wagmi';
-import { getCode } from '@wagmi/core';
+import { getBytecode } from '@wagmi/core';
 import { config } from '@/context/WagmiConfigProvider';
 import { getContractAddresses } from '@/config/contracts';
 import { getStoredNetworkKey } from '@/lib/wagmi';
@@ -72,11 +72,11 @@ export function DelegationModal({ open, onOpenChange, onDelegated }) {
         throw new Error(data.error || `Relay failed (${res.status})`);
       }
 
-      // 3. Poll getCode until delegation appears
+      // 3. Poll getBytecode until delegation appears
       setStatus('confirming');
       const start = Date.now();
       while (Date.now() - start < POLL_TIMEOUT_MS) {
-        const code = await getCode(config, { address: walletClient.account.address });
+        const code = await getBytecode(config, { address: walletClient.account.address });
         if (code && code.toLowerCase().startsWith(DELEGATION_PREFIX)) {
           setStatus('success');
           onDelegated?.();
