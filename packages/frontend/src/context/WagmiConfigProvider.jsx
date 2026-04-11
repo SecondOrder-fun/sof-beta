@@ -98,16 +98,16 @@ const EnsureActiveChain = () => {
   return null;
 };
 
-const OPT_OUT_KEY = "sof:delegation-opt-out";
+const OPT_OUT_PREFIX = "sof:delegation-opt-out:";
 
 const DelegationGate = () => {
-  const { connector, isConnected } = useAccount();
+  const { address, connector, isConnected } = useAccount();
   const { isDelegated, isSOFDelegate, isLoading } = useDelegationStatus();
   const [showModal, setShowModal] = useState(false);
   const [hasChecked, setHasChecked] = useState(false);
 
   useEffect(() => {
-    if (!isConnected || isLoading || hasChecked) return;
+    if (!isConnected || !address || isLoading || hasChecked) return;
 
     // Skip Coinbase Wallet (already smart)
     if (connector?.id === "coinbaseWalletSDK") {
@@ -127,8 +127,8 @@ const DelegationGate = () => {
       return;
     }
 
-    // Skip if user previously opted out
-    if (localStorage.getItem(OPT_OUT_KEY) === "true") {
+    // Skip if this address previously opted out
+    if (localStorage.getItem(`${OPT_OUT_PREFIX}${address.toLowerCase()}`) === "true") {
       setHasChecked(true);
       return;
     }
@@ -136,7 +136,7 @@ const DelegationGate = () => {
     // Show delegation modal
     setShowModal(true);
     setHasChecked(true);
-  }, [isConnected, isLoading, hasChecked, connector, isDelegated, isSOFDelegate]);
+  }, [address, isConnected, isLoading, hasChecked, connector, isDelegated, isSOFDelegate]);
 
   // Reset when wallet disconnects
   useEffect(() => {

@@ -134,24 +134,23 @@ export function useSmartTransactions() {
         }
       }
 
-      if (!sessionToken) {
-        throw new Error('Failed to obtain paymaster session for delegated account');
+      if (sessionToken) {
+        const paymasterUrl = `${apiBase}/paymaster/pimlico?session=${sessionToken}`;
+        const client = await delegatedAccount.create(paymasterUrl);
+
+        const userOpHash = await client.sendUserOperation({
+          calls: finalCalls,
+        });
+
+        // Wait for UserOp receipt
+        const receipt = await client.waitForUserOperationReceipt({
+          hash: userOpHash,
+          timeout: 30_000,
+        });
+
+        return receipt.userOpHash;
       }
-
-      const paymasterUrl = `${apiBase}/paymaster/pimlico?session=${sessionToken}`;
-      const client = await delegatedAccount.create(paymasterUrl);
-
-      const userOpHash = await client.sendUserOperation({
-        calls: finalCalls,
-      });
-
-      // Wait for UserOp receipt
-      const receipt = await client.waitForUserOperationReceipt({
-        hash: userOpHash,
-        timeout: 30_000,
-      });
-
-      return receipt.userOpHash;
+      // Session token unavailable — fall through to standard ERC-5792 path
     }
 
     // ─── Path B: Coinbase Wallet → ERC-5792 + CDP paymaster (unchanged) ───

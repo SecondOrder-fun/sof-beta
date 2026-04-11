@@ -16,7 +16,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Loader2, CheckCircle2, XCircle, Zap } from 'lucide-react';
 
-const OPT_OUT_KEY = 'sof:delegation-opt-out';
+const OPT_OUT_PREFIX = 'sof:delegation-opt-out:';
 const DELEGATION_PREFIX = '0xef0100';
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 30000;
@@ -85,8 +85,8 @@ export function DelegationModal({ open, onOpenChange, onDelegated }) {
         await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
       }
 
-      // Timed out but tx was submitted — still mark as success
-      setStatus('success');
+      // Tx was submitted but confirmation not yet detected — close modal
+      // and let useDelegationStatus detect it on next check
       onDelegated?.();
     } catch (err) {
       setStatus('error');
@@ -95,9 +95,11 @@ export function DelegationModal({ open, onOpenChange, onDelegated }) {
   }, [walletClient, chainId, apiBase, t, onDelegated]);
 
   const handleDecline = useCallback(() => {
-    localStorage.setItem(OPT_OUT_KEY, 'true');
+    if (walletClient?.account?.address) {
+      localStorage.setItem(`${OPT_OUT_PREFIX}${walletClient.account.address.toLowerCase()}`, 'true');
+    }
     onOpenChange(false);
-  }, [onOpenChange]);
+  }, [onOpenChange, walletClient]);
 
   const handleClose = useCallback(() => {
     if (status === 'success') {

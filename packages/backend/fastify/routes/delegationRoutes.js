@@ -70,6 +70,15 @@ export default async function delegationRoutes(fastify) {
         return reply.code(400).send({ error: 'Invalid authorization target — must be SOFSmartAccount' });
       }
 
+      // Validate chainId — reject chainId=0 (any-chain) to prevent cross-chain replay
+      const authChainId = Number(authorization.chainId || 0);
+      if (authChainId === 0) {
+        return reply.code(400).send({ error: 'Authorization must specify a chainId (chainId=0 not allowed)' });
+      }
+      if (authChainId !== viemChain.id) {
+        return reply.code(400).send({ error: `Authorization chainId (${authChainId}) does not match expected chain (${viemChain.id})` });
+      }
+
       // 3. Verify the authorization signature recovers to the claimed user address
       try {
         const recovered = await recoverAuthorizationAddress({ authorization });
@@ -94,7 +103,7 @@ export default async function delegationRoutes(fastify) {
 
       // 5. Submit the type-0x04 transaction with authorization list
       const maxRetries = 3;
-      const retryDelays = [5000, 15000, 45000];
+      const retryDelays = [2000, 5000, 10000];
 
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
