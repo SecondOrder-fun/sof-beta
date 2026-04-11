@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import { useTranslation } from 'react-i18next';
 import { useWalletClient, useChainId } from 'wagmi';
 import { getBytecode } from '@wagmi/core';
-import { config } from '@/context/WagmiConfigProvider';
+import { config } from '@/lib/wagmiConfig';
 import { getContractAddresses } from '@/config/contracts';
 import { getStoredNetworkKey } from '@/lib/wagmi';
 import {

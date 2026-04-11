@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAccount, useChainId } from 'wagmi';
 import { getBytecode } from '@wagmi/core';
-import { config } from '@/context/WagmiConfigProvider';
+import { config } from '@/lib/wagmiConfig';
 import { getContractAddresses } from '@/config/contracts';
 import { getStoredNetworkKey } from '@/lib/wagmi';
 

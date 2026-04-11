@@ -5,7 +5,7 @@ import { RaffleAbi, RafflePrizeDistributorAbi } from "@/utils/abis";
 import { getContractAddresses } from "@/config/contracts";
 import { getStoredNetworkKey } from "@/lib/wagmi";
 import { buildPublicClient } from "@/lib/viemClient";
-import { config as wagmiConfig } from "@/context/WagmiConfigProvider";
+import { config as wagmiConfig } from "@/lib/wagmiConfig";
 
 function buildClient(networkKey) {
   const client = buildPublicClient(networkKey);

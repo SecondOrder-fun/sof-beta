@@ -91,6 +91,11 @@
             "internalType": "address"
           },
           {
+            "name": "sponsor",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
             "name": "isActive",
             "type": "bool",
             "internalType": "bool"

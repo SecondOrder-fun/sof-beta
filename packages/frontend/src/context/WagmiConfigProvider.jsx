@@ -3,58 +3,18 @@ import { useEffect, useState } from "react";
 import PropTypes from "prop-types";
 import {
   WagmiProvider,
-  createConfig,
   useAccount,
   useChainId,
   useConnect,
   useSwitchChain,
 } from "wagmi";
-import { farcasterMiniApp } from "@farcaster/miniapp-wagmi-connector";
-import { connectorsForWallets } from "@rainbow-me/rainbowkit";
-import {
-  coinbaseWallet,
-  metaMaskWallet,
-  walletConnectWallet,
-} from "@rainbow-me/rainbowkit/wallets";
 import { getChainConfig, getStoredNetworkKey } from "@/lib/wagmi";
+import { config, initialNetworkKey } from "@/lib/wagmiConfig";
 import { useDelegationStatus } from "@/hooks/useDelegationStatus";
 import { DelegationModal } from "@/components/delegation/DelegationModal";
 
-// Get initial network configuration
-const initialNetworkKey = (() => {
-  try {
-    return getStoredNetworkKey();
-  } catch {
-    return "TESTNET";
-  }
-})();
-
-const activeChainConfig = getChainConfig(initialNetworkKey);
-
-// RainbowKit wallets — provide mobile deep linking via WalletConnect
-// Only create connectors when project ID is available (required by walletConnectWallet)
-const walletProjectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || "";
-const rainbowWalletConnectors = walletProjectId
-  ? connectorsForWallets(
-      [
-        {
-          groupName: "Recommended",
-          wallets: [coinbaseWallet, metaMaskWallet, walletConnectWallet],
-        },
-      ],
-      { appName: "SecondOrder.fun", projectId: walletProjectId },
-    )
-  : [];
-
-// Create config with Farcaster auto-connect + RainbowKit wallets (with deep linking)
-// Exported so imperative @wagmi/core actions (e.g. signMessage) can reference it.
-export const config = createConfig({
-  chains: [activeChainConfig.chain],
-  connectors: [farcasterMiniApp(), ...rainbowWalletConnectors],
-  transports: {
-    [activeChainConfig.chain.id]: activeChainConfig.transport,
-  },
-});
+// Re-export config for backwards compatibility with existing imports
+export { config } from "@/lib/wagmiConfig";
 
 /**
  * Auto-connect component for Farcaster/Base App
