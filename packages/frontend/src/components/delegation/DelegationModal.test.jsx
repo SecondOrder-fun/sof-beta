@@ -3,10 +3,12 @@ import { vi, describe, test, expect, beforeEach } from "vitest";
 
 // --- Module mocks (hoisted) ---
 
-const mockWalletClient = {
-  account: { address: "0xUserAddress" },
-  signAuthorization: vi.fn(),
-};
+const { mockWalletClient } = vi.hoisted(() => ({
+  mockWalletClient: {
+    account: { address: "0xUserAddress" },
+    signAuthorization: vi.fn(),
+  },
+}));
 
 vi.mock("wagmi", () => ({
   useWalletClient: vi.fn(() => ({ data: mockWalletClient })),
@@ -52,7 +54,7 @@ vi.mock("lucide-react", () => ({
 }));
 
 // --- Imports after mocks ---
-import { DelegationModal } from "./DelegationModal";
+import { DelegationModal } from "@/components/delegation/DelegationModal";
 import { getBytecode } from "@wagmi/core";
 
 // --- Helpers ---

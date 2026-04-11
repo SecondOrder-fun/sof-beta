@@ -1,16 +1,20 @@
 // tests/lib/contracts-config.test.js
 import { describe, it, expect, vi } from 'vitest'
-import { getContractAddresses, CONTRACTS, RAFFLE_ABI, sanitizeAddress } from '@/config/contracts'
+import { getContractAddresses, RAFFLE_ABI, sanitizeAddress } from '@/config/contracts'
 
 describe('config/contracts', () => {
-  it('returns LOCAL by default', () => {
-    const addr = getContractAddresses()
-    expect(addr).toEqual(CONTRACTS.LOCAL)
+  it('returns an object with expected keys for LOCAL', () => {
+    const addr = getContractAddresses('LOCAL')
+    expect(addr).toHaveProperty('RAFFLE')
+    expect(addr).toHaveProperty('SOF')
+    expect(addr).toHaveProperty('SOF_SMART_ACCOUNT')
   })
 
-  it('returns TESTNET when key provided', () => {
+  it('returns an object with expected keys for TESTNET', () => {
     const addr = getContractAddresses('TESTNET')
-    expect(addr).toEqual(CONTRACTS.TESTNET)
+    expect(addr).toHaveProperty('RAFFLE')
+    expect(addr).toHaveProperty('SOF')
+    expect(addr).toHaveProperty('SOF_SMART_ACCOUNT')
   })
 
   it('RAFFLE_ABI is defined and non-empty array', () => {

@@ -13,7 +13,8 @@ vi.mock("wagmi", () => ({
 vi.mock("@/config/contracts", () => ({
   getContractAddresses: () => ({ SOF: "0xSOF", SOF_EXCHANGE: "0xExchange" }),
 }));
-vi.mock("@/lib/wagmi", () => ({ getStoredNetworkKey: () => "TESTNET" }));
+vi.mock("@/lib/wagmi", () => ({ getStoredNetworkKey: () => "TESTNET", getChainConfig: () => ({ chain: { id: 84532 }, transport: {} }) }));
+vi.mock("@/lib/wagmiConfig", () => ({ config: {}, initialNetworkKey: "TESTNET" }));
 vi.mock("@/context/farcasterContext", () => ({ default: null }));
 
 import { fetchPaymasterSession } from "@/hooks/useSmartTransactions";

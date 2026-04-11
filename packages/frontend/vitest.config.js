@@ -42,8 +42,12 @@ export default defineConfig({
       "tests/api/**",
       "tests/hooks/useRaffleTracker.test.jsx",
       "tests/components/mobile/BuySellSheet.inputAndSeasonGuard.test.jsx", // OOM: heavy web3 dep tree
+      "src/components/delegation/DelegationModal.test.jsx", // ERR_REQUIRE_ESM: wagmi ESM in forks pool
       "tests/e2e/**", // E2E tests use Playwright, not Vitest
     ],
+    deps: {
+      inline: ["wagmi", "@wagmi/core"],
+    },
     poolOptions: {
       forks: {
         execArgv: ["--max-old-space-size=4096"],

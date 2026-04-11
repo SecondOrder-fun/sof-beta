@@ -42,7 +42,9 @@ vi.mock('@/config/networks', () => ({
 }));
 vi.mock('@/lib/wagmi', () => ({
   getStoredNetworkKey: () => 'LOCAL',
+  getChainConfig: () => ({ chain: { id: 31337 }, transport: {} }),
 }));
+vi.mock('@/lib/wagmiConfig', () => ({ config: {}, initialNetworkKey: 'LOCAL' }));
 vi.mock('@/hooks/useWallet', () => ({
   useWallet: () => ({
     address: '0x1234567890123456789012345678901234567890',
