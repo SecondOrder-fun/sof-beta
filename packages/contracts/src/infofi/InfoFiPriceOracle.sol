@@ -57,6 +57,7 @@ contract InfoFiPriceOracle is AccessControl {
         onlyRole(PRICE_UPDATER_ROLE)
     {
         require(fpmmAddress != address(0), "Oracle: invalid FPMM address");
+        require(raffleProbabilityBps <= 10000, "Oracle: probability out of range");
         PriceData storage p = prices[fpmmAddress];
         p.raffleProbabilityBps = raffleProbabilityBps;
         p.hybridPriceBps = _hybrid(p.raffleProbabilityBps, p.marketSentimentBps);
@@ -70,6 +71,7 @@ contract InfoFiPriceOracle is AccessControl {
         onlyRole(PRICE_UPDATER_ROLE)
     {
         require(fpmmAddress != address(0), "Oracle: invalid FPMM address");
+        require(marketSentimentBps <= 10000, "Oracle: sentiment out of range");
         PriceData storage p = prices[fpmmAddress];
         p.marketSentimentBps = marketSentimentBps;
         p.hybridPriceBps = _hybrid(p.raffleProbabilityBps, p.marketSentimentBps);
