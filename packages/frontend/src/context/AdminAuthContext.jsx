@@ -11,7 +11,7 @@ import { createContext, useState, useCallback, useEffect, useMemo } from "react"
 import PropTypes from "prop-types";
 import { useAccount } from "wagmi";
 import { signMessage } from "@wagmi/core";
-import { config } from "@/context/WagmiConfigProvider";
+import { config } from "@/lib/wagmiConfig";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
 const STORAGE_KEY = "sof:admin_jwt";

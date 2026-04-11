@@ -19,13 +19,15 @@
  * @property {`0x${string}` | string} SOF_EXCHANGE
  * @property {`0x${string}` | string} SOF_AIRDROP
  * @property {`0x${string}` | string} USDC
+ * @property {`0x${string}` | string} SOF_SMART_ACCOUNT
  */
 
-import { RaffleABI, SeasonGatingABI } from '@sof/contracts';
+import { RaffleABI, SeasonGatingABI, SOFSmartAccountABI } from '@sof/contracts';
 import { getDeployment } from '@sof/contracts/deployments';
 
 export const RAFFLE_ABI = RaffleABI;
 export const SEASON_GATING_ABI = SeasonGatingABI;
+export const SOF_SMART_ACCOUNT_ABI = SOFSmartAccountABI;
 
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 
@@ -82,5 +84,6 @@ export function getContractAddresses(key) {
     USDC: s(deployment.USDC),
     MARKET_TYPE_REGISTRY: s(deployment.MarketTypeRegistry),
     RAFFLE_ORACLE_ADAPTER: s(deployment.RaffleOracleAdapter),
+    SOF_SMART_ACCOUNT: s(deployment.SOFSmartAccount),
   };
 }

@@ -256,6 +256,15 @@ try {
   app.log.error({ err }, "Failed to mount /api/paymaster");
 }
 
+try {
+  await app.register((await import("./routes/delegationRoutes.js")).default, {
+    prefix: "/api/wallet",
+  });
+  app.log.info("Mounted /api/wallet");
+} catch (err) {
+  app.log.error({ err }, "Failed to mount /api/wallet");
+}
+
 // Debug: print all mounted routes
 // app.ready(() => {
 //   try {

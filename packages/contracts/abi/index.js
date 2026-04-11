@@ -27,6 +27,7 @@ import _Hats from './Hats.json' with { type: 'json' };
 import _StakingEligibility from './StakingEligibility.json' with { type: 'json' };
 import _SOFExchange from './SOFExchange.json' with { type: 'json' };
 import _SOFAirdrop from './SOFAirdrop.json' with { type: 'json' };
+import _SOFSmartAccount from './SOFSmartAccount.json' with { type: 'json' };
 
 // Helper: extract abi array from Foundry JSON or return as-is
 const e = (json) => json.abi || json;
@@ -57,3 +58,4 @@ export const HatsABI = e(_Hats);
 export const StakingEligibilityABI = e(_StakingEligibility);
 export const SOFExchangeABI = e(_SOFExchange);
 export const SOFAirdropABI = e(_SOFAirdrop);
+export const SOFSmartAccountABI = e(_SOFSmartAccount);

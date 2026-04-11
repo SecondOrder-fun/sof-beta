@@ -3,56 +3,18 @@ import { useEffect, useState } from "react";
 import PropTypes from "prop-types";
 import {
   WagmiProvider,
-  createConfig,
   useAccount,
   useChainId,
   useConnect,
   useSwitchChain,
 } from "wagmi";
-import { farcasterMiniApp } from "@farcaster/miniapp-wagmi-connector";
-import { connectorsForWallets } from "@rainbow-me/rainbowkit";
-import {
-  coinbaseWallet,
-  metaMaskWallet,
-  walletConnectWallet,
-} from "@rainbow-me/rainbowkit/wallets";
 import { getChainConfig, getStoredNetworkKey } from "@/lib/wagmi";
+import { config, initialNetworkKey } from "@/lib/wagmiConfig";
+import { useDelegationStatus } from "@/hooks/useDelegationStatus";
+import { DelegationModal } from "@/components/delegation/DelegationModal";
 
-// Get initial network configuration
-const initialNetworkKey = (() => {
-  try {
-    return getStoredNetworkKey();
-  } catch {
-    return "TESTNET";
-  }
-})();
-
-const activeChainConfig = getChainConfig(initialNetworkKey);
-
-// RainbowKit wallets — provide mobile deep linking via WalletConnect
-// Only create connectors when project ID is available (required by walletConnectWallet)
-const walletProjectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || "";
-const rainbowWalletConnectors = walletProjectId
-  ? connectorsForWallets(
-      [
-        {
-          groupName: "Recommended",
-          wallets: [coinbaseWallet, metaMaskWallet, walletConnectWallet],
-        },
-      ],
-      { appName: "SecondOrder.fun", projectId: walletProjectId },
-    )
-  : [];
-
-// Create config with Farcaster auto-connect + RainbowKit wallets (with deep linking)
-// Exported so imperative @wagmi/core actions (e.g. signMessage) can reference it.
-export const config = createConfig({
-  chains: [activeChainConfig.chain],
-  connectors: [farcasterMiniApp(), ...rainbowWalletConnectors],
-  transports: {
-    [activeChainConfig.chain.id]: activeChainConfig.transport,
-  },
-});
+// Re-export config for backwards compatibility with existing imports
+export { config } from "@/lib/wagmiConfig";
 
 /**
  * Auto-connect component for Farcaster/Base App
@@ -136,6 +98,63 @@ const EnsureActiveChain = () => {
   return null;
 };
 
+const OPT_OUT_PREFIX = "sof:delegation-opt-out:";
+
+const DelegationGate = () => {
+  const { address, connector, isConnected } = useAccount();
+  const { isDelegated, isSOFDelegate, isLoading } = useDelegationStatus();
+  const [showModal, setShowModal] = useState(false);
+  const [hasChecked, setHasChecked] = useState(false);
+
+  useEffect(() => {
+    if (!isConnected || !address || isLoading || hasChecked) return;
+
+    // Skip Coinbase Wallet (already smart)
+    if (connector?.id === "coinbaseWalletSDK") {
+      setHasChecked(true);
+      return;
+    }
+
+    // Skip if already delegated to our contract
+    if (isSOFDelegate) {
+      setHasChecked(true);
+      return;
+    }
+
+    // Skip if delegated to someone else (don't overwrite)
+    if (isDelegated) {
+      setHasChecked(true);
+      return;
+    }
+
+    // Skip if this address previously opted out
+    if (localStorage.getItem(`${OPT_OUT_PREFIX}${address.toLowerCase()}`) === "true") {
+      setHasChecked(true);
+      return;
+    }
+
+    // Show delegation modal
+    setShowModal(true);
+    setHasChecked(true);
+  }, [address, isConnected, isLoading, hasChecked, connector, isDelegated, isSOFDelegate]);
+
+  // Reset when wallet disconnects
+  useEffect(() => {
+    if (!isConnected) {
+      setHasChecked(false);
+      setShowModal(false);
+    }
+  }, [isConnected]);
+
+  return (
+    <DelegationModal
+      open={showModal}
+      onOpenChange={setShowModal}
+      onDelegated={() => setShowModal(false)}
+    />
+  );
+};
+
 export const WagmiConfigProvider = ({ children }) => {
   useEffect(() => {
     const handleNetworkChange = (event) => {
@@ -163,6 +182,7 @@ export const WagmiConfigProvider = ({ children }) => {
     <WagmiProvider config={config}>
       <FarcasterAutoConnect />
       <EnsureActiveChain />
+      <DelegationGate />
       {children}
     </WagmiProvider>
   );

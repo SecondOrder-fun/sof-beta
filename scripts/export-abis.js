@@ -65,6 +65,9 @@ const CONTRACTS_TO_EXPORT = [
   // Exchange & Airdrop
   { source: 'SOFExchange.sol/SOFExchange.json', name: 'SOFExchange' },
   { source: 'SOFAirdrop.sol/SOFAirdrop.json', name: 'SOFAirdrop' },
+
+  // Smart Account (ERC-7702)
+  { source: 'SOFSmartAccount.sol/SOFSmartAccount.json', name: 'SOFSmartAccount' },
 ];
 
 async function exportAbis() {

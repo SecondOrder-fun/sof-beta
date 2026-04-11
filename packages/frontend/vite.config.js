@@ -60,7 +60,7 @@ export default defineConfig(() => {
             // React core stays in the default chunk to avoid circular deps.
             // Many vendor chunks depend on react/react-dom; isolating them
             // into their own chunk creates circular imports at runtime.
-            if (id.includes("/wagmi/") || id.includes("/viem/") || id.includes("/@wagmi/"))
+            if (id.includes("/wagmi/") || id.includes("/viem/") || id.includes("/@wagmi/") || id.includes("/permissionless/") || id.includes("/ox@"))
               return "web3";
             if (id.includes("/@radix-ui/"))
               return "radix";

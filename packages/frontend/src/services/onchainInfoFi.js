@@ -24,7 +24,7 @@ import {
   queryLogsInChunks,
   estimateBlockFromTimestamp,
 } from "@/utils/blockRangeQuery";
-import { config as wagmiConfig } from "@/context/WagmiConfigProvider";
+import { config as wagmiConfig } from "@/lib/wagmiConfig";
 
 // Build a public client (HTTP) and optional WS client for subscriptions
 function buildClients(networkKey) {

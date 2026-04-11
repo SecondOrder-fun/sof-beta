@@ -20,6 +20,7 @@
     "USDC": "",
     "RaffleOracleAdapter": "",
     "SeasonGating": "",
-    "MarketTypeRegistry": ""
+    "MarketTypeRegistry": "",
+    "SOFSmartAccount": ""
   }
 }

@@ -67,6 +67,21 @@ MetaMask `wallet_sendCalls` does not support `paymasterService` capability. Batc
 - [ ] Evaluate moving SSE connections to edge workers for reduced Railway load
 - [ ] Benchmark current SSE connection limits
 
+## ERC-7702 Smart Wallet Integration
+
+- [x] Design SOFSmartAccount delegate contract
+- [x] Write SOFSmartAccount foundry tests
+- [x] Add deploy script and deployment address placeholders
+- [x] Add useDelegationStatus hook
+- [x] Add POST /api/wallet/delegate backend relay
+- [x] Add DelegationModal component
+- [x] Add useDelegatedAccount hook (permissionless.js)
+- [x] Refactor useSmartTransactions for delegation routing
+- [x] Wire DelegationGate into WagmiConfigProvider
+- [ ] Deploy SOFSmartAccount to Base Sepolia
+- [ ] End-to-end testing with MetaMask + Rabby
+- [ ] Add delegation locale strings for de, es, fr, it, ja, pt, ru, zh
+
 ## Monorepo Migration (In Progress)
 
 - [ ] Verify all builds pass (`turbo build`)
