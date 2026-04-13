@@ -65,6 +65,11 @@ export default async function delegationRoutes(fastify) {
         return reply.code(400).send({ error: 'Missing authorization or userAddress' });
       }
 
+      // Validate userAddress format at system boundary
+      if (typeof userAddress !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(userAddress)) {
+        return reply.code(400).send({ error: 'Invalid userAddress format' });
+      }
+
       const authTarget = (authorization.address || '').toLowerCase();
       if (authTarget !== sofSmartAccount.toLowerCase()) {
         return reply.code(400).send({ error: 'Invalid authorization target — must be SOFSmartAccount' });
