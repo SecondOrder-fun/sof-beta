@@ -131,5 +131,17 @@
   "home": {
     "welcome": "SecondOrder.funへようこそ",
     "blurb": "SecondOrder.funは、プレイヤーが参加するごとてポジションの価値が向上させることができる、ブロックチェーンを活用した透明性の高い「くじプラットフォーム」です。チケットを購入すると、ボンディングカーブにより価格が変動し、プレイヤーは抽選時点まで保有するか、利益を得るためにいつでも売却するかを選ぶことができる、ゲーム性の高いクジ体験を提供します"
-  }
+  },
+  "delegation_title": "ガスレスモードを有効にする",
+  "delegation_description": "一度署名するだけでガスレス取引が有効になります。SecondOrder.funがガス代を負担するので、すぐに取引を開始できます。",
+  "delegation_what_happens": "署名すると何が起こりますか？",
+  "delegation_explanation": "あなたのウォレットにスマートアカウント機能が追加されます。アドレスはそのまま変わりません — ガス代がなくなる以外、何も変わりません。",
+  "delegation_enable": "ガスレスモードを有効にする",
+  "delegation_decline": "いいえ、自分でガス代を払います",
+  "delegation_decline_warning": "ガス代の支払いにはフォーセットからBase Sepolia ETHを入手する必要があります。これにはいくつかの技術的な手順が必要です。",
+  "delegation_signing": "ウォレットの署名を待っています...",
+  "delegation_submitting": "委任を送信中...",
+  "delegation_confirming": "チェーン上で確認中...",
+  "delegation_success": "ガスレスモードが有効になりました！",
+  "delegation_error": "ガスレスモードの有効化に失敗しました"
 }
