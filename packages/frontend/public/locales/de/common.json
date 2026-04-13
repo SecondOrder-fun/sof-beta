@@ -131,5 +131,17 @@
   "home": {
     "welcome": "Welcome to SecondOrder.fun",
     "blurb": "SecondOrder.fun is a transparent blockchain-powered raffle platform where your position can increase in value with every new player that joins. When you purchase tickets, bonding curve pricing creates dynamic valuations, giving players the choice to hold until the draw or sell anytime for profit—delivering a highly game-like raffle experience."
-  }
+  },
+  "delegation_title": "Gebührenfreien Modus aktivieren",
+  "delegation_description": "Einmalig unterschreiben, um gebührenfreie Transaktionen zu aktivieren. SecondOrder.fun übernimmt die Gasgebühren, damit Sie sofort mit dem Handeln beginnen können.",
+  "delegation_what_happens": "Was passiert, wenn Sie unterschreiben?",
+  "delegation_explanation": "Ihr Wallet wird mit Smart-Account-Funktionen erweitert. Sie behalten dieselbe Adresse – es ändert sich nichts außer dass Gasgebühren entfallen.",
+  "delegation_enable": "Gebührenfreien Modus aktivieren",
+  "delegation_decline": "Nein danke, ich zahle meine Gasgebühren selbst",
+  "delegation_decline_warning": "Sie benötigen Base Sepolia ETH von einem Faucet, um Gas zu bezahlen. Dies erfordert einige technische Schritte.",
+  "delegation_signing": "Warte auf Wallet-Signatur...",
+  "delegation_submitting": "Delegation wird übermittelt...",
+  "delegation_confirming": "Bestätigung auf der Chain...",
+  "delegation_success": "Gebührenfreier Modus aktiviert!",
+  "delegation_error": "Gebührenfreier Modus konnte nicht aktiviert werden"
 }

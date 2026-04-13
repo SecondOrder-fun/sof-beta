@@ -131,5 +131,17 @@
   "home": {
     "welcome": "欢迎来到 SecondOrder.fun",
     "blurb": "SecondOrder.fun 是一个透明的区块链驱动的彩票平台，您的位置价值会随着每个新玩家的加入而增加。当您购买彩票时，bonding curve 定价机制会创建动态估值，让玩家可以选择持有直到开奖或随时出售以获利——提供高度游戏化的彩票体验。"
-  }
+  },
+  "delegation_title": "启用免 Gas 模式",
+  "delegation_description": "签名一次即可启用免 Gas 交易。SecondOrder.fun 将承担 Gas 费用，让您立即开始交易。",
+  "delegation_what_happens": "签名后会发生什么？",
+  "delegation_explanation": "您的钱包将获得智能账户功能。地址保持不变——除了 Gas 费用消失之外，一切如旧。",
+  "delegation_enable": "启用免 Gas 模式",
+  "delegation_decline": "不了，我自己支付 Gas 费",
+  "delegation_decline_warning": "您需要从水龙头获取 Base Sepolia ETH 来支付 Gas 费。这需要一些技术步骤。",
+  "delegation_signing": "等待钱包签名...",
+  "delegation_submitting": "正在提交委托...",
+  "delegation_confirming": "正在链上确认...",
+  "delegation_success": "免 Gas 模式已启用！",
+  "delegation_error": "启用免 Gas 模式失败"
 }

@@ -131,5 +131,17 @@
   "home": {
     "welcome": "Benvenuto su SecondOrder.fun",
     "blurb": "SecondOrder.fun è una piattaforma di lotteria trasparente basata su blockchain dove il tuo posto può aumentare di valore con ogni nuovo giocatore che si unisce. Quando acquisti i biglietti, il prezzo basato sulla curva di bonding crea valutazioni dinamiche, dando ai giocatori la possibilità di tenere fino al sorteggio o vendere in qualsiasi momento per guadagnare — offrendo un'esperienza di lotteria altamente ludica."
-  }
+  },
+  "delegation_title": "Attiva la modalità senza gas",
+  "delegation_description": "Firma una volta per abilitare le transazioni senza gas. SecondOrder.fun coprirà le commissioni gas così potrai iniziare a fare trading immediatamente.",
+  "delegation_what_happens": "Cosa succede quando firmi?",
+  "delegation_explanation": "Il tuo portafoglio viene potenziato con funzionalità di account intelligente. Mantieni lo stesso indirizzo — non cambia nulla tranne che le commissioni gas spariscono.",
+  "delegation_enable": "Attiva la modalità senza gas",
+  "delegation_decline": "No grazie, pagherò il mio gas",
+  "delegation_decline_warning": "Avrai bisogno di Base Sepolia ETH da un faucet per pagare il gas. Questo richiede alcuni passaggi tecnici.",
+  "delegation_signing": "In attesa della firma del portafoglio...",
+  "delegation_submitting": "Invio della delega...",
+  "delegation_confirming": "Conferma sulla chain...",
+  "delegation_success": "Modalità senza gas attivata!",
+  "delegation_error": "Impossibile attivare la modalità senza gas"
 }

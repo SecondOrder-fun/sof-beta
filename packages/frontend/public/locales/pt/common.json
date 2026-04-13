@@ -131,5 +131,17 @@
   "home": {
     "welcome": "Bem-vindo ao SecondOrder.fun",
     "blurb": "SecondOrder.fun é uma plataforma de sorteio transparente baseada em blockchain onde o valor da sua posição pode aumentar com cada novo jogador que se junta. Ao comprar ingressos, o preço baseado em curva de ligação cria avaliações dinâmicas, dando aos jogadores a escolha de manter até o sorteio ou vender a qualquer momento para lucro — proporcionando uma experiência de sorteio altamente lúdica."
-  }
+  },
+  "delegation_title": "Ativar modo sem gas",
+  "delegation_description": "Assine uma vez para ativar transações sem gas. SecondOrder.fun cobrirá as taxas de gas para que você possa começar a negociar imediatamente.",
+  "delegation_what_happens": "O que acontece quando você assina?",
+  "delegation_explanation": "Sua carteira é aprimorada com capacidades de conta inteligente. Você mantém o mesmo endereço — nada muda exceto que as taxas de gas desaparecem.",
+  "delegation_enable": "Ativar modo sem gas",
+  "delegation_decline": "Não obrigado, vou pagar meu próprio gas",
+  "delegation_decline_warning": "Você precisará de Base Sepolia ETH de um faucet para pagar o gas. Isso requer algumas etapas técnicas.",
+  "delegation_signing": "Aguardando assinatura da carteira...",
+  "delegation_submitting": "Enviando delegação...",
+  "delegation_confirming": "Confirmando na chain...",
+  "delegation_success": "Modo sem gas ativado!",
+  "delegation_error": "Falha ao ativar o modo sem gas"
 }

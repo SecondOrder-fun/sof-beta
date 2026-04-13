@@ -11,15 +11,15 @@ MetaMask `wallet_sendCalls` does not support `paymasterService` capability. Batc
 - [ ] Confirm Coinbase Wallet sponsorship uses our CDP proxy (not just built-in)
 
 ### Phase 2: MetaMask Smart Account Bundler Integration
-- [ ] Install `@metamask/smart-accounts-kit` and `permissionless` (Pimlico)
-- [ ] Create `useMetaMaskSmartAccount` hook
-- [ ] Set up bundler + paymaster clients pointing to CDP RPC endpoint
-- [ ] Implement `sendUserOperation` path as alternative to `wallet_sendCalls`
+- [x] Install `permissionless` (Pimlico) — `@metamask/smart-accounts-kit` not needed
+- [x] Create `useDelegatedAccount` hook (serves this role for all non-CB wallets)
+- [x] Set up bundler + paymaster clients pointing to CDP RPC endpoint (useDelegatedAccount does this)
+- [x] Implement `sendUserOperation` path (Path A in useSmartTransactions)
 
 ### Phase 3: Unified Transaction Hook
-- [ ] Extend `useSmartTransactions` to detect wallet type via capabilities
-- [ ] Keep single `executeBatch` API with transparent internal routing
-- [ ] Preserve three-tier fallback: sponsored batch -> unsponsored batch -> sequential
+- [x] Extend `useSmartTransactions` to detect wallet type via capabilities
+- [x] Keep single `executeBatch` API with transparent internal routing
+- [x] Preserve three-tier fallback: sponsored batch -> unsponsored batch -> sequential
 
 ### Phase 4: ERC-20 Gas Payments (Mainnet)
 - [ ] Implement CDP ERC-20 paymaster flow (user pays gas in USDC)
@@ -78,7 +78,7 @@ MetaMask `wallet_sendCalls` does not support `paymasterService` capability. Batc
 - [x] Add useDelegatedAccount hook (permissionless.js)
 - [x] Refactor useSmartTransactions for delegation routing
 - [x] Wire DelegationGate into WagmiConfigProvider
-- [ ] Deploy SOFSmartAccount to Base Sepolia
+- [x] Deploy SOFSmartAccount to Base Sepolia
 - [ ] End-to-end testing with MetaMask + Rabby
 - [ ] Add delegation locale strings for de, es, fr, it, ja, pt, ru, zh
 
