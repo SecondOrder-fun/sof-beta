@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAccount, useChainId } from 'wagmi';
 import { getBytecode } from '@wagmi/core';
 import { config } from '@/lib/wagmiConfig';
@@ -33,7 +33,7 @@ export function useDelegationStatus() {
     isLoading: false,
   });
 
-  const check = async () => {
+  const check = useCallback(async () => {
     if (!address || !isConnected) {
       setState({ isDelegated: false, delegateAddress: null, isSOFDelegate: false, isLoading: false });
       return;
@@ -73,12 +73,11 @@ export function useDelegationStatus() {
     } catch {
       setState(prev => ({ ...prev, isLoading: false }));
     }
-  };
+  }, [address, connector, isConnected]);
 
   useEffect(() => {
     check();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [address, chainId, isConnected]);
+  }, [check, chainId]);
 
   return { ...state, refetch: check };
 }

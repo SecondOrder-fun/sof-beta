@@ -13,6 +13,9 @@ contract InfoFiPriceOracle is AccessControl {
     bytes32 public constant ADMIN_ROLE = DEFAULT_ADMIN_ROLE;
     bytes32 public constant PRICE_UPDATER_ROLE = keccak256("PRICE_UPDATER_ROLE");
 
+    error InvalidFPMMAddress();
+    error BpsOutOfRange(uint256 value);
+
     struct PriceData {
         uint256 raffleProbabilityBps; // 0-10000
         uint256 marketSentimentBps; // 0-10000
@@ -56,8 +59,8 @@ contract InfoFiPriceOracle is AccessControl {
         external
         onlyRole(PRICE_UPDATER_ROLE)
     {
-        require(fpmmAddress != address(0), "Oracle: invalid FPMM address");
-        require(raffleProbabilityBps <= 10000, "Oracle: probability out of range");
+        if (fpmmAddress == address(0)) revert InvalidFPMMAddress();
+        if (raffleProbabilityBps > 10000) revert BpsOutOfRange(raffleProbabilityBps);
         PriceData storage p = prices[fpmmAddress];
         p.raffleProbabilityBps = raffleProbabilityBps;
         p.hybridPriceBps = _hybrid(p.raffleProbabilityBps, p.marketSentimentBps);
@@ -70,8 +73,8 @@ contract InfoFiPriceOracle is AccessControl {
         external
         onlyRole(PRICE_UPDATER_ROLE)
     {
-        require(fpmmAddress != address(0), "Oracle: invalid FPMM address");
-        require(marketSentimentBps <= 10000, "Oracle: sentiment out of range");
+        if (fpmmAddress == address(0)) revert InvalidFPMMAddress();
+        if (marketSentimentBps > 10000) revert BpsOutOfRange(marketSentimentBps);
         PriceData storage p = prices[fpmmAddress];
         p.marketSentimentBps = marketSentimentBps;
         p.hybridPriceBps = _hybrid(p.raffleProbabilityBps, p.marketSentimentBps);

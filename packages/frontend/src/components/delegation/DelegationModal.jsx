@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { useTranslation } from 'react-i18next';
 import { useWalletClient, useChainId } from 'wagmi';
@@ -32,6 +32,11 @@ export function DelegationModal({ open, onOpenChange, onDelegated }) {
   const [status, setStatus] = useState('idle'); // idle | signing | submitting | confirming | success | error
   const [errorMsg, setErrorMsg] = useState('');
   const apiBase = import.meta.env.VITE_API_BASE_URL || '';
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const handleEnable = useCallback(async () => {
     if (!walletClient) return;
@@ -73,10 +78,12 @@ export function DelegationModal({ open, onOpenChange, onDelegated }) {
       }
 
       // 3. Poll getBytecode until delegation appears
+      if (!mountedRef.current) return;
       setStatus('confirming');
       const start = Date.now();
-      while (Date.now() - start < POLL_TIMEOUT_MS) {
+      while (Date.now() - start < POLL_TIMEOUT_MS && mountedRef.current) {
         const code = await getBytecode(config, { address: walletClient.account.address });
+        if (!mountedRef.current) return;
         if (code && code.toLowerCase().startsWith(DELEGATION_PREFIX)) {
           setStatus('success');
           onDelegated?.();
@@ -87,8 +94,9 @@ export function DelegationModal({ open, onOpenChange, onDelegated }) {
 
       // Tx was submitted but confirmation not yet detected — close modal
       // and let useDelegationStatus detect it on next check
-      onDelegated?.();
+      if (mountedRef.current) onDelegated?.();
     } catch (err) {
+      if (!mountedRef.current) return;
       setStatus('error');
       setErrorMsg(err?.shortMessage || err?.message || t('delegation_error'));
     }
