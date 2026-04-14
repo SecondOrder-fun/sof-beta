@@ -1,21 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "openzeppelin-contracts/contracts/access/AccessControl.sol";
-import "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
-import "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
-import "chainlink-brownie-contracts/contracts/src/v0.8/vrf/dev/VRFConsumerBaseV2Plus.sol";
-import "chainlink-brownie-contracts/contracts/src/v0.8/vrf/dev/interfaces/IVRFCoordinatorV2Plus.sol";
-import "chainlink-brownie-contracts/contracts/src/v0.8/vrf/dev/libraries/VRFV2PlusClient.sol";
-import "../token/RaffleToken.sol";
-import "../curve/SOFBondingCurve.sol";
-import "./RaffleStorage.sol";
-import "../lib/RaffleLogic.sol";
-import "../lib/IInfoFiMarketFactory.sol";
-import "../lib/ISeasonFactory.sol";
-import "../lib/RaffleTypes.sol";
-import "../lib/IHats.sol";
+import {AccessControl} from "openzeppelin-contracts/contracts/access/AccessControl.sol";
+import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
+import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import {VRFConsumerBaseV2Plus} from "chainlink-brownie-contracts/contracts/src/v0.8/vrf/dev/VRFConsumerBaseV2Plus.sol";
+import {IVRFCoordinatorV2Plus} from "chainlink-brownie-contracts/contracts/src/v0.8/vrf/dev/interfaces/IVRFCoordinatorV2Plus.sol";
+import {VRFV2PlusClient} from "chainlink-brownie-contracts/contracts/src/v0.8/vrf/dev/libraries/VRFV2PlusClient.sol";
+import {SOFBondingCurve, InvalidAddress, InvalidBondSteps} from "../curve/SOFBondingCurve.sol";
+import {RaffleStorage} from "./RaffleStorage.sol";
+import {RaffleLogic} from "../lib/RaffleLogic.sol";
+import {ISeasonFactory} from "../lib/ISeasonFactory.sol";
+import {RaffleTypes} from "../lib/RaffleTypes.sol";
+import {IHats} from "../lib/IHats.sol";
 import {IRafflePrizeDistributor} from "../lib/IRafflePrizeDistributor.sol";
 import {TierConfigFailed} from "./RafflePrizeDistributor.sol";
 import {ISeasonGating} from "../gating/ISeasonGating.sol";

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
-import "../src/faucet/SOFFaucet.sol";
-import "../src/token/SOFToken.sol";
+import {Test} from "forge-std/Test.sol";
+import {SOFFaucet} from "../src/faucet/SOFFaucet.sol";
+import {SOFToken} from "../src/token/SOFToken.sol";
 
 /**
  * @title SOFFaucetTest

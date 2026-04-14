@@ -42,12 +42,12 @@ contract MockSeasonFactory is ISeasonFactory {
 
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
-import "../src/core/Raffle.sol";
-import "../src/curve/SOFBondingCurve.sol";
-import "../src/lib/RaffleTypes.sol";
-import "../src/lib/ISeasonFactory.sol";
-import "../src/token/RaffleToken.sol";
+import {Test} from "forge-std/Test.sol";
+import {Raffle, SeasonFull} from "../src/core/Raffle.sol";
+import {SOFBondingCurve} from "../src/curve/SOFBondingCurve.sol";
+import {RaffleTypes} from "../src/lib/RaffleTypes.sol";
+import {ISeasonFactory} from "../src/lib/ISeasonFactory.sol";
+import {RaffleToken} from "../src/token/RaffleToken.sol";
 
 contract RaffleTest is Test {
     Raffle public raffle;

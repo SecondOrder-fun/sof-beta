@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
-import "../src/token/SOFToken.sol";
-import "../src/curve/SOFBondingCurve.sol";
-import "../src/token/RaffleToken.sol";
-import "../src/lib/RaffleTypes.sol";
+import {Test} from "forge-std/Test.sol";
+import {SOFToken} from "../src/token/SOFToken.sol";
+import {SOFBondingCurve, AmountZero} from "../src/curve/SOFBondingCurve.sol";
+import {RaffleToken} from "../src/token/RaffleToken.sol";
+import {RaffleTypes} from "../src/lib/RaffleTypes.sol";
 
 contract TreasurySystemTest is Test {
     SOFToken public sofToken;

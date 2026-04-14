@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
-import "../src/core/Raffle.sol";
-import "../src/core/SeasonFactory.sol";
-import "../src/core/RafflePrizeDistributor.sol";
-import "../src/lib/IRafflePrizeDistributor.sol";
-import "../src/curve/SOFBondingCurve.sol";
-import "../src/lib/RaffleTypes.sol";
-import "../src/token/RaffleToken.sol";
+import {Test} from "forge-std/Test.sol";
+import {Raffle} from "../src/core/Raffle.sol";
+import {RaffleStorage} from "../src/core/RaffleStorage.sol";
+import {SeasonFactory} from "../src/core/SeasonFactory.sol";
+import {RafflePrizeDistributor} from "../src/core/RafflePrizeDistributor.sol";
+import {SOFBondingCurve} from "../src/curve/SOFBondingCurve.sol";
+import {RaffleTypes} from "../src/lib/RaffleTypes.sol";
 
 // Minimal mock SOF token (duplicated from existing tests for isolation)
 contract MockSOF {

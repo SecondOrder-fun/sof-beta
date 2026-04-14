@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
-import "../src/exchange/SOFExchange.sol";
-import "../src/exchange/ISOFExchange.sol";
-import "../src/token/SOFToken.sol";
-import "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
+import {Test} from "forge-std/Test.sol";
+import {SOFExchange} from "../src/exchange/SOFExchange.sol";
+import {Pausable} from "openzeppelin-contracts/contracts/utils/Pausable.sol";
+import {ISOFExchange} from "../src/exchange/ISOFExchange.sol";
+import {SOFToken} from "../src/token/SOFToken.sol";
+import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 
 /// @dev Mock USDC with 6 decimals
 contract MockUSDC is ERC20 {

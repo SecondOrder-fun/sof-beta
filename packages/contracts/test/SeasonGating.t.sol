@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
-import "forge-std/console2.sol";
-import "../src/gating/SeasonGating.sol";
-import "../src/gating/ISeasonGating.sol";
+import {Test} from "forge-std/Test.sol";
+import {SeasonGating} from "../src/gating/SeasonGating.sol";
+import {ISeasonGating} from "../src/gating/ISeasonGating.sol";
 
 contract SeasonGatingTest is Test {
     SeasonGating public gating;

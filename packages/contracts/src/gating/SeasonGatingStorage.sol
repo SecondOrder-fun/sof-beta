@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "./ISeasonGating.sol";
+import {ISeasonGating} from "./ISeasonGating.sol";
 
 /// @title SeasonGatingStorage
 /// @notice Storage layout for SeasonGating upgradeable contract

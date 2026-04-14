@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
-import "../src/core/Raffle.sol";
-import "../src/curve/SOFBondingCurve.sol";
-import "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import "../src/lib/RaffleTypes.sol";
-import "../src/core/SeasonFactory.sol";
-import "../src/core/RafflePrizeDistributor.sol";
+import {Test} from "forge-std/Test.sol";
+import {Raffle} from "../src/core/Raffle.sol";
+import {SOFBondingCurve} from "../src/curve/SOFBondingCurve.sol";
+import {RaffleTypes} from "../src/lib/RaffleTypes.sol";
+import {SeasonFactory} from "../src/core/SeasonFactory.sol";
+import {RafflePrizeDistributor} from "../src/core/RafflePrizeDistributor.sol";
 
 // Reuse the same harness pattern from RaffleVRF.t.sol
 contract AuditSnapshotHarness is Raffle {

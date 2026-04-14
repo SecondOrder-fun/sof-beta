@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
-import "../src/infofi/InfoFiFPMMV2.sol";
-import "../src/infofi/ConditionalTokenSOF.sol";
-import "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
+import {Test} from "forge-std/Test.sol";
+import {SimpleFPMM, InfoFiFPMMV2} from "../src/infofi/InfoFiFPMMV2.sol";
+import {ConditionalTokenSOF} from "../src/infofi/ConditionalTokenSOF.sol";
+import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
+import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 /// @notice Mock SOF token for testing
 contract MockSOF is ERC20 {
