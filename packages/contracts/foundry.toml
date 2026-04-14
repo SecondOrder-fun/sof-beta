@@ -20,7 +20,6 @@ no_match_contract = "ForkTest"
 # Suppress style-only lints (naming conventions, import style, gas micro-optimizations).
 # Keep enabled: erc20-unchecked-transfer, unsafe-typecast, incorrect-shift, unused-import.
 exclude_lints = [
-  "unaliased-plain-import",
   "mixed-case-variable",
   "mixed-case-function",
   "screaming-snake-case-immutable",

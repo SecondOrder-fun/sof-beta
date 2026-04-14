@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "./RaffleTypes.sol";
+import {RaffleTypes} from "./RaffleTypes.sol";
 
 interface ISeasonFactory {
     function createSeasonContracts(

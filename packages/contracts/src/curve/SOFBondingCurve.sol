@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "openzeppelin-contracts/contracts/access/AccessControl.sol";
-import "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
-import "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
-import "openzeppelin-contracts/contracts/utils/Pausable.sol";
-import "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Permit.sol";
+import {AccessControl} from "openzeppelin-contracts/contracts/access/AccessControl.sol";
+import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
+import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Pausable} from "openzeppelin-contracts/contracts/utils/Pausable.sol";
+import {IERC20Permit} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {IRaffleToken} from "./IRaffleToken.sol";
 import {IRaffle} from "../lib/IRaffle.sol";
 import {RaffleTypes} from "../lib/RaffleTypes.sol";

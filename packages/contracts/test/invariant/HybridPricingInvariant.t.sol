@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
-import "forge-std/StdInvariant.sol";
-import "../../src/infofi/InfoFiPriceOracle.sol";
-import "../../src/token/SOFToken.sol";
+import {Test} from "forge-std/Test.sol";
+import {StdInvariant} from "forge-std/StdInvariant.sol";
+import {InfoFiPriceOracle} from "../../src/infofi/InfoFiPriceOracle.sol";
 
 contract HybridPricingInvariantTest is StdInvariant, Test {
     InfoFiPriceOracle public oracle;

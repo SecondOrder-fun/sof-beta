@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 // import "../script/DeployFaucet.s.sol";  // Script doesn't exist
-import "../src/faucet/SOFFaucet.sol";
-import "../src/token/SOFToken.sol";
+import {SOFToken} from "../src/token/SOFToken.sol";
 
 /**
  * @title DeployFaucetTest

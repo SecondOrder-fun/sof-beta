@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {Raffle} from "../src/core/Raffle.sol";
 import {SOFBondingCurve} from "../src/curve/SOFBondingCurve.sol";
 import {RaffleToken} from "../src/token/RaffleToken.sol";

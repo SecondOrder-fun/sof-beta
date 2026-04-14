@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "../core/RaffleStorage.sol";
+import {RaffleStorage} from "../core/RaffleStorage.sol";
 
 /**
  * @title RaffleLogic Library

@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
-import "../src/core/RafflePrizeDistributor.sol";
-import "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
+import {Test} from "forge-std/Test.sol";
+import {RafflePrizeDistributor} from "../src/core/RafflePrizeDistributor.sol";
+import {IRafflePrizeDistributor} from "../src/lib/IRafflePrizeDistributor.sol";
+import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 
 // Mock ERC-20 token for testing
 contract MockERC20 is ERC20 {

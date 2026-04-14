@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
-import "../src/token/SOFToken.sol";
-import "../src/infofi/InfoFiFPMMV2.sol";
-import "../src/infofi/ConditionalTokenSOF.sol";
+import {Test} from "forge-std/Test.sol";
+import {SOFToken} from "../src/token/SOFToken.sol";
+import {SimpleFPMM} from "../src/infofi/InfoFiFPMMV2.sol";
+import {ConditionalTokenSOF} from "../src/infofi/ConditionalTokenSOF.sol";
 
 contract FPMMPermitTest is Test {
     SOFToken public sofToken;

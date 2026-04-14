@@ -6,7 +6,7 @@ pragma solidity ^0.8.20;
  * @notice Holds all storage variables, structs, and events for the Raffle contract.
  * @dev Separating storage into a base contract is a pattern to avoid contract size limits.
  */
-import "../lib/RaffleTypes.sol";
+import {RaffleTypes} from "../lib/RaffleTypes.sol";
 
 abstract contract RaffleStorage {
     // Roles

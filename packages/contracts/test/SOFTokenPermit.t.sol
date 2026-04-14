@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
-import "../src/token/SOFToken.sol";
-import "../src/token/RaffleToken.sol";
-import "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Permit.sol";
+import {Test} from "forge-std/Test.sol";
+import {SOFToken} from "../src/token/SOFToken.sol";
+import {RaffleToken} from "../src/token/RaffleToken.sol";
 
 /**
  * @title SOFTokenPermitTest

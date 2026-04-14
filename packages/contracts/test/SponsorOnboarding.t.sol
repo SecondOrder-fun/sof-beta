@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
-import "../src/sponsor/SponsorOnboarding.sol";
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {Test} from "forge-std/Test.sol";
+import {SponsorOnboarding} from "../src/sponsor/SponsorOnboarding.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 // Mock SOF Token
 contract MockSOF is ERC20 {

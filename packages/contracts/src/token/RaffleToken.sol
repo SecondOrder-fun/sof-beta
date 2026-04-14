@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
-import "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC20Burnable.sol";
-import "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC20Permit.sol";
-import "openzeppelin-contracts/contracts/access/AccessControl.sol";
+import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
+import {ERC20Burnable} from "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC20Burnable.sol";
+import {ERC20Permit} from "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC20Permit.sol";
+import {AccessControl} from "openzeppelin-contracts/contracts/access/AccessControl.sol";
 
 /**
  * @title Raffle Token
