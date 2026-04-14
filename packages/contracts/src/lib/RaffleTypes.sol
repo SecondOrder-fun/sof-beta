@@ -15,6 +15,7 @@ library RaffleTypes {
         bool isActive;
         bool isCompleted;
         bool gated; // If true, users must pass gating requirements before buying tickets
+        uint32 maxParticipants; // 0 = use default; capped at ABSOLUTE_MAX_PARTICIPANTS
     }
 
     struct BondStep {

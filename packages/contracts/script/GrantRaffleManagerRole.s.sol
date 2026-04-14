@@ -30,7 +30,8 @@ contract GrantRaffleManagerRole is Script {
         vm.startBroadcast(deployerPrivateKey);
 
         // Get the bonding curve address for this season
-        (,,,,,,, address bondingCurve,,,,) = raffle.seasons(seasonId);
+        (RaffleTypes.SeasonConfig memory cfg,,,,) = raffle.getSeasonDetails(seasonId);
+        address bondingCurve = cfg.bondingCurve;
         console2.log("Bonding curve address:", bondingCurve);
 
         if (bondingCurve == address(0)) {

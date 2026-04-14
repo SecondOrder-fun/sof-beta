@@ -581,19 +581,18 @@ contract EdgeCasesTest is Test {
         vm.expectRevert();
         raffle.finalizeSeason(seasonId);
 
-        // Fulfill VRF triggers auto-finalization, completing the season
+        // Fulfill VRF transitions to Distributing
         uint256[] memory words = new uint256[](2);
         words[0] = 111;
         words[1] = 222;
         raffle.testFulfill(123, words);
 
-        // With auto-finalization, season should already be Completed
-        // Manual finalizeSeason would only be needed if auto-finalize failed
-        // (In this test, auto-finalize succeeds so season is Completed)
+        // Cannot finalize from Completed — first must finalize from Distributing
+        raffle.finalizeSeason(seasonId);
 
-        // After completion, getWinners should work (it requires Completed status)
+        // After finalization, getWinners should work (it requires Completed status)
         address[] memory winners = raffle.getWinners(seasonId);
-        assertGt(winners.length, 0, "Should have winners after auto-finalization");
+        assertGt(winners.length, 0, "Should have winners after finalization");
     }
 
     function test_StateTransition_CannotRestartCompleted() public {
