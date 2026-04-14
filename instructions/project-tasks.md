@@ -86,5 +86,9 @@ MetaMask `wallet_sendCalls` does not support `paymasterService` capability. Batc
 
 - [x] Verify all builds pass (`turbo build`) — all 3 packages pass
 - [x] Verify all tests pass (`turbo test`) — 741 tests: 254 contracts + 151 backend + 336 frontend
-- [ ] End-to-end local dev flow validation
+- [x] End-to-end local dev flow validation (Docker: Anvil + Redis + Postgres + Backend, contracts deployed, frontend connected)
 - [ ] Archive old repos (sof-alpha, sof-backend, sof-allowlist, sof-docs)
+
+## UI Tasks
+
+- [ ] Landing page background animation: scale moving elements 6-8x, pixelated style (4x4 grid with blank corners for circular appearance)
