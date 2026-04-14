@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { useAccount } from "wagmi";
 import { useToast } from "@/hooks/useToast";
-import { executeClaim } from "@/services/claimService";
+import { buildClaimCalls } from "@/services/claimService";
+import { useSmartTransactions } from "@/hooks/useSmartTransactions";
 import { getStoredNetworkKey } from "@/lib/wagmi";
 
 /**
@@ -45,6 +47,8 @@ export function useClaims() {
   const { t } = useTranslation(["market", "raffle", "common"]);
   const qc = useQueryClient();
   const { toast } = useToast();
+  const { address } = useAccount();
+  const { executeBatch } = useSmartTransactions();
   const netKey = getStoredNetworkKey();
 
   const [pendingClaims, setPendingClaims] = useState(new Set());
@@ -72,13 +76,14 @@ export function useClaims() {
       const claimKey = getClaimKey("infofi", { marketId, prediction });
       setPendingClaims((prev) => new Set(prev).add(claimKey));
 
-      const result = await executeClaim({
+      const result = await buildClaimCalls({
         type: "infofi-payout",
-        params: { marketId, prediction, contractAddress },
+        params: { marketId, prediction, account: address, contractAddress },
         networkKey: netKey,
       });
-      if (!result.success) throw new Error(result.error);
-      return { hash: result.hash, claimKey };
+      if (result.error) throw new Error(result.error);
+      const batchId = await executeBatch(result.calls);
+      return { hash: batchId, claimKey };
     },
     onSuccess: (data) => {
       const { claimKey } = data;
@@ -114,13 +119,14 @@ export function useClaims() {
       const claimKey = getClaimKey("fpmm", { seasonId, player });
       setPendingClaims((prev) => new Set(prev).add(claimKey));
 
-      const result = await executeClaim({
+      const result = await buildClaimCalls({
         type: "fpmm-position",
         params: { seasonId, player, fpmmAddress },
         networkKey: netKey,
       });
-      if (!result.success) throw new Error(result.error);
-      return { hash: result.hash, claimKey };
+      if (result.error) throw new Error(result.error);
+      const batchId = await executeBatch(result.calls);
+      return { hash: batchId, claimKey };
     },
     onSuccess: (data) => {
       const { claimKey } = data;
@@ -157,13 +163,14 @@ export function useClaims() {
       const claimKey = getClaimKey("raffle-consolation", { seasonId });
       setPendingClaims((prev) => new Set(prev).add(claimKey));
 
-      const result = await executeClaim({
+      const result = await buildClaimCalls({
         type: "raffle-consolation",
         params: { seasonId },
         networkKey: netKey,
       });
-      if (!result.success) throw new Error(result.error);
-      return { hash: result.hash, claimKey };
+      if (result.error) throw new Error(result.error);
+      const batchId = await executeBatch(result.calls);
+      return { hash: batchId, claimKey };
     },
     onSuccess: (data) => {
       const { claimKey } = data;
@@ -199,13 +206,14 @@ export function useClaims() {
       const claimKey = getClaimKey("raffle-grand", { seasonId });
       setPendingClaims((prev) => new Set(prev).add(claimKey));
 
-      const result = await executeClaim({
+      const result = await buildClaimCalls({
         type: "raffle-grand",
         params: { seasonId },
         networkKey: netKey,
       });
-      if (!result.success) throw new Error(result.error);
-      return { hash: result.hash, claimKey };
+      if (result.error) throw new Error(result.error);
+      const batchId = await executeBatch(result.calls);
+      return { hash: batchId, claimKey };
     },
     onSuccess: (data) => {
       const { claimKey } = data;

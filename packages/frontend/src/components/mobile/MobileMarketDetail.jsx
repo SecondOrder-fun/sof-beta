@@ -12,7 +12,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import OddsChart from "@/components/infofi/OddsChart";
 import BettingInterface from "@/components/infofi/BettingInterface";
 import UsernameDisplay from "@/components/user/UsernameDisplay";
-import { placeBetTx } from "@/services/onchainInfoFi";
+import { buildPlaceBetCalls } from "@/services/onchainInfoFi";
+import { useSmartTransactions } from "@/hooks/useSmartTransactions";
 
 /**
  * MobileMarketDetail - Full market detail view for mobile.
@@ -21,8 +22,9 @@ import { placeBetTx } from "@/services/onchainInfoFi";
 const MobileMarketDetail = ({ market, marketId }) => {
   const navigate = useNavigate();
   const { t } = useTranslation("market");
-  const { isConnected } = useAccount();
+  const { isConnected, address } = useAccount();
   const queryClient = useQueryClient();
+  const { executeBatch } = useSmartTransactions();
   const [cardHeight, setCardHeight] = useState(null);
   const cardRef = useRef(null);
 
@@ -51,11 +53,13 @@ const MobileMarketDetail = ({ market, marketId }) => {
   // Place bet mutation
   const placeBetMutation = useMutation({
     mutationFn: async ({ side, amount }) => {
-      return placeBetTx({
+      const calls = await buildPlaceBetCalls({
         prediction: side === "YES",
         amount,
+        account: address,
         fpmmAddress: market.contract_address,
       });
+      return executeBatch(calls);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["infofiMarket", marketId] });

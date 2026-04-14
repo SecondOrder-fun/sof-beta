@@ -1,11 +1,12 @@
 // src/hooks/useSOFToken.js
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAccount, usePublicClient, useWalletClient } from 'wagmi';
-import { formatUnits, parseUnits } from 'viem';
+import { useAccount, usePublicClient } from 'wagmi';
+import { formatUnits, parseUnits, encodeFunctionData } from 'viem';
 import { getContractAddresses } from '@/config/contracts';
 import { getStoredNetworkKey } from '@/lib/wagmi';
 import { ERC20Abi } from '@/utils/abis';
+import { useSmartTransactions } from '@/hooks/useSmartTransactions';
 
 /**
  * Hook for interacting with the SOF token contract
@@ -13,7 +14,7 @@ import { ERC20Abi } from '@/utils/abis';
 export function useSOFToken() {
   const { address, isConnected } = useAccount();
   const publicClient = usePublicClient();
-  const { data: walletClient } = useWalletClient();
+  const { executeBatch } = useSmartTransactions();
   const queryClient = useQueryClient();
   const netKey = getStoredNetworkKey();
   const contracts = getContractAddresses(netKey);
@@ -97,30 +98,29 @@ export function useSOFToken() {
   // Mutation for token transfer
   const transferMutation = useMutation({
     mutationFn: async ({ to, amount }) => {
-      if (!isConnected || !walletClient || !contracts.SOF) {
+      if (!isConnected || !contracts.SOF) {
         throw new Error('Wallet not connected or token not configured');
       }
-      
+
       if (!to || !amount) {
         throw new Error('Recipient address and amount are required');
       }
-      
+
       setError('');
-      
+
       const decimals = tokenDetails?.decimals || 18;
       const parsedAmount = parseUnits(amount, decimals);
-      
-      const hash = await walletClient.writeContract({
-        address: contracts.SOF,
-        abi: ERC20Abi,
-        functionName: 'transfer',
-        args: [to, parsedAmount],
-        account: address,
-      });
-      
-      // Wait for transaction to be mined
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
-      return { hash, receipt };
+
+      const hash = await executeBatch([{
+        to: contracts.SOF,
+        data: encodeFunctionData({
+          abi: ERC20Abi,
+          functionName: 'transfer',
+          args: [to, parsedAmount],
+        }),
+      }], { sofAmount: parsedAmount });
+
+      return { hash };
     },
     onSuccess: () => {
       // Invalidate queries to refresh data
@@ -134,32 +134,31 @@ export function useSOFToken() {
   // Mutation for token approval
   const approveMutation = useMutation({
     mutationFn: async ({ spender, amount }) => {
-      if (!isConnected || !walletClient || !contracts.SOF) {
+      if (!isConnected || !contracts.SOF) {
         throw new Error('Wallet not connected or token not configured');
       }
-      
+
       if (!spender) {
         throw new Error('Spender address is required');
       }
-      
+
       setError('');
-      
+
       const decimals = tokenDetails?.decimals || 18;
-      const parsedAmount = amount === 'max' 
+      const parsedAmount = amount === 'max'
         ? BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')
         : parseUnits(amount, decimals);
-      
-      const hash = await walletClient.writeContract({
-        address: contracts.SOF,
-        abi: ERC20Abi,
-        functionName: 'approve',
-        args: [spender, parsedAmount],
-        account: address,
-      });
-      
-      // Wait for transaction to be mined
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
-      return { hash, receipt };
+
+      const hash = await executeBatch([{
+        to: contracts.SOF,
+        data: encodeFunctionData({
+          abi: ERC20Abi,
+          functionName: 'approve',
+          args: [spender, parsedAmount],
+        }),
+      }], { sofAmount: 0n });
+
+      return { hash };
     },
     onError: (err) => {
       setError(err.message || 'Failed to approve tokens');

@@ -1,11 +1,13 @@
 // src/components/sponsor/SponsorStakingCard.jsx
-import { useState, useEffect } from "react";
-import { useAccount, useWriteContract, useWaitForTransactionReceipt, useWatchContractEvent } from "wagmi";
+import { useState } from "react";
+import { useAccount, useWatchContractEvent } from "wagmi";
+import { encodeFunctionData } from "viem";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useSponsorStaking } from "@/hooks/useSponsorStaking";
 import { useSOFBalance } from "@/hooks/useSOFBalance";
+import { useSmartTransactions } from "@/hooks/useSmartTransactions";
 import { HATS_CONFIG } from "@/config/hats";
 import { getContractAddresses } from "@/config/contracts";
 import { StakingEligibilityAbi } from "@/utils/abis";
@@ -74,22 +76,9 @@ export function SponsorStakingCard() {
 
   const { balance: sofBalance, isLoading: isBalanceLoading } = useSOFBalance();
   
-  // Steps: idle → approving → staking → minting → idle
+  // Steps: idle → approving → staking → minting → unstaking → completing
   const [step, setStep] = useState("idle");
-  
-  // Contract writes
-  const { writeContract: approve, data: approveHash, isPending: isApproving } = useWriteContract();
-  const { writeContract: stake, data: stakeHash, isPending: isStaking } = useWriteContract();
-  const { writeContract: mintHat, data: mintHash, isPending: isMinting } = useWriteContract();
-  const { writeContract: beginUnstake, data: unstakeHash, isPending: isBeginningUnstake } = useWriteContract();
-  const { writeContract: completeUnstake, data: completeHash, isPending: isCompleting } = useWriteContract();
-
-  // Wait for transactions
-  const { isLoading: isApproveConfirming, isSuccess: isApproveSuccess } = useWaitForTransactionReceipt({ hash: approveHash });
-  const { isLoading: isStakeConfirming, isSuccess: isStakeSuccess } = useWaitForTransactionReceipt({ hash: stakeHash });
-  const { isLoading: isMintConfirming, isSuccess: isMintSuccess } = useWaitForTransactionReceipt({ hash: mintHash });
-  const { isLoading: isUnstakeConfirming, isSuccess: isUnstakeSuccess } = useWaitForTransactionReceipt({ hash: unstakeHash });
-  const { isLoading: isCompleteConfirming, isSuccess: isCompleteSuccess } = useWaitForTransactionReceipt({ hash: completeHash });
+  const { executeBatch } = useSmartTransactions();
 
   // Watch for staking events to auto-refresh
   useWatchContractEvent({
@@ -116,94 +105,103 @@ export function SponsorStakingCard() {
     enabled: isConnected && !!address,
   });
 
-  // Step 1→2: After approve succeeds, call stake
-  useEffect(() => {
-    if (isApproveSuccess && step === "approving") {
-      setStep("staking");
-      stake({
-        address: HATS_CONFIG.STAKING_ELIGIBILITY_ADDRESS,
-        abi: StakingEligibilityAbi,
-        functionName: "stake",
-        args: [minStake],
-      });
-    }
-  }, [isApproveSuccess, step, stake, minStake]);
-
-  // Step 2→3: After stake succeeds, call mintHat to claim Sponsor hat
-  useEffect(() => {
-    if (isStakeSuccess && step === "staking" && address) {
-      setStep("minting");
-      mintHat({
-        address: HATS_CONFIG.HATS_ADDRESS,
-        abi: HATS_MINT_ABI,
-        functionName: "mintHat",
-        args: [HATS_CONFIG.SPONSOR_HAT_ID, address],
-      });
-    }
-  }, [isStakeSuccess, step, mintHat, address]);
-
-  // Step 3→idle: After mint succeeds, done!
-  useEffect(() => {
-    if (isMintSuccess && step === "minting") {
-      setStep("idle");
-      refetch();
-    }
-  }, [isMintSuccess, step, refetch]);
-
-  // Handle unstake success
-  useEffect(() => {
-    if (isUnstakeSuccess || isCompleteSuccess) {
-      setStep("idle");
-      refetch();
-    }
-  }, [isUnstakeSuccess, isCompleteSuccess, refetch]);
-
+  // Become sponsor: approve + stake + mintHat batched in one ERC-5792 call
   const handleBecomeSponsor = async () => {
-    if (!sofAddress) return;
-    setStep("approving");
-    approve({
-      address: sofAddress,
-      abi: ERC20_APPROVE_ABI,
-      functionName: "approve",
-      args: [HATS_CONFIG.STAKING_ELIGIBILITY_ADDRESS, minStake],
-    });
+    if (!sofAddress || !address) return;
+    try {
+      setStep("approving");
+      await executeBatch([
+        {
+          to: sofAddress,
+          data: encodeFunctionData({
+            abi: ERC20_APPROVE_ABI,
+            functionName: "approve",
+            args: [HATS_CONFIG.STAKING_ELIGIBILITY_ADDRESS, minStake],
+          }),
+        },
+        {
+          to: HATS_CONFIG.STAKING_ELIGIBILITY_ADDRESS,
+          data: encodeFunctionData({
+            abi: StakingEligibilityAbi,
+            functionName: "stake",
+            args: [minStake],
+          }),
+        },
+        {
+          to: HATS_CONFIG.HATS_ADDRESS,
+          data: encodeFunctionData({
+            abi: HATS_MINT_ABI,
+            functionName: "mintHat",
+            args: [HATS_CONFIG.SPONSOR_HAT_ID, address],
+          }),
+        },
+      ], { sofAmount: minStake });
+      refetch();
+    } finally {
+      setStep("idle");
+    }
   };
 
   // For users who staked but don't have the hat yet
   const handleClaimHat = async () => {
     if (!address) return;
-    setStep("minting");
-    mintHat({
-      address: HATS_CONFIG.HATS_ADDRESS,
-      abi: HATS_MINT_ABI,
-      functionName: "mintHat",
-      args: [HATS_CONFIG.SPONSOR_HAT_ID, address],
-    });
+    try {
+      setStep("minting");
+      await executeBatch([
+        {
+          to: HATS_CONFIG.HATS_ADDRESS,
+          data: encodeFunctionData({
+            abi: HATS_MINT_ABI,
+            functionName: "mintHat",
+            args: [HATS_CONFIG.SPONSOR_HAT_ID, address],
+          }),
+        },
+      ], { sofAmount: 0n });
+      refetch();
+    } finally {
+      setStep("idle");
+    }
   };
 
   const handleBeginUnstake = async () => {
-    setStep("unstaking");
-    beginUnstake({
-      address: HATS_CONFIG.STAKING_ELIGIBILITY_ADDRESS,
-      abi: StakingEligibilityAbi,
-      functionName: "beginUnstake",
-      args: [stakeAmount],
-    });
+    try {
+      setStep("unstaking");
+      await executeBatch([
+        {
+          to: HATS_CONFIG.STAKING_ELIGIBILITY_ADDRESS,
+          data: encodeFunctionData({
+            abi: StakingEligibilityAbi,
+            functionName: "beginUnstake",
+            args: [stakeAmount],
+          }),
+        },
+      ], { sofAmount: 0n });
+      refetch();
+    } finally {
+      setStep("idle");
+    }
   };
 
   const handleCompleteUnstake = async () => {
-    setStep("completing");
-    completeUnstake({
-      address: HATS_CONFIG.STAKING_ELIGIBILITY_ADDRESS,
-      abi: StakingEligibilityAbi,
-      functionName: "completeUnstake",
-      args: [address],
-    });
+    try {
+      setStep("completing");
+      await executeBatch([
+        {
+          to: HATS_CONFIG.STAKING_ELIGIBILITY_ADDRESS,
+          data: encodeFunctionData({
+            abi: StakingEligibilityAbi,
+            functionName: "completeUnstake",
+            args: [address],
+          }),
+        },
+      ], { sofAmount: 0n });
+      refetch();
+    } finally {
+      setStep("idle");
+    }
   };
 
-  const isProcessing = isApproving || isApproveConfirming || isStaking || isStakeConfirming || 
-                       isMinting || isMintConfirming ||
-                       isBeginningUnstake || isUnstakeConfirming || isCompleting || isCompleteConfirming;
+  const isProcessing = step !== "idle";
 
   const hasEnoughSOF = sofBalance >= minStake;
   
@@ -354,7 +352,7 @@ export function SponsorStakingCard() {
               disabled={isProcessing}
               className="w-full"
             >
-              {isMinting || isMintConfirming ? (
+              {step === "minting" ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   {t("claimingSponsorHat")}
@@ -376,7 +374,7 @@ export function SponsorStakingCard() {
               disabled={isProcessing}
               className="w-full"
             >
-              {isBeginningUnstake || isUnstakeConfirming ? (
+              {step === "unstaking" ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   {t("processing")}
@@ -394,7 +392,7 @@ export function SponsorStakingCard() {
               disabled={isProcessing}
               className="w-full"
             >
-              {isCompleting || isCompleteConfirming ? (
+              {step === "completing" ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   {t("processing")}

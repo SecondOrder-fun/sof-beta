@@ -1,11 +1,12 @@
 // src/hooks/useFaucet.js
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useAccount, usePublicClient, useWalletClient } from "wagmi";
-import { formatUnits } from "viem";
+import { useAccount, usePublicClient } from "wagmi";
+import { formatUnits, encodeFunctionData } from "viem";
 import { getContractAddresses } from "@/config/contracts";
 import { getStoredNetworkKey } from "@/lib/wagmi";
 import { SOFFaucetAbi, ERC20Abi } from "@/utils/abis";
+import { useSmartTransactions } from "@/hooks/useSmartTransactions";
 
 /**
  * Hook for interacting with the SOF Faucet contract
@@ -13,7 +14,7 @@ import { SOFFaucetAbi, ERC20Abi } from "@/utils/abis";
 export function useFaucet() {
   const { address, isConnected } = useAccount();
   const publicClient = usePublicClient();
-  const { data: walletClient } = useWalletClient();
+  const { executeBatch } = useSmartTransactions();
   const queryClient = useQueryClient();
   const netKey = getStoredNetworkKey();
   const contracts = getContractAddresses(netKey);
@@ -147,22 +148,22 @@ export function useFaucet() {
   // Mutation for claiming tokens
   const claimMutation = useMutation({
     mutationFn: async () => {
-      if (!isConnected || !walletClient || !contracts.SOF_FAUCET) {
+      if (!isConnected || !contracts.SOF_FAUCET) {
         throw new Error("Wallet not connected or faucet not configured");
       }
 
       setError("");
 
-      const hash = await walletClient.writeContract({
-        address: contracts.SOF_FAUCET,
-        abi: SOFFaucetAbi,
-        functionName: "claim",
-        account: address,
-      });
+      const hash = await executeBatch([{
+        to: contracts.SOF_FAUCET,
+        data: encodeFunctionData({
+          abi: SOFFaucetAbi,
+          functionName: "claim",
+          args: [],
+        }),
+      }], { sofAmount: 0n });
 
-      // Wait for transaction to be mined
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
-      return { hash, receipt };
+      return { hash };
     },
     onSuccess: () => {
       // Invalidate queries to refresh data
@@ -179,7 +180,6 @@ export function useFaucet() {
     mutationFn: async (amount) => {
       if (
         !isConnected ||
-        !walletClient ||
         !contracts.SOF_FAUCET ||
         !contracts.SOF
       ) {
@@ -192,32 +192,29 @@ export function useFaucet() {
 
       setError("");
 
-      // First approve the faucet to spend tokens
-      const approveHash = await walletClient.writeContract({
-        address: contracts.SOF,
-        abi: ERC20Abi,
-        functionName: "approve",
-        args: [contracts.SOF_FAUCET, BigInt(parseFloat(amount) * 10 ** 18)],
-        account: address,
-      });
+      const parsedAmount = BigInt(parseFloat(amount) * 10 ** 18);
 
-      // Wait for approval transaction to be mined
-      await publicClient.waitForTransactionReceipt({ hash: approveHash });
+      // Batch approve + contributeKarma in a single executeBatch call
+      const hash = await executeBatch([
+        {
+          to: contracts.SOF,
+          data: encodeFunctionData({
+            abi: ERC20Abi,
+            functionName: "approve",
+            args: [contracts.SOF_FAUCET, parsedAmount],
+          }),
+        },
+        {
+          to: contracts.SOF_FAUCET,
+          data: encodeFunctionData({
+            abi: SOFFaucetAbi,
+            functionName: "contributeKarma",
+            args: [parsedAmount],
+          }),
+        },
+      ], { sofAmount: parsedAmount });
 
-      // Then contribute karma
-      const karmaHash = await walletClient.writeContract({
-        address: contracts.SOF_FAUCET,
-        abi: SOFFaucetAbi,
-        functionName: "contributeKarma",
-        args: [BigInt(parseFloat(amount) * 10 ** 18)],
-        account: address,
-      });
-
-      // Wait for karma transaction to be mined
-      const receipt = await publicClient.waitForTransactionReceipt({
-        hash: karmaHash,
-      });
-      return { hash: karmaHash, receipt };
+      return { hash };
     },
     onSuccess: () => {
       // Invalidate queries to refresh data

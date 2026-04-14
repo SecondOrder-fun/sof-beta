@@ -1,11 +1,12 @@
 // src/hooks/useCurve.js
 // Hook for interacting with the SOFBondingCurve contract.
 
-import { useWriteContract } from 'wagmi';
 import { useMutation } from '@tanstack/react-query';
+import { encodeFunctionData } from 'viem';
 import { getStoredNetworkKey } from '@/lib/wagmi';
 import { getContractAddresses } from '@/config/contracts';
 import { SOFBondingCurveAbi, ERC20Abi } from '@/utils/abis';
+import { useSmartTransactions } from '@/hooks/useSmartTransactions';
 
 /**
  * @notice Hook for SOFBondingCurve contract interactions.
@@ -15,24 +16,21 @@ import { SOFBondingCurveAbi, ERC20Abi } from '@/utils/abis';
 export function useCurve(bondingCurveAddress) {
   const netKey = getStoredNetworkKey();
   const contracts = getContractAddresses(netKey);
-  const { writeContractAsync } = useWriteContract();
-
-  const curveContractConfig = {
-    address: bondingCurveAddress,
-    abi: SOFBondingCurveAbi,
-  };
+  const { executeBatch } = useSmartTransactions();
 
   /**
    * @notice Approves the bonding curve to spend the user's SOF tokens.
    */
   const approveMutation = useMutation({
     mutationFn: async ({ amount }) => {
-      return await writeContractAsync({
-        address: contracts.SOF,
-        abi: ERC20Abi,
-        functionName: 'approve',
-        args: [bondingCurveAddress, amount],
-      });
+      return await executeBatch([{
+        to: contracts.SOF,
+        data: encodeFunctionData({
+          abi: ERC20Abi,
+          functionName: 'approve',
+          args: [bondingCurveAddress, amount],
+        }),
+      }], { sofAmount: 0n });
     },
   });
 
@@ -44,12 +42,14 @@ export function useCurve(bondingCurveAddress) {
    */
   const buyTokensMutation = useMutation({
     mutationFn: async ({ tokenAmount, maxSofAmount }) => {
-      return await writeContractAsync({
-        ...curveContractConfig,
-        functionName: 'buyTokens',
-        args: [tokenAmount, maxSofAmount],
-        gas: 1500000n, // Explicit gas limit: 1.5M to ensure 900K+ remains for InfoFi
-      });
+      return await executeBatch([{
+        to: bondingCurveAddress,
+        data: encodeFunctionData({
+          abi: SOFBondingCurveAbi,
+          functionName: 'buyTokens',
+          args: [tokenAmount, maxSofAmount],
+        }),
+      }], { sofAmount: maxSofAmount });
     },
   });
 
@@ -58,12 +58,14 @@ export function useCurve(bondingCurveAddress) {
    */
   const buyTokensWithPermitMutation = useMutation({
     mutationFn: async ({ tokenAmount, maxSofAmount, deadline, v, r, s }) => {
-      return await writeContractAsync({
-        ...curveContractConfig,
-        functionName: 'buyTokensWithPermit',
-        args: [tokenAmount, maxSofAmount, deadline, v, r, s],
-        gas: 1500000n,
-      });
+      return await executeBatch([{
+        to: bondingCurveAddress,
+        data: encodeFunctionData({
+          abi: SOFBondingCurveAbi,
+          functionName: 'buyTokensWithPermit',
+          args: [tokenAmount, maxSofAmount, deadline, v, r, s],
+        }),
+      }], { sofAmount: maxSofAmount });
     },
   });
 
@@ -72,11 +74,14 @@ export function useCurve(bondingCurveAddress) {
    */
   const sellTokensMutation = useMutation({
     mutationFn: async ({ tokenAmount, minSofAmount }) => {
-      return await writeContractAsync({
-        ...curveContractConfig,
-        functionName: 'sellTokens',
-        args: [tokenAmount, minSofAmount],
-      });
+      return await executeBatch([{
+        to: bondingCurveAddress,
+        data: encodeFunctionData({
+          abi: SOFBondingCurveAbi,
+          functionName: 'sellTokens',
+          args: [tokenAmount, minSofAmount],
+        }),
+      }], { sofAmount: 0n });
     },
   });
 

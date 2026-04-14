@@ -2,18 +2,20 @@
 // Admin write helpers for the Raffle contract.
 
 import { useQueryClient, useMutation } from '@tanstack/react-query';
-import { useWriteContract, useWaitForTransactionReceipt, usePublicClient, useAccount } from 'wagmi';
-import { decodeErrorResult } from 'viem';
+import { useWaitForTransactionReceipt, usePublicClient, useAccount } from 'wagmi';
+import { decodeErrorResult, encodeFunctionData } from 'viem';
 import { getStoredNetworkKey } from '@/lib/wagmi';
 import { getContractAddresses, RAFFLE_ABI } from '@/config/contracts';
+import { useSmartTransactions } from '@/hooks/useSmartTransactions';
 
 /**
  * @notice A helper hook to manage the lifecycle of a contract write operation.
+ * Routes all writes through useSmartTransactions.executeBatch.
  * @param {object} mutationOptions - Options for the useMutation hook.
  * @returns {object} The mutation object and transaction hash.
  */
 function useContractWriteWithFeedback(mutationOptions) {
-  const { writeContractAsync } = useWriteContract();
+  const { executeBatch } = useSmartTransactions();
   const publicClient = usePublicClient();
   const { address } = useAccount();
 
@@ -40,7 +42,7 @@ function useContractWriteWithFeedback(mutationOptions) {
     if (err?.message?.includes('circuit breaker') || err?.data?.cause?.isBrokenCircuitError) {
       return 'MetaMask circuit breaker tripped. Please switch to another network and back to reset the connection, or restart MetaMask.';
     }
-    
+
     const decoded = decodeRevert(abi, err);
     if (decoded) {
       return decoded;
@@ -77,7 +79,14 @@ function useContractWriteWithFeedback(mutationOptions) {
       }
 
       try {
-        return await writeContractAsync(config);
+        return await executeBatch([{
+          to: config.address,
+          data: encodeFunctionData({
+            abi: config.abi,
+            functionName: config.functionName,
+            args: config.args,
+          }),
+        }], { sofAmount: 0n });
       } catch (writeErr) {
         const msg = buildFriendlyMessage(config.abi, writeErr, 'Write failed');
         throw new Error(msg);
@@ -149,7 +158,7 @@ export function useRaffleWrite() {
           }
           throw rpcErr;
         }
-        
+
         const code = await publicClient.getCode({ address: raffleContractConfig.address });
         if (!code || code === '0x') {
           throw new Error(
@@ -170,7 +179,7 @@ export function useRaffleWrite() {
       await queryClient.invalidateQueries({ queryKey: ['raffle', netKey, 'currentSeasonId'] });
       await queryClient.invalidateQueries({ queryKey: ['allSeasons'] });
       await queryClient.refetchQueries({ queryKey: ['allSeasons'] });
-      
+
       // Note: RAFFLE_MANAGER_ROLE is now automatically granted by SeasonFactory
       // during season creation (to both Raffle contract and deployer address)
     },

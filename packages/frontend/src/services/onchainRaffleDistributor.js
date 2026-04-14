@@ -1,11 +1,9 @@
 // src/services/onchainRaffleDistributor.js
-import { getAddress } from "viem";
-import { getWalletClient } from "@wagmi/core";
+import { getAddress, encodeFunctionData } from "viem";
 import { RaffleAbi, RafflePrizeDistributorAbi } from "@/utils/abis";
 import { getContractAddresses } from "@/config/contracts";
 import { getStoredNetworkKey } from "@/lib/wagmi";
 import { buildPublicClient } from "@/lib/viemClient";
-import { config as wagmiConfig } from "@/lib/wagmiConfig";
 
 function buildClient(networkKey) {
   const client = buildPublicClient(networkKey);
@@ -45,46 +43,42 @@ export async function getSeasonPayouts({
   return { distributor, seasonId, data };
 }
 
-export async function claimGrand({
+/**
+ * Build a { to, data } call object for claiming the grand prize.
+ * Caller should pass this to executeBatch([call]).
+ */
+export async function buildClaimGrandCall({
   seasonId,
   networkKey = getStoredNetworkKey(),
 }) {
-  // Use wagmi's getWalletClient which works with WalletConnect on mobile
-  const wallet = await getWalletClient(wagmiConfig);
-  if (!wallet) throw new Error("Connect wallet first");
-  const account = wallet.account?.address;
-  if (!account) throw new Error("Connect wallet first");
-  
   const distributor = await getPrizeDistributor({ networkKey });
-  const hash = await wallet.writeContract({
-    address: distributor,
-    abi: RafflePrizeDistributorAbi,
-    functionName: "claimGrand",
-    args: [BigInt(seasonId)],
-    account,
-  });
-  return hash;
+  return {
+    to: distributor,
+    data: encodeFunctionData({
+      abi: RafflePrizeDistributorAbi,
+      functionName: "claimGrand",
+      args: [BigInt(seasonId)],
+    }),
+  };
 }
 
-export async function claimConsolation({
+/**
+ * Build a { to, data } call object for claiming the consolation prize.
+ * Caller should pass this to executeBatch([call]).
+ */
+export async function buildClaimConsolationCall({
   seasonId,
   networkKey = getStoredNetworkKey(),
 }) {
-  // Use wagmi's getWalletClient which works with WalletConnect on mobile
-  const wallet = await getWalletClient(wagmiConfig);
-  if (!wallet) throw new Error("Connect wallet first");
-  const account = wallet.account?.address;
-  if (!account) throw new Error("Connect wallet first");
-  
   const distributor = await getPrizeDistributor({ networkKey });
-  const hash = await wallet.writeContract({
-    address: distributor,
-    abi: RafflePrizeDistributorAbi,
-    functionName: "claimConsolation",
-    args: [BigInt(seasonId)],
-    account,
-  });
-  return hash;
+  return {
+    to: distributor,
+    data: encodeFunctionData({
+      abi: RafflePrizeDistributorAbi,
+      functionName: "claimConsolation",
+      args: [BigInt(seasonId)],
+    }),
+  };
 }
 
 export async function isConsolationClaimed({

@@ -1,11 +1,12 @@
 // src/hooks/useFundDistributor.js
 import { useAccount, usePublicClient } from "wagmi";
-import { createWalletClient, custom } from "viem";
+import { encodeFunctionData } from "viem";
 import { getContractAddresses } from "@/config/contracts";
 import { getStoredNetworkKey } from "@/lib/wagmi";
 import { useQueryClient } from "@tanstack/react-query";
 import { RaffleAbi, RafflePrizeDistributorAbi } from "@/utils/abis";
 import { RAFFLE_ROLE, describeRole } from "@/utils/accessControl";
+import { useSmartTransactions } from "./useSmartTransactions";
 
 /**
  * Hook for managing the raffle distribution process
@@ -23,6 +24,7 @@ const useFundDistributor = ({
   const netCfg = chain;
   const queryClient = useQueryClient();
   const contractAddresses = getContractAddresses(netKey);
+  const { executeBatch } = useSmartTransactions();
 
   // Helper to update status and also log to console for debugging
   const updateStatus = (message) => {
@@ -78,9 +80,6 @@ const useFundDistributor = ({
     const idToUse = targetSeasonId || seasonId;
     setEndingE2EId(idToUse);
     updateStatus("Initializing end-to-end process for season " + idToUse);
-
-    // Will store the account to use for transactions
-    let account;
 
     try {
       // Check if contract addresses are available
@@ -182,89 +181,26 @@ const useFundDistributor = ({
         return;
       }
 
-      // Check if window.ethereum is available
-      if (!window.ethereum) {
-        updateStatus("Error: MetaMask or compatible wallet not found");
-        return;
-      }
-
-      // Create wallet client for transactions
-      updateStatus("Creating wallet client...");
-      let walletClient;
-
-      try {
-        const chainConfig = {
-          id: netCfg.id,
-          name: netCfg.name,
-          network: netCfg.name.toLowerCase(),
-          nativeCurrency: {
-            name: "Ether",
-            symbol: "ETH",
-            decimals: 18,
-          },
-          rpcUrls: {
-            default: {
-              http: [netCfg.rpcUrls.default.http[0]],
-            },
-            public: {
-              http: [netCfg.rpcUrls.public.http[0]],
-            },
-          },
-        };
-
-        walletClient = createWalletClient({
-          chain: chainConfig,
-          transport: custom(window.ethereum),
-        });
-      } catch (error) {
-        updateStatus(`Error creating wallet client: ${error.message}`);
-        return;
-      }
-
-      // Get the current chain ID and account
-      try {
-        const chainId = await walletClient.getChainId();
-
-        if (chainId !== netCfg.id) {
-          updateStatus(
-            `Error: Connected to wrong chain. Expected ${netCfg.id}, got ${chainId}`
-          );
-          return;
-        }
-
-        const accounts = await walletClient.getAddresses();
-
-        if (!accounts || accounts.length === 0) {
-          updateStatus("Error: No accounts found. Please connect your wallet.");
-          return;
-        }
-
-        account = accounts[0];
-      } catch (error) {
-        updateStatus(`Error getting account: ${error.message}`);
-        return;
-      }
-
       // Step 2: Request season end if needed
       if (seasonState.status === 0 || seasonState.status === 1) {
         // NotStarted or Active
         updateStatus("Requesting season end...");
 
         try {
-          const hash = await walletClient.writeContract({
-            address: raffleAddr,
-            abi: RaffleAbi,
-            functionName: "requestSeasonEndEarly",
-            args: [BigInt(idToUse)],
-            account,
-          });
+          const endCall = {
+            to: raffleAddr,
+            data: encodeFunctionData({
+              abi: RaffleAbi,
+              functionName: "requestSeasonEndEarly",
+              args: [BigInt(idToUse)],
+            }),
+          };
+
+          await executeBatch([endCall]);
 
           updateStatus(
-            "Season end requested. Waiting for transaction confirmation..."
+            "Season end requested. Waiting for state update..."
           );
-
-          // Wait for transaction to be mined
-          await publicClient.waitForTransactionReceipt({ hash });
 
           // Refresh season state
           seasonState = await checkContractState(raffleAddr, idToUse);
@@ -341,26 +277,26 @@ const useFundDistributor = ({
       updateStatus("Finalizing season...");
 
       try {
-        const hash = await walletClient.writeContract({
-          address: raffleAddr,
-          abi: RaffleAbi,
-          functionName: "finalizeSeason",
-          args: [BigInt(idToUse)],
-          account,
-        });
+        const finalizeCall = {
+          to: raffleAddr,
+          data: encodeFunctionData({
+            abi: RaffleAbi,
+            functionName: "finalizeSeason",
+            args: [BigInt(idToUse)],
+          }),
+        };
+
+        const batchId = await executeBatch([finalizeCall]);
 
         updateStatus(
-          `Season finalization transaction sent. Waiting for confirmation...\nHash: ${hash}`
+          `Season finalization transaction sent. Waiting for confirmation...\nBatch: ${batchId}`
         );
-
-        // Wait for transaction to be mined
-        await publicClient.waitForTransactionReceipt({ hash });
 
         setVerify((prev) => ({
           ...prev,
           [idToUse]: {
             ...(prev[idToUse] || {}),
-            finalizeHash: hash,
+            finalizeHash: batchId,
           },
         }));
 

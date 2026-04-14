@@ -9,7 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/useToast';
-import { placeBetTx, readBet } from '@/services/onchainInfoFi';
+import { buildPlaceBetCalls, readBet } from '@/services/onchainInfoFi';
+import { useSmartTransactions } from '@/hooks/useSmartTransactions';
 
 import { useFormatSOF } from '@/hooks/buysell';
 import { TrendingUp, TrendingDown } from 'lucide-react';
@@ -24,6 +25,7 @@ const BuySellWidget = ({ marketId, market }) => {
   const { isConnected, address } = useAccount();
   const { toast } = useToast();
   const qc = useQueryClient();
+  const { executeBatch } = useSmartTransactions();
 
   const [activeTab, setActiveTab] = React.useState('buy');
   const [outcome, setOutcome] = React.useState('YES');
@@ -50,13 +52,13 @@ const BuySellWidget = ({ marketId, market }) => {
   const placeBet = useMutation({
     mutationFn: async () => {
       const amt = amount || '0';
-      return placeBetTx({ 
-        marketId, 
-        prediction: outcome === 'YES', 
+      const calls = await buildPlaceBetCalls({
+        prediction: outcome === 'YES',
         amount: amt,
-        seasonId: market?.raffle_id || market?.seasonId,
-        player: market?.player
+        account: address,
+        fpmmAddress: market?.contract_address,
       });
+      return executeBatch(calls);
     },
     onSuccess: (hash) => {
       qc.invalidateQueries({ queryKey: ['infofiBet', marketId, address, true] });

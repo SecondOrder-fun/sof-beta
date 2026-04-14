@@ -8,7 +8,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/useToast";
 import { useAccount } from "wagmi";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { placeBetTx } from "@/services/onchainInfoFi";
+import { buildPlaceBetCalls } from "@/services/onchainInfoFi";
+import { useSmartTransactions } from "@/hooks/useSmartTransactions";
 import { buildMarketTitleParts } from "@/lib/marketTitle";
 import UsernameDisplay from "@/components/user/UsernameDisplay";
 import { useRaffleRead } from "@/hooks/useRaffleRead";
@@ -34,6 +35,7 @@ const InfoFiMarketCard = ({ market, marketInfo: batchMarketInfo, userPosition: b
   const parts = buildMarketTitleParts(market);
   const title = market?.question || market?.market_type || t("market");
   const { isConnected, address } = useAccount();
+  const { executeBatch } = useSmartTransactions();
 
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -83,14 +85,13 @@ const InfoFiMarketCard = ({ market, marketInfo: batchMarketInfo, userPosition: b
   const betMutation = useMutation({
     mutationFn: async () => {
       const amt = form.amount || "0";
-      return placeBetTx({
-        marketId: effectiveMarketId,
+      const calls = await buildPlaceBetCalls({
         prediction: form.side === "YES",
         amount: amt,
-        seasonId: seasonId,
-        player: market.player,
+        account: address,
         fpmmAddress: market.contract_address,
       });
+      return executeBatch(calls);
     },
     onSuccess: (hash) => {
       qc.invalidateQueries({

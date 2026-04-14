@@ -1,109 +1,64 @@
 // src/services/claimService.js
-import { claimGrand, claimConsolation } from "./onchainRaffleDistributor";
-import { claimPayoutTx, redeemPositionTx } from "./onchainInfoFi";
+//
+// Claim service — builds { to, data } call objects for each claim type.
+// The caller (a React component/hook) is responsible for passing these
+// to executeBatch() from useSmartTransactions.
+//
+import { buildClaimGrandCall, buildClaimConsolationCall } from "./onchainRaffleDistributor";
+import { buildClaimPayoutCall, buildRedeemPositionCall } from "./onchainInfoFi";
 import { getStoredNetworkKey } from "@/lib/wagmi";
 
 /**
- * Unified claim service that provides consistent wallet interaction
- * for all claim types (raffle prizes and InfoFi market winnings)
+ * Build the call object(s) for a given claim type.
+ * Returns { calls: Array<{to, data}> } on success or { error: string } on failure.
+ * The caller should execute: executeBatch(result.calls)
+ *
+ * @param {Object} opts
+ * @param {string} opts.type - Claim type: "raffle-grand" | "raffle-consolation" | "infofi-payout" | "fpmm-position"
+ * @param {Object} opts.params - Type-specific parameters
+ * @param {string} [opts.networkKey] - Network key
  */
-
-// Raffle Prize Claims
-export async function claimRaffleGrandPrize({
-  seasonId,
-  networkKey = getStoredNetworkKey(),
-}) {
-  try {
-    const hash = await claimGrand({ seasonId, networkKey });
-    return { success: true, hash, error: null };
-  } catch (error) {
-    return { success: false, hash: null, error: error.message };
-  }
-}
-
-export async function claimRaffleConsolationPrize({
-  seasonId,
-  networkKey = getStoredNetworkKey(),
-}) {
-  try {
-    const hash = await claimConsolation({ seasonId, networkKey });
-    return { success: true, hash, error: null };
-  } catch (error) {
-    return { success: false, hash: null, error: error.message };
-  }
-}
-
-// InfoFi Market Claims
-export async function claimInfoFiPayout({
-  marketId,
-  prediction,
-  contractAddress,
-  networkKey = getStoredNetworkKey(),
-}) {
-  try {
-    const hash = await claimPayoutTx({
-      marketId,
-      prediction,
-      contractAddress,
-      networkKey,
-    });
-    return { success: true, hash, error: null };
-  } catch (error) {
-    return { success: false, hash: null, error: error.message };
-  }
-}
-
-export async function claimFPMMPosition({
-  seasonId,
-  player,
-  fpmmAddress,
-  networkKey = getStoredNetworkKey(),
-}) {
-  try {
-    const hash = await redeemPositionTx({ seasonId, player, fpmmAddress, networkKey });
-    return { success: true, hash, error: null };
-  } catch (error) {
-    return { success: false, hash: null, error: error.message };
-  }
-}
-
-// Unified claim handler that routes to the appropriate service
-export async function executeClaim({
+export async function buildClaimCalls({
   type,
   params,
   networkKey = getStoredNetworkKey(),
 }) {
-  switch (type) {
-    case "raffle-grand":
-      return claimRaffleGrandPrize({ seasonId: params.seasonId, networkKey });
+  try {
+    switch (type) {
+      case "raffle-grand": {
+        const call = await buildClaimGrandCall({ seasonId: params.seasonId, networkKey });
+        return { calls: [call], error: null };
+      }
 
-    case "raffle-consolation":
-      return claimRaffleConsolationPrize({
-        seasonId: params.seasonId,
-        networkKey,
-      });
+      case "raffle-consolation": {
+        const call = await buildClaimConsolationCall({ seasonId: params.seasonId, networkKey });
+        return { calls: [call], error: null };
+      }
 
-    case "infofi-payout":
-      return claimInfoFiPayout({
-        marketId: params.marketId,
-        prediction: params.prediction,
-        contractAddress: params.contractAddress,
-        networkKey,
-      });
+      case "infofi-payout": {
+        const call = buildClaimPayoutCall({
+          marketId: params.marketId,
+          prediction: params.prediction,
+          account: params.account,
+          contractAddress: params.contractAddress,
+        });
+        return { calls: [call], error: null };
+      }
 
-    case "fpmm-position":
-      return claimFPMMPosition({
-        seasonId: params.seasonId,
-        player: params.player,
-        fpmmAddress: params.fpmmAddress,
-        networkKey,
-      });
+      case "fpmm-position": {
+        const call = await buildRedeemPositionCall({
+          seasonId: params.seasonId,
+          player: params.player,
+          fpmmAddress: params.fpmmAddress,
+          networkKey,
+        });
+        return { calls: [call], error: null };
+      }
 
-    default:
-      return {
-        success: false,
-        hash: null,
-        error: `Unknown claim type: ${type}`,
-      };
+      default:
+        return { calls: null, error: `Unknown claim type: ${type}` };
+    }
+  } catch (error) {
+    return { calls: null, error: error.message };
   }
 }

@@ -3,6 +3,7 @@
 
 import {
   createPublicClient,
+  encodeFunctionData,
   getAddress,
   http,
   webSocket,
@@ -10,7 +11,6 @@ import {
   encodePacked,
   parseUnits,
 } from "viem";
-import { getWalletClient } from "@wagmi/core";
 import {
   InfoFiMarketFactoryAbi,
   InfoFiPriceOracleAbi,
@@ -24,7 +24,6 @@ import {
   queryLogsInChunks,
   estimateBlockFromTimestamp,
 } from "@/utils/blockRangeQuery";
-import { config as wagmiConfig } from "@/lib/wagmiConfig";
 
 // Build a public client (HTTP) and optional WS client for subscriptions
 function buildClients(networkKey) {
@@ -240,26 +239,24 @@ export async function hasWinnerMarketOnchain({
   return created;
 }
 
-export async function createWinnerPredictionMarketTx({
+/**
+ * Build a { to, data } call object for creating a winner prediction market.
+ * Caller should pass this to executeBatch([call]).
+ */
+export function buildCreateWinnerPredictionMarketCall({
   seasonId,
   player,
   networkKey = getDefaultNetworkKey(),
 }) {
-  // Use wagmi's getWalletClient which works with WalletConnect on mobile
-  const walletClient = await getWalletClient(wagmiConfig);
-  if (!walletClient) throw new Error("Connect wallet first");
-  const from = walletClient.account?.address;
-  if (!from) throw new Error("Connect wallet first");
-
   const { factory } = getContracts(networkKey);
-  const hash = await walletClient.writeContract({
-    address: factory.address,
-    abi: factory.abi,
-    functionName: "createWinnerPredictionMarket",
-    args: [BigInt(seasonId), getAddress(player)],
-    account: from,
-  });
-  return hash;
+  return {
+    to: factory.address,
+    data: encodeFunctionData({
+      abi: factory.abi,
+      functionName: "createWinnerPredictionMarket",
+      args: [BigInt(seasonId), getAddress(player)],
+    }),
+  };
 }
 
 // Optional: subscribe to MarketCreated; falls back to polling if WS not available
@@ -765,24 +762,68 @@ export async function readFpmmPosition({
   }
 }
 
-// Place a bet (buy position) using FPMM system. Amount is SOF (18 decimals) as human string/number.
-export async function placeBetTx({
+// SimpleFPMM ABI fragment for buy + calcBuyAmount (shared by builder and read helpers)
+const fpmmBuyAbi = [
+  {
+    type: "function",
+    name: "buy",
+    inputs: [
+      { name: "buyYes", type: "bool" },
+      { name: "amountIn", type: "uint256" },
+      { name: "minAmountOut", type: "uint256" },
+    ],
+    outputs: [{ name: "amountOut", type: "uint256" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "calcBuyAmount",
+    inputs: [
+      { name: "buyYes", type: "bool" },
+      { name: "amountIn", type: "uint256" },
+    ],
+    outputs: [{ name: "amountOut", type: "uint256" }],
+    stateMutability: "view",
+  },
+];
+
+/**
+ * Build an array of { to, data } call objects for placing a bet via FPMM.
+ * Returns 1 call (buy only) or 2 calls (approve + buy) depending on current allowance.
+ * Caller should pass these to executeBatch(calls).
+ *
+ * @param {Object} params
+ * @param {boolean} params.prediction - true for YES, false for NO
+ * @param {string|number|bigint} params.amount - SOF amount (18 decimals) as human string/number or bigint
+ * @param {string} params.account - The user's wallet address (needed for allowance check)
+ * @param {string} params.fpmmAddress - FPMM market contract address
+ * @param {string} [params.networkKey] - Network key
+ * @returns {Promise<Array<{to: string, data: string}>>} Array of call objects for executeBatch
+ */
+export async function buildPlaceBetCalls({
   prediction,
   amount,
+  account,
+  fpmmAddress,
   networkKey = getDefaultNetworkKey(),
-  fpmmAddress: providedFpmmAddress,
 }) {
-  // Use wagmi's getWalletClient which works with WalletConnect on mobile
-  const walletClient = await getWalletClient(wagmiConfig);
-  if (!walletClient) throw new Error("Connect wallet first");
-  
+  if (!fpmmAddress) {
+    throw new Error(
+      "fpmmAddress is required. Market contract address must be provided from market data."
+    );
+  }
+  if (fpmmAddress === "0x0000000000000000000000000000000000000000") {
+    throw new Error("Invalid FPMM market address (zero address)");
+  }
+  if (!account) {
+    throw new Error("account address is required for allowance check");
+  }
+
   const chain = getNetworkByKey(networkKey);
   const publicClient = createPublicClient({
     chain: { id: chain.id },
     transport: http(chain.rpcUrl),
   });
-  const from = walletClient.account?.address;
-  if (!from) throw new Error("Connect wallet first");
 
   const addrs = getContractAddresses(networkKey);
   if (!addrs.SOF) throw new Error("SOF address missing");
@@ -790,51 +831,12 @@ export async function placeBetTx({
   const parsed =
     typeof amount === "bigint" ? amount : parseUnits(String(amount ?? "0"), 18);
 
-  // Get the FPMM contract address for this player/season
-  // SimpleFPMM ABI for buy function
-  const fpmmAbi = [
-    {
-      type: "function",
-      name: "buy",
-      inputs: [
-        { name: "buyYes", type: "bool" },
-        { name: "amountIn", type: "uint256" },
-        { name: "minAmountOut", type: "uint256" },
-      ],
-      outputs: [{ name: "amountOut", type: "uint256" }],
-      stateMutability: "nonpayable",
-    },
-    {
-      type: "function",
-      name: "calcBuyAmount",
-      inputs: [
-        { name: "buyYes", type: "bool" },
-        { name: "amountIn", type: "uint256" },
-      ],
-      outputs: [{ name: "amountOut", type: "uint256" }],
-      stateMutability: "view",
-    },
-  ];
-
-  // FPMM address is required - must be provided from market data
-  if (!providedFpmmAddress) {
-    throw new Error(
-      "fpmmAddress is required. Market contract address must be provided from market data."
-    );
-  }
-
-  const fpmmAddress = providedFpmmAddress;
-
-  if (fpmmAddress === "0x0000000000000000000000000000000000000000") {
-    throw new Error("Invalid FPMM market address (zero address)");
-  }
-
   // Calculate minimum amount out (allow 2% slippage)
   let minAmountOut = 0n;
   try {
     const expectedOut = await publicClient.readContract({
       address: fpmmAddress,
-      abi: fpmmAbi,
+      abi: fpmmBuyAbi,
       functionName: "calcBuyAmount",
       args: [Boolean(prediction), parsed],
     });
@@ -844,105 +846,102 @@ export async function placeBetTx({
     minAmountOut = 0n;
   }
 
-  // Check current allowance
+  const calls = [];
+
+  // Check current allowance — include approve call only if needed
   const allowance = await publicClient.readContract({
     address: addrs.SOF,
     abi: ERC20Abi,
     functionName: "allowance",
-    args: [from, fpmmAddress],
+    args: [getAddress(account), fpmmAddress],
   });
 
-  // If insufficient allowance, approve first (separate transaction)
   if ((allowance ?? 0n) < parsed) {
-    const approveHash = await walletClient.writeContract({
-      address: addrs.SOF,
-      abi: ERC20Abi,
-      functionName: "approve",
-      args: [fpmmAddress, parsed],
-      account: from,
+    calls.push({
+      to: addrs.SOF,
+      data: encodeFunctionData({
+        abi: ERC20Abi,
+        functionName: "approve",
+        args: [fpmmAddress, parsed],
+      }),
     });
-
-    // Wait for approval to be mined
-    await publicClient.waitForTransactionReceipt({ hash: approveHash });
   }
 
-  // Execute buy on FPMM (separate transaction)
-  const txHash = await walletClient.writeContract({
-    address: fpmmAddress,
-    abi: fpmmAbi,
-    functionName: "buy",
-    args: [Boolean(prediction), parsed, minAmountOut],
-    account: from,
+  // Buy call
+  calls.push({
+    to: fpmmAddress,
+    data: encodeFunctionData({
+      abi: fpmmBuyAbi,
+      functionName: "buy",
+      args: [Boolean(prediction), parsed, minAmountOut],
+    }),
   });
 
-  // Wait for buy transaction to be mined
-  await publicClient.waitForTransactionReceipt({ hash: txHash });
-  return txHash;
+  return calls;
 }
 
-// Claim payout for a market. If prediction is provided, use the two-arg overload.
-export async function claimPayoutTx({
+/**
+ * Build a { to, data } call object for claiming a market payout.
+ * Caller should pass this to executeBatch([call]).
+ *
+ * @param {Object} params
+ * @param {string|number|bigint} params.marketId - Market ID
+ * @param {boolean} [params.prediction] - If provided, uses the two-arg overload
+ * @param {string} params.account - The user's wallet address (needed for claim args)
+ * @param {string} params.contractAddress - InfoFi market contract address
+ */
+export function buildClaimPayoutCall({
   marketId,
   prediction,
-  networkKey = getDefaultNetworkKey(),
-  contractAddress, // Required parameter
+  account,
+  contractAddress,
 }) {
   if (!contractAddress) {
     throw new Error("Contract address is required");
   }
-
-  // Use wagmi's getWalletClient which works with WalletConnect on mobile
-  const walletClient = await getWalletClient(wagmiConfig);
-  if (!walletClient) throw new Error("Connect wallet first");
-  
-  const chain = getNetworkByKey(networkKey);
-  const publicClient = createPublicClient({
-    chain: { id: chain.id },
-    transport: http(chain.rpcUrl),
-  });
-  const from = walletClient.account?.address;
-  if (!from) throw new Error("Connect wallet first");
+  if (!account) {
+    throw new Error("account address is required");
+  }
 
   const idB32 = toBytes32Id(marketId);
+  const args =
+    prediction !== undefined
+      ? [idB32, getAddress(account), prediction]
+      : [idB32];
 
-  const { request } = await publicClient.simulateContract({
-    address: contractAddress,
-    abi: InfoFiMarketAbi,
-    functionName: "claimPayout",
-    args: prediction !== undefined ? [idB32, from, prediction] : [idB32],
-    account: from,
-  });
-
-  const hash = await walletClient.writeContract(request);
-  await publicClient.waitForTransactionReceipt({ hash });
-  return hash;
+  return {
+    to: contractAddress,
+    data: encodeFunctionData({
+      abi: InfoFiMarketAbi,
+      functionName: "claimPayout",
+      args,
+    }),
+  };
 }
 
 /**
- * Redeem conditional tokens after market resolution
+ * Build a { to, data } call object for redeeming conditional tokens after market resolution.
+ * Requires an async read to fetch the conditionId from the FPMM contract.
+ * Caller should pass this to executeBatch([call]).
+ *
  * @param {Object} params
  * @param {string} params.seasonId - Season ID
  * @param {string} params.player - Player address whose market to redeem from
- * @param {string} params.networkKey - Network key (LOCAL or TESTNET)
- * @returns {Promise<string>} Transaction hash
+ * @param {string} [params.fpmmAddress] - FPMM market address (looked up if not provided)
+ * @param {string} [params.networkKey] - Network key (LOCAL or TESTNET)
+ * @returns {Promise<{to: string, data: string}>} Call object for executeBatch
  */
-export async function redeemPositionTx({
+export async function buildRedeemPositionCall({
   seasonId,
   player,
   fpmmAddress: providedFpmmAddress,
   networkKey = getDefaultNetworkKey(),
 }) {
-  // Use wagmi's getWalletClient which works with WalletConnect on mobile
-  const walletClient = await getWalletClient(wagmiConfig);
-  if (!walletClient) throw new Error("Connect wallet first");
-  
   const chain = getNetworkByKey(networkKey);
   const publicClient = createPublicClient({
     chain: { id: chain.id },
     transport: http(chain.rpcUrl),
   });
-  const from = walletClient.account?.address;
-  if (!from) throw new Error("Connect wallet first");
 
   const addrs = getContractAddresses(networkKey);
   if (!addrs.CONDITIONAL_TOKENS)
@@ -951,10 +950,10 @@ export async function redeemPositionTx({
 
   // Use provided FPMM address or look it up
   let fpmmAddress = providedFpmmAddress;
-  
+
   if (!fpmmAddress) {
     if (!addrs.INFOFI_FPMM) throw new Error("INFOFI_FPMM address missing");
-    
+
     const fpmmManagerAbi = [
       {
         type: "function",
@@ -984,7 +983,7 @@ export async function redeemPositionTx({
   }
 
   // Get condition ID from FPMM
-  const fpmmAbi = [
+  const fpmmConditionAbi = [
     {
       type: "function",
       name: "conditionId",
@@ -996,7 +995,7 @@ export async function redeemPositionTx({
 
   const conditionId = await publicClient.readContract({
     address: fpmmAddress,
-    abi: fpmmAbi,
+    abi: fpmmConditionAbi,
     functionName: "conditionId",
   });
 
@@ -1020,19 +1019,17 @@ export async function redeemPositionTx({
   // indexSets: [1] = 0b01 (YES), [2] = 0b10 (NO)
   const indexSets = [1, 2];
 
-  const hash = await walletClient.writeContract({
-    address: addrs.CONDITIONAL_TOKENS,
-    abi: conditionalTokensAbi,
-    functionName: "redeemPositions",
-    args: [
-      addrs.SOF, // collateralToken
-      "0x0000000000000000000000000000000000000000000000000000000000000000", // parentCollectionId (empty)
-      conditionId, // conditionId
-      indexSets, // indexSets [1, 2]
-    ],
-    account: from,
-  });
-
-  await publicClient.waitForTransactionReceipt({ hash });
-  return hash;
+  return {
+    to: addrs.CONDITIONAL_TOKENS,
+    data: encodeFunctionData({
+      abi: conditionalTokensAbi,
+      functionName: "redeemPositions",
+      args: [
+        addrs.SOF, // collateralToken
+        "0x0000000000000000000000000000000000000000000000000000000000000000", // parentCollectionId (empty)
+        conditionId, // conditionId
+        indexSets, // indexSets [1, 2]
+      ],
+    }),
+  };
 }

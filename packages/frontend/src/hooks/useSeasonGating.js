@@ -17,12 +17,13 @@
 //    - Secure: fails loudly on any verification failure
 
 import { useMemo, useCallback } from "react";
-import { createPublicClient, http, keccak256, toHex, getAddress } from "viem";
+import { createPublicClient, http, keccak256, toHex, getAddress, encodeFunctionData } from "viem";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useAccount, useWriteContract } from "wagmi";
+import { useAccount } from "wagmi";
 import { getStoredNetworkKey } from "@/lib/wagmi";
 import { getNetworkByKey } from "@/config/networks";
 import { getContractAddresses, SEASON_GATING_ABI } from "@/config/contracts";
+import { useSmartTransactions } from "@/hooks/useSmartTransactions";
 
 /**
  * Gate type enum matching ISeasonGating.GateType
@@ -66,7 +67,7 @@ export function useSeasonGating(seasonId, options = {}) {
   const net = getNetworkByKey(netKey);
   const addr = getContractAddresses(netKey);
   const { address: connectedAddress } = useAccount();
-  const { writeContractAsync } = useWriteContract();
+  const { executeBatch } = useSmartTransactions();
   const queryClient = useQueryClient();
 
   const client = useMemo(() => {
@@ -159,12 +160,16 @@ export function useSeasonGating(seasonId, options = {}) {
         throw new Error("Wallet not connected");
       }
 
-      const hash = await writeContractAsync({
-        address: gatingAddress,
-        abi: SEASON_GATING_ABI,
-        functionName: "verifyPassword",
-        args: [sid, 0n, password],
-      });
+      const hash = await executeBatch([
+        {
+          to: gatingAddress,
+          data: encodeFunctionData({
+            abi: SEASON_GATING_ABI,
+            functionName: "verifyPassword",
+            args: [sid, 0n, password],
+          }),
+        },
+      ], { sofAmount: 0n });
 
       // Wait for tx confirmation and verify UserVerified event was emitted
       if (client && hash) {
@@ -269,7 +274,7 @@ export function useSeasonGating(seasonId, options = {}) {
     [
       gatingAddress,
       sid,
-      writeContractAsync,
+      executeBatch,
       client,
       queryClient,
       netKey,
@@ -288,12 +293,16 @@ export function useSeasonGating(seasonId, options = {}) {
         throw new Error("Wallet not connected");
       }
 
-      const hash = await writeContractAsync({
-        address: gatingAddress,
-        abi: SEASON_GATING_ABI,
-        functionName: "verifySignature",
-        args: [sid, BigInt(gateIndex), BigInt(deadline), v, r, s],
-      });
+      const hash = await executeBatch([
+        {
+          to: gatingAddress,
+          data: encodeFunctionData({
+            abi: SEASON_GATING_ABI,
+            functionName: "verifySignature",
+            args: [sid, BigInt(gateIndex), BigInt(deadline), v, r, s],
+          }),
+        },
+      ], { sofAmount: 0n });
 
       // Same dual-verification pattern as verifyPassword
       if (client && hash) {
@@ -352,7 +361,7 @@ export function useSeasonGating(seasonId, options = {}) {
 
       return hash;
     },
-    [gatingAddress, sid, writeContractAsync, client, queryClient, netKey, seasonId, connectedAddress],
+    [gatingAddress, sid, executeBatch, client, queryClient, netKey, seasonId, connectedAddress],
   );
 
   const refetch = useCallback(async () => {
