@@ -117,6 +117,13 @@ const DelegationGate = () => {
       return;
     }
 
+    // Skip MetaMask — handles EIP-7702 delegation internally via wallet_sendCalls.
+    // When we call sendCalls with atomicRequired, MetaMask auto-prompts for 7702 upgrade.
+    if (connector?.id === "metaMaskSDK" || connector?.id === "io.metamask") {
+      setHasChecked(true);
+      return;
+    }
+
     // Skip if already delegated to our contract
     if (isSOFDelegate) {
       setHasChecked(true);
