@@ -115,7 +115,9 @@ contract FullSeasonFlowTest is Test {
             raffleToken: address(0), // Will be set by the factory
             bondingCurve: address(0), // Will be set by the factory
             isActive: false,
-            isCompleted: false
+            isCompleted: false,
+            gated: false,
+            maxParticipants: 0
         });
         
         // Create the season

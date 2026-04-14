@@ -85,7 +85,7 @@ contract RaffleTest is Test {
         cfg.name = name;
         cfg.startTime = start;
         cfg.endTime = end;
-        //cfg.maxParticipants = 0; // not enforced in contract currently
+        cfg.maxParticipants = 0; // 0 = use default (10000)
         cfg.winnerCount = 2;
         cfg.grandPrizeBps = 6500; // 65% grand prize
         cfg.treasuryAddress = treasury; // fees go directly here
@@ -164,6 +164,101 @@ contract RaffleTest is Test {
 
         pos = raffle.getParticipantPosition(seasonId, player1);
         assertEq(pos.ticketCount, 6);
+    }
+
+    // ── maxParticipants tests ─────────────────────────────────────────
+
+    function _createSeasonWithMaxParticipants(uint32 maxP) internal returns (uint256 seasonId) {
+        uint256 nowTs = block.timestamp;
+        RaffleTypes.SeasonConfig memory cfg;
+        cfg.name = "MaxP Test";
+        cfg.startTime = nowTs + 1;
+        cfg.endTime = nowTs + 3 days;
+        cfg.winnerCount = 2;
+        cfg.grandPrizeBps = 6500;
+        cfg.treasuryAddress = treasury;
+        cfg.maxParticipants = maxP;
+        RaffleTypes.BondStep[] memory steps = _defaultBondSteps();
+        seasonId = raffle.createSeason(cfg, steps, 50, 70);
+    }
+
+    function testMaxParticipants_RejectsWhenFull() public {
+        uint256 seasonId = _createSeasonWithMaxParticipants(2);
+        uint256 nowTs = block.timestamp;
+
+        vm.warp(nowTs + 1);
+        raffle.startSeason(seasonId);
+
+        (RaffleTypes.SeasonConfig memory config,,,,) = raffle.getSeasonDetails(seasonId);
+        SOFBondingCurve curve = SOFBondingCurve(config.bondingCurve);
+
+        // Player 1 buys
+        vm.startPrank(player1);
+        sof.approve(address(curve), type(uint256).max);
+        curve.buyTokens(10, 20 ether);
+        vm.stopPrank();
+
+        // Player 2 buys
+        vm.startPrank(player2);
+        sof.approve(address(curve), type(uint256).max);
+        curve.buyTokens(5, 10 ether);
+        vm.stopPrank();
+
+        // Player 3 should be rejected
+        address player3 = address(6);
+        sof.mint(player3, 10000 ether);
+        vm.startPrank(player3);
+        sof.approve(address(curve), type(uint256).max);
+        vm.expectRevert(abi.encodeWithSelector(SeasonFull.selector, seasonId, uint32(2)));
+        curve.buyTokens(1, 5 ether);
+        vm.stopPrank();
+    }
+
+    function testMaxParticipants_ZeroUsesDefault() public {
+        uint256 seasonId = _createSeasonWithMaxParticipants(0);
+
+        (RaffleTypes.SeasonConfig memory config,,,,) = raffle.getSeasonDetails(seasonId);
+        assertEq(config.maxParticipants, raffle.defaultMaxParticipants());
+        assertEq(config.maxParticipants, 10000);
+    }
+
+    function testMaxParticipants_ExistingCanBuyMore() public {
+        uint256 seasonId = _createSeasonWithMaxParticipants(2);
+        uint256 nowTs = block.timestamp;
+
+        vm.warp(nowTs + 1);
+        raffle.startSeason(seasonId);
+
+        (RaffleTypes.SeasonConfig memory config,,,,) = raffle.getSeasonDetails(seasonId);
+        SOFBondingCurve curve = SOFBondingCurve(config.bondingCurve);
+
+        // Player 1 buys
+        vm.startPrank(player1);
+        sof.approve(address(curve), type(uint256).max);
+        curve.buyTokens(10, 20 ether);
+        vm.stopPrank();
+
+        // Player 2 buys
+        vm.startPrank(player2);
+        sof.approve(address(curve), type(uint256).max);
+        curve.buyTokens(5, 10 ether);
+        vm.stopPrank();
+
+        // Season is full (2 participants), but player1 can still buy more
+        vm.startPrank(player1);
+        curve.buyTokens(5, 15 ether); // should succeed — existing participant
+        vm.stopPrank();
+
+        Raffle.ParticipantPosition memory pos = raffle.getParticipantPosition(seasonId, player1);
+        assertEq(pos.ticketCount, 15);
+    }
+
+    function testMaxParticipants_CappedAtAbsoluteMax() public {
+        uint256 seasonId = _createSeasonWithMaxParticipants(100000); // exceeds ABSOLUTE_MAX_PARTICIPANTS
+
+        (RaffleTypes.SeasonConfig memory config,,,,) = raffle.getSeasonDetails(seasonId);
+        assertEq(config.maxParticipants, raffle.ABSOLUTE_MAX_PARTICIPANTS());
+        assertEq(config.maxParticipants, 50000);
     }
 }
 

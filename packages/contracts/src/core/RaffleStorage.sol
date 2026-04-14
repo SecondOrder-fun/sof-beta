@@ -76,9 +76,7 @@ abstract contract RaffleStorage {
 
     // Auto-finalization events
     event VRFFulfilled(uint256 indexed seasonId, uint256 indexed requestId);
-    event AutoFinalizeAttempted(uint256 indexed seasonId, bool success);
-    event AutoFinalizeFailed(uint256 indexed seasonId, string reason);
-    event AutoFinalizeFailedLowLevel(uint256 indexed seasonId, bytes data);
+    event SeasonReadyToFinalize(uint256 indexed seasonId);
 
     // Season cancellation events
     event SeasonCancelled(uint256 indexed seasonId);
