@@ -58,7 +58,7 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
     IVRFCoordinatorV2Plus private COORDINATOR;
     bytes32 public vrfKeyHash;
     uint256 public vrfSubscriptionId;
-    uint32 public vrfCallbackGasLimit = 500000;
+    uint32 public vrfCallbackGasLimit = 200000;
 
     // Public getter for the VRF coordinator address
     function getCoordinatorAddress() external view returns (address) {
@@ -419,32 +419,7 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
 
         state.status = SeasonStatus.Distributing;
         emit VRFFulfilled(seasonId, requestId);
-
-        // Attempt auto-finalization (failure is non-fatal, manual finalizeSeason remains as fallback)
-        _tryAutoFinalize(seasonId);
-    }
-
-    /// @notice Attempts auto-finalization with graceful failure handling
-    /// @param seasonId The season to finalize
-    /// @return success True if auto-finalization succeeded
-    function _tryAutoFinalize(uint256 seasonId) internal returns (bool success) {
-        try this._executeFinalizationExternal(seasonId) {
-            emit AutoFinalizeAttempted(seasonId, true);
-            return true;
-        } catch Error(string memory reason) {
-            emit AutoFinalizeFailed(seasonId, reason);
-            return false;
-        } catch (bytes memory lowLevelData) {
-            emit AutoFinalizeFailedLowLevel(seasonId, lowLevelData);
-            return false;
-        }
-    }
-
-    /// @notice External wrapper to enable try/catch pattern for auto-finalization
-    /// @dev Only callable by this contract
-    function _executeFinalizationExternal(uint256 seasonId) external {
-        if (msg.sender != address(this)) revert UnauthorizedCaller();
-        _executeFinalization(seasonId);
+        emit SeasonReadyToFinalize(seasonId);
     }
 
     /// @notice Internal finalization logic - selects winners, configures distributor, funds prizes

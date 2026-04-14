@@ -23,20 +23,16 @@ contract RaffleHarness is Raffle {
         fulfillRandomWords(requestId, words);
     }
 
-    /// @notice Complete VRF flow: fulfill random words (auto-finalization happens automatically)
-    /// @dev With auto-finalization, finalizeSeason is called within fulfillRandomWords
-    ///      If auto-finalize fails, season stays in Distributing and manual finalizeSeason can be called
+    /// @notice Complete VRF flow: fulfill random words then finalize separately
+    /// @dev fulfillRandomWords only stores words + transitions to Distributing.
+    ///      finalizeSeason must always be called as a separate step.
     function testFulfillAndFinalize(uint256 requestId, uint256[] calldata words) external {
         fulfillRandomWords(requestId, words);
         uint256 seasonId = vrfRequestToSeason[requestId];
-        // Only call finalizeSeason if auto-finalize failed (season still in Distributing)
-        if (seasonStates[seasonId].status == SeasonStatus.Distributing) {
-            this.finalizeSeason(seasonId);
-        }
-        // If auto-finalize succeeded, season is already Completed
+        this.finalizeSeason(seasonId);
     }
 
-    /// @notice Test VRF callback without auto-finalization (for testing failure scenarios)
+    /// @notice Test VRF callback only (no finalization)
     function testFulfillOnly(uint256 requestId, uint256[] calldata words) external {
         fulfillRandomWords(requestId, words);
     }
@@ -373,10 +369,10 @@ contract RaffleVRFTest is Test {
     }
 
     // ============================================================================
-    // AUTO-FINALIZATION TESTS
+    // VRF CALLBACK + SEPARATE FINALIZATION TESTS
     // ============================================================================
 
-    function testAutoFinalizeOnVRFCallback() public {
+    function testVRFCallbackTransitionsToDistributing() public {
         (uint256 seasonId, SOFBondingCurve curve) = _createSeason();
         vm.warp(block.timestamp + 1);
         raffle.startSeason(seasonId);
@@ -392,30 +388,34 @@ contract RaffleVRFTest is Test {
         curve.buyTokens(5, 15 ether);
         vm.stopPrank();
 
-        // Set prize pool before VRF (simulating requestSeasonEnd capturing reserves)
-        raffle.testSetPrizePool(seasonId, curve.getSofReserves());
-
         // Simulate VRF pending state
         uint256 reqId = 500;
         raffle.testRequestSeasonEnd(seasonId, reqId);
 
-        // Only call testFulfill (not testFulfillAndFinalize) to test auto-finalization
+        // Only call testFulfillOnly — no finalization
         uint256[] memory words = new uint256[](2);
         words[0] = 111;
         words[1] = 222;
 
-        // Expect VRFFulfilled and AutoFinalizeAttempted events
+        // Expect VRFFulfilled and SeasonReadyToFinalize events
         vm.expectEmit(true, true, false, false);
         emit VRFFulfilled(seasonId, reqId);
 
         raffle.testFulfillOnly(reqId, words);
 
-        // Season should be Completed due to auto-finalization (not Distributing)
+        // Season should be in Distributing (NOT Completed) — no auto-finalization
+        (,RaffleStorage.SeasonStatus status,,,) = raffle.getSeasonDetails(seasonId);
+        assertEq(uint8(status), uint8(RaffleStorage.SeasonStatus.Distributing), "Should be Distributing after VRF callback");
+
+        // Now finalize separately
+        raffle.finalizeSeason(seasonId);
+
+        // After separate finalization, season should be Completed
         address[] memory winners = raffle.getWinners(seasonId);
-        assertGt(winners.length, 0, "Auto-finalize should have selected winners");
+        assertGt(winners.length, 0, "Separate finalizeSeason should have selected winners");
     }
 
-    function testManualFinalizeStillWorksAsFallback() public {
+    function testSeparateFinalizeAfterVRF() public {
         (uint256 seasonId, SOFBondingCurve curve) = _createSeason();
         vm.warp(block.timestamp + 1);
         raffle.startSeason(seasonId);
@@ -426,10 +426,7 @@ contract RaffleVRFTest is Test {
         curve.buyTokens(5, 10 ether);
         vm.stopPrank();
 
-        // Set prize pool
-        raffle.testSetPrizePool(seasonId, curve.getSofReserves());
-
-        // Simulate VRF pending state and fulfill
+        // Simulate VRF pending state and fulfill + finalize (two-step)
         uint256 reqId = 600;
         raffle.testRequestSeasonEnd(seasonId, reqId);
 
@@ -438,16 +435,12 @@ contract RaffleVRFTest is Test {
         words[1] = 444;
         raffle.testFulfillAndFinalize(reqId, words);
 
-        // Verify season completed (either via auto-finalize or manual fallback)
+        // Verify season completed via separate finalizeSeason call
         address[] memory winners = raffle.getWinners(seasonId);
         assertGt(winners.length, 0, "Season should be finalized");
     }
 
-    function testVRFDataStoredEvenIfAutoFinalizeWouldFail() public {
-        // Create season but don't set prize distributor properly to simulate failure
-        // Actually, the distributor is set in setUp, so auto-finalize should succeed
-        // This test verifies VRF data is always stored regardless of auto-finalize outcome
-
+    function testVRFDataStoredBeforeFinalization() public {
         (uint256 seasonId, SOFBondingCurve curve) = _createSeason();
         vm.warp(block.timestamp + 1);
         raffle.startSeason(seasonId);
@@ -467,10 +460,9 @@ contract RaffleVRFTest is Test {
         words[1] = 666;
         raffle.testFulfill(reqId, words);
 
-        // VRF words should be stored (can verify via getSeasonDetails or by checking that
-        // finalizeSeason doesn't revert with "no vrf words")
-        // The fact that testFulfill didn't revert means VRF data was stored
-        // Season should be in Distributing or Completed state
+        // Season should be in Distributing — VRF data stored, awaiting finalization
+        (,RaffleStorage.SeasonStatus status,,,) = raffle.getSeasonDetails(seasonId);
+        assertEq(uint8(status), uint8(RaffleStorage.SeasonStatus.Distributing), "VRF data stored, season in Distributing");
     }
 
     // ============================================================================
@@ -653,6 +645,6 @@ contract RaffleVRFTest is Test {
 
     // Event declaration for expectEmit
     event VRFFulfilled(uint256 indexed seasonId, uint256 indexed requestId);
-    event AutoFinalizeAttempted(uint256 indexed seasonId, bool success);
+    event SeasonReadyToFinalize(uint256 indexed seasonId);
     event SeasonCancelled(uint256 indexed seasonId);
 }
