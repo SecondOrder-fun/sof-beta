@@ -13,7 +13,10 @@
     "lint": "turbo lint",
     "deploy:contracts": "turbo deploy:contracts",
     "deploy:env": "./scripts/deploy-env.sh",
-    "deploy:env:dry": "./scripts/deploy-env.sh --dry-run"
+    "deploy:env:dry": "./scripts/deploy-env.sh --dry-run",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down -v",
+    "docker:deploy": "./scripts/docker-deploy-local.sh"
   },
   "devDependencies": {
     "turbo": "^2.0.0"
