@@ -63,20 +63,6 @@ export function useSmartTransactions() {
       const caps = capabilities[chainId];
       atomicStatus = caps?.atomic?.status || null;
       hasPaymaster = !!caps?.paymasterService?.supported;
-
-      // eslint-disable-next-line no-console -- diagnostic: remove after paymaster is confirmed working
-      console.log('[SmartTx] wallet_getCapabilities →', {
-        chainId: `0x${chainId.toString(16)}`,
-        raw: caps,
-        atomicStatus,
-        hasPaymaster,
-      });
-    } else {
-      // eslint-disable-next-line no-console -- diagnostic
-      console.log('[SmartTx] wallet_getCapabilities → no data', {
-        capabilities,
-        chainId,
-      });
     }
 
     return { hasBatch, hasPaymaster, atomicStatus };

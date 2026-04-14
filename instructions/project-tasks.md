@@ -27,8 +27,8 @@ MetaMask `wallet_sendCalls` does not support `paymasterService` capability. Batc
 - [ ] Pass `erc20` context in `pm_getPaymasterData` requests via proxy
 
 ### Phase 5: Testing & Cleanup
-- [ ] Remove diagnostic `console.log` from `useSmartTransactions`
-- [ ] Add tests for capability detection and routing logic
+- [x] Remove diagnostic `console.log` from `useSmartTransactions`
+- [x] Add tests for capability detection and routing logic
 - [ ] Test all wallets: MetaMask (with/without Smart Account), Coinbase, Farcaster
 
 ## Desktop UI Audit
@@ -80,7 +80,7 @@ MetaMask `wallet_sendCalls` does not support `paymasterService` capability. Batc
 - [x] Wire DelegationGate into WagmiConfigProvider
 - [x] Deploy SOFSmartAccount to Base Sepolia
 - [ ] End-to-end testing with MetaMask + Rabby
-- [ ] Add delegation locale strings for de, es, fr, it, ja, pt, ru, zh
+- [x] Add delegation locale strings for de, es, fr, it, ja, pt, ru, zh
 
 ## Monorepo Migration (In Progress)
 
