@@ -46,6 +46,7 @@ error NoVRFWords(uint256 seasonId);
 error UserNotVerified(uint256 seasonId, address user);
 error VRFTimeoutNotReached(uint256 seasonId, uint256 requestTime, uint256 timeoutAt);
 error SeasonNotVRFPending(uint256 seasonId);
+error SeasonFull(uint256 seasonId, uint32 maxParticipants);
 
 /**
  * @title Raffle Contract
@@ -68,6 +69,8 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
     uint16 public constant VRF_REQUEST_CONFIRMATIONS = 3;
     uint256 public constant VRF_TIMEOUT = 48 hours;
     uint16 public constant MAX_WINNER_COUNT = 10;
+    uint32 public defaultMaxParticipants = 10000;
+    uint32 public constant ABSOLUTE_MAX_PARTICIPANTS = 50000;
 
     // Core
     IERC20 public immutable sofToken;
@@ -227,6 +230,13 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
 
         if (config.winnerCount == 0) revert InvalidWinnerCount(0);
         if (config.winnerCount > MAX_WINNER_COUNT) revert InvalidWinnerCount(config.winnerCount);
+
+        if (config.maxParticipants == 0) {
+            config.maxParticipants = defaultMaxParticipants;
+        }
+        if (config.maxParticipants > ABSOLUTE_MAX_PARTICIPANTS) {
+            config.maxParticipants = ABSOLUTE_MAX_PARTICIPANTS;
+        }
 
         seasonId = ++currentSeasonId;
 
@@ -557,6 +567,10 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         
         // Update state
         if (!pos.isActive) {
+            uint32 maxP = seasons[seasonId].maxParticipants;
+            if (maxP > 0 && state.totalParticipants >= maxP) {
+                revert SeasonFull(seasonId, maxP);
+            }
             state.participants.push(participant);
             state.totalParticipants++;
             pos.entryBlock = block.number;

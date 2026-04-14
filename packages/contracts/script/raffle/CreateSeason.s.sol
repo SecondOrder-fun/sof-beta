@@ -46,7 +46,8 @@ contract CreateSeason is Script {
             sponsor: address(0), // Will be set to msg.sender by contract
             isActive: false,
             isCompleted: false,
-            gated: false // No gating by default
+            gated: false, // No gating by default
+            maxParticipants: 0
         });
 
         console2.log("Config validation:");
@@ -84,7 +85,8 @@ contract CreateSeason is Script {
         }
 
         // Get bonding curve address from season
-        (,,,,,, address bondingCurveAddr,,,,,) = raffle.seasons(seasonId);
+        (RaffleTypes.SeasonConfig memory deployed,,,,) = raffle.getSeasonDetails(seasonId);
+        address bondingCurveAddr = deployed.bondingCurve;
         console2.log("Bonding curve deployed at:", bondingCurveAddr);
 
         // Note: RAFFLE_MANAGER_ROLE is now automatically granted by SeasonFactory

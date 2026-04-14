@@ -41,7 +41,8 @@ contract TestPermissionlessSeason is Script {
             sponsor: address(0), // Will be set by contract
             isActive: false,
             isCompleted: false,
-            gated: false
+            gated: false,
+            maxParticipants: 0
         });
         
         // Simple 2-step bonding curve

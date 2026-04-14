@@ -46,7 +46,8 @@ contract CreateTestSeason is Script {
             sponsor: address(0), // Will be set to msg.sender by contract
             isActive: false,
             isCompleted: false,
-            gated: false
+            gated: false,
+            maxParticipants: 0
         });
 
         // Simple bonding curve: flat price for easy testing
