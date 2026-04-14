@@ -1,4 +1,5 @@
 // src/components/infofi/MarketTypeCarousel.jsx
+import { useTranslation } from "react-i18next";
 import PropTypes from "prop-types";
 import Carousel from "@/components/common/Carousel";
 
@@ -14,6 +15,7 @@ const MarketTypeCarousel = ({
   selectedType,
   onTypeChange,
 }) => {
+  const { t } = useTranslation("market");
   const currentIndex = marketTypes.findIndex((mt) => mt.type === selectedType);
 
   const handleIndexChange = (newIndex) => {
@@ -41,7 +43,7 @@ const MarketTypeCarousel = ({
   if (marketTypes.length === 0) {
     return (
       <div className="text-center py-4 text-muted-foreground">
-        No market types available
+        {t('market_no_types')}
       </div>
     );
   }

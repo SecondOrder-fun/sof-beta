@@ -40,8 +40,8 @@ MetaMask `wallet_sendCalls` does not support `paymasterService` capability. Batc
 
 ## i18n Remaining Components
 
-- [ ] Audit all components for hardcoded strings
-- [ ] Add missing translation keys to locale files
+- [x] Audit all components for hardcoded strings
+- [x] Add missing translation keys to locale files (high + medium priority)
 - [ ] Verify all namespaces are loaded correctly
 
 ## Smart Contract Deferred Items
@@ -53,7 +53,7 @@ MetaMask `wallet_sendCalls` does not support `paymasterService` capability. Batc
 
 ### Skipped Tests
 - [ ] `test_MultiAddress_StaggeredRemovals_OrderAndReadd` in SellAllTickets.t.sol (env-gated edge case)
-- [ ] `FullSeasonFlow.t.sol.skip` (architectural circular dep between Raffle and SeasonFactory)
+- [x] `FullSeasonFlow.t.sol` (rewrote to current APIs, 3 tests pass)
 
 ## Infrastructure
 

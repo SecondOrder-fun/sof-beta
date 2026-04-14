@@ -1,4 +1,5 @@
 // src/components/infofi/ProbabilityChart.jsx
+import { useTranslation } from 'react-i18next'
 import PropTypes from 'prop-types'
 import { useOraclePriceLive } from '@/hooks/useOraclePriceLive'
 
@@ -7,6 +8,7 @@ import { useOraclePriceLive } from '@/hooks/useOraclePriceLive'
  * Minimal visual showing raffleProbability and marketSentiment as bars (bps -> %)
  */
 const ProbabilityChart = ({ marketId }) => {
+  const { t } = useTranslation('market')
   const { data } = useOraclePriceLive(marketId)
 
   const pct = (bps) => {
@@ -23,7 +25,7 @@ const ProbabilityChart = ({ marketId }) => {
     <div className="mt-2 space-y-2">
       <div>
         <div className="flex justify-between text-xs text-muted-foreground">
-          <span>Raffle Probability</span>
+          <span>{t('market_raffle_probability')}</span>
           <span>{rafflePct.toFixed(2)}%</span>
         </div>
         <div className="h-2 bg-muted rounded">
@@ -32,7 +34,7 @@ const ProbabilityChart = ({ marketId }) => {
       </div>
       <div>
         <div className="flex justify-between text-xs text-muted-foreground">
-          <span>Market Sentiment</span>
+          <span>{t('market_sentiment')}</span>
           <span>{marketPct.toFixed(2)}%</span>
         </div>
         <div className="h-2 bg-muted rounded">

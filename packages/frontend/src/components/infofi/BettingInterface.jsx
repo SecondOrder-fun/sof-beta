@@ -1,5 +1,6 @@
 // src/components/infofi/BettingInterface.jsx
 import { useState, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import PropTypes from "prop-types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +40,7 @@ const BettingInterface = ({
   isLoading = false,
   showQuestion = true,
 }) => {
+  const { t } = useTranslation("market");
   const [betSide, setBetSide] = useState("YES");
   const [betAmount, setBetAmount] = useState(10);
 
@@ -105,12 +107,12 @@ const BettingInterface = ({
           <h3 className="text-lg font-bold text-foreground">
             {isWinnerPrediction ? (
               <span>
-                Will{" "}
+                {t('market_prediction_question_prefix')}{" "}
                 <UsernameDisplay
                   address={market.player}
                   className="font-bold"
                 />{" "}
-                win Season {seasonId}?
+                {t('market_prediction_question_suffix', { seasonId })}
               </span>
             ) : (
               marketQuestion
@@ -141,7 +143,7 @@ const BettingInterface = ({
             {yesProbability}%
           </div>
           <div className="text-[11px] text-green-600 mt-1">
-            Yes {yesPayout}x
+            {t('yes')} {yesPayout}x
           </div>
         </div>
 
@@ -165,7 +167,7 @@ const BettingInterface = ({
             {noProbability}%
           </div>
           <div className="text-[11px] text-red-500 mt-1">
-            No {noPayout}x
+            {t('no')} {noPayout}x
           </div>
         </div>
       </div>
@@ -173,7 +175,7 @@ const BettingInterface = ({
       {/* Bet Amount Control */}
       <div className="space-y-2">
         <label className="block text-sm font-medium text-foreground">
-          Bet {betSide}:
+          {t('market_bet_label', { side: betSide })}
         </label>
         <div className="flex items-center gap-2">
           <Button
@@ -208,12 +210,12 @@ const BettingInterface = ({
         disabled={!isConnected || isLoading || betAmount <= 0}
         className="w-full h-12 text-lg font-bold"
       >
-        {isLoading ? "PLACING BET..." : "BET NOW"}
+        {isLoading ? t('market_placing_bet') : t('market_bet_now')}
       </Button>
 
       {!isConnected && (
         <p className="text-center text-sm text-muted-foreground">
-          Connect wallet to place bets
+          {t('market_connect_to_bet')}
         </p>
       )}
     </div>
