@@ -4,6 +4,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 
+vi.stubEnv("VITE_API_BASE_URL", "https://api.test.com");
+
 const mockSendCallsAsync = vi.fn();
 const mockSendUserOperation = vi.fn().mockResolvedValue("0xUserOpHash");
 const mockWaitForReceipt = vi.fn().mockResolvedValue({ userOpHash: "0xReceiptHash" });
@@ -20,7 +22,10 @@ vi.mock("@/config/contracts", () => ({
 }));
 vi.mock("@/lib/wagmi", () => ({ getStoredNetworkKey: () => "TESTNET", getChainConfig: () => ({ chain: { id: 84532 }, transport: {} }) }));
 vi.mock("@/lib/wagmiConfig", () => ({ config: {}, initialNetworkKey: "TESTNET" }));
-vi.mock("@/context/farcasterContext", () => ({ default: null }));
+vi.mock("@/context/farcasterContext", async () => {
+  const { createContext } = await import("react");
+  return { default: createContext({ backendJwt: "mock-jwt" }) };
+});
 vi.mock("@/hooks/useDelegationStatus", () => ({
   useDelegationStatus: vi.fn(() => ({ isSOFDelegate: false, isDelegated: false })),
 }));
@@ -70,6 +75,8 @@ describe("useSmartTransactions — Path A (delegated EOA)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSendCallsAsync.mockResolvedValue("0xBatchId");
+    mockSendUserOperation.mockResolvedValue("0xUserOpHash");
+    mockWaitForReceipt.mockResolvedValue({ userOpHash: "0xReceiptHash" });
   });
 
   it("returns isDelegated=true and needsDelegation=false when EOA is delegated", () => {

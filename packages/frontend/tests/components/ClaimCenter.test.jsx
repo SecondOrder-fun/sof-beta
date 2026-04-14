@@ -147,7 +147,7 @@ describe("ClaimCenter - raffle consolation prizes", () => {
     render(<ClaimCenter address={address} />, { wrapper: Wrapper });
 
     // Switch to Raffles tab
-    const rafflesTab = await screen.findByText("Raffle Prizes");
+    const rafflesTab = await screen.findByText("common:raffle_prizes");
     fireEvent.click(rafflesTab);
 
     // Expect a consolation prize row to appear with correct label
@@ -166,7 +166,7 @@ describe("ClaimCenter - raffle consolation prizes", () => {
 
     render(<ClaimCenter address={address} />, { wrapper: Wrapper });
 
-    const rafflesTab = await screen.findByText("Raffle Prizes");
+    const rafflesTab = await screen.findByText("common:raffle_prizes");
     fireEvent.click(rafflesTab);
 
     // Wait for button to render
@@ -187,7 +187,7 @@ describe("ClaimCenter - raffle consolation prizes", () => {
 
     render(<ClaimCenter address={address} />, { wrapper: Wrapper });
 
-    const rafflesTab = await screen.findByText("Raffle Prizes");
+    const rafflesTab = await screen.findByText("common:raffle_prizes");
     fireEvent.click(rafflesTab);
 
     // When already claimed, there should be no claim rows
