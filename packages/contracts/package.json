@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "forge build && node ../../scripts/export-abis.js",
+    "build": "forge build --skip script && node ../../scripts/export-abis.js",
     "test": "forge test",
     "deploy:local": "source env/.env.local && forge script script/deploy/Deploy.s.sol --broadcast",
     "deploy:testnet": "source env/.env.testnet && forge script script/deploy/Deploy.s.sol --broadcast --verify",
