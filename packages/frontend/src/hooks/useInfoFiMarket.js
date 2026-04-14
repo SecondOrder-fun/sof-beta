@@ -1,11 +1,12 @@
 // src/hooks/useInfoFiMarket.js
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAccount, usePublicClient, useWalletClient } from 'wagmi';
-import { formatUnits, parseUnits } from 'viem';
+import { useAccount, usePublicClient } from 'wagmi';
+import { encodeFunctionData, formatUnits, parseUnits } from 'viem';
 import { getContractAddresses } from '@/config/contracts';
 import { getStoredNetworkKey } from '@/lib/wagmi';
 import { InfoFiMarketFactoryAbi as InfoFiFactoryAbi, InfoFiMarketAbi, ERC20Abi } from '@/utils/abis';
+import { useSmartTransactions } from '@/hooks/useSmartTransactions';
 
 /**
  * Hook for interacting with InfoFi prediction markets
@@ -13,7 +14,7 @@ import { InfoFiMarketFactoryAbi as InfoFiFactoryAbi, InfoFiMarketAbi, ERC20Abi }
 export function useInfoFiMarket(marketId) {
   const { address, isConnected } = useAccount();
   const publicClient = usePublicClient();
-  const { data: walletClient } = useWalletClient();
+  const { executeBatch } = useSmartTransactions();
   const queryClient = useQueryClient();
   const netKey = getStoredNetworkKey();
   const contracts = getContractAddresses(netKey);
@@ -167,39 +168,37 @@ export function useInfoFiMarket(marketId) {
     staleTime: 10000, // 10 seconds (prices change frequently)
   });
   
-  // Mutation for placing a bet
+  // Mutation for placing a bet (approve + placeBet batched in one ERC-5792 call)
   const placeBetMutation = useMutation({
     mutationFn: async ({ outcome, amount }) => {
-      if (!isConnected || !walletClient || !marketDetails?.address) {
+      if (!isConnected || !marketDetails?.address) {
         throw new Error('Wallet not connected or market not configured');
       }
-      
+
       setError('');
-      
-      // First approve SOF token transfer to market
-      const approveHash = await walletClient.writeContract({
-        address: contracts.SOF,
-        abi: ERC20Abi,
-        functionName: 'approve',
-        args: [marketDetails.address, parseUnits(amount, 18)],
-        account: address,
-      });
-      
-      // Wait for approval transaction to be mined
-      await publicClient.waitForTransactionReceipt({ hash: approveHash });
-      
-      // Now place bet
-      const hash = await walletClient.writeContract({
-        address: marketDetails.address,
-        abi: InfoFiMarketAbi,
-        functionName: 'placeBet',
-        args: [outcome === 'yes', parseUnits(amount, 18)],
-        account: address,
-      });
-      
-      // Wait for transaction to be mined
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
-      return { hash, receipt };
+
+      const parsedAmount = parseUnits(amount, 18);
+
+      const hash = await executeBatch([
+        {
+          to: contracts.SOF,
+          data: encodeFunctionData({
+            abi: ERC20Abi,
+            functionName: 'approve',
+            args: [marketDetails.address, parsedAmount],
+          }),
+        },
+        {
+          to: marketDetails.address,
+          data: encodeFunctionData({
+            abi: InfoFiMarketAbi,
+            functionName: 'placeBet',
+            args: [outcome === 'yes', parsedAmount],
+          }),
+        },
+      ], { sofAmount: parsedAmount });
+
+      return { hash };
     },
     onSuccess: () => {
       // Invalidate queries to refresh data
@@ -215,26 +214,28 @@ export function useInfoFiMarket(marketId) {
   // Mutation for claiming winnings
   const claimWinningsMutation = useMutation({
     mutationFn: async () => {
-      if (!isConnected || !walletClient || !marketDetails?.address) {
+      if (!isConnected || !marketDetails?.address) {
         throw new Error('Wallet not connected or market not configured');
       }
-      
+
       if (!marketDetails.isResolved) {
         throw new Error('Market is not resolved yet');
       }
-      
+
       setError('');
-      
-      const hash = await walletClient.writeContract({
-        address: marketDetails.address,
-        abi: InfoFiMarketAbi,
-        functionName: 'claimWinnings',
-        account: address,
-      });
-      
-      // Wait for transaction to be mined
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
-      return { hash, receipt };
+
+      const hash = await executeBatch([
+        {
+          to: marketDetails.address,
+          data: encodeFunctionData({
+            abi: InfoFiMarketAbi,
+            functionName: 'claimWinnings',
+            args: [],
+          }),
+        },
+      ], { sofAmount: 0n });
+
+      return { hash };
     },
     onSuccess: () => {
       // Invalidate queries to refresh data

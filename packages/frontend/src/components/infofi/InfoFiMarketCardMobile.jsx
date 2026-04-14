@@ -6,7 +6,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import BettingInterface from "./BettingInterface";
 import { useAccount } from "wagmi";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { placeBetTx } from "@/services/onchainInfoFi";
+import { buildPlaceBetCalls } from "@/services/onchainInfoFi";
+import { useSmartTransactions } from "@/hooks/useSmartTransactions";
 import { useToast } from "@/hooks/useToast";
 
 /**
@@ -15,10 +16,11 @@ import { useToast } from "@/hooks/useToast";
  * @param {Object} props.market - Market data
  */
 const InfoFiMarketCardMobile = ({ market }) => {
-  const { isConnected } = useAccount();
+  const { isConnected, address } = useAccount();
   const { toast } = useToast();
   const { t } = useTranslation(["market", "common"]);
   const queryClient = useQueryClient();
+  const { executeBatch } = useSmartTransactions();
 
   // Place bet mutation
   const placeBetMutation = useMutation({
@@ -27,12 +29,13 @@ const InfoFiMarketCardMobile = ({ market }) => {
         throw new Error(t("market:marketContractAddressNotFound"));
       }
 
-      return placeBetTx({
+      const calls = await buildPlaceBetCalls({
         fpmmAddress: market.contract_address,
-        marketId: marketId,
         prediction: side === "YES",
         amount: amount,
+        account: address,
       });
+      return executeBatch(calls);
     },
     onSuccess: () => {
       toast({

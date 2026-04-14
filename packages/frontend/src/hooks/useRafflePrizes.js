@@ -6,16 +6,18 @@ import { getStoredNetworkKey } from "@/lib/wagmi";
 import { getContractAddresses } from "@/config/contracts";
 import { RafflePrizeDistributorAbi as PrizeDistributorAbi, RaffleAbi } from "@/utils/abis";
 import { getPrizeDistributor } from "@/services/onchainRaffleDistributor";
-import { executeClaim } from "@/services/claimService";
+import { buildClaimCalls } from "@/services/claimService";
 import { useToast } from "@/hooks/useToast";
 import { createPublicClient, http } from "viem";
 import { getNetworkByKey } from "@/config/networks";
+import { useSmartTransactions } from "./useSmartTransactions";
 
 export function useRafflePrizes(seasonId) {
   const netKey = getStoredNetworkKey();
   // Using on-chain distributor discovery; no direct RAFFLE usage here.
   const { address } = useAccount();
   const queryClient = useQueryClient();
+  const { executeBatch } = useSmartTransactions();
   const [isWinner, setIsWinner] = useState(false);
   const [claimableAmount, setClaimableAmount] = useState(0n);
   const [claimStatus, setClaimStatus] = useState("unclaimed"); // 'unclaimed', 'claiming', 'completed'
@@ -90,17 +92,18 @@ export function useRafflePrizes(seasonId) {
       }
 
       setClaimStatus("claiming");
-      const result = await executeClaim({
+      const result = await buildClaimCalls({
         type: "raffle-grand",
         params: { seasonId },
         networkKey: netKey,
       });
 
-      if (!result.success) {
+      if (result.error) {
         throw new Error(result.error);
       }
 
-      return result.hash;
+      const batchId = await executeBatch(result.calls);
+      return batchId;
     },
     onSuccess: () => {
       // Invalidate relevant queries

@@ -1,10 +1,12 @@
 // src/hooks/useRaffle.js
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAccount, usePublicClient, useWalletClient } from 'wagmi';
+import { useAccount, usePublicClient } from 'wagmi';
+import { encodeFunctionData } from 'viem';
 import { getContractAddresses } from '@/config/contracts';
 import { getStoredNetworkKey } from '@/lib/wagmi';
 import { RaffleAbi, ERC20Abi, SOFBondingCurveAbi } from '@/utils/abis';
+import { useSmartTransactions } from '@/hooks/useSmartTransactions';
 
 // Create aliases for consistency with code usage
 const CurveAbi = SOFBondingCurveAbi;
@@ -15,10 +17,10 @@ const CurveAbi = SOFBondingCurveAbi;
 export function useRaffle(seasonId) {
   const { address, isConnected } = useAccount();
   const publicClient = usePublicClient();
-  const { data: walletClient } = useWalletClient();
   const queryClient = useQueryClient();
   const netKey = getStoredNetworkKey();
   const contracts = getContractAddresses(netKey);
+  const { executeBatch } = useSmartTransactions();
   
   const [error, setError] = useState('');
   
@@ -183,39 +185,36 @@ export function useRaffle(seasonId) {
     staleTime: 60 * 60 * 1000, // 1 hour (winners don't change)
   });
   
-  // Mutation for buying tickets
+  // Mutation for buying tickets (batches approve + buy in a single ERC-5792 call)
   const buyTicketsMutation = useMutation({
     mutationFn: async ({ amount, maxCost }) => {
-      if (!isConnected || !walletClient || !seasonDetails?.curveAddress) {
+      if (!isConnected || !seasonDetails?.curveAddress) {
         throw new Error('Wallet not connected or curve not configured');
       }
-      
+
       setError('');
-      
-      // First approve SOF token transfer to curve
-      const approveHash = await walletClient.writeContract({
-        address: contracts.SOF,
-        abi: ERC20Abi,
-        functionName: 'approve',
-        args: [seasonDetails.curveAddress, maxCost],
-        account: address,
-      });
-      
-      // Wait for approval transaction to be mined
-      await publicClient.waitForTransactionReceipt({ hash: approveHash });
-      
-      // Now buy tickets
-      const hash = await walletClient.writeContract({
-        address: seasonDetails.curveAddress,
-        abi: CurveAbi,
-        functionName: 'buyTokens',
-        args: [amount, maxCost],
-        account: address,
-      });
-      
-      // Wait for transaction to be mined
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
-      return { hash, receipt };
+
+      // Batch approve + buyTokens into a single executeBatch call
+      const batchId = await executeBatch([
+        {
+          to: contracts.SOF,
+          data: encodeFunctionData({
+            abi: ERC20Abi,
+            functionName: 'approve',
+            args: [seasonDetails.curveAddress, maxCost],
+          }),
+        },
+        {
+          to: seasonDetails.curveAddress,
+          data: encodeFunctionData({
+            abi: CurveAbi,
+            functionName: 'buyTokens',
+            args: [amount, maxCost],
+          }),
+        },
+      ], { sofAmount: maxCost });
+
+      return { hash: batchId };
     },
     onSuccess: () => {
       // Invalidate queries to refresh data
