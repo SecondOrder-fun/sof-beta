@@ -55,7 +55,7 @@ forge test --match-contract Name    # Specific contract
 
 Always run after contract changes:
 ```bash
-pnpm build    # runs: forge build && node ../../scripts/export-abis.js
+npm run build    # runs: forge build && node ../../scripts/export-abis.js
 ```
 
 This generates `abi/index.js` with named exports consumed by frontend and backend via `@sof/contracts`.
@@ -64,13 +64,13 @@ This generates `abi/index.js` with named exports consumed by frontend and backen
 
 ```bash
 # Local (Anvil)
-pnpm run deploy:local
+npm run deploy:local
 
 # Testnet (Base Sepolia)
-pnpm run deploy:testnet
+npm run deploy:testnet
 
 # Mainnet (Base)
-pnpm run deploy:mainnet
+npm run deploy:mainnet
 ```
 
 Deploy scripts source env files from `env/` directory. After deployment:

@@ -4,8 +4,7 @@
 
 ```
 sof-beta/
-├── package.json                    # Root scripts, pnpm workspace
-├── pnpm-workspace.yaml             # Workspace package declarations
+├── package.json                    # Root scripts, npm workspace
 ├── turbo.json                      # Turborepo task pipeline
 ├── .env.shared                     # Non-secret shared vars (tracked)
 ├── .env.platform                   # Vercel/Railway tokens (gitignored)

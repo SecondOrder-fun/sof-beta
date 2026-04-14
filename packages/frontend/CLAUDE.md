@@ -34,10 +34,10 @@ Never use CSS `:active` on buttons (gets stuck on mobile/Farcaster). Use `data-[
 ## Commands
 
 ```bash
-pnpm dev          # Dev server on port 5174
-pnpm build        # Production build
-pnpm test         # Vitest
-pnpm lint         # ESLint (zero warnings enforced)
+npm run dev          # Dev server on port 5174
+npm run build        # Production build
+npm test         # Vitest
+npm run lint         # ESLint (zero warnings enforced)
 ```
 
 ## ABI Imports

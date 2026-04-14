@@ -21,15 +21,15 @@ instructions/  Project instructions and specs
 | Frontend   | React, Vite, TypeScript      |
 | Backend    | Fastify, TypeScript          |
 | Contracts  | Solidity, Foundry            |
-| Monorepo   | Turborepo, pnpm              |
+| Monorepo   | Turborepo, npm workspaces    |
 | Chain      | Base L2                      |
 | Deploy     | Vercel (frontend), Railway (backend) |
 
 ## Quick Start
 
 ```bash
-pnpm install
-pnpm dev
+npm install
+npm run dev
 ```
 
 ## License

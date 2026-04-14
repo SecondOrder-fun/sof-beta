@@ -210,7 +210,7 @@ Environment files live in `packages/backend/env/`. Key variables:
 
 ## Testing
 
-Tests use Vitest. Run with `pnpm test` from `packages/backend/`.
+Tests use Vitest. Run with `npm test` from `packages/backend/`.
 
 ```
 tests/
