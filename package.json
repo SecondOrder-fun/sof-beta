@@ -20,5 +20,6 @@
   },
   "overrides": {
     "ox": "0.14.7"
-  }
+  },
+  "packageManager": "npm@10.9.1"
 }
