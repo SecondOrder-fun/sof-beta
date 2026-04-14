@@ -86,8 +86,11 @@ contract FullSeasonFlowTest is Test {
         raffle.setPrizeDistributor(address(distributor));
 
         // Transfer SOF to players
+        // forge-lint: disable-next-line(erc20-unchecked-transfer)
         sof.transfer(player1, 10_000 ether);
+        // forge-lint: disable-next-line(erc20-unchecked-transfer)
         sof.transfer(player2, 10_000 ether);
+        // forge-lint: disable-next-line(erc20-unchecked-transfer)
         sof.transfer(player3, 10_000 ether);
 
         // Create a season

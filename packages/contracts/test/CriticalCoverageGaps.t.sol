@@ -4,9 +4,7 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import {Raffle} from "../src/core/Raffle.sol";
 import {SOFBondingCurve} from "../src/curve/SOFBondingCurve.sol";
-import {RaffleToken} from "../src/token/RaffleToken.sol";
 import {RaffleTypes} from "../src/lib/RaffleTypes.sol";
-import {ISeasonFactory} from "../src/lib/ISeasonFactory.sol";
 import {SeasonFactory} from "../src/core/SeasonFactory.sol";
 import {RafflePrizeDistributor} from "../src/core/RafflePrizeDistributor.sol";
 

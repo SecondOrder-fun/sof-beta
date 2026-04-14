@@ -4,7 +4,6 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import {Raffle} from "../src/core/Raffle.sol";
 import {SOFBondingCurve} from "../src/curve/SOFBondingCurve.sol";
-import {RaffleToken} from "../src/token/RaffleToken.sol";
 import {RaffleTypes} from "../src/lib/RaffleTypes.sol";
 import {SeasonFactory} from "../src/core/SeasonFactory.sol";
 import {RafflePrizeDistributor} from "../src/core/RafflePrizeDistributor.sol";
@@ -404,6 +403,7 @@ contract EdgeCasesTest is Test {
 
         // Create 20 unique participants
         for (uint i = 1; i <= 20; i++) {
+            // forge-lint: disable-next-line(unsafe-typecast) Safe: i is bounded 1-20 by loop
             address participant = address(uint160(0x1000 + i));
             sof.mint(participant, 100 ether);
 

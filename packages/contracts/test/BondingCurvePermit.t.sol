@@ -25,6 +25,7 @@ contract BondingCurvePermitTest is Test {
         vm.startPrank(admin);
 
         sofToken = new SOFToken("SOF", "SOF", INITIAL_SOF);
+        // forge-lint: disable-next-line(erc20-unchecked-transfer)
         sofToken.transfer(buyer, 5_000e18);
 
         curve = new SOFBondingCurve(address(sofToken), admin);

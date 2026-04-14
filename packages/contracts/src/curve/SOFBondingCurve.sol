@@ -402,7 +402,9 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
         uint256 totalReturn = 0;
 
         for (int256 i = int256(bondSteps.length) - 1; i >= 0; i--) {
+            // forge-lint: disable-next-line(unsafe-typecast) Safe: i is int256 loop var, always >= 0 here
             uint256 stepStart = i == 0 ? 0 : bondSteps[uint256(i - 1)].rangeTo;
+            // forge-lint: disable-next-line(unsafe-typecast) Safe: i is int256 loop var, always >= 0 here
             uint256 stepEnd = bondSteps[uint256(i)].rangeTo;
             if (targetSupply >= stepEnd) continue;
             // If currentSupply is below this step, keep iterating to lower steps instead of breaking
@@ -410,6 +412,7 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
             uint256 sellStart = targetSupply > stepStart ? targetSupply : stepStart;
             uint256 sellEnd = currentSupply < stepEnd ? currentSupply : stepEnd;
             uint256 tokensInStep = sellEnd - sellStart;
+            // forge-lint: disable-next-line(unsafe-typecast) Safe: i is int256 loop var >= 0; price cast widens
             totalReturn += tokensInStep * uint256(bondSteps[uint256(i)].price);
         }
 

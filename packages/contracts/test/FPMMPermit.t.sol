@@ -50,6 +50,7 @@ contract FPMMPermitTest is Test {
         fpmm.initializeReserves(500e18, 500e18);
 
         // Give trader some SOF
+        // forge-lint: disable-next-line(erc20-unchecked-transfer)
         sofToken.transfer(trader, 10_000e18);
 
         vm.stopPrank();

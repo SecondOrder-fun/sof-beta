@@ -56,7 +56,9 @@ contract TreasurySystemTest is Test {
         raffleToken.grantRole(raffleToken.BURNER_ROLE(), address(bondingCurve));
 
         // Transfer SOF to users for testing
+        // forge-lint: disable-next-line(erc20-unchecked-transfer)
         sofToken.transfer(user1, 50_000 ether);
+        // forge-lint: disable-next-line(erc20-unchecked-transfer)
         sofToken.transfer(user2, 50_000 ether);
 
         vm.stopPrank();

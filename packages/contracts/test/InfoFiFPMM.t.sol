@@ -57,6 +57,7 @@ contract InfoFiFPMMTest is Test {
         conditionId = ctf.getConditionId(address(this), questionId, 2);
 
         // Fund manager for market creation
+        // forge-lint: disable-next-line(erc20-unchecked-transfer)
         sof.transfer(address(this), INITIAL_FUNDING);
         sof.approve(address(fpmmManager), INITIAL_FUNDING);
 

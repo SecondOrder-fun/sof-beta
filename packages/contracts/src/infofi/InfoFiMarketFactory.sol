@@ -301,6 +301,7 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
         if (data.length < 4) return "Invalid revert data";
 
         // Extract the error selector (first 4 bytes) - simple high-level approach
+        // forge-lint: disable-next-line(unsafe-typecast) Safe: data.length >= 4 is checked above
         bytes4 errorSelector = bytes4(data);
 
         // Map custom error selectors to human-readable messages
@@ -344,6 +345,7 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
     function _toHexString(uint32 value) internal pure returns (string memory) {
         bytes memory buffer = new bytes(8);
         for (uint256 i = 8; i > 0; --i) {
+            // forge-lint: disable-next-line(unsafe-typecast) Safe: bitwise & 0xf guarantees value is in range 0-15
             buffer[i - 1] = _toHexChar(uint8(value & 0xf));
             value >>= 4;
         }
@@ -357,8 +359,10 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
      */
     function _toHexChar(uint8 value) internal pure returns (bytes1) {
         if (value < 10) {
+            // forge-lint: disable-next-line(unsafe-typecast) Safe: result is bounded 48-57 (ASCII '0'-'9')
             return bytes1(uint8(bytes1("0")) + value);
         }
+        // forge-lint: disable-next-line(unsafe-typecast) Safe: result is bounded 97-102 (ASCII 'a'-'f')
         return bytes1(uint8(bytes1("a")) + value - 10);
     }
 
@@ -618,6 +622,7 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
         bytes memory buffer = new bytes(digits);
         while (value != 0) {
             digits -= 1;
+            // forge-lint: disable-next-line(unsafe-typecast) Safe: 48 + (value % 10) is bounded 48-57 (ASCII '0'-'9')
             buffer[digits] = bytes1(uint8(48 + uint256(value % 10)));
             value /= 10;
         }

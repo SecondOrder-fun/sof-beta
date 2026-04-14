@@ -18,7 +18,6 @@ import "../lib/RaffleTypes.sol";
 import "../lib/IHats.sol";
 import {IRafflePrizeDistributor} from "../lib/IRafflePrizeDistributor.sol";
 import {TierConfigFailed} from "./RafflePrizeDistributor.sol";
-import {ITrackerACL} from "../lib/ITrackerACL.sol";
 import {ISeasonGating} from "../gating/ISeasonGating.sol";
 
 // ============================================================================

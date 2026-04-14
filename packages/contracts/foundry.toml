@@ -16,6 +16,19 @@ no_match_contract = "ForkTest"
 
 # See more config options https://github.com/foundry-rs/foundry/tree/master/config
 
+[lint]
+# Suppress style-only lints (naming conventions, import style, gas micro-optimizations).
+# Keep enabled: erc20-unchecked-transfer, unsafe-typecast, incorrect-shift, unused-import.
+exclude_lints = [
+  "unaliased-plain-import",
+  "mixed-case-variable",
+  "mixed-case-function",
+  "screaming-snake-case-immutable",
+  "pascal-case-struct",
+  "asm-keccak256",
+  "unsafe-cheatcode",
+]
+
 [fmt]
 line_length = 120
 
