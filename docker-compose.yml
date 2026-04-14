@@ -16,6 +16,8 @@ services:
       - "0.0.0.0"
       - "--chain-id"
       - "31337"
+      - "--hardfork"
+      - "prague"
       - "--block-time"
       - "1"
       - "--accounts"
