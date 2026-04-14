@@ -109,6 +109,11 @@
             "name": "gated",
             "type": "bool",
             "internalType": "bool"
+          },
+          {
+            "name": "maxParticipants",
+            "type": "uint32",
+            "internalType": "uint32"
           }
         ]
       },
