@@ -38,7 +38,6 @@ const DEFAULT_EXCLUDES = [
   'coverage',
   '.next',
   'package-lock.json',
-  'pnpm-lock.yaml',
   'yarn.lock',
   '*.min.js',
   '*.min.css',
