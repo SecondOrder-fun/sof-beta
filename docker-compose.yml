@@ -67,7 +67,7 @@ services:
       - "3000:3000"
     volumes:
       - .:/app
-    command: ["node", "packages/backend/fastify/server.js"]
+    command: ["sh", "scripts/docker-backend-start.sh"]
     environment:
       NETWORK: LOCAL
       PORT: "3000"
