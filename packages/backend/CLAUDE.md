@@ -47,9 +47,9 @@ For gasless relay transactions (e.g., airdrop attestations), follow the four-lay
 ## Commands
 
 ```bash
-pnpm dev            # Dev server with env loading
-pnpm test           # Vitest
-pnpm lint           # ESLint (zero warnings enforced)
-pnpm run reset:local-db    # Reset local Supabase
-pnpm run scan:historical   # Backfill missed events
+npm run dev            # Dev server with env loading
+npm test           # Vitest
+npm run lint           # ESLint (zero warnings enforced)
+npm run reset:local-db    # Reset local Supabase
+npm run scan:historical   # Backfill missed events
 ```

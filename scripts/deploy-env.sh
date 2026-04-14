@@ -3,8 +3,8 @@
 #
 # Usage:
 #   scripts/deploy-env.sh --network testnet [--dry-run]
-#   pnpm deploy:env -- --network testnet --dry-run
-#   pnpm deploy:env:dry -- --network testnet
+#   npm run deploy:env -- --network testnet --dry-run
+#   npm run deploy:env:dry -- --network testnet
 
 set -euo pipefail
 

@@ -2,7 +2,7 @@
 
 ## Monorepo Structure
 
-Three packages in a Turborepo + pnpm workspace:
+Three packages in a Turborepo + npm workspace:
 
 | Package | Name | Deployed To |
 |---------|------|------------|
@@ -41,9 +41,9 @@ No orphaned branches. One working branch at a time. Delete branches immediately 
 
 Run before every commit:
 ```bash
-pnpm test        # All package tests via turbo
-pnpm lint        # All package linters via turbo
-pnpm build       # All package builds via turbo
+npm test        # All package tests via turbo
+npm run lint        # All package linters via turbo
+npm run build       # All package builds via turbo
 ```
 
 For contracts specifically:
@@ -69,7 +69,7 @@ Always strip whitespace/newlines from env var values before pushing.
 
 When contracts change:
 1. Build contracts: `cd packages/contracts && forge build`
-2. Export ABIs: `node scripts/export-abis.js` (or `pnpm build` in contracts, which does both)
+2. Export ABIs: `node scripts/export-abis.js` (or `npm run build` in contracts, which does both)
 3. Frontend and backend automatically get updated ABIs via workspace dependency
 
 ## Contract Deploy Checklist
@@ -105,17 +105,17 @@ Update when relevant:
 
 ```bash
 # Development (all packages)
-pnpm dev
+npm run dev
 
 # Individual packages
-cd packages/frontend && pnpm dev
-cd packages/backend && pnpm dev
+cd packages/frontend && npm run dev
+cd packages/backend && npm run dev
 
 # Build
-pnpm build
+npm run build
 
 # Test
-pnpm test
+npm test
 
 # Deploy env vars (always dry-run first)
 ./scripts/deploy-env.sh --dry-run

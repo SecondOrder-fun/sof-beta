@@ -35,7 +35,7 @@
     "@radix-ui/react-toast": "^1.2.15",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@rainbow-me/rainbowkit": "^2.2.8",
-    "@sof/contracts": "workspace:*",
+    "@sof/contracts": "*",
     "@tanstack/react-query": "^5.0.0",
     "@tanstack/react-query-devtools": "^5.84.1",
     "@tanstack/react-table": "^8.21.3",
