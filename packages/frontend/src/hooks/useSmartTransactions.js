@@ -38,8 +38,12 @@ export function useSmartTransactions() {
   const chainId = useChainId();
   const { data: capabilities } = useCapabilities({ account: address });
   const { sendCallsAsync, data: batchId } = useSendCalls();
+  // Use any available JWT — Farcaster (MiniApp), SIWE wallet auth (desktop browser).
+  // Both are issued by the same backend AuthService and accepted by the session endpoint.
   const farcasterAuth = useContext(FarcasterContext);
-  const backendJwt = farcasterAuth?.backendJwt ?? null;
+  const backendJwt = farcasterAuth?.backendJwt
+    ?? localStorage.getItem('sof:jwt')
+    ?? null;
   const sessionCacheRef = useRef({ token: null, expiresAt: 0 });
   const { isSOFDelegate, isDelegated } = useDelegationStatus();
   const delegatedAccount = useDelegatedAccount();

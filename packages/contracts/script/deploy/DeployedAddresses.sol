@@ -21,4 +21,5 @@ struct DeployedAddresses {
     address prizeDistributor;
     address faucet;
     address sofSmartAccount;
+    address paymasterAddress;
 }
