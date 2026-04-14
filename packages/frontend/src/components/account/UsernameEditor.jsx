@@ -1,5 +1,6 @@
 // src/components/account/UsernameEditor.jsx
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import PropTypes from "prop-types";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -9,18 +10,19 @@ import { useSetUsername, useCheckUsername } from "@/hooks/useUsername";
  * UsernameEditor - Component for editing username
  */
 const UsernameEditor = ({ address, currentUsername, onSuccess }) => {
+  const { t } = useTranslation();
   const [newUsername, setNewUsername] = useState(currentUsername || "");
   const setUsernameMutation = useSetUsername();
   const checkUsernameMutation = useCheckUsername(newUsername);
 
   const handleSave = async () => {
     if (!newUsername.trim()) {
-      alert("Username cannot be empty");
+      alert(t('username_empty_error'));
       return;
     }
 
     if (newUsername.length < 3) {
-      alert("Username must be at least 3 characters");
+      alert(t('username_too_short_error'));
       return;
     }
 
@@ -30,7 +32,7 @@ const UsernameEditor = ({ address, currentUsername, onSuccess }) => {
     }
 
     if (checkUsernameMutation.data && !checkUsernameMutation.data.available) {
-      alert("Username is already taken");
+      alert(t('username_taken_error'));
       return;
     }
 
@@ -41,18 +43,18 @@ const UsernameEditor = ({ address, currentUsername, onSuccess }) => {
       });
       onSuccess();
     } catch (error) {
-      alert(`Error setting username: ${error.message}`);
+      alert(t('username_error_setting', { message: error.message }));
     }
   };
 
   return (
     <div className="border rounded p-3 bg-muted/50 space-y-3">
       <div>
-        <label className="text-sm font-medium text-foreground">New Username</label>
+        <label className="text-sm font-medium text-foreground">{t('username_new')}</label>
         <Input
           value={newUsername}
           onChange={(e) => setNewUsername(e.target.value)}
-          placeholder="Enter new username"
+          placeholder={t('username_placeholder')}
           disabled={setUsernameMutation.isPending}
         />
         {newUsername &&
@@ -61,13 +63,13 @@ const UsernameEditor = ({ address, currentUsername, onSuccess }) => {
             <p
               className={`text-xs mt-1 ${
                 checkUsernameMutation.data.available
-                  ? "text-green-600"
-                  : "text-red-600"
+                  ? "text-success"
+                  : "text-destructive"
               }`}
             >
               {checkUsernameMutation.data.available
-                ? "✓ Available"
-                : "✗ Already taken"}
+                ? t('username_available')
+                : t('username_already_taken')}
             </p>
           )}
       </div>
@@ -77,7 +79,7 @@ const UsernameEditor = ({ address, currentUsername, onSuccess }) => {
           disabled={setUsernameMutation.isPending || !newUsername.trim()}
           size="sm"
         >
-          {setUsernameMutation.isPending ? "Saving..." : "Save"}
+          {setUsernameMutation.isPending ? t('saving') : t('save')}
         </Button>
       </div>
     </div>
