@@ -4,6 +4,7 @@
  */
 
 import PropTypes from "prop-types";
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { ShieldAlert, Lock, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -21,34 +22,32 @@ export function AccessDeniedPage({
   requiredLevel,
   requiredGroups = [],
 }) {
+  const { t } = useTranslation();
+
   const getReasonMessage = () => {
     switch (reason) {
       case "insufficient_level":
         return {
-          title: "Access Level Required",
-          description: `You need ${getAccessLevelDisplayName(
-            requiredLevel
-          )} access to view this page.`,
+          title: t('access_level_required'),
+          description: t('access_level_description', { level: getAccessLevelDisplayName(requiredLevel) }),
           icon: Lock,
         };
       case "missing_groups":
         return {
-          title: "Group Membership Required",
-          description: `You need to be a member of one of these groups: ${requiredGroups.join(
-            ", "
-          )}`,
+          title: t('access_group_required'),
+          description: t('access_group_description', { groups: requiredGroups.join(', ') }),
           icon: Users,
         };
       case "disabled":
         return {
-          title: "Temporarily Unavailable",
-          description: "This page is currently under maintenance.",
+          title: t('access_temporarily_unavailable'),
+          description: t('access_under_maintenance'),
           icon: ShieldAlert,
         };
       default:
         return {
-          title: "Access Denied",
-          description: "You do not have permission to access this page.",
+          title: t('access_denied_title'),
+          description: t('access_denied_description'),
           icon: ShieldAlert,
         };
     }
@@ -71,18 +70,18 @@ export function AccessDeniedPage({
         <CardContent className="space-y-4">
           <div className="text-sm text-muted-foreground text-center">
             {reason === "insufficient_level" && (
-              <p>Contact an administrator to request elevated access.</p>
+              <p>{t('access_contact_admin_level')}</p>
             )}
             {reason === "missing_groups" && (
-              <p>Contact an administrator to be added to the required group.</p>
+              <p>{t('access_contact_admin_group')}</p>
             )}
           </div>
           <div className="flex flex-col gap-2">
             <Button asChild>
-              <Link to="/">Return Home</Link>
+              <Link to="/">{t('return_home')}</Link>
             </Button>
             <Button variant="outline" asChild>
-              <Link to="/account">View Account</Link>
+              <Link to="/account">{t('view_account')}</Link>
             </Button>
           </div>
         </CardContent>
