@@ -47,9 +47,9 @@ MetaMask `wallet_sendCalls` does not support `paymasterService` capability. Batc
 ## Smart Contract Deferred Items
 
 ### VRF / Multi-Winner Expansion
-- [ ] **M-1**: Increase VRF callback gas limit or defer finalization for multi-winner seasons
-- [ ] **M-2**: Validate `requestSeasonEnd` idempotency for multi-winner
-- [ ] **M-3**: Add optional `maxParticipants` to SeasonConfig
+- [x] **M-1**: Remove auto-finalization from VRF callback, reduce gas to 200K
+- [x] **M-2**: Validate `requestSeasonEnd` idempotency (verified — no changes needed)
+- [x] **M-3**: Add optional `maxParticipants` to SeasonConfig (default 10K, ceiling 50K)
 
 ### Skipped Tests
 - [ ] `test_MultiAddress_StaggeredRemovals_OrderAndReadd` in SellAllTickets.t.sol (env-gated edge case)
