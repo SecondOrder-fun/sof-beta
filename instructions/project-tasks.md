@@ -42,7 +42,7 @@ MetaMask `wallet_sendCalls` does not support `paymasterService` capability. Batc
 
 - [x] Audit all components for hardcoded strings
 - [x] Add missing translation keys to locale files (high + medium priority)
-- [ ] Verify all namespaces are loaded correctly
+- [x] Verify all namespaces are loaded correctly (added `airdrop` to ns config, synced market translations)
 
 ## Smart Contract Deferred Items
 
@@ -52,7 +52,7 @@ MetaMask `wallet_sendCalls` does not support `paymasterService` capability. Batc
 - [x] **M-3**: Add optional `maxParticipants` to SeasonConfig (default 10K, ceiling 50K)
 
 ### Skipped Tests
-- [ ] `test_MultiAddress_StaggeredRemovals_OrderAndReadd` in SellAllTickets.t.sol (env-gated edge case)
+- [x] `test_MultiAddress_StaggeredRemovals_OrderAndReadd` in SellAllTickets.t.sol (fixed `_swapPop` test helper, removed env gate)
 - [x] `FullSeasonFlow.t.sol` (rewrote to current APIs, 3 tests pass)
 
 ## Infrastructure
@@ -84,7 +84,7 @@ MetaMask `wallet_sendCalls` does not support `paymasterService` capability. Batc
 
 ## Monorepo Migration (In Progress)
 
-- [ ] Verify all builds pass (`turbo build`)
+- [ ] Verify all builds pass (`turbo build`) — turbo.json fixed (globalDotEnv → globalPassThroughEnv)
 - [ ] Verify all tests pass (`turbo test`)
 - [ ] End-to-end local dev flow validation
 - [ ] Archive old repos (sof-alpha, sof-backend, sof-allowlist, sof-docs)

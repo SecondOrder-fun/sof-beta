@@ -50,7 +50,6 @@ forge test --match-contract Name    # Specific contract
 
 ### Skipped Tests
 - `FullSeasonFlow.t.sol.skip` — circular dep between Raffle and SeasonFactory
-- `test_MultiAddress_StaggeredRemovals_OrderAndReadd` — env-gated edge case
 
 ## ABI Export
 

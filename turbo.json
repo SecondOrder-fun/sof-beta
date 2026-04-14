@@ -1,7 +1,7 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "globalEnv": ["NETWORK"],
-  "globalDotEnv": [".env.shared"],
+  "globalPassThroughEnv": ["VITE_*", "NODE_ENV"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

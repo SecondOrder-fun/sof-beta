@@ -429,27 +429,19 @@ contract SellAllTicketsTest is Test {
     // Helper: apply swap-and-pop removal on a memory array at index idx
     function _swapPop(address[] memory arr, uint256 idx) internal pure returns (address[] memory out) {
         require(arr.length > 0 && idx < arr.length, "bad idx");
-        out = new address[](arr.length - 1);
         uint256 last = arr.length - 1;
-        // place last element into idx, then copy everything except last
+        out = new address[](last);
+        // Copy all elements except the last one
         for (uint256 i = 0; i < out.length; i++) {
-            if (i == idx) {
-                out[i] = arr[last];
-            } else if (i < idx) {
-                out[i] = arr[i];
-            } else {
-                out[i] = arr[i + 1];
-            }
+            out[i] = arr[i];
+        }
+        // Overwrite the removed index with what was the last element
+        if (idx < out.length) {
+            out[idx] = arr[last];
         }
     }
 
     function test_MultiAddress_StaggeredRemovals_OrderAndReadd() public {
-        bool runKnownIssueTests = vm.envOr("RUN_KNOWN_ISSUE_TESTS", false);
-        if (!runKnownIssueTests) {
-            emit log("Skipping test_MultiAddress_StaggeredRemovals_OrderAndReadd pending raffle participant fixes");
-            return;
-        }
-
         _executeMultiAddressStaggeredRemovalsScenario();
     }
 
