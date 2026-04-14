@@ -84,7 +84,7 @@ MetaMask `wallet_sendCalls` does not support `paymasterService` capability. Batc
 
 ## Monorepo Migration (In Progress)
 
-- [ ] Verify all builds pass (`turbo build`) — turbo.json fixed (globalDotEnv → globalPassThroughEnv)
+- [x] Verify all builds pass (`turbo build`) — all 3 packages pass
 - [ ] Verify all tests pass (`turbo test`)
 - [ ] End-to-end local dev flow validation
 - [ ] Archive old repos (sof-alpha, sof-backend, sof-allowlist, sof-docs)
