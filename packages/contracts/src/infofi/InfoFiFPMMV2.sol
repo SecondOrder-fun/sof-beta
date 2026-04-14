@@ -43,6 +43,7 @@ contract SOLPToken is ERC20 {
         uint256 k = len;
         while (_i != 0) {
             k = k - 1;
+            // forge-lint: disable-next-line(unsafe-typecast) Safe: 48 + (_i % 10) is bounded 48-57 (ASCII '0'-'9')
             uint8 temp = (48 + uint8(_i - _i / 10 * 10));
             bytes1 b1 = bytes1(temp);
             bstr[k] = b1;
@@ -112,6 +113,7 @@ contract SimpleFPMM is ERC20, ReentrancyGuard {
         bytes32 collectionId = conditionalTokens.getCollectionId(
             bytes32(0), // parentCollectionId
             conditionId,
+            // forge-lint: disable-next-line(incorrect-shift) Correct: creates indexSet bitmask from outcomeIndex
             1 << outcomeIndex // indexSet: 0b01 for YES, 0b10 for NO
         );
         return conditionalTokens.getPositionId(address(collateralToken), collectionId);
@@ -561,6 +563,7 @@ contract InfoFiFPMMV2 is AccessControl, ReentrancyGuard {
         uint256 k = len;
         while (_i != 0) {
             k = k - 1;
+            // forge-lint: disable-next-line(unsafe-typecast) Safe: 48 + (_i % 10) is bounded 48-57 (ASCII '0'-'9')
             uint8 temp = (48 + uint8(_i - _i / 10 * 10));
             bytes1 b1 = bytes1(temp);
             bstr[k] = b1;

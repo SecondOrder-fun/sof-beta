@@ -3,12 +3,9 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
 import "../src/account/SOFSmartAccount.sol";
-import {IEntryPoint} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
 import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import {IERC1155Receiver} from "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
-import {ERC7579Utils} from "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
 
 contract SOFSmartAccountTest is Test {
     SOFSmartAccount public singleton;
@@ -78,6 +75,7 @@ contract SOFSmartAccountTest is Test {
     // ──── ERC-7821 Execution Mode ────
 
     function test_supportsExecutionMode_batchDefault() public view {
+        // forge-lint: disable-next-line(unsafe-typecast) Safe: literal hex value representing batch-default execution mode
         bytes32 mode = bytes32(hex"0100000000000000000000000000000000000000000000000000000000000000");
         assertTrue(singleton.supportsExecutionMode(mode));
     }

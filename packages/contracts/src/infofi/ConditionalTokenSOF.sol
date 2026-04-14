@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /**
  * @title ConditionalTokenSOF
@@ -10,6 +11,7 @@ import "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
  *      Compatible with Solidity 0.8.20, implements complete CTF interface
  */
 contract ConditionalTokenSOF {
+    using SafeERC20 for IERC20;
     mapping(bytes32 => bool) public conditionPrepared;
     mapping(bytes32 => bool) public conditionResolved;
     mapping(bytes32 => uint256[]) public payoutNumerators;
@@ -103,7 +105,7 @@ contract ConditionalTokenSOF {
         uint256 amount
     ) external {
         // Transfer collateral from sender
-        IERC20(collateralToken).transferFrom(msg.sender, address(this), amount);
+        IERC20(collateralToken).safeTransferFrom(msg.sender, address(this), amount);
 
         // Mint conditional tokens for each outcome
         for (uint256 i = 0; i < partition.length; i++) {
@@ -129,7 +131,7 @@ contract ConditionalTokenSOF {
         }
 
         // Transfer collateral back to sender
-        IERC20(collateralToken).transfer(msg.sender, amount);
+        IERC20(collateralToken).safeTransfer(msg.sender, amount);
     }
 
     function redeemPositions(
@@ -162,7 +164,7 @@ contract ConditionalTokenSOF {
 
         // Transfer collateral payout to sender
         if (totalPayout > 0) {
-            IERC20(collateralToken).transfer(msg.sender, totalPayout);
+            IERC20(collateralToken).safeTransfer(msg.sender, totalPayout);
         }
     }
 }

@@ -37,6 +37,7 @@ contract SOFFaucetTest is Test {
         faucet = new SOFFaucet(address(sofToken), AMOUNT_PER_REQUEST, COOLDOWN_PERIOD, allowedChainIds);
 
         // Fund faucet
+        // forge-lint: disable-next-line(erc20-unchecked-transfer)
         sofToken.transfer(address(faucet), FAUCET_SUPPLY);
 
         vm.stopPrank();
@@ -123,6 +124,7 @@ contract SOFFaucetTest is Test {
     function testContributeKarma() public {
         // Give user1 some tokens
         vm.prank(owner);
+        // forge-lint: disable-next-line(erc20-unchecked-transfer)
         sofToken.transfer(user1, 1000 * 10 ** 18);
 
         // User1 approves faucet to spend their tokens
@@ -145,6 +147,7 @@ contract SOFFaucetTest is Test {
     function testContributeKarmaZeroAmount() public {
         // Give user1 some tokens
         vm.prank(owner);
+        // forge-lint: disable-next-line(erc20-unchecked-transfer)
         sofToken.transfer(user1, 1000 * 10 ** 18);
 
         // User1 approves faucet to spend their tokens
