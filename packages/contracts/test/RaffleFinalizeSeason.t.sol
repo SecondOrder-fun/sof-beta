@@ -132,15 +132,16 @@ contract RaffleFinalizeSeasonTest is Test {
         vm.stopPrank();
 
 
-        // Simulate VRF callback: VRFPending -> auto-finalize triggers Completed
+        // Simulate VRF callback: VRFPending -> Distributing (no auto-finalize)
         uint256 reqId = 42;
         uint256[] memory words = new uint256[](2);
         words[0] = 777;
         words[1] = 888;
         raffle.testSetVrfState(seasonId, reqId, words);
 
-        // With auto-finalization, the season should now be Completed (not Distributing)
-        // The VRF callback automatically triggers finalization
+        // VRF callback transitions to Distributing, then finalizeSeason completes it
+        raffle.finalizeSeason(seasonId);
+
         (
             ,
             RaffleStorage.SeasonStatus status,
@@ -149,8 +150,7 @@ contract RaffleFinalizeSeasonTest is Test {
             uint256 totalPrizePool
         ) = raffle.getSeasonDetails(seasonId);
 
-        // Auto-finalization completes the season during VRF callback
-        assertEq(uint8(status), uint8(RaffleStorage.SeasonStatus.Completed), "Auto-finalize should complete season");
+        assertEq(uint8(status), uint8(RaffleStorage.SeasonStatus.Completed), "Should be Completed after finalize");
         assertEq(totalParticipants, 2);
         assertEq(totalTickets, 15);
 
