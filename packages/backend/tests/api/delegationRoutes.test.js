@@ -10,8 +10,8 @@ process.env.BACKEND_WALLET_PRIVATE_KEY =
 process.env.BACKEND_WALLET_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 
 // --- Mock constants ---
-const MOCK_SOF_SMART_ACCOUNT = "0xSOFSmartAccount";
-const MOCK_USER_ADDRESS = "0xUserEOA";
+const MOCK_SOF_SMART_ACCOUNT = "0x1234567890abcdef1234567890abcdef12345678";
+const MOCK_USER_ADDRESS = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd";
 const MOCK_TX_HASH = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
 
 // --- Redis mock ---
