@@ -1,4 +1,5 @@
 // src/components/infofi/SeasonCarousel.jsx
+import { useTranslation } from "react-i18next";
 import PropTypes from "prop-types";
 import Carousel from "@/components/common/Carousel";
 import { Activity } from "lucide-react";
@@ -11,6 +12,7 @@ import { Activity } from "lucide-react";
  * @param {function} props.onSeasonChange - Callback when season changes
  */
 const SeasonCarousel = ({ seasons = [], selectedSeasonId, onSeasonChange }) => {
+  const { t } = useTranslation("market");
   const currentIndex = seasons.findIndex(
     (s) => String(s.id ?? s.seasonId) === String(selectedSeasonId)
   );
@@ -46,7 +48,7 @@ const SeasonCarousel = ({ seasons = [], selectedSeasonId, onSeasonChange }) => {
   if (seasons.length === 0) {
     return (
       <div className="text-center py-4 text-muted-foreground">
-        No seasons available
+        {t('market_no_seasons')}
       </div>
     );
   }

@@ -6,6 +6,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import PropTypes from 'prop-types';
 import { useMarketEvents } from '../hooks/useMarketEvents';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -27,6 +28,7 @@ export function MarketCreationProgress({
   seasonId,
   enabled = true,
 }) {
+  const { t } = useTranslation('market');
   const [marketStatus, setMarketStatus] = useState('idle'); // idle, started, confirmed, failed
   const [marketData, setMarketData] = useState(null);
   const [errorMessage, setErrorMessage] = useState(null);
@@ -74,28 +76,28 @@ export function MarketCreationProgress({
       case 'started':
         return {
           icon: <Clock className="h-5 w-5 text-blue-500" />,
-          label: 'Creating Market',
+          label: t('market_creating'),
           color: 'bg-blue-50 border-blue-200',
           badge: 'in-progress',
         };
       case 'confirmed':
         return {
           icon: <CheckCircle className="h-5 w-5 text-green-500" />,
-          label: 'Market Created',
+          label: t('marketCreated'),
           color: 'bg-green-50 border-green-200',
           badge: 'success',
         };
       case 'failed':
         return {
           icon: <AlertCircle className="h-5 w-5 text-red-500" />,
-          label: 'Creation Failed',
+          label: t('market_creation_failed'),
           color: 'bg-red-50 border-red-200',
           badge: 'error',
         };
       default:
         return {
           icon: <Zap className="h-5 w-5 text-gray-400" />,
-          label: 'Waiting',
+          label: t('waiting'),
           color: 'bg-gray-50 border-gray-200',
           badge: 'idle',
         };
@@ -127,14 +129,14 @@ export function MarketCreationProgress({
             }`}
           />
           <span className="text-muted-foreground">
-            {isConnected ? 'Connected to updates' : 'Disconnected'}
+            {isConnected ? t('connected_to_updates') : t('disconnected')}
           </span>
         </div>
 
         {/* Connection Error */}
         {connectionError && (
           <div className="rounded-md bg-red-50 p-2 text-sm text-red-700">
-            Connection error: {connectionError}
+            {t('market_connection_error', { error: connectionError })}
           </div>
         )}
 
@@ -142,24 +144,24 @@ export function MarketCreationProgress({
         {marketData && (
           <div className="space-y-2 rounded-md bg-white p-3 text-sm">
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Season:</span>
+              <span className="text-muted-foreground">{t('market_season')}:</span>
               <span className="font-medium">{marketData.seasonId}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Player:</span>
+              <span className="text-muted-foreground">{t('player')}:</span>
               <span className="font-mono text-xs">
                 {marketData.player.slice(0, 6)}...{marketData.player.slice(-4)}
               </span>
             </div>
             {marketData.probability && (
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Probability:</span>
+                <span className="text-muted-foreground">{t('market_probability')}:</span>
                 <span className="font-medium">{marketData.probability} bps</span>
               </div>
             )}
             {marketData.transactionHash && (
               <div className="flex justify-between">
-                <span className="text-muted-foreground">TX Hash:</span>
+                <span className="text-muted-foreground">{t('tx_hash')}:</span>
                 <span className="font-mono text-xs">
                   {marketData.transactionHash.slice(0, 10)}...
                 </span>
@@ -171,7 +173,7 @@ export function MarketCreationProgress({
         {/* Error Message */}
         {errorMessage && (
           <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">
-            <p className="font-medium">Error:</p>
+            <p className="font-medium">{t('error')}:</p>
             <p className="mt-1">{errorMessage}</p>
           </div>
         )}
@@ -179,7 +181,7 @@ export function MarketCreationProgress({
         {/* Event History */}
         {playerEvents.length > 0 && (
           <div className="space-y-2">
-            <p className="text-xs font-medium text-muted-foreground">Recent Events:</p>
+            <p className="text-xs font-medium text-muted-foreground">{t('market_recent_events')}:</p>
             <div className="max-h-32 space-y-1 overflow-y-auto">
               {playerEvents.slice(-5).map((event, idx) => (
                 <div
@@ -198,14 +200,10 @@ export function MarketCreationProgress({
 
         {/* Status Message */}
         <div className="text-xs text-muted-foreground">
-          {marketStatus === 'idle' &&
-            'Waiting for market creation to be triggered...'}
-          {marketStatus === 'started' &&
-            'Market creation submitted via Paymaster. Waiting for confirmation...'}
-          {marketStatus === 'confirmed' &&
-            'Market successfully created! You can now trade on this market.'}
-          {marketStatus === 'failed' &&
-            'Market creation failed. Please try again or contact support.'}
+          {marketStatus === 'idle' && t('market_status_idle')}
+          {marketStatus === 'started' && t('market_status_started')}
+          {marketStatus === 'confirmed' && t('market_status_confirmed')}
+          {marketStatus === 'failed' && t('market_status_failed')}
         </div>
       </CardContent>
     </Card>

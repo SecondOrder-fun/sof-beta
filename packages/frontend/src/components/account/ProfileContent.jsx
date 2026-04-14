@@ -125,11 +125,11 @@ const ProfileContent = ({ address, isOwnProfile }) => {
           <CardContent>
             <Tabs defaultValue="sof" className="w-full">
               <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="sof">SOF Holdings</TabsTrigger>
+                <TabsTrigger value="sof">{t('common:account_sof_holdings')}</TabsTrigger>
                 <TabsTrigger value="raffle">
                   {t("account:raffleHoldings")}
                 </TabsTrigger>
-                <TabsTrigger value="infofi">InfoFi Positions</TabsTrigger>
+                <TabsTrigger value="infofi">{t('common:account_infofi_positions')}</TabsTrigger>
               </TabsList>
 
               <TabsContent value="sof" className="mt-4">

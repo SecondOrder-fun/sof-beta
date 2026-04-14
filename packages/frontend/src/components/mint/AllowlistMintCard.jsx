@@ -5,6 +5,7 @@
 
 import { useState } from "react";
 import PropTypes from "prop-types";
+import { useTranslation } from "react-i18next";
 import { useAccount } from "wagmi";
 import { formatUnits } from "viem";
 import {
@@ -34,6 +35,7 @@ import { useMintClubNFT } from "@/hooks/useMintClubNFT";
  * @param {boolean} props.showDebugInfo - Show debug information
  */
 export function AllowlistMintCard({ drop = null, showDebugInfo = false }) {
+  const { t } = useTranslation();
   const { address, isConnected } = useAccount();
   const { isAllowlisted, isLoading: allowlistLoading } = useAllowlist();
 
@@ -112,7 +114,7 @@ export function AllowlistMintCard({ drop = null, showDebugInfo = false }) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5" />
-            NFT Mint
+            {t('mint_nft_mint')}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -134,7 +136,7 @@ export function AllowlistMintCard({ drop = null, showDebugInfo = false }) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5" />
-            NFT Mint
+            {t('mint_nft_mint')}
           </CardTitle>
           <CardDescription>
             Connect your wallet to check eligibility
@@ -157,7 +159,7 @@ export function AllowlistMintCard({ drop = null, showDebugInfo = false }) {
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5" />
-            NFT Mint
+            {t('mint_nft_mint')}
           </CardTitle>
           {isAllowlisted ? (
             <Badge
@@ -213,20 +215,20 @@ export function AllowlistMintCard({ drop = null, showDebugInfo = false }) {
             {/* Stats */}
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div className="space-y-1">
-                <p className="text-muted-foreground">Supply</p>
+                <p className="text-muted-foreground">{t('mint_supply')}</p>
                 <p className="font-mono font-medium">
                   {totalSupply.toString()} /{" "}
                   {maxSupply > 0n ? maxSupply.toString() : "∞"}
                 </p>
               </div>
               <div className="space-y-1">
-                <p className="text-muted-foreground">Your Balance</p>
+                <p className="text-muted-foreground">{t('mint_your_balance')}</p>
                 <p className="font-mono font-medium">
                   {userBalance.toString()}
                 </p>
               </div>
               <div className="col-span-2 space-y-1">
-                <p className="text-muted-foreground">Price</p>
+                <p className="text-muted-foreground">{t('mint_price')}</p>
                 <p className="font-mono font-medium text-lg">
                   {formatPrice(priceForNextMint)}
                 </p>
@@ -237,7 +239,7 @@ export function AllowlistMintCard({ drop = null, showDebugInfo = false }) {
             {isSoldOut && (
               <Alert>
                 <AlertDescription>
-                  This NFT collection is sold out.
+                  {t('mint_sold_out')}
                 </AlertDescription>
               </Alert>
             )}
@@ -246,8 +248,7 @@ export function AllowlistMintCard({ drop = null, showDebugInfo = false }) {
             {!isAllowlisted && !isSoldOut && (
               <Alert variant="destructive">
                 <AlertDescription>
-                  Your wallet is not on the allowlist. Add the app to get
-                  allowlisted.
+                  {t('mint_not_allowlisted')}
                 </AlertDescription>
               </Alert>
             )}
@@ -267,13 +268,13 @@ export function AllowlistMintCard({ drop = null, showDebugInfo = false }) {
                   {mintState.status === "signing" && (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Waiting for signature...
+                      {t('waiting_for_signature')}
                     </>
                   )}
                   {mintState.status === "pending" && (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Minting...
+                      {t('mint_minting')}
                     </>
                   )}
                   {(mintState.status === "idle" ||
@@ -281,7 +282,7 @@ export function AllowlistMintCard({ drop = null, showDebugInfo = false }) {
                     mintState.status === "error") && (
                     <>
                       <Sparkles className="h-4 w-4 mr-2" />
-                      Mint NFT
+                      {t('mint_nft')}
                     </>
                   )}
                 </Button>
@@ -291,7 +292,7 @@ export function AllowlistMintCard({ drop = null, showDebugInfo = false }) {
                   <Alert className="bg-green-500/10 border-green-500/50">
                     <CheckCircle className="h-4 w-4 text-green-500" />
                     <AlertDescription className="text-green-400">
-                      NFT minted successfully!
+                      {t('mint_success')}
                       {mintState.txHash && (
                         <a
                           href={`https://basescan.org/tx/${mintState.txHash}`}
@@ -299,7 +300,7 @@ export function AllowlistMintCard({ drop = null, showDebugInfo = false }) {
                           rel="noopener noreferrer"
                           className="ml-2 inline-flex items-center text-green-300 hover:text-green-200"
                         >
-                          View tx <ExternalLink className="h-3 w-3 ml-1" />
+                          {t('view_tx')} <ExternalLink className="h-3 w-3 ml-1" />
                         </a>
                       )}
                     </AlertDescription>
@@ -322,7 +323,7 @@ export function AllowlistMintCard({ drop = null, showDebugInfo = false }) {
               onClick={refetch}
               className="w-full"
             >
-              Refresh Data
+              {t('refresh_data')}
             </Button>
           </>
         )}

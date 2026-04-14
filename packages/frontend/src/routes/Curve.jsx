@@ -1,5 +1,6 @@
 // src/routes/Curve.jsx
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useRaffleRead, useSeasonDetailsQuery } from "@/hooks/useRaffleRead";
 import { useCurveState } from "@/hooks/useCurveState";
 import CurveGraph from "@/components/curve/CurveGraph";
@@ -23,6 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
  * - Tabs: Transactions | Token Info | Token Holders
  */
 const Curve = () => {
+  const { t } = useTranslation();
   const { currentSeasonQuery } = useRaffleRead();
   const seasonId = currentSeasonQuery.data ?? null;
   const seasonDetailsQuery = useSeasonDetailsQuery(seasonId);
@@ -61,19 +63,19 @@ const Curve = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Bonding Curve</h1>
+          <h1 className="text-2xl font-bold">{t('market_bonding_curve')}</h1>
           <p className="text-sm text-muted-foreground">
             Raffle ticket token bonding curve overview
           </p>
         </div>
         <div className="text-right text-sm">
           <div>
-            Current / Max Supply:{" "}
+            {t('market_current_max_supply')}{" "}
             <span className="font-mono">{header.current}</span> /{" "}
             <span className="font-mono">{header.max}</span>
           </div>
           <div>
-            Contract:{" "}
+            {t('contract')}{" "}
             <span className="font-mono">{bondingCurveAddress || "—"}</span>
           </div>
         </div>
@@ -82,9 +84,9 @@ const Curve = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Bonding Curve Graph</CardTitle>
+            <CardTitle>{t('market_curve_graph')}</CardTitle>
             <CardDescription>
-              Step progress, current price and supply
+              {t('market_curve_graph_desc')}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -98,8 +100,8 @@ const Curve = () => {
 
         <Card>
           <CardHeader>
-            <CardTitle>Buy / Sell</CardTitle>
-            <CardDescription>Purchase or sell raffle tickets</CardDescription>
+            <CardTitle>{t('market_buy_sell')}</CardTitle>
+            <CardDescription>{t('market_buy_sell_desc')}</CardDescription>
           </CardHeader>
           <CardContent>
             <BuySellWidget
@@ -112,14 +114,14 @@ const Curve = () => {
 
       <Card>
         <CardHeader>
-          <CardTitle>Activity & Details</CardTitle>
+          <CardTitle>{t('market_activity_details')}</CardTitle>
         </CardHeader>
         <CardContent>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList>
-              <TabsTrigger value="transactions">Transactions</TabsTrigger>
-              <TabsTrigger value="token-info">Token Info</TabsTrigger>
-              <TabsTrigger value="holders">Token Holders</TabsTrigger>
+              <TabsTrigger value="transactions">{t('transactions')}</TabsTrigger>
+              <TabsTrigger value="token-info">{t('market_token_info')}</TabsTrigger>
+              <TabsTrigger value="holders">{t('market_token_holders')}</TabsTrigger>
             </TabsList>
             <TabsContent value="transactions">
               <TransactionsTab bondingCurveAddress={bondingCurveAddress} />

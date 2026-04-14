@@ -223,7 +223,7 @@ const DesktopMarketsIndex = () => {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search by player address..."
+            placeholder={t('market_search_placeholder')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-10"
@@ -237,13 +237,13 @@ const DesktopMarketsIndex = () => {
           <TabsList className="grid w-full sm:w-auto grid-cols-3">
             <TabsTrigger value="all" className="gap-1">
               <Filter className="h-3 w-3" />
-              All
+              {t('all')}
             </TabsTrigger>
             <TabsTrigger value="active" className="gap-1">
               <TrendingUp className="h-3 w-3" />
-              Active
+              {t('active')}
             </TabsTrigger>
-            <TabsTrigger value="settled">Settled</TabsTrigger>
+            <TabsTrigger value="settled">{t('market_settled')}</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
@@ -251,9 +251,8 @@ const DesktopMarketsIndex = () => {
       {/* Results count */}
       {!isLoading && totalMarketsCount > 0 && (
         <div className="mb-4 text-sm text-muted-foreground">
-          Showing {totalMarketsCount}{" "}
-          {totalMarketsCount === 1 ? "market" : "markets"}
-          {searchQuery && ` matching "${searchQuery}"`}
+          {t('market_showing_count', { count: totalMarketsCount })}
+          {searchQuery && ` ${t('market_matching_search', { query: searchQuery })}`}
         </div>
       )}
 
@@ -269,14 +268,14 @@ const DesktopMarketsIndex = () => {
       {error && (
         <Card className="border-red-200 bg-red-50">
           <CardContent className="py-6">
-            <p className="text-red-600 text-center">Failed to load markets</p>
+            <p className="text-red-600 text-center">{t('market_load_failed')}</p>
             <div className="text-center mt-4">
               <button
                 type="button"
                 className="px-3 py-1 text-sm rounded bg-red-100 hover:bg-red-200 text-red-700"
                 onClick={() => refetch?.()}
               >
-                Retry
+                {t('retry')}
               </button>
             </div>
           </CardContent>
@@ -290,11 +289,11 @@ const DesktopMarketsIndex = () => {
             <Card className="text-center py-12">
               <CardContent className="space-y-4">
                 <div className="text-6xl mb-4">📊</div>
-                <h3 className="text-lg font-semibold">No Markets Found</h3>
+                <h3 className="text-lg font-semibold">{t('market_no_results')}</h3>
                 <p className="text-muted-foreground max-w-md mx-auto">
                   {searchQuery
-                    ? `No markets match your search "${searchQuery}". Try a different search term.`
-                    : "No prediction markets available yet. Markets are created automatically when players cross the 1% threshold."}
+                    ? t('market_no_search_results', { query: searchQuery })
+                    : t('market_none_yet')}
                 </p>
                 {searchQuery && (
                   <Button
@@ -302,7 +301,7 @@ const DesktopMarketsIndex = () => {
                     onClick={() => setSearchQuery("")}
                     className="mt-4"
                   >
-                    Clear Search
+                    {t('market_clear_search')}
                   </Button>
                 )}
               </CardContent>

@@ -360,8 +360,8 @@ const ClaimCenter = ({ address, title, description }) => {
         {address && (
           <Tabs value={tabValue} onValueChange={setTabValue} className="w-full">
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="raffles">Raffle Prizes</TabsTrigger>
-              <TabsTrigger value="markets">Prediction Markets</TabsTrigger>
+              <TabsTrigger value="raffles">{t('common:raffle_prizes')}</TabsTrigger>
+              <TabsTrigger value="markets">{t('common:prediction_markets')}</TabsTrigger>
             </TabsList>
 
             <TabsContent value="markets" className="space-y-4">

@@ -5,6 +5,7 @@
 
 import { useState } from "react";
 import PropTypes from "prop-types";
+import { useTranslation } from "react-i18next";
 import { useAccount } from "wagmi";
 import {
   Card,
@@ -33,6 +34,7 @@ import { useMintClubAirdrop } from "@/hooks/useMintClubAirdrop";
  * @param {boolean} props.showDebugInfo - Show debug information
  */
 export function GiftClaimCard({ drop = null, showDebugInfo = false }) {
+  const { t } = useTranslation();
   const { address, isConnected } = useAccount();
 
   // Get airdrop ID and network from drop or use defaults
@@ -246,28 +248,28 @@ export function GiftClaimCard({ drop = null, showDebugInfo = false }) {
             {/* Stats */}
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div className="space-y-1">
-                <p className="text-muted-foreground">Claims</p>
+                <p className="text-muted-foreground">{t('mint_claims')}</p>
                 <p className="font-mono font-medium">
                   {claimCount} / {walletCount}
                 </p>
               </div>
               <div className="space-y-1">
-                <p className="text-muted-foreground">Remaining</p>
+                <p className="text-muted-foreground">{t('mint_remaining')}</p>
                 <p className="font-mono font-medium">{claimsRemaining}</p>
               </div>
               <div className="space-y-1">
-                <p className="text-muted-foreground">Amount per Claim</p>
+                <p className="text-muted-foreground">{t('mint_amount_per_claim')}</p>
                 <p className="font-mono font-medium">
                   {amountPerClaim.toString()} NFT(s)
                 </p>
               </div>
               <div className="space-y-1">
-                <p className="text-muted-foreground">Status</p>
+                <p className="text-muted-foreground">{t('status')}</p>
                 <p className="font-medium">
                   {isActive ? (
-                    <span className="text-green-400">Active</span>
+                    <span className="text-green-400">{t('active')}</span>
                   ) : (
-                    <span className="text-yellow-400">Inactive</span>
+                    <span className="text-yellow-400">{t('inactive')}</span>
                   )}
                 </p>
               </div>
@@ -290,7 +292,7 @@ export function GiftClaimCard({ drop = null, showDebugInfo = false }) {
             {/* Sold Out */}
             {claimsRemaining <= 0 && !userClaimed && (
               <Alert>
-                <AlertDescription>All NFTs have been claimed.</AlertDescription>
+                <AlertDescription>{t('mint_all_claimed')}</AlertDescription>
               </Alert>
             )}
 
@@ -339,13 +341,13 @@ export function GiftClaimCard({ drop = null, showDebugInfo = false }) {
                   {claimState.status === "signing" && (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Waiting for signature...
+                      {t('waiting_for_signature')}
                     </>
                   )}
                   {claimState.status === "pending" && (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Claiming...
+                      {t('mint_claiming')}
                     </>
                   )}
                   {(claimState.status === "idle" ||
@@ -353,7 +355,7 @@ export function GiftClaimCard({ drop = null, showDebugInfo = false }) {
                     claimState.status === "error") && (
                     <>
                       <Gift className="h-4 w-4 mr-2" />
-                      Claim Free NFT
+                      {t('mint_claim_free')}
                     </>
                   )}
                 </Button>
@@ -363,7 +365,7 @@ export function GiftClaimCard({ drop = null, showDebugInfo = false }) {
                   <Alert className="bg-green-500/10 border-green-500/50">
                     <CheckCircle className="h-4 w-4 text-green-500" />
                     <AlertDescription className="text-green-400">
-                      NFT claimed successfully!
+                      {t('mint_claim_success')}
                       {claimState.txHash && (
                         <a
                           href={`https://basescan.org/tx/${claimState.txHash}`}
@@ -371,7 +373,7 @@ export function GiftClaimCard({ drop = null, showDebugInfo = false }) {
                           rel="noopener noreferrer"
                           className="ml-2 inline-flex items-center text-green-300 hover:text-green-200"
                         >
-                          View tx <ExternalLink className="h-3 w-3 ml-1" />
+                          {t('view_tx')} <ExternalLink className="h-3 w-3 ml-1" />
                         </a>
                       )}
                     </AlertDescription>
@@ -394,7 +396,7 @@ export function GiftClaimCard({ drop = null, showDebugInfo = false }) {
               onClick={refetch}
               className="w-full"
             >
-              Refresh Data
+              {t('refresh_data')}
             </Button>
           </>
         )}
