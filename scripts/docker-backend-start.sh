@@ -1,28 +1,40 @@
 #!/bin/sh
 # Docker backend startup script
 # Waits for contracts to be deployed on Anvil, then starts Fastify
+# Reads Raffle address from deployments/local.json dynamically
 
-RAFFLE_ADDRESS="${RAFFLE_ADDRESS:-0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9}"
 RPC_URL="${RPC_URL:-http://anvil:8545}"
+DEPLOYMENTS_FILE="/app/packages/contracts/deployments/local.json"
+MAX_ATTEMPTS=300  # 5 minutes
 
 echo "[backend] Waiting for contracts to be deployed on $RPC_URL..."
+echo "[backend] Reading Raffle address from $DEPLOYMENTS_FILE"
 
-# Poll until the Raffle contract has code (contracts deployed)
 ATTEMPTS=0
-MAX_ATTEMPTS=120  # 2 minutes
 while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
-  # Use node to check if contract has code (cast not available in node:alpine)
-  CODE=$(node -e "
-    fetch('$RPC_URL', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({jsonrpc:'2.0',method:'eth_getCode',params:['$RAFFLE_ADDRESS','latest'],id:1})
-    }).then(r=>r.json()).then(d=>console.log(d.result||'0x')).catch(()=>console.log('0x'))
+  # Read the Raffle address from local.json each iteration
+  # (it gets updated by DeployAll after deployment)
+  RAFFLE_ADDRESS=$(node -e "
+    try {
+      const d = JSON.parse(require('fs').readFileSync('$DEPLOYMENTS_FILE','utf8'));
+      console.log(d.contracts?.Raffle || '');
+    } catch { console.log(''); }
   " 2>/dev/null)
 
-  if [ "$CODE" != "0x" ] && [ -n "$CODE" ] && [ ${#CODE} -gt 4 ]; then
-    echo "[backend] Contracts detected on-chain. Starting Fastify..."
-    break
+  if [ -n "$RAFFLE_ADDRESS" ] && [ "$RAFFLE_ADDRESS" != "" ]; then
+    # Check if the Raffle contract has code on-chain
+    CODE=$(node -e "
+      fetch('$RPC_URL', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({jsonrpc:'2.0',method:'eth_getCode',params:['$RAFFLE_ADDRESS','latest'],id:1})
+      }).then(r=>r.json()).then(d=>console.log(d.result||'0x')).catch(()=>console.log('0x'))
+    " 2>/dev/null)
+
+    if [ "$CODE" != "0x" ] && [ -n "$CODE" ] && [ ${#CODE} -gt 4 ]; then
+      echo "[backend] Contracts detected at $RAFFLE_ADDRESS. Starting Fastify..."
+      break
+    fi
   fi
 
   ATTEMPTS=$((ATTEMPTS + 1))

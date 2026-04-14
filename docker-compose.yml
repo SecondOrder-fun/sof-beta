@@ -1,9 +1,8 @@
 # Local development services for SecondOrder.fun
 # Usage:
-#   docker compose up -d            # Start all services (Anvil, Redis, Postgres, Backend)
-#   npm run dev                     # Start frontend only (connects to Docker backend)
-#   docker compose down -v          # Stop and clean up (Anvil state deleted)
-#   docker compose logs backend -f  # Tail backend logs
+#   docker compose up -d            # Start everything (deploys contracts automatically)
+#   cd packages/frontend && npm run dev  # Start frontend
+#   docker compose down -v          # Stop and clean up
 
 services:
   anvil:
@@ -62,6 +61,27 @@ services:
       retries: 5
     restart: unless-stopped
 
+  deploy-contracts:
+    image: ghcr.io/foundry-rs/foundry:latest
+    volumes:
+      - .:/app
+    working_dir: /app/packages/contracts
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        echo "[deploy] Deploying contracts to Anvil..."
+        PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
+        forge script script/deploy/DeployAll.s.sol:DeployAll \
+          --rpc-url http://anvil:8545 \
+          --broadcast \
+          --force \
+          --skip-simulation && \
+        echo "[deploy] Contracts deployed successfully" || \
+        echo "[deploy] WARNING: Contract deployment failed"
+    depends_on:
+      anvil:
+        condition: service_healthy
+
   backend:
     image: node:22-alpine
     working_dir: /app
@@ -69,7 +89,7 @@ services:
       - "3000:3000"
     volumes:
       - .:/app
-    command: ["sh", "scripts/docker-backend-start.sh"]
+    command: ["node", "packages/backend/fastify/server.js"]
     environment:
       NETWORK: LOCAL
       PORT: "3000"
@@ -87,8 +107,8 @@ services:
       CORS_ORIGINS: "http://localhost:5174,http://127.0.0.1:5174"
       SIWF_ALLOWED_DOMAINS: "localhost,127.0.0.1"
     depends_on:
-      anvil:
-        condition: service_healthy
+      deploy-contracts:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       postgres:
