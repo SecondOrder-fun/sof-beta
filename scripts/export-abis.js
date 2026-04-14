@@ -52,7 +52,6 @@ const CONTRACTS_TO_EXPORT = [
   // Season Management
   { source: 'SeasonFactory.sol/SeasonFactory.json', name: 'SeasonFactory' },
   { source: 'SeasonGating.sol/SeasonGating.json', name: 'SeasonGating' },
-  { source: 'SeasonCSMM.sol/SeasonCSMM.json', name: 'SeasonCSMM' },
 
   // Standard Interfaces
   { source: 'ERC20.sol/ERC20.json', name: 'ERC20' },
