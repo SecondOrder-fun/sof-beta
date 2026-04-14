@@ -34,24 +34,26 @@ for i in $(seq 1 30); do
 done
 
 # Deploy using the main Deploy script
+# Note: --force is required because `forge build --skip script` doesn't pre-compile scripts.
+# The :ContractName suffix tells forge which contract to deploy from the file.
 cd "$CONTRACTS_DIR"
 echo ""
-echo "  Running forge script..."
-PRIVATE_KEY="$PRIVATE_KEY" forge script script/deploy/Deploy.s.sol \
+echo "  Deploying core contracts (Raffle, SOFToken, SeasonFactory, InfoFi)..."
+PRIVATE_KEY="$PRIVATE_KEY" forge script script/deploy/Deploy.s.sol:Deploy \
   --rpc-url "$RPC_URL" \
   --broadcast \
-  --skip-simulation \
-  2>&1 | grep -E "deployed to:|Chain ID:" || true
+  --force \
+  2>&1 | grep -E "console\.log|deployed|SOF|Raffle|Season|InfoFi|Faucet|Chain" || echo "  (Deploy.s.sol may need stack refactoring — see Yul error)"
 
 echo ""
 echo "  Deploying SOFSmartAccount..."
-PRIVATE_KEY="$PRIVATE_KEY" forge script script/deploy/DeploySOFSmartAccount.s.sol \
+PRIVATE_KEY="$PRIVATE_KEY" forge script script/deploy/DeploySOFSmartAccount.s.sol:DeploySOFSmartAccount \
   --rpc-url "$RPC_URL" \
   --broadcast \
-  --skip-simulation \
+  --force \
   2>&1 | grep -E "deployed to:|Chain ID:" || true
 
 echo ""
 echo "  Local deployment complete!"
-echo "  Update deployments/local.json with the addresses above."
+echo "  Update deployments/local.json with the addresses from above."
 echo ""
