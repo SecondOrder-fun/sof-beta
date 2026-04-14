@@ -21,12 +21,11 @@ services:
       - "10"
       - "--balance"
       - "10000"
-      - "--no-storage-caching"
     tmpfs:
       - /tmp/anvil:size=512M
     healthcheck:
       test: ["CMD", "cast", "block-number", "--rpc-url", "http://localhost:8545"]
-      interval: 2s
+      interval: 3s
       timeout: 5s
       retries: 10
     restart: unless-stopped
