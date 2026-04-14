@@ -92,26 +92,32 @@ contract DeployAll is Script {
         else if (block.chainid == 8453) networkName = "base-mainnet";
         else networkName = "unknown";
 
-        string memory json = string.concat(
+        // Split JSON construction to avoid Yul stack-too-deep
+        string memory part1 = string.concat(
             '{\n  "network": "', networkName, '",\n',
             '  "chainId": ', vm.toString(block.chainid), ',\n',
             '  "deployedAt": "', vm.toString(block.timestamp), '",\n',
             '  "contracts": {\n',
             '    "SOFToken": "', vm.toString(addrs.sofToken), '",\n',
             '    "Raffle": "', vm.toString(addrs.raffle), '",\n',
-            '    "SeasonFactory": "', vm.toString(addrs.seasonFactory), '",\n',
+            '    "SeasonFactory": "', vm.toString(addrs.seasonFactory), '",\n'
+        );
+        string memory part2 = string.concat(
             '    "InfoFiPriceOracle": "', vm.toString(addrs.infoFiOracle), '",\n',
-            '    "ConditionalTokenSOF": "', vm.toString(addrs.conditionalTokens), '",\n',
+            '    "ConditionalTokens": "', vm.toString(addrs.conditionalTokens), '",\n',
             '    "RaffleOracleAdapter": "', vm.toString(addrs.oracleAdapter), '",\n',
-            '    "InfoFiFPMMV2": "', vm.toString(addrs.fpmmManager), '",\n',
+            '    "InfoFiFPMM": "', vm.toString(addrs.fpmmManager), '",\n',
             '    "MarketTypeRegistry": "', vm.toString(addrs.marketTypeRegistry), '",\n',
-            '    "InfoFiMarketFactory": "', vm.toString(addrs.infoFiFactory), '",\n',
+            '    "InfoFiFactory": "', vm.toString(addrs.infoFiFactory), '",\n'
+        );
+        string memory part3 = string.concat(
             '    "InfoFiSettlement": "', vm.toString(addrs.infoFiSettlement), '",\n',
-            '    "RafflePrizeDistributor": "', vm.toString(addrs.prizeDistributor), '",\n',
+            '    "PrizeDistributor": "', vm.toString(addrs.prizeDistributor), '",\n',
             '    "SOFFaucet": "', vm.toString(addrs.faucet), '",\n',
             '    "SOFSmartAccount": "', vm.toString(addrs.sofSmartAccount), '"\n',
             '  }\n}'
         );
+        string memory json = string.concat(part1, part2, part3);
 
         vm.writeFile(deploymentPath, json);
         console2.log("Deployment JSON written to:", deploymentPath);

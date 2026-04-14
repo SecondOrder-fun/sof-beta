@@ -7,6 +7,7 @@ import {
   useChainId,
   useConnect,
   useSwitchChain,
+  useWalletClient,
 } from "wagmi";
 import { getChainConfig, getStoredNetworkKey } from "@/lib/wagmi";
 import { config, initialNetworkKey } from "@/lib/wagmiConfig";
@@ -102,12 +103,13 @@ const OPT_OUT_PREFIX = "sof:delegation-opt-out:";
 
 const DelegationGate = () => {
   const { address, connector, isConnected } = useAccount();
+  const { data: walletClient } = useWalletClient();
   const { isDelegated, isSOFDelegate, isLoading } = useDelegationStatus();
   const [showModal, setShowModal] = useState(false);
   const [hasChecked, setHasChecked] = useState(false);
 
   useEffect(() => {
-    if (!isConnected || !address || isLoading || hasChecked) return;
+    if (!isConnected || !address || !walletClient || isLoading || hasChecked) return;
 
     // Skip Coinbase Wallet (already smart)
     if (connector?.id === "coinbaseWalletSDK") {
@@ -136,7 +138,7 @@ const DelegationGate = () => {
     // Show delegation modal
     setShowModal(true);
     setHasChecked(true);
-  }, [address, isConnected, isLoading, hasChecked, connector, isDelegated, isSOFDelegate]);
+  }, [address, isConnected, walletClient, isLoading, hasChecked, connector, isDelegated, isSOFDelegate]);
 
   // Reset when wallet disconnects
   useEffect(() => {
