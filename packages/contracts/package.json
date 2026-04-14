@@ -6,9 +6,9 @@
   "scripts": {
     "build": "forge build --skip script && node ../../scripts/export-abis.js",
     "test": "forge test",
-    "deploy:local": "source env/.env.local && forge script script/deploy/Deploy.s.sol --broadcast",
-    "deploy:testnet": "source env/.env.testnet && forge script script/deploy/Deploy.s.sol --broadcast --verify",
-    "deploy:mainnet": "source env/.env.mainnet && forge script script/deploy/Deploy.s.sol --broadcast --verify"
+    "deploy:local": "source env/.env.local && forge script script/deploy/DeployAll.s.sol:DeployAll --rpc-url http://127.0.0.1:8545 --broadcast --force",
+    "deploy:testnet": "source env/.env.testnet && forge script script/deploy/DeployAll.s.sol:DeployAll --rpc-url https://sepolia.base.org --broadcast --verify --force",
+    "deploy:mainnet": "source env/.env.mainnet && forge script script/deploy/DeployAll.s.sol:DeployAll --rpc-url https://mainnet.base.org --broadcast --verify --force"
   },
   "exports": {
     ".": "./abi/index.js",

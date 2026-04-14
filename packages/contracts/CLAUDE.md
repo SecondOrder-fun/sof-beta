@@ -62,22 +62,31 @@ This generates `abi/index.js` with named exports consumed by frontend and backen
 
 ## Deploy Scripts
 
+Modular numbered scripts in `script/deploy/`:
+- `00_DeployVRFMock` — local only (skipped on testnet/mainnet via HelperConfig)
+- `01-13` — one contract each, in dependency order
+- `14_ConfigureRoles` — all role grants and wiring
+- `DeployAll.s.sol` — orchestrator that chains 00-14 and auto-writes `deployments/{network}.json`
+
 ```bash
-# Local (Anvil)
-npm run deploy:local
+# Local (Docker Anvil)
+PRIVATE_KEY="0xac09..." forge script script/deploy/DeployAll.s.sol:DeployAll \
+  --rpc-url http://127.0.0.1:8545 --broadcast --force
 
 # Testnet (Base Sepolia)
-npm run deploy:testnet
+source env/.env.testnet && forge script script/deploy/DeployAll.s.sol:DeployAll \
+  --rpc-url https://sepolia.base.org --broadcast --verify --force
 
-# Mainnet (Base)
-npm run deploy:mainnet
+# Individual contract (e.g., just the smart account)
+PRIVATE_KEY="0x..." forge script script/deploy/13_DeploySOFSmartAccount.s.sol:DeploySOFSmartAccount \
+  --rpc-url http://127.0.0.1:8545 --broadcast --force
 ```
 
-Deploy scripts source env files from `env/` directory. After deployment:
-1. Update `deployments/{network}.json` with new addresses
-2. Run ABI export if interfaces changed
+After deployment:
+1. `deployments/{network}.json` is auto-updated by DeployAll
+2. Run ABI export if interfaces changed (`npm run build`)
 3. Push env vars via root `deploy:env` (dry-run first)
-4. Verify contract on block explorer
+4. Verify contract on block explorer (testnet/mainnet only)
 
 ## Deployment Addresses
 

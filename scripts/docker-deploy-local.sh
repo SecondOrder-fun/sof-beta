@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deploy all contracts to local Anvil (Docker) and update deployments/local.json
+# Deploy all contracts to local Anvil (Docker) and auto-update deployments/local.json
 # Usage: ./scripts/docker-deploy-local.sh
 # Requires: Docker running with `docker compose up -d`, Foundry installed locally
 
@@ -33,27 +33,16 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-# Deploy using the main Deploy script
-# Note: --force is required because `forge build --skip script` doesn't pre-compile scripts.
-# The :ContractName suffix tells forge which contract to deploy from the file.
+# Deploy all contracts via modular DeployAll orchestrator
+# Runs scripts 00-14 in sequence, auto-writes deployments/local.json
 cd "$CONTRACTS_DIR"
 echo ""
-echo "  Deploying core contracts (Raffle, SOFToken, SeasonFactory, InfoFi)..."
-PRIVATE_KEY="$PRIVATE_KEY" forge script script/deploy/Deploy.s.sol:Deploy \
+PRIVATE_KEY="$PRIVATE_KEY" forge script script/deploy/DeployAll.s.sol:DeployAll \
   --rpc-url "$RPC_URL" \
   --broadcast \
-  --force \
-  2>&1 | grep -E "console\.log|deployed|SOF|Raffle|Season|InfoFi|Faucet|Chain" || echo "  (Deploy.s.sol may need stack refactoring — see Yul error)"
-
-echo ""
-echo "  Deploying SOFSmartAccount..."
-PRIVATE_KEY="$PRIVATE_KEY" forge script script/deploy/DeploySOFSmartAccount.s.sol:DeploySOFSmartAccount \
-  --rpc-url "$RPC_URL" \
-  --broadcast \
-  --force \
-  2>&1 | grep -E "deployed to:|Chain ID:" || true
+  --force
 
 echo ""
 echo "  Local deployment complete!"
-echo "  Update deployments/local.json with the addresses from above."
+echo "  deployments/local.json has been auto-updated."
 echo ""

@@ -117,12 +117,22 @@ npm run build
 # Test
 npm test
 
+# Docker local dev (Anvil + Redis + Postgres)
+npm run docker:up          # Start services
+npm run docker:down        # Stop and clean up
+
+# Contract deployment (local via Docker Anvil)
+cd packages/contracts
+PRIVATE_KEY="0xac09..." forge script script/deploy/DeployAll.s.sol:DeployAll \
+  --rpc-url http://127.0.0.1:8545 --broadcast --force
+
+# Contract deployment (testnet — Base Sepolia)
+cd packages/contracts
+source env/.env.testnet && forge script script/deploy/DeployAll.s.sol:DeployAll \
+  --rpc-url https://sepolia.base.org --broadcast --verify --force
+
 # Deploy env vars (always dry-run first)
 ./scripts/deploy-env.sh --dry-run
-
-# Contract deployment
-cd packages/contracts
-source env/.env.testnet && forge script script/deploy/Deploy.s.sol --broadcast --verify
 ```
 
 ## Gotchas
