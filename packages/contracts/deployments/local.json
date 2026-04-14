@@ -1,7 +1,7 @@
 {
   "network": "local",
   "chainId": 31337,
-  "deployedAt": "1776173617",
+  "deployedAt": "1776177102",
   "contracts": {
     "SOFToken": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
     "Raffle": "0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9",
@@ -15,6 +15,7 @@
     "InfoFiSettlement": "0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82",
     "PrizeDistributor": "0x9A676e781A523b5d0C0e43731313A708CB607508",
     "SOFFaucet": "0x0B306BF915C4d645ff596e518fAf3F9669b97016",
-    "SOFSmartAccount": "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE"
+    "SOFSmartAccount": "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE",
+    "Paymaster": "0x67d269191c92Caf3cD7723F116c85e6E9bf55933"
   }
 }

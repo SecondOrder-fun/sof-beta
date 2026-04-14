@@ -21,6 +21,7 @@ import {DeployDistributor} from "./11_DeployDistributor.s.sol";
 import {DeployFaucet} from "./12_DeployFaucet.s.sol";
 import {DeploySOFSmartAccount} from "./13_DeploySOFSmartAccount.s.sol";
 import {ConfigureRoles} from "./14_ConfigureRoles.s.sol";
+import {DeployPaymaster} from "./15_DeployPaymaster.s.sol";
 
 contract DeployAll is Script {
     function run() public {
@@ -85,6 +86,9 @@ contract DeployAll is Script {
         console2.log("=== 14: ConfigureRoles ===");
         addrs = new ConfigureRoles().run(addrs);
 
+        console2.log("=== 15: SOFPaymaster ===");
+        addrs = new DeployPaymaster().run(addrs);
+
         // --- 4. Write deployment JSON ---
         string memory networkName;
         if (block.chainid == 31337) networkName = "local";
@@ -114,7 +118,8 @@ contract DeployAll is Script {
             '    "InfoFiSettlement": "', vm.toString(addrs.infoFiSettlement), '",\n',
             '    "PrizeDistributor": "', vm.toString(addrs.prizeDistributor), '",\n',
             '    "SOFFaucet": "', vm.toString(addrs.faucet), '",\n',
-            '    "SOFSmartAccount": "', vm.toString(addrs.sofSmartAccount), '"\n',
+            '    "SOFSmartAccount": "', vm.toString(addrs.sofSmartAccount), '",\n',
+            '    "Paymaster": "', vm.toString(addrs.paymasterAddress), '"\n',
             '  }\n}'
         );
         string memory json = string.concat(part1, part2, part3);
