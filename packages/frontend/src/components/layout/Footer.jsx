@@ -78,32 +78,14 @@ const Footer = () => {
             <h3 className="text-lg font-semibold mb-4">{t("resources")}</h3>
             <ul className="space-y-2">
               <li>
-                <NavLink
-                  to="/docs"
-                  className={({ isActive }) =>
-                    `text-sm transition-colors ${
-                      isActive
-                        ? "text-primary"
-                        : "text-muted-foreground hover:text-primary/80"
-                    }`
-                  }
+                <a
+                  href="https://secondorder-fun.gitbook.io/secondorder.fun/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-muted-foreground hover:text-primary/80 transition-colors"
                 >
                   {t("documentation")}
-                </NavLink>
-              </li>
-              <li>
-                <NavLink
-                  to="/api"
-                  className={({ isActive }) =>
-                    `text-sm transition-colors ${
-                      isActive
-                        ? "text-primary"
-                        : "text-muted-foreground hover:text-primary/80"
-                    }`
-                  }
-                >
-                  {t("api")}
-                </NavLink>
+                </a>
               </li>
               <li>
                 <NavLink
