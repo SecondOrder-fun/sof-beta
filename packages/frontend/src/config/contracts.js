@@ -20,6 +20,7 @@
  * @property {`0x${string}` | string} SOF_AIRDROP
  * @property {`0x${string}` | string} USDC
  * @property {`0x${string}` | string} SOF_SMART_ACCOUNT
+ * @property {`0x${string}` | string} ROLLOVER_ESCROW
  */
 
 import { RaffleABI, SeasonGatingABI, SOFSmartAccountABI } from '@sof/contracts';
@@ -85,5 +86,6 @@ export function getContractAddresses(key) {
     MARKET_TYPE_REGISTRY: s(deployment.MarketTypeRegistry),
     RAFFLE_ORACLE_ADAPTER: s(deployment.RaffleOracleAdapter),
     SOF_SMART_ACCOUNT: s(deployment.SOFSmartAccount),
+    ROLLOVER_ESCROW: s(deployment.RolloverEscrow),
   };
 }

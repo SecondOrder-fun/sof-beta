@@ -68,6 +68,7 @@ export async function buildClaimGrandCall({
  */
 export async function buildClaimConsolationCall({
   seasonId,
+  toRollover = false,
   networkKey = getStoredNetworkKey(),
 }) {
   const distributor = await getPrizeDistributor({ networkKey });
@@ -76,7 +77,7 @@ export async function buildClaimConsolationCall({
     data: encodeFunctionData({
       abi: RafflePrizeDistributorAbi,
       functionName: "claimConsolation",
-      args: [BigInt(seasonId)],
+      args: [BigInt(seasonId), toRollover],
     }),
   };
 }

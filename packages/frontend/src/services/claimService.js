@@ -31,7 +31,11 @@ export async function buildClaimCalls({
       }
 
       case "raffle-consolation": {
-        const call = await buildClaimConsolationCall({ seasonId: params.seasonId, networkKey });
+        const call = await buildClaimConsolationCall({
+          seasonId: params.seasonId,
+          toRollover: params.toRollover ?? false,
+          networkKey,
+        });
         return { calls: [call], error: null };
       }
 
