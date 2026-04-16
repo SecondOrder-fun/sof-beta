@@ -216,6 +216,9 @@ export const BuySellSheet = ({
     estBuyWithFees,
     estSellAfterFees,
     slippagePct,
+    rolloverEnabled: isRolloverAvailable && rolloverEnabled,
+    rolloverAmount,
+    rolloverSeasonId: seasonId,
   });
 
   const exceedsRemainingSupply =

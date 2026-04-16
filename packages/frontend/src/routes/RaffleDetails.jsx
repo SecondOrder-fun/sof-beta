@@ -578,6 +578,7 @@ const RaffleDetails = () => {
                     {chainNow && (
                       <BuySellWidget
                         bondingCurveAddress={bc}
+                        seasonId={seasonIdNumber}
                         initialTab={initialTradeTab}
                         isGated={isSeasonGated}
                         isVerified={isGatingVerified}

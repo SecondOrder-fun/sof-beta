@@ -114,7 +114,7 @@
   "userProfile": "User Profile",
   "rolloverBalance": "Rollover Balance",
   "fromSeason": "From Season {{season}}",
-  "rolloverBonusRate": "+{{percent}}% bonus",
+  "rolloverBonusRate": "+{{percent}} bonus",
   "buyTicketsInSeason": "Buy Tickets in Season {{season}} →",
   "refundToWallet": "Refund to Wallet",
   "rolloverPending": "Pending",

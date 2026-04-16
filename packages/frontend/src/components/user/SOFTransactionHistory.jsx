@@ -326,7 +326,7 @@ function TransactionRow({ tx, network, compact = false }) {
     return (
       <Badge
         variant={config.variant}
-        className={isRollover ? "bg-emerald-600 text-white" : undefined}
+        className={isRollover ? "bg-emerald-600 text-foreground" : undefined}
       >
         {config.label}
       </Badge>

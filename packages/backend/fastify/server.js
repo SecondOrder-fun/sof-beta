@@ -301,6 +301,7 @@ app.setNotFoundHandler((_request, reply) => {
 let unwatchSeasonStarted;
 let unwatchSeasonCompleted;
 let unwatchMarketCreated;
+let unwatchRollover;
 const positionUpdateListeners = new Map(); // Map of seasonId -> unwatch function
 const tradeListeners = new Map(); // Map of fpmmAddress -> unwatch function
 
@@ -520,7 +521,7 @@ async function startListeners() {
 
     // Start Rollover Event Listener (indexes RolloverEscrow events)
     try {
-      startRolloverEventListener(NETWORK, app.log);
+      unwatchRollover = startRolloverEventListener(NETWORK, app.log);
       app.log.info("✅ RolloverEventListener started");
     } catch (error) {
       app.log.error(
@@ -677,6 +678,11 @@ async function shutdown(signal) {
     if (unwatchMarketCreated) {
       unwatchMarketCreated();
       app.log.info("Stopped MarketCreated listener");
+    }
+
+    if (unwatchRollover) {
+      unwatchRollover();
+      app.log.info("Stopped Rollover listener");
     }
 
     // Stop all PositionUpdate listeners

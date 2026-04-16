@@ -48,31 +48,47 @@ export function useBuySellTransactions(
    * @param {Function} params.onComplete - Optional completion callback
    */
   const executeBuy = useCallback(
-    async ({ tokenAmount, maxSofAmount, slippagePct, onComplete }) => {
+    async ({ tokenAmount, maxSofAmount, slippagePct, onComplete, rolloverSeasonId, rolloverAmount }) => {
       try {
         const cap = applyMaxSlippage(maxSofAmount, slippagePct);
 
         // Tier 1: ERC-5792 batch + paymaster (single gasless confirmation)
         if (hasBatch) {
           try {
-            const approveTx = {
-              to: contracts.SOF,
-              data: encodeFunctionData({
-                abi: ERC20Abi,
-                functionName: 'approve',
-                args: [bondingCurveAddress, cap],
-              }),
-            };
-            const buyTx = {
-              to: bondingCurveAddress,
-              data: encodeFunctionData({
-                abi: SOFBondingCurveAbi,
-                functionName: 'buyTokens',
-                args: [tokenAmount, cap],
-              }),
-            };
+            let calls;
 
-            const batchId = await executeBatch([approveTx, buyTx], { sofAmount: cap });
+            if (rolloverSeasonId && rolloverAmount > 0n) {
+              // Rollover buy: escrow contract handles approve + buyTokensFor internally
+              const { buildSpendFromRolloverCall } = await import("@/services/onchainRolloverEscrow");
+              const rolloverCall = buildSpendFromRolloverCall({
+                seasonId: rolloverSeasonId,
+                sofAmount: rolloverAmount,
+                ticketAmount: tokenAmount,
+                maxTotalSof: cap,
+              });
+              calls = [rolloverCall];
+            } else {
+              // Normal buy: approve SOF + buyTokens
+              const approveTx = {
+                to: contracts.SOF,
+                data: encodeFunctionData({
+                  abi: ERC20Abi,
+                  functionName: 'approve',
+                  args: [bondingCurveAddress, cap],
+                }),
+              };
+              const buyTx = {
+                to: bondingCurveAddress,
+                data: encodeFunctionData({
+                  abi: SOFBondingCurveAbi,
+                  functionName: 'buyTokens',
+                  args: [tokenAmount, cap],
+                }),
+              };
+              calls = [approveTx, buyTx];
+            }
+
+            const batchId = await executeBatch(calls, { sofAmount: cap });
 
             onNotify?.({
               type: "success",

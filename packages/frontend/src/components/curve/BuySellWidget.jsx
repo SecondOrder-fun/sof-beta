@@ -140,6 +140,9 @@ const BuySellWidget = ({
     isGated,
     isVerified,
     onGatingRequired,
+    rolloverEnabled: isRolloverAvailable && rolloverEnabled,
+    rolloverAmount,
+    rolloverSeasonId: seasonId,
   });
 
   // Persist active tab in localStorage
