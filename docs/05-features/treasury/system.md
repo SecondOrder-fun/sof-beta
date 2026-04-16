@@ -537,9 +537,9 @@ sofToken.setTreasuryAddress(NEW_SAFE_ADDRESS);
 
 ### Related Documentation
 
-- [Fee Collection Gas Analysis](./FEE_COLLECTION_GAS_ANALYSIS.md)
-- [Project Tokenomics](./.windsurf/rules/project-tokenomics.md)
-- [Smart Contract Architecture](./instructions/project-requirements.md)
+- [Fee Collection Gas Analysis](../../06-technical-analysis/fee-collection-gas.md)
+- [Tokenomics](../../01-product/tokenomics.md)
+- [Project Requirements](../../02-architecture/requirements.md)
 
 ### External Resources
 

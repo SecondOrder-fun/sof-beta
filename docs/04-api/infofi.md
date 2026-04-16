@@ -163,7 +163,7 @@ DELETE /markets/:id
 
 ## Real-Time Pricing
 
-For pricing stream and snapshot formats, see `pricing-api.md` (hybrid model with bps fields):
+For pricing stream and snapshot formats, see [Pricing](./pricing.md) (hybrid model with bps fields):
 
 - `GET /stream/pricing/:marketId` (SSE)
 - `GET /stream/pricing/:marketId/current` (REST)

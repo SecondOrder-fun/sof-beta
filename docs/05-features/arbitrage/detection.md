@@ -377,10 +377,9 @@ Same as `useArbitrageDetection` but adds:
 
 ## Related Documentation
 
-- [InfoFi Integration Specification](../instructions/sof-infofi-integration-*.md)
-- [Bonding Curve Mathematics](../instructions/sof-bonding-curve-prize-pool.md)
-- [Oracle Hybrid Pricing](../instructions/sof-tokenomics.md)
-- [Project Tasks](../instructions/project-tasks.md)
+- [InfoFi Integration](../../02-architecture/infofi-integration/)
+- [Bonding Curve](../../01-product/bonding-curve.md)
+- [Tokenomics](../../01-product/tokenomics.md)
 
 ## Support
 
