@@ -44,7 +44,6 @@
 * [Consolation](05-features/consolation/README.md)
   * [Implementation](05-features/consolation/implementation.md)
 * [Internationalization](05-features/i18n/README.md)
-  * [Integration Plan](05-features/i18n/integration-plan.md)
   * [Localization System](05-features/i18n/localization-system.md)
   * [Sample Translations](05-features/i18n/sample-translations.md)
 * [Treasury](05-features/treasury/README.md)
