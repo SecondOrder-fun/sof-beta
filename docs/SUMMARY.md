@@ -45,8 +45,7 @@
   * [Implementation](05-features/consolation/implementation.md)
 * [Localization System](05-features/i18n/localization-system.md)
   * [Sample Translations](05-features/i18n/sample-translations.md)
-* [Treasury](05-features/treasury/README.md)
-  * [System](05-features/treasury/system.md)
+* [Treasury System](05-features/treasury/system.md)
 
 ## Technical Analysis
 
