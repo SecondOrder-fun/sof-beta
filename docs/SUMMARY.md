@@ -35,15 +35,6 @@
 * [Overview](03-development/README.md)
 * [Frontend Guidelines](03-development/frontend-guidelines.md)
 
-## API Reference
-
-* [Overview](04-api/README.md)
-* [Analytics](04-api/analytics.md)
-* [Arbitrage](04-api/arbitrage.md)
-* [InfoFi](04-api/infofi.md)
-* [Pricing](04-api/pricing.md)
-* [Settlement](04-api/settlement.md)
-
 ## Features
 
 * [Overview](05-features/README.md)
