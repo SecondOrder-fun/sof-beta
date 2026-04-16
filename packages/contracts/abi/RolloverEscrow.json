@@ -8,7 +8,12 @@
         "internalType": "address"
       },
       {
-        "name": "_admin",
+        "name": "_treasury",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "_raffle",
         "type": "address",
         "internalType": "address"
       }
@@ -30,7 +35,7 @@
   },
   {
     "type": "function",
-    "name": "EMERGENCY_ROLE",
+    "name": "DISTRIBUTOR_ROLE",
     "inputs": [],
     "outputs": [
       {
@@ -43,78 +48,15 @@
   },
   {
     "type": "function",
-    "name": "ESCROW_ROLE",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "RAFFLE_MANAGER_ROLE",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "accumulatedFees",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "bondSteps",
+    "name": "activateCohort",
     "inputs": [
       {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "rangeTo",
-        "type": "uint128",
-        "internalType": "uint128"
-      },
-      {
-        "name": "price",
-        "type": "uint128",
-        "internalType": "uint128"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "buyTokens",
-    "inputs": [
-      {
-        "name": "tokenAmount",
+        "name": "seasonId",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "maxSofAmount",
+        "name": "nextSeasonId",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -124,20 +66,23 @@
   },
   {
     "type": "function",
-    "name": "buyTokensFor",
-    "inputs": [
+    "name": "bondingCurve",
+    "inputs": [],
+    "outputs": [
       {
-        "name": "recipient",
+        "name": "",
         "type": "address",
         "internalType": "address"
-      },
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "closeCohort",
+    "inputs": [
       {
-        "name": "tokenAmount",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "maxSofAmount",
+        "name": "seasonId",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -147,141 +92,23 @@
   },
   {
     "type": "function",
-    "name": "buyTokensWithPermit",
-    "inputs": [
-      {
-        "name": "tokenAmount",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "maxSofAmount",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "deadline",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "v",
-        "type": "uint8",
-        "internalType": "uint8"
-      },
-      {
-        "name": "r",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "s",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "calculateBuyPrice",
-    "inputs": [
-      {
-        "name": "tokenAmount",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "calculateSellPrice",
-    "inputs": [
-      {
-        "name": "tokenAmount",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "curveConfig",
+    "name": "defaultBonusBps",
     "inputs": [],
     "outputs": [
       {
-        "name": "totalSupply",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "sofReserves",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "currentStep",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "buyFee",
+        "name": "",
         "type": "uint16",
         "internalType": "uint16"
-      },
-      {
-        "name": "sellFee",
-        "type": "uint16",
-        "internalType": "uint16"
-      },
-      {
-        "name": "tradingLocked",
-        "type": "bool",
-        "internalType": "bool"
-      },
-      {
-        "name": "initialized",
-        "type": "bool",
-        "internalType": "bool"
-      },
-      {
-        "name": "sellOnly",
-        "type": "bool",
-        "internalType": "bool"
       }
     ],
     "stateMutability": "view"
   },
   {
     "type": "function",
-    "name": "extractFeesToTreasury",
-    "inputs": [],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "extractSof",
+    "name": "deposit",
     "inputs": [
       {
-        "name": "to",
+        "name": "user",
         "type": "address",
         "internalType": "address"
       },
@@ -289,6 +116,11 @@
         "name": "amount",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [],
@@ -296,48 +128,110 @@
   },
   {
     "type": "function",
-    "name": "getBondSteps",
+    "name": "expiryTimeout",
     "inputs": [],
     "outputs": [
       {
         "name": "",
-        "type": "tuple[]",
-        "internalType": "struct RaffleTypes.BondStep[]",
-        "components": [
-          {
-            "name": "rangeTo",
-            "type": "uint128",
-            "internalType": "uint128"
-          },
-          {
-            "name": "price",
-            "type": "uint128",
-            "internalType": "uint128"
-          }
-        ]
+        "type": "uint32",
+        "internalType": "uint32"
       }
     ],
     "stateMutability": "view"
   },
   {
     "type": "function",
-    "name": "getCurrentStep",
-    "inputs": [],
+    "name": "getAvailableBalance",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
     "outputs": [
       {
-        "name": "step",
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getBonusAmount",
+    "inputs": [
+      {
+        "name": "seasonId",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "price",
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getCohortState",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "phase",
+        "type": "uint8",
+        "internalType": "enum RolloverEscrow.EscrowPhase"
+      },
+      {
+        "name": "nextSeasonId",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "rangeTo",
+        "name": "bonusBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "totalDeposited",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "totalSpent",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "totalBonusPaid",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "isExpired",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "stateMutability": "view"
@@ -363,13 +257,34 @@
   },
   {
     "type": "function",
-    "name": "getSofReserves",
-    "inputs": [],
-    "outputs": [
+    "name": "getUserPosition",
+    "inputs": [
       {
-        "name": "",
+        "name": "seasonId",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "deposited",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "spent",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "refunded",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "stateMutability": "view"
@@ -418,53 +333,19 @@
   },
   {
     "type": "function",
-    "name": "initializeCurve",
+    "name": "openCohort",
     "inputs": [
       {
-        "name": "_raffleToken",
-        "type": "address",
-        "internalType": "address"
+        "name": "seasonId",
+        "type": "uint256",
+        "internalType": "uint256"
       },
       {
-        "name": "_bondSteps",
-        "type": "tuple[]",
-        "internalType": "struct RaffleTypes.BondStep[]",
-        "components": [
-          {
-            "name": "rangeTo",
-            "type": "uint128",
-            "internalType": "uint128"
-          },
-          {
-            "name": "price",
-            "type": "uint128",
-            "internalType": "uint128"
-          }
-        ]
-      },
-      {
-        "name": "_buyFee",
+        "name": "bonusBps",
         "type": "uint16",
         "internalType": "uint16"
-      },
-      {
-        "name": "_sellFee",
-        "type": "uint16",
-        "internalType": "uint16"
-      },
-      {
-        "name": "_treasuryAddress",
-        "type": "address",
-        "internalType": "address"
       }
     ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "lockTrading",
-    "inputs": [],
     "outputs": [],
     "stateMutability": "nonpayable"
   },
@@ -490,25 +371,6 @@
   },
   {
     "type": "function",
-    "name": "playerTickets",
-    "inputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "raffle",
     "inputs": [],
     "outputs": [
@@ -522,29 +384,16 @@
   },
   {
     "type": "function",
-    "name": "raffleSeasonId",
-    "inputs": [],
-    "outputs": [
+    "name": "refund",
+    "inputs": [
       {
-        "name": "",
+        "name": "seasonId",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "raffleToken",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "contract IRaffleToken"
-      }
-    ],
-    "stateMutability": "view"
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -584,17 +433,12 @@
   },
   {
     "type": "function",
-    "name": "sellTokens",
+    "name": "setBondingCurve",
     "inputs": [
       {
-        "name": "tokenAmount",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "minSofAmount",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "_curve",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "outputs": [],
@@ -602,17 +446,25 @@
   },
   {
     "type": "function",
-    "name": "setRaffleInfo",
+    "name": "setDefaultBonusBps",
     "inputs": [
       {
-        "name": "_raffle",
+        "name": "newBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setTreasury",
+    "inputs": [
+      {
+        "name": "_treasury",
         "type": "address",
         "internalType": "address"
-      },
-      {
-        "name": "_seasonId",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "outputs": [],
@@ -630,6 +482,34 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "spendFromRollover",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "sofAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "ticketAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxTotalSof",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -652,7 +532,7 @@
   },
   {
     "type": "function",
-    "name": "treasuryAddress",
+    "name": "treasury",
     "inputs": [],
     "outputs": [
       {
@@ -665,13 +545,6 @@
   },
   {
     "type": "function",
-    "name": "unlockTradingSellOnly",
-    "inputs": [],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "unpause",
     "inputs": [],
     "outputs": [],
@@ -679,18 +552,18 @@
   },
   {
     "type": "event",
-    "name": "CurveInitialized",
+    "name": "CohortActivated",
     "inputs": [
       {
-        "name": "raffleToken",
-        "type": "address",
-        "indexed": false,
-        "internalType": "address"
+        "name": "seasonId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
       },
       {
-        "name": "stepCount",
+        "name": "nextSeasonId",
         "type": "uint256",
-        "indexed": false,
+        "indexed": true,
         "internalType": "uint256"
       }
     ],
@@ -698,19 +571,32 @@
   },
   {
     "type": "event",
-    "name": "FeesExtracted",
+    "name": "CohortClosed",
     "inputs": [
       {
-        "name": "to",
-        "type": "address",
+        "name": "seasonId",
+        "type": "uint256",
         "indexed": true,
-        "internalType": "address"
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "CohortOpened",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
       },
       {
-        "name": "amount",
-        "type": "uint256",
+        "name": "bonusBps",
+        "type": "uint16",
         "indexed": false,
-        "internalType": "uint256"
+        "internalType": "uint16"
       }
     ],
     "anonymous": false
@@ -724,49 +610,6 @@
         "type": "address",
         "indexed": false,
         "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "PositionUpdate",
-    "inputs": [
-      {
-        "name": "seasonId",
-        "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
-      },
-      {
-        "name": "player",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "oldTickets",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "newTickets",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "totalTickets",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "probabilityBps",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -848,13 +691,19 @@
   },
   {
     "type": "event",
-    "name": "SofExtracted",
+    "name": "RolloverDeposit",
     "inputs": [
       {
-        "name": "to",
+        "name": "user",
         "type": "address",
         "indexed": true,
         "internalType": "address"
+      },
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
       },
       {
         "name": "amount",
@@ -867,28 +716,22 @@
   },
   {
     "type": "event",
-    "name": "TokensPurchased",
+    "name": "RolloverRefund",
     "inputs": [
       {
-        "name": "buyer",
+        "name": "user",
         "type": "address",
         "indexed": true,
         "internalType": "address"
       },
       {
-        "name": "sofAmount",
+        "name": "seasonId",
         "type": "uint256",
-        "indexed": false,
+        "indexed": true,
         "internalType": "uint256"
       },
       {
-        "name": "tokensReceived",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "feeAmount",
+        "name": "amount",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -898,54 +741,34 @@
   },
   {
     "type": "event",
-    "name": "TokensSold",
+    "name": "RolloverSpend",
     "inputs": [
       {
-        "name": "seller",
+        "name": "user",
         "type": "address",
         "indexed": true,
         "internalType": "address"
       },
       {
-        "name": "tokenAmount",
+        "name": "seasonId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "nextSeasonId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "baseAmount",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
       },
       {
-        "name": "sofReceived",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "feeAmount",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "TradingLockedEvent",
-    "inputs": [
-      {
-        "name": "timestamp",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "TradingUnlockedSellOnly",
-    "inputs": [
-      {
-        "name": "timestamp",
+        "name": "bonusAmount",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -989,12 +812,17 @@
   },
   {
     "type": "error",
-    "name": "AmountTooLarge",
+    "name": "AlreadyRefunded",
     "inputs": [
       {
-        "name": "amount",
+        "name": "seasonId",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
       }
     ]
   },
@@ -1005,17 +833,7 @@
   },
   {
     "type": "error",
-    "name": "BondStepOverflow",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "CurveAlreadyInitialized",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "CurveNotInitialized",
+    "name": "BondingCurveNotSet",
     "inputs": []
   },
   {
@@ -1025,7 +843,7 @@
   },
   {
     "type": "error",
-    "name": "ExceedsMaxSupply",
+    "name": "ExceedsBalance",
     "inputs": [
       {
         "name": "requested",
@@ -1033,7 +851,7 @@
         "internalType": "uint256"
       },
       {
-        "name": "max",
+        "name": "available",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -1046,42 +864,47 @@
   },
   {
     "type": "error",
-    "name": "FeeTooHigh",
+    "name": "InvalidPhaseTransition",
     "inputs": [
       {
-        "name": "fee",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "InsufficientReserves",
-    "inputs": [
-      {
-        "name": "required",
+        "name": "seasonId",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "available",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "current",
+        "type": "uint8",
+        "internalType": "enum RolloverEscrow.EscrowPhase"
+      },
+      {
+        "name": "target",
+        "type": "uint8",
+        "internalType": "enum RolloverEscrow.EscrowPhase"
       }
     ]
   },
   {
     "type": "error",
-    "name": "InsufficientSupply",
+    "name": "NothingToRefund",
     "inputs": [
       {
-        "name": "requested",
+        "name": "seasonId",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "available",
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "PhaseNotActive",
+    "inputs": [
+      {
+        "name": "seasonId",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -1089,33 +912,25 @@
   },
   {
     "type": "error",
-    "name": "InvalidAddress",
-    "inputs": []
+    "name": "PhaseNotActiveOrClosedOrExpired",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
-    "name": "InvalidBondStepOrder",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "InvalidBondStepPrice",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "InvalidBondStepRange",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "InvalidBondSteps",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "RaffleAlreadySet",
-    "inputs": []
+    "name": "PhaseNotOpen",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -1132,36 +947,5 @@
         "internalType": "address"
       }
     ]
-  },
-  {
-    "type": "error",
-    "name": "SlippageExceeded",
-    "inputs": [
-      {
-        "name": "cost",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "maxAllowed",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "TradingLocked",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "TradingNotLocked",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "TradingSellOnly",
-    "inputs": []
   }
 ]

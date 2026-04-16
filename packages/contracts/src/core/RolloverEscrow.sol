@@ -177,7 +177,9 @@ contract RolloverEscrow is IRolloverEscrow, AccessControl, ReentrancyGuard, Paus
         _positions[seasonId][user].deposited += amount;
         _cohorts[seasonId].totalDeposited += amount;
 
-        sofToken.safeTransferFrom(msg.sender, address(this), amount);
+        // Tokens must already be in this contract before calling deposit().
+        // The PrizeDistributor transfers SOF to escrow via safeTransfer,
+        // then calls deposit() for accounting only.
 
         emit RolloverDeposit(user, seasonId, amount);
     }
