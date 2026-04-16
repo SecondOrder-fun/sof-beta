@@ -54,7 +54,7 @@ interface IRafflePrizeDistributor {
 
     function claimGrand(uint256 seasonId) external;
 
-    function claimConsolation(uint256 seasonId) external;
+    function claimConsolation(uint256 seasonId, bool toRollover) external;
 
     function isConsolationClaimed(uint256 seasonId, address account) external view returns (bool);
 

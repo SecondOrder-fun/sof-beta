@@ -8,6 +8,7 @@ import {ERC721Holder} from "openzeppelin-contracts/contracts/token/ERC721/utils/
 import {AccessControl} from "openzeppelin-contracts/contracts/access/AccessControl.sol";
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import {IRafflePrizeDistributor} from "../lib/IRafflePrizeDistributor.sol";
+import {IRolloverEscrow} from "./IRolloverEscrow.sol";
 
 error InvalidTier(uint256 tier, uint256 maxTier);
 error NoTiersConfigured(uint256 seasonId);
@@ -16,6 +17,7 @@ error NotATierWinner(uint256 seasonId, address caller);
 error NoWinnersInTier(uint256 seasonId, uint256 tierIndex);
 error TierConfigFailed();
 error NotAParticipant(uint256 seasonId, address caller);
+error RolloverEscrowNotSet();
 
 /**
  * @title RafflePrizeDistributor
@@ -27,6 +29,8 @@ contract RafflePrizeDistributor is IRafflePrizeDistributor, AccessControl, Reent
     using SafeERC20 for IERC20;
 
     bytes32 public constant RAFFLE_ROLE = keccak256("RAFFLE_ROLE");
+
+    IRolloverEscrow public rolloverEscrow;
 
     struct SponsoredERC20 {
         address token;
@@ -121,6 +125,10 @@ contract RafflePrizeDistributor is IRafflePrizeDistributor, AccessControl, Reent
         emit AdminRevoked(account);
     }
 
+    function setRolloverEscrow(address escrow) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        rolloverEscrow = IRolloverEscrow(escrow);
+    }
+
     // ---------------- IRafflePrizeDistributor --------------------
 
     function configureSeason(
@@ -187,7 +195,7 @@ contract RafflePrizeDistributor is IRafflePrizeDistributor, AccessControl, Reent
         emit GrandClaimed(seasonId, msg.sender, s.grandAmount);
     }
 
-    function claimConsolation(uint256 seasonId) external override nonReentrant {
+    function claimConsolation(uint256 seasonId, bool toRollover) external override nonReentrant {
         Season storage s = _seasons[seasonId];
         require(s.funded, "Distributor: not funded");
         require(msg.sender != s.grandWinner, "Distributor: winner cannot claim consolation");
@@ -205,7 +213,15 @@ contract RafflePrizeDistributor is IRafflePrizeDistributor, AccessControl, Reent
         require(amount > 0, "Distributor: amount zero");
 
         _consolationClaimed[seasonId][msg.sender] = true;
-        IERC20(s.token).safeTransfer(msg.sender, amount);
+
+        if (toRollover) {
+            if (address(rolloverEscrow) == address(0)) revert RolloverEscrowNotSet();
+            IERC20(s.token).safeTransfer(address(rolloverEscrow), amount);
+            rolloverEscrow.deposit(msg.sender, amount, seasonId);
+        } else {
+            IERC20(s.token).safeTransfer(msg.sender, amount);
+        }
+
         emit ConsolationClaimed(seasonId, msg.sender, amount);
     }
 
