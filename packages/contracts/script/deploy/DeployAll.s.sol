@@ -22,6 +22,9 @@ import {DeployFaucet} from "./12_DeployFaucet.s.sol";
 import {DeploySOFSmartAccount} from "./13_DeploySOFSmartAccount.s.sol";
 import {ConfigureRoles} from "./14_ConfigureRoles.s.sol";
 import {DeployPaymaster} from "./15_DeployPaymaster.s.sol";
+import {DeployRolloverEscrow} from "./16_DeployRolloverEscrow.s.sol";
+import {RafflePrizeDistributor} from "../../src/core/RafflePrizeDistributor.sol";
+import {RolloverEscrow} from "../../src/core/RolloverEscrow.sol";
 
 contract DeployAll is Script {
     function run() public {
@@ -89,6 +92,33 @@ contract DeployAll is Script {
         console2.log("=== 15: SOFPaymaster ===");
         addrs = new DeployPaymaster().run(addrs);
 
+        console2.log("=== 16: RolloverEscrow ===");
+        addrs = new DeployRolloverEscrow().run(addrs);
+
+        console2.log("=== 16b: Wire RolloverEscrow roles ===");
+        {
+            RolloverEscrow rolloverEscrow = RolloverEscrow(addrs.rolloverEscrow);
+            RafflePrizeDistributor distributor = RafflePrizeDistributor(addrs.prizeDistributor);
+            vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
+
+            try rolloverEscrow.grantRole(rolloverEscrow.DISTRIBUTOR_ROLE(), addrs.prizeDistributor) {
+                console2.log("Granted DISTRIBUTOR_ROLE on RolloverEscrow to PrizeDistributor");
+            } catch {
+                console2.log("DISTRIBUTOR_ROLE on RolloverEscrow already set");
+            }
+
+            try distributor.setRolloverEscrow(addrs.rolloverEscrow) {
+                console2.log("Set RolloverEscrow on PrizeDistributor");
+            } catch {
+                console2.log("RolloverEscrow on PrizeDistributor already set");
+            }
+
+            vm.stopBroadcast();
+        }
+        console2.log("IMPORTANT: Treasury must approve RolloverEscrow for SOF spending");
+        console2.log("  Run: sof.approve(", vm.toString(addrs.rolloverEscrow), ", type(uint256).max)");
+        console2.log("  From the treasury wallet");
+
         // --- 4. Write deployment JSON (merge with existing file) ---
         string memory networkName;
         if (block.chainid == 31337) networkName = "local";
@@ -149,7 +179,8 @@ contract DeployAll is Script {
             '    "PrizeDistributor": "', vm.toString(addrs.prizeDistributor), '",\n',
             '    "SOFFaucet": "', vm.toString(addrs.faucet), '",\n',
             '    "SOFSmartAccount": "', vm.toString(addrs.sofSmartAccount), '",\n',
-            '    "Paymaster": "', vm.toString(addrs.paymasterAddress), '"',
+            '    "Paymaster": "', vm.toString(addrs.paymasterAddress), '",\n',
+            '    "RolloverEscrow": "', vm.toString(addrs.rolloverEscrow), '"',
             preservedSection,
             '\n  }\n}'
         );

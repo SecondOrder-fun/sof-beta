@@ -22,4 +22,5 @@ struct DeployedAddresses {
     address faucet;
     address sofSmartAccount;
     address paymasterAddress;
+    address rolloverEscrow;
 }

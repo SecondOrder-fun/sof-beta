@@ -10,6 +10,7 @@ import {RaffleOracleAdapter} from "../../src/infofi/RaffleOracleAdapter.sol";
 import {InfoFiFPMMV2} from "../../src/infofi/InfoFiFPMMV2.sol";
 import {InfoFiPriceOracle} from "../../src/infofi/InfoFiPriceOracle.sol";
 import {RafflePrizeDistributor} from "../../src/core/RafflePrizeDistributor.sol";
+import {RolloverEscrow} from "../../src/core/RolloverEscrow.sol";
 
 
 contract ConfigureRoles is Script {
@@ -92,6 +93,27 @@ contract ConfigureRoles is Script {
         console2.log("IMPORTANT: Treasury must approve InfoFiFactory for SOF spending");
         console2.log("  Run: sof.approve(", vm.toString(addrs.infoFiFactory), ", type(uint256).max)");
         console2.log("  From the treasury wallet");
+
+        // 10. Wire RolloverEscrow
+        if (addrs.rolloverEscrow != address(0)) {
+            RolloverEscrow rolloverEscrow = RolloverEscrow(addrs.rolloverEscrow);
+
+            try rolloverEscrow.grantRole(rolloverEscrow.DISTRIBUTOR_ROLE(), addrs.prizeDistributor) {
+                console2.log("Granted DISTRIBUTOR_ROLE on RolloverEscrow to PrizeDistributor");
+            } catch {
+                console2.log("DISTRIBUTOR_ROLE on RolloverEscrow already set");
+            }
+
+            try distributor.setRolloverEscrow(addrs.rolloverEscrow) {
+                console2.log("Set RolloverEscrow on PrizeDistributor");
+            } catch {
+                console2.log("RolloverEscrow on PrizeDistributor already set");
+            }
+
+            console2.log("IMPORTANT: Treasury must approve RolloverEscrow for SOF spending");
+            console2.log("  Run: sof.approve(", vm.toString(addrs.rolloverEscrow), ", type(uint256).max)");
+            console2.log("  From the treasury wallet");
+        }
 
         vm.stopBroadcast();
 
