@@ -109,7 +109,10 @@ MetaMask `wallet_sendCalls` does not support `paymasterService` capability. Batc
 - [x] All 285 contract tests pass
 
 ### Task 4: RolloverEscrow — Spend with Bonus
-- [ ] TBD
+- [x] Implemented `spendFromRollover(seasonId, sofAmount, ticketAmount, maxTotalSof)` in RolloverEscrow.sol
+- [x] Added `import {SOFBondingCurve}` to RolloverEscrow.sol
+- [x] Added `RolloverEscrowSpendTest` with 5 tests (TDD: tests written before implementation)
+- [x] All 290 contract tests pass
 
 ### Task 5: RolloverEscrow — Refund
 - [ ] TBD

@@ -13,6 +13,7 @@ import {
     PhaseNotOpen,
     PhaseNotActive,
     AmountZero,
+    ExceedsBalance,
     InvalidPhaseTransition
 } from "../src/core/RolloverEscrow.sol";
 import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
@@ -461,5 +462,187 @@ contract RolloverEscrowDepositTest is Test {
 
         uint256 bonus = escrow.getBonusAmount(SEASON_ID, 1000e18);
         assertEq(bonus, 60e18, "6% of 1000 SOF = 60 SOF");
+    }
+}
+
+// =============================================================================
+// RolloverEscrowSpendTest
+// Task 4: spendFromRollover — spend rollover balance to buy tickets with bonus
+// =============================================================================
+contract RolloverEscrowSpendTest is Test {
+    SOFToken public sofToken;
+    RaffleToken public raffleToken;
+    SOFBondingCurve public curve;
+    RolloverEscrow public escrow;
+
+    address public admin       = address(0xAD);
+    address public treasury    = address(0x7EA);
+    address public raffle      = address(0x1);
+    address public distributor = address(0xD157);
+    address public user        = address(0xBEEF);
+
+    uint256 constant SEASON_ID      = 1;
+    uint256 constant NEXT_SEASON_ID = 2;
+    uint256 constant DEPOSIT_AMOUNT = 100e18; // 100 SOF deposited
+    uint256 constant BONUS_BPS      = 600;    // 6%
+    // Treasury starts with enough SOF to pay all bonuses
+    uint256 constant TREASURY_SOF   = 10_000e18;
+    // Curve: 0 fees, 1 SOF per ticket, cap 100_000 tickets
+    uint16 constant BUY_FEE  = 0;
+    uint16 constant SELL_FEE = 0;
+
+    function setUp() public {
+        vm.startPrank(admin);
+
+        // Deploy tokens
+        sofToken = new SOFToken("SOF", "SOF", 1_000_000e18);
+        sofToken.transfer(treasury, TREASURY_SOF);
+
+        // Deploy curve (0 fees for simplicity)
+        curve = new SOFBondingCurve(address(sofToken), admin);
+
+        raffleToken = new RaffleToken(
+            "Season 2 Ticket",
+            "SOF-2",
+            NEXT_SEASON_ID,
+            "Season 2",
+            block.timestamp,
+            block.timestamp + 7 days
+        );
+        raffleToken.grantRole(raffleToken.MINTER_ROLE(), address(curve));
+        raffleToken.grantRole(raffleToken.BURNER_ROLE(), address(curve));
+
+        RaffleTypes.BondStep[] memory steps = new RaffleTypes.BondStep[](1);
+        steps[0] = RaffleTypes.BondStep({rangeTo: 100_000, price: 1e18});
+        curve.initializeCurve(address(raffleToken), steps, BUY_FEE, SELL_FEE, treasury);
+
+        // Deploy escrow
+        escrow = new RolloverEscrow(address(sofToken), treasury, raffle);
+        escrow.grantRole(escrow.DISTRIBUTOR_ROLE(), distributor);
+        escrow.setBondingCurve(address(curve));
+
+        // Grant ESCROW_ROLE on curve to the escrow contract
+        curve.grantRole(curve.ESCROW_ROLE(), address(escrow));
+
+        vm.stopPrank();
+
+        // Treasury approves escrow to pull bonus SOF
+        vm.prank(treasury);
+        sofToken.approve(address(escrow), type(uint256).max);
+
+        // Fund distributor and deposit for user into an ACTIVE cohort
+        vm.prank(admin);
+        sofToken.transfer(distributor, DEPOSIT_AMOUNT);
+
+        vm.prank(distributor);
+        sofToken.approve(address(escrow), type(uint256).max);
+
+        vm.prank(admin);
+        escrow.openCohort(SEASON_ID, uint16(BONUS_BPS));
+
+        vm.prank(distributor);
+        escrow.deposit(user, DEPOSIT_AMOUNT, SEASON_ID);
+
+        vm.prank(admin);
+        escrow.activateCohort(SEASON_ID, NEXT_SEASON_ID);
+    }
+
+    // =========================================================================
+    // test_spend_happyPath_bonusApplied
+    // Spend 50 SOF of 100 deposited; 6% bonus (3 SOF) pulled from treasury;
+    // user receives 53 tickets (53 SOF worth at 1 SOF/ticket); position updated.
+    // =========================================================================
+    function test_spend_happyPath_bonusApplied() public {
+        uint256 sofAmount    = 50e18;
+        uint256 bonusAmount  = (sofAmount * BONUS_BPS) / 10_000; // 3e18
+        uint256 totalSof     = sofAmount + bonusAmount;           // 53e18
+        // With 0 fees: baseCost == totalSof, ticketAmount == 53
+        uint256 ticketAmount = 53; // 53 tickets @ 1 SOF each
+        uint256 maxTotalSof  = totalSof; // exact, no headroom needed (0 fee)
+
+        uint256 treasuryBefore = sofToken.balanceOf(treasury);
+        uint256 escrowBefore   = sofToken.balanceOf(address(escrow));
+
+        vm.prank(user);
+        escrow.spendFromRollover(SEASON_ID, sofAmount, ticketAmount, maxTotalSof);
+
+        // User gets the tickets
+        assertEq(raffleToken.balanceOf(user), ticketAmount, "user ticket balance");
+
+        // Treasury lost the bonus
+        assertEq(sofToken.balanceOf(treasury), treasuryBefore - bonusAmount, "treasury SOF reduced by bonus");
+
+        // Escrow SOF: sent sofAmount to curve, received bonusAmount from treasury,
+        // net = escrowBefore - sofAmount (bonus came in then went to curve)
+        assertEq(sofToken.balanceOf(address(escrow)), escrowBefore - sofAmount, "escrow SOF net");
+
+        // Position updated
+        (uint256 deposited, uint256 spent,) = escrow.getUserPosition(SEASON_ID, user);
+        assertEq(deposited, DEPOSIT_AMOUNT, "deposited unchanged");
+        assertEq(spent, sofAmount, "spent updated");
+
+        // Cohort totals updated
+        (,,,, uint256 totalSpent, uint256 totalBonusPaid,) = escrow.getCohortState(SEASON_ID);
+        assertEq(totalSpent, sofAmount, "cohort totalSpent");
+        assertEq(totalBonusPaid, bonusAmount, "cohort totalBonusPaid");
+    }
+
+    // =========================================================================
+    // test_spend_partialSpend_remainderRefundable
+    // After spending 50 SOF of 100, available balance == 50 SOF.
+    // =========================================================================
+    function test_spend_partialSpend_remainderRefundable() public {
+        uint256 sofAmount   = 50e18;
+        uint256 bonusAmount = (sofAmount * BONUS_BPS) / 10_000;
+        uint256 totalSof    = sofAmount + bonusAmount;
+        uint256 ticketAmount = 53;
+
+        vm.prank(user);
+        escrow.spendFromRollover(SEASON_ID, sofAmount, ticketAmount, totalSof);
+
+        uint256 avail = escrow.getAvailableBalance(SEASON_ID, user);
+        assertEq(avail, DEPOSIT_AMOUNT - sofAmount, "remaining available balance");
+    }
+
+    // =========================================================================
+    // test_spend_revertIfPhaseNotActive
+    // Close the cohort then try to spend — must revert with PhaseNotActive.
+    // =========================================================================
+    function test_spend_revertIfPhaseNotActive() public {
+        vm.prank(admin);
+        escrow.closeCohort(SEASON_ID);
+
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(PhaseNotActive.selector, SEASON_ID));
+        escrow.spendFromRollover(SEASON_ID, 50e18, 53, type(uint256).max);
+    }
+
+    // =========================================================================
+    // test_spend_revertIfExceedsBalance
+    // Try to spend more than deposited — must revert with ExceedsBalance.
+    // =========================================================================
+    function test_spend_revertIfExceedsBalance() public {
+        uint256 tooMuch = DEPOSIT_AMOUNT + 1e18;
+
+        vm.prank(user);
+        vm.expectRevert(
+            abi.encodeWithSelector(ExceedsBalance.selector, tooMuch, DEPOSIT_AMOUNT)
+        );
+        escrow.spendFromRollover(SEASON_ID, tooMuch, 1, type(uint256).max);
+    }
+
+    // =========================================================================
+    // test_spend_revertIfTreasuryBalanceInsufficient
+    // Drain treasury; the safeTransferFrom for bonus must revert.
+    // =========================================================================
+    function test_spend_revertIfTreasuryBalanceInsufficient() public {
+        // Drain all treasury SOF to admin
+        vm.startPrank(treasury);
+        sofToken.transfer(admin, sofToken.balanceOf(treasury));
+        vm.stopPrank();
+
+        vm.prank(user);
+        vm.expectRevert(); // ERC20 transfer will fail
+        escrow.spendFromRollover(SEASON_ID, 50e18, 53, type(uint256).max);
     }
 }

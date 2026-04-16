@@ -7,6 +7,7 @@ import {Pausable} from "openzeppelin-contracts/contracts/utils/Pausable.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IRolloverEscrow} from "./IRolloverEscrow.sol";
+import {SOFBondingCurve} from "../curve/SOFBondingCurve.sol";
 
 // ---------------------------------------------------------------------------
 // Custom errors
@@ -263,11 +264,53 @@ contract RolloverEscrow is IRolloverEscrow, AccessControl, ReentrancyGuard, Paus
     }
 
     // -----------------------------------------------------------------------
-    // External: Spend (stub — Task 4)
+    // External: Spend (Task 4)
     // -----------------------------------------------------------------------
 
-    // TODO Task 4: implement spendFromRollover
-    // function spendFromRollover(address user, uint256 amount, uint256 seasonId) external { ... }
+    /**
+     * @notice Spend rollover balance to buy tickets for the next season, with a bonus
+     *         pulled from treasury.
+     * @param seasonId     The rollover cohort season.
+     * @param sofAmount    Amount of rollover SOF to spend (must not exceed available balance).
+     * @param ticketAmount Number of raffle tickets to buy (pre-calculated by UI).
+     * @param maxTotalSof  Slippage cap: maximum SOF (base + bonus) the curve may charge.
+     */
+    function spendFromRollover(uint256 seasonId, uint256 sofAmount, uint256 ticketAmount, uint256 maxTotalSof)
+        external
+        nonReentrant
+        whenNotPaused
+        whenPhaseActive(seasonId)
+    {
+        if (sofAmount == 0) revert AmountZero();
+        if (bondingCurve == address(0)) revert BondingCurveNotSet();
+
+        UserPosition storage pos = _positions[seasonId][msg.sender];
+        uint256 available = pos.deposited - pos.spent;
+        if (sofAmount > available) revert ExceedsBalance(sofAmount, available);
+
+        CohortState storage cohort = _cohorts[seasonId];
+        uint256 bonusAmount = (sofAmount * uint256(cohort.bonusBps)) / 10_000;
+
+        // Checks-effects-interactions: update state before external calls
+        pos.spent += sofAmount;
+        cohort.totalSpent += sofAmount;
+        cohort.totalBonusPaid += bonusAmount;
+
+        // Pull bonus from treasury into this contract
+        sofToken.safeTransferFrom(treasury, address(this), bonusAmount);
+
+        // Approve curve for the total SOF (base + bonus)
+        uint256 totalSof = sofAmount + bonusAmount;
+        sofToken.approve(address(bondingCurve), totalSof);
+
+        // Buy tickets for user via the bonding curve
+        SOFBondingCurve(bondingCurve).buyTokensFor(msg.sender, ticketAmount, maxTotalSof);
+
+        // Clear any leftover allowance (defense-in-depth)
+        sofToken.approve(address(bondingCurve), 0);
+
+        emit RolloverSpend(msg.sender, seasonId, cohort.nextSeasonId, sofAmount, bonusAmount);
+    }
 
     // -----------------------------------------------------------------------
     // External: Refund (stub — Task 5)
