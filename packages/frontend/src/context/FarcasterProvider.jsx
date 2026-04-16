@@ -91,7 +91,7 @@ const FarcasterProvider = ({ children }) => {
    * Returns the nonce string.
    */
   const fetchNonce = useCallback(async () => {
-    const res = await fetch(`${API_BASE}/auth/farcaster/nonce`);
+    const res = await fetch(`${API_BASE}/auth/nonce`);
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       throw new Error(data.error || "Failed to fetch nonce");
@@ -108,10 +108,10 @@ const FarcasterProvider = ({ children }) => {
     setError(null);
 
     try {
-      const res = await fetch(`${API_BASE}/auth/farcaster/verify`, {
+      const res = await fetch(`${API_BASE}/auth/verify`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, signature, nonce }),
+        body: JSON.stringify({ method: "farcaster", message, signature, nonce }),
       });
 
       if (!res.ok) {
