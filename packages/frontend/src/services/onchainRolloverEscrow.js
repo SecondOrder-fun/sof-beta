@@ -26,7 +26,7 @@ export async function readCohortState({ publicClient, seasonId, networkKey }) {
   const escrow = getRolloverEscrowAddress(networkKey);
   if (!escrow) return null;
 
-  const [phase, nextSeasonId, bonusBps, totalDeposited, totalSpent, totalBonusPaid, openedAt, isExpired] =
+  const [phase, nextSeasonId, bonusBps, totalDeposited, totalSpent, totalBonusPaid, isExpired] =
     await publicClient.readContract({
       address: escrow,
       abi: RolloverEscrowABI,
@@ -43,7 +43,6 @@ export async function readCohortState({ publicClient, seasonId, networkKey }) {
     totalDeposited,
     totalSpent,
     totalBonusPaid,
-    openedAt,
   };
 }
 
@@ -71,20 +70,22 @@ export async function readBonusAmount({ publicClient, seasonId, amount, networkK
   });
 }
 
-export function buildSpendFromRolloverCall({ seasonId, sofAmount, ticketAmount, maxSof, networkKey }) {
+export function buildSpendFromRolloverCall({ seasonId, sofAmount, ticketAmount, maxTotalSof, networkKey }) {
   const escrow = getRolloverEscrowAddress(networkKey);
+  if (!escrow) throw new Error("RolloverEscrow address not configured");
   return {
     to: escrow,
     data: encodeFunctionData({
       abi: RolloverEscrowABI,
       functionName: "spendFromRollover",
-      args: [BigInt(seasonId), sofAmount, ticketAmount, maxSof],
+      args: [BigInt(seasonId), sofAmount, ticketAmount, maxTotalSof],
     }),
   };
 }
 
 export function buildRefundCall({ seasonId, networkKey }) {
   const escrow = getRolloverEscrowAddress(networkKey);
+  if (!escrow) throw new Error("RolloverEscrow address not configured");
   return {
     to: escrow,
     data: encodeFunctionData({
