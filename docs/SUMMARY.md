@@ -34,7 +34,6 @@
 
 * [Overview](03-development/README.md)
 * [Frontend Guidelines](03-development/frontend-guidelines.md)
-* [Tasks](03-development/tasks.md)
 
 ## API Reference
 
