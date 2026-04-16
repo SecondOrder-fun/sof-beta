@@ -1,5 +1,7 @@
 # Gasless Paymaster Pipeline Implementation Plan
 
+> **Status:** Complete (merged PR #17)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make all user-facing transactions gasless by deploying a local VerifyingPaymaster, fixing the JWT gate, and wiring the backend proxy to handle local paymaster requests.

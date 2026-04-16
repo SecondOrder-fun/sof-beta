@@ -1,7 +1,7 @@
 # Gasless Transaction Pipeline
 
 **Date:** 2026-04-14
-**Status:** Approved design
+**Status:** Complete (merged PR #17)
 **Scope:** Frontend (`useSmartTransactions`), Backend (paymaster proxy), Contracts (VerifyingPaymaster deploy)
 
 ## Problem
