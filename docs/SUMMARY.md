@@ -41,8 +41,7 @@
 * [Arbitrage](05-features/arbitrage/README.md)
   * [Detection](05-features/arbitrage/detection.md)
   * [Flow Diagram](05-features/arbitrage/flow-diagram.md)
-* [Consolation](05-features/consolation/README.md)
-  * [Implementation](05-features/consolation/implementation.md)
+* [Consolation System](05-features/consolation/implementation.md)
 * [Localization System](05-features/i18n/localization-system.md)
 * [Treasury System](05-features/treasury/system.md)
 

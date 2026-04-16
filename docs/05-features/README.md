@@ -4,7 +4,7 @@ Detailed documentation of implemented features and systems.
 
 ## Contents
 
-- [Internationalization (i18n)](i18n/) - Multi-language support system
 - [Arbitrage Detection](arbitrage/) - Cross-layer arbitrage detection
-- [Treasury System](treasury/) - Treasury management and fee collection
-- [Consolation System](consolation/) - Consolation prize distribution
+- [Consolation System](consolation/implementation.md) - Consolation prize distribution
+- [Localization System](i18n/localization-system.md) - Multi-language support
+- [Treasury System](treasury/system.md) - Treasury management and fee collection
