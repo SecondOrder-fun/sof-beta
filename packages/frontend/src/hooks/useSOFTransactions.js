@@ -326,7 +326,51 @@ export function useSOFTransactions(address, options = {}) {
         }
       }
 
-      // 5. Fetch fee collection events from bonding curve (if user is admin/treasury)
+      // 5. Fetch RolloverSpend events from escrow contract
+      if (contracts.ROLLOVER_ESCROW) {
+        try {
+          const rolloverLogs = await queryLogsInChunks(publicClient, {
+            address: contracts.ROLLOVER_ESCROW,
+            event: {
+              type: "event",
+              name: "RolloverSpend",
+              inputs: [
+                { type: "address", name: "user", indexed: true },
+                { type: "uint256", name: "seasonId", indexed: true },
+                { type: "uint256", name: "nextSeasonId", indexed: true },
+                { type: "uint256", name: "baseAmount" },
+                { type: "uint256", name: "bonusAmount" },
+              ],
+            },
+            args: { user: address },
+            fromBlock,
+            toBlock,
+          });
+
+          for (const log of rolloverLogs) {
+            const block = await publicClient.getBlock({
+              blockNumber: log.blockNumber,
+            });
+            transactions.push({
+              type: "ROLLOVER_BUY",
+              hash: log.transactionHash,
+              blockNumber: log.blockNumber,
+              timestamp: Number(block.timestamp),
+              amount: formatUnits(log.args.baseAmount + log.args.bonusAmount, 18),
+              amountRaw: log.args.baseAmount + log.args.bonusAmount,
+              bonusAmount: formatUnits(log.args.bonusAmount, 18),
+              seasonId: Number(log.args.nextSeasonId),
+              sourceSeasonId: Number(log.args.seasonId),
+              direction: "OUT",
+              description: `Rollover tickets (Season #${Number(log.args.nextSeasonId)})`,
+            });
+          }
+        } catch (err) {
+          // Silently fail if rollover events cannot be fetched
+        }
+      }
+
+      // 6. Fetch fee collection events from bonding curve (if user is admin/treasury)
       if (contracts.SOFBondingCurve) {
         try {
           const feeEvents = await queryLogsInChunks(publicClient, {

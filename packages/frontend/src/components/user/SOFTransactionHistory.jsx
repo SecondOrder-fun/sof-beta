@@ -64,7 +64,8 @@ export function SOFTransactionHistory({ address, embedded = false }) {
           tx.type === "RAFFLE_BUY" ||
           tx.type === "RAFFLE_SELL" ||
           tx.type === "INFOFI_BUY" ||
-          tx.type === "INFOFI_SELL"
+          tx.type === "INFOFI_SELL" ||
+          tx.type === "ROLLOVER_BUY"
       );
     }
     if (filter === "PRIZES") {
@@ -104,7 +105,8 @@ export function SOFTransactionHistory({ address, embedded = false }) {
         tx.type === "RAFFLE_BUY" ||
         tx.type === "RAFFLE_SELL" ||
         tx.type === "INFOFI_BUY" ||
-        tx.type === "INFOFI_SELL"
+        tx.type === "INFOFI_SELL" ||
+        tx.type === "ROLLOVER_BUY"
     ).length;
 
     const prizeCount = transactions.filter(
@@ -285,6 +287,8 @@ function TransactionRow({ tx, network, compact = false }) {
         return <TrendingUpIcon className="h-4 w-4 text-purple-600" />;
       case "INFOFI_SELL":
         return <TrendingDownIcon className="h-4 w-4 text-purple-600" />;
+      case "ROLLOVER_BUY":
+        return <TrendingUpIcon className="h-4 w-4 text-emerald-600" />;
       case "PRIZE_CLAIM":
       case "PRIZE_CLAIM_GRAND":
       case "PRIZE_CLAIM_CONSOLATION":
@@ -314,10 +318,19 @@ function TransactionRow({ tx, network, compact = false }) {
         variant: "secondary",
       },
       FEE_COLLECTED: { label: t("fees"), variant: "outline" },
+      ROLLOVER_BUY: { label: t("raffle:rolloverBuy", { defaultValue: "Rollover" }), variant: "default" },
     };
 
     const config = typeMap[tx.type] || { label: tx.type, variant: "outline" };
-    return <Badge variant={config.variant}>{config.label}</Badge>;
+    const isRollover = tx.type?.startsWith("ROLLOVER");
+    return (
+      <Badge
+        variant={config.variant}
+        className={isRollover ? "bg-emerald-600 text-white" : undefined}
+      >
+        {config.label}
+      </Badge>
+    );
   };
 
   const formatDate = (timestamp) => {
@@ -395,6 +408,8 @@ TransactionRow.propTypes = {
     direction: PropTypes.string.isRequired,
     description: PropTypes.string.isRequired,
     seasonId: PropTypes.number,
+    sourceSeasonId: PropTypes.number,
+    bonusAmount: PropTypes.string,
     tokensReceived: PropTypes.string,
     tokensSold: PropTypes.string,
     from: PropTypes.string,
