@@ -12,6 +12,7 @@ vi.mock("react-i18next", () => ({
 
 vi.mock("react-router-dom", () => ({
   useNavigate: () => vi.fn(),
+  // eslint-disable-next-line react/prop-types
   Link: ({ children, to }) => React.createElement("a", { href: to }, children),
 }));
 
