@@ -118,17 +118,16 @@ const ProfileContent = ({ address, isOwnProfile }) => {
         )}
 
       {/* Rollover position — rendered when available */}
-      {isOwnProfile && allSeasonsQuery.data && (
-        <div className="mb-4">
-          <RolloverPortfolioCard
-            seasonId={
-              allSeasonsQuery.data
-                .filter((s) => s.status === "ended" || s.status === "settled")
-                .sort((a, b) => Number(b.id) - Number(a.id))[0]?.id ?? 0
-            }
-          />
-        </div>
-      )}
+      {isOwnProfile && (() => {
+        const latestEndedId = (allSeasonsQuery.data || [])
+          .filter((s) => s.status === "ended" || s.status === "settled")
+          .sort((a, b) => Number(b.id) - Number(a.id))[0]?.id;
+        return latestEndedId ? (
+          <div className="mb-4">
+            <RolloverPortfolioCard seasonId={latestEndedId} />
+          </div>
+        ) : null;
+      })()}
 
       {/* Holdings card — 3-tab layout */}
       <div className="mb-4">

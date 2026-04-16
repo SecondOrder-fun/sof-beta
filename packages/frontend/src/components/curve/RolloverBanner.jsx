@@ -73,7 +73,7 @@ export default function RolloverBanner({
                 max={balanceFormatted}
               />
               <span className="text-xs text-muted-foreground">
-                of {balanceFormatted} SOF
+                {t("raffle:useOfRollover", { used: rolloverFormatted, total: balanceFormatted })}
               </span>
             </div>
           )}

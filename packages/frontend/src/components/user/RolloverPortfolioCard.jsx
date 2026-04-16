@@ -81,7 +81,7 @@ export default function RolloverPortfolioCard({ seasonId }) {
               disabled={refundRollover.isPending}
             >
               {refundRollover.isPending
-                ? "..."
+                ? t("common:loading", { defaultValue: "Loading..." })
                 : t("account:refundToWallet", { defaultValue: "Refund to Wallet" })}
             </Button>
           )}

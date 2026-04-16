@@ -19,7 +19,7 @@ export default async function rolloverRoutes(fastify) {
    * Response:
    *   { positions: [{ seasonId, deposited, depositedAt }] }
    */
-  fastify.get("/positions", async (request, reply) => {
+  fastify.get("/positions", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
     const { wallet } = request.query;
 
     if (!wallet || !/^0x[a-fA-F0-9]{40}$/.test(wallet)) {
