@@ -4,6 +4,8 @@ trigger: always_on
 
 # SecondOrder.fun Tokenomics Deep Dive
 
+> **WIP:** This section is under revision and may contain outdated information from the alpha. Do not rely on the specifics below until this notice is removed.
+
 ## Executive Summary
 
 Based on research into Seasonal Tokens and Immutable X's fee capture models, this analysis recommends a **staking-based approach** over bonding curves for SecondOrder.fun's ticket-coin system, combined with graduated post-season liquidity mechanisms to handle the critical "locked token" problem.
