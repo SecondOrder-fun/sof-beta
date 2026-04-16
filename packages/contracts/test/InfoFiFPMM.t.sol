@@ -242,11 +242,29 @@ contract InfoFiFPMMTest is Test {
         assertGt(fees, 0, "Fees should exist");
 
         uint256 treasuryBefore = sof.balanceOf(treasury);
+        vm.prank(treasury);
         fpmm.withdrawFees();
         uint256 treasuryAfter = sof.balanceOf(treasury);
 
         assertEq(treasuryAfter - treasuryBefore, fees, "Treasury receives fees");
         assertEq(fpmm.feesCollected(), 0, "Fees reset to 0");
+    }
+
+    function test_withdrawFeesRevertsForNonTreasury() public {
+        vm.startPrank(trader1);
+        sof.approve(address(fpmm), 100e18);
+        fpmm.buy(true, 100e18, 0);
+        vm.stopPrank();
+
+        vm.prank(trader1);
+        vm.expectRevert("Only treasury");
+        fpmm.withdrawFees();
+    }
+
+    function test_withdrawFeesRevertsWhenNoFees() public {
+        vm.prank(treasury);
+        vm.expectRevert("No fees");
+        fpmm.withdrawFees();
     }
 
     // ─────────────────── RESERVES & INVARIANT ───────────────────

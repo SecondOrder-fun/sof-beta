@@ -13,7 +13,7 @@ import { useProfile } from "@farcaster/auth-kit";
 import PropTypes from "prop-types";
 import FarcasterContext from "./farcasterContext";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
+import { API_BASE } from "@/lib/apiBase";
 const STORAGE_KEY = "sof:farcaster_jwt";
 const USER_STORAGE_KEY = "sof:farcaster_user";
 

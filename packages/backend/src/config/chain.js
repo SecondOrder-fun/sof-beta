@@ -58,6 +58,17 @@ export function loadChainEnv() {
     process.env.NETWORK || "LOCAL"
   ).toUpperCase();
 
+  // Validate critical contract addresses are present for non-local networks
+  if (defaultNet !== "LOCAL") {
+    const critical = ['raffle', 'sof', 'infofiFactory', 'infofiOracle'];
+    for (const key of critical) {
+      if (!env[defaultNet]?.[key]) {
+        // eslint-disable-next-line no-console
+        console.warn(`[chain] Missing ${key} address for ${defaultNet}`);
+      }
+    }
+  }
+
   if (defaultNet !== "LOCAL" && !env[defaultNet]?.rpcUrl) {
     // eslint-disable-next-line no-console
     console.warn(

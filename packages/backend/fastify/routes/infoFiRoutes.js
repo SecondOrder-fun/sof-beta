@@ -989,7 +989,7 @@ export default async function infoFiRoutes(fastify) {
    *
    * Returns: { success, recorded, skipped, totalEvents, fromBlock, toBlock }
    */
-  fastify.post("/markets/:fpmmAddress/sync", async (request, reply) => {
+  fastify.post("/markets/:fpmmAddress/sync", { preHandler: [requireAdmin] }, async (request, reply) => {
     try {
       const { fpmmAddress } = request.params;
       const { fromBlock } = request.query;

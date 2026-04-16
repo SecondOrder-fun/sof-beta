@@ -102,6 +102,8 @@ contract RafflePrizeDistributor is IRafflePrizeDistributor, AccessControl, Reent
         uint256 indexed seasonId, address indexed winner, address indexed token, uint256 tokenId
     );
 
+    event ConsolationDustSwept(uint256 indexed seasonId, address indexed recipient, uint256 amount);
+
     constructor(address initialAdmin) {
         address admin = initialAdmin == address(0) ? msg.sender : initialAdmin;
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
@@ -230,6 +232,30 @@ contract RafflePrizeDistributor is IRafflePrizeDistributor, AccessControl, Reent
             funded: s.funded,
             grandClaimed: s.grandClaimed
         });
+    }
+
+    /**
+     * @notice Sweep consolation dust left from integer division rounding
+     * @dev Only callable by admin after the season is funded. Sends unclaimable
+     *      remainder (consolationAmount % loserCount) to the grand winner.
+     * @param seasonId The season to sweep dust from
+     */
+    function sweepConsolationDust(uint256 seasonId) external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
+        Season storage s = _seasons[seasonId];
+        require(s.funded, "Distributor: not funded");
+        require(s.totalParticipants > 1, "Distributor: no losers");
+
+        uint256 loserCount = s.totalParticipants - 1;
+        uint256 perLoser = s.consolationAmount / loserCount;
+        uint256 totalClaimable = perLoser * loserCount;
+        uint256 dust = s.consolationAmount - totalClaimable;
+        require(dust > 0, "Distributor: no dust");
+
+        // Reduce consolationAmount to what is actually claimable to prevent re-sweep
+        s.consolationAmount = totalClaimable;
+
+        IERC20(s.token).safeTransfer(s.grandWinner, dust);
+        emit ConsolationDustSwept(seasonId, s.grandWinner, dust);
     }
 
     // ----------------------- Sponsorship functions --------------------

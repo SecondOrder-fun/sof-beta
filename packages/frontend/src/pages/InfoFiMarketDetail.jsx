@@ -16,7 +16,7 @@ import { formatDistanceToNow, format } from "date-fns";
 import { usePlatform } from "@/hooks/usePlatform";
 import MobileMarketDetail from "@/components/mobile/MobileMarketDetail";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
+import { API_BASE } from "@/lib/apiBase";
 
 /**
  * InfoFiMarketDetail Page

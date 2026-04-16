@@ -11,6 +11,7 @@ import { useSponsoredPrizes } from "@/hooks/useSponsoredPrizes";
 import { useSmartTransactions } from "@/hooks/useSmartTransactions";
 import { getContractAddresses } from "@/config/contracts";
 import { getStoredNetworkKey } from "@/lib/wagmi";
+import { API_BASE } from "@/lib/apiBase";
 import { RafflePrizeDistributorAbi } from "@/utils/abis";
 import { ERC20Abi, ERC721ApproveAbi } from "@/utils/abis";
 import PropTypes from "prop-types";
@@ -146,7 +147,7 @@ export function SponsorPrizeWidget({ seasonId }) {
 
     setIsPending(true);
     try {
-      const res = await fetch(`/api/sponsor-prizes/${seasonId}/offchain`, {
+      const res = await fetch(`${API_BASE}/sponsor-prizes/${seasonId}/offchain`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

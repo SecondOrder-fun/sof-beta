@@ -47,6 +47,7 @@ contract HelperConfig is Script {
             });
         } else if (block.chainid == 8453) {
             // Base Mainnet
+            require(MAINNET_VRF_COORDINATOR != address(0), "HelperConfig: mainnet VRF coordinator not configured");
             return NetworkConfig({
                 vrfCoordinator: MAINNET_VRF_COORDINATOR,
                 vrfSubscriptionId: vm.envUint("VRF_SUBSCRIPTION_ID"),

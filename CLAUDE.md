@@ -57,10 +57,10 @@ cd packages/contracts && forge test
 
 ```bash
 # Always dry-run first and get user confirmation
-./scripts/deploy-env.sh --dry-run
+./scripts/deploy-env.sh --network testnet --dry-run
 
 # Only after explicit approval
-./scripts/deploy-env.sh
+./scripts/deploy-env.sh --network testnet
 ```
 
 Always strip whitespace/newlines from env var values before pushing.
@@ -132,7 +132,8 @@ source env/.env.testnet && forge script script/deploy/DeployAll.s.sol:DeployAll 
   --rpc-url https://sepolia.base.org --broadcast --verify --force
 
 # Deploy env vars (always dry-run first)
-./scripts/deploy-env.sh --dry-run
+./scripts/deploy-env.sh --network testnet --dry-run
+./scripts/deploy-env.sh --network testnet
 ```
 
 ## Gotchas

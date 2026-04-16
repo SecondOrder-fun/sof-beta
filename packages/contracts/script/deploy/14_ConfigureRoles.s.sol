@@ -10,7 +10,7 @@ import {RaffleOracleAdapter} from "../../src/infofi/RaffleOracleAdapter.sol";
 import {InfoFiFPMMV2} from "../../src/infofi/InfoFiFPMMV2.sol";
 import {InfoFiPriceOracle} from "../../src/infofi/InfoFiPriceOracle.sol";
 import {RafflePrizeDistributor} from "../../src/core/RafflePrizeDistributor.sol";
-import {SOFToken} from "../../src/token/SOFToken.sol";
+
 
 contract ConfigureRoles is Script {
     function run(DeployedAddresses memory addrs) public returns (DeployedAddresses memory) {
@@ -22,8 +22,6 @@ contract ConfigureRoles is Script {
         InfoFiFPMMV2 fpmmManager = InfoFiFPMMV2(addrs.fpmmManager);
         InfoFiPriceOracle infoFiOracle = InfoFiPriceOracle(addrs.infoFiOracle);
         RafflePrizeDistributor distributor = RafflePrizeDistributor(addrs.prizeDistributor);
-        SOFToken sof = SOFToken(addrs.sofToken);
-
         vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
 
         // 1. seasonFactory.grantRole(RAFFLE_ADMIN_ROLE, raffle)
@@ -89,12 +87,11 @@ contract ConfigureRoles is Script {
             console2.log("PrizeDistributor on Raffle already set");
         }
 
-        // 10. sof.approve(infoFiFactory, type(uint256).max) — treasury approval
-        try sof.approve(addrs.infoFiFactory, type(uint256).max) {
-            console2.log("Approved InfoFiFactory for max SOF spend");
-        } catch {
-            console2.log("SOF approval for InfoFiFactory already set");
-        }
+        // NOTE: The treasury wallet must separately approve InfoFiFactory for SOF spending.
+        // This cannot be done in the deploy script because the treasury is not the deployer.
+        console2.log("IMPORTANT: Treasury must approve InfoFiFactory for SOF spending");
+        console2.log("  Run: sof.approve(", vm.toString(addrs.infoFiFactory), ", type(uint256).max)");
+        console2.log("  From the treasury wallet");
 
         vm.stopBroadcast();
 

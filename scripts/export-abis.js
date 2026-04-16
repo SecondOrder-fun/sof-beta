@@ -149,8 +149,10 @@ async function exportAbis() {
   await fs.writeFile(indexPath, indexLines.join('\n'));
 
   console.log(`\n[export-abis] Exported ${exported.length} ABIs, ${failed.length} failed`);
-  if (failed.length) {
-    console.warn(`[export-abis] Failed: ${failed.join(', ')}`);
+  if (failed.length > 0) {
+    console.error(`[export-abis] Failed: ${failed.join(', ')}`);
+    console.error(`[export-abis] Failing build: ${failed.length} ABI(s) could not be extracted`);
+    process.exit(1);
   }
 }
 

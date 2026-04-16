@@ -12,6 +12,7 @@ import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { AUTO_START_BUFFER_SECONDS } from "@/lib/seasonTime";
 import { getContractAddresses, RAFFLE_ABI, SEASON_GATING_ABI } from "@/config/contracts";
 import { getStoredNetworkKey } from '@/lib/wagmi';
+import { API_BASE } from '@/lib/apiBase';
 import { ERC20Abi, ERC721ApproveAbi, RafflePrizeDistributorAbi } from '@/utils/abis';
 import { useSmartTransactions } from '@/hooks/useSmartTransactions';
 import { MetaMaskCircuitBreakerAlert } from "@/components/common/MetaMaskCircuitBreakerAlert";
@@ -304,7 +305,7 @@ const CreateSeasonForm = ({ createSeason, chainTimeQuery, activeSection = "all" 
           // Handle offchain prizes via backend API
           const offchainPrizes = confirmedPrizes.filter(p => p.type === "offchain");
           for (const prize of offchainPrizes) {
-            const res = await fetch(`/api/sponsor-prizes/${seasonId}/offchain`, {
+            const res = await fetch(`${API_BASE}/sponsor-prizes/${seasonId}/offchain`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({

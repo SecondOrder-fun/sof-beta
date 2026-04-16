@@ -36,13 +36,16 @@ export const SSEProvider = ({ children }) => {
     eventSource.onerror = () => {
       // In development, log connection errors
       // In production, attempt reconnection silently
-      
+
       // Attempt to reconnect with exponential backoff
       if (retryCount < maxRetries) {
         setTimeout(() => {
           retryCount++;
-          const newEventSource = new EventSource(url, { 
-            withCredentials: options.withCredentials || false 
+          // Close the old EventSource before creating a new one to prevent leaks
+          const old = connectionsRef.current[key];
+          if (old) old.close();
+          const newEventSource = new EventSource(url, {
+            withCredentials: options.withCredentials || false
           });
           connectionsRef.current[key] = newEventSource;
         }, Math.min(retryInterval * Math.pow(2, retryCount), 30000));

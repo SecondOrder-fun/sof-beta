@@ -238,7 +238,8 @@ ProviderErrorBoundary.propTypes = {
 };
 
 // Version-based cache clearing to fix MetaMask reload issue
-const CACHE_VERSION = "1.0.5";
+// eslint-disable-next-line no-undef
+const CACHE_VERSION = __APP_VERSION__;
 const CURRENT_VERSION = localStorage.getItem("app_version");
 if (CURRENT_VERSION !== CACHE_VERSION) {
   localStorage.setItem("app_version", CACHE_VERSION);

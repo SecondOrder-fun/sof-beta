@@ -11,6 +11,8 @@ export const useSSE = (url, onMessage, options = {}) => {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState(null);
   const [retryCount, setRetryCount] = useState(0);
+  // Use a ref for retry count inside callbacks to avoid stale closure reconnect loops
+  const retryCountRef = useRef(0);
   const eventSourceRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   
@@ -56,6 +58,7 @@ export const useSSE = (url, onMessage, options = {}) => {
       eventSource.onopen = () => {
         setIsConnected(true);
         setError(null);
+        retryCountRef.current = 0;
         setRetryCount(0);
         
         // Set up heartbeat to detect connection issues
@@ -81,17 +84,19 @@ export const useSSE = (url, onMessage, options = {}) => {
       eventSource.onerror = (err) => {
         setIsConnected(false);
         setError(err);
-        
-        // Attempt to reconnect with exponential backoff
-        if (retryCount < maxRetries) {
-          const nextRetryCount = retryCount + 1;
-          setRetryCount(nextRetryCount);
-          
+
+        // Use ref to avoid stale closure — retryCount state would capture the
+        // value at the time connect() was created and cause an infinite loop.
+        if (retryCountRef.current < maxRetries) {
+          const currentRetry = retryCountRef.current;
+          retryCountRef.current = currentRetry + 1;
+          setRetryCount(retryCountRef.current);
+
           const delay = Math.min(
-            retryInterval * Math.pow(2, retryCount),
+            retryInterval * Math.pow(2, currentRetry),
             30000 // Cap at 30 seconds
           );
-          
+
           reconnectTimeoutRef.current = setTimeout(() => {
             connect();
           }, delay);
@@ -104,7 +109,7 @@ export const useSSE = (url, onMessage, options = {}) => {
       setError(err);
       setIsConnected(false);
     }
-  }, [url, withCredentials, heartbeatInterval, onMessage, retryCount, maxRetries, retryInterval, cleanup, EventSourceClass]);
+  }, [url, withCredentials, heartbeatInterval, onMessage, maxRetries, retryInterval, cleanup, EventSourceClass]);
   
   // Disconnect SSE connection
   const disconnect = useCallback(() => {
