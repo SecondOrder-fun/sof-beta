@@ -89,6 +89,36 @@ MetaMask `wallet_sendCalls` does not support `paymasterService` capability. Batc
 - [x] End-to-end local dev flow validation (Docker: Anvil + Redis + Postgres + Backend, contracts deployed, frontend connected)
 - [ ] Archive old repos (sof-alpha, sof-backend, sof-allowlist, sof-docs)
 
+## Rollover Incentives
+
+### Task 1: Add `buyTokensFor` to SOFBondingCurve
+- [x] Add `ESCROW_ROLE` constant to SOFBondingCurve
+- [x] Add public `buyTokensFor(address recipient, uint256 tokenAmount, uint256 maxSofAmount)` gated by `ESCROW_ROLE`
+- [x] Add internal `_buyTokensFor(address payer, address recipient, ...)` splitting payer/recipient logic
+- [x] Write TDD tests in `packages/contracts/test/RolloverEscrow.t.sol`
+- [x] All 272 contract tests pass
+
+### Task 2: Add `toRollover` param to PrizeDistributor
+- [ ] TBD
+
+### Task 3: RolloverEscrow — Deposit + State Machine
+- [ ] TBD
+
+### Task 4: RolloverEscrow — Spend with Bonus
+- [ ] TBD
+
+### Task 5: RolloverEscrow — Refund
+- [ ] TBD
+
+### Task 6: Deployment Script and Role Wiring
+- [ ] TBD
+
+### Task 7: Integration Tests
+- [ ] TBD
+
+### Task 8: ABI Export and Cleanup
+- [ ] TBD
+
 ## UI Tasks
 
 - [ ] Landing page background animation: scale moving elements 6-8x, pixelated style (4x4 grid with blank corners for circular appearance)

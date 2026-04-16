@@ -47,6 +47,7 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
 
     bytes32 public constant RAFFLE_MANAGER_ROLE = keccak256("RAFFLE_MANAGER_ROLE");
     bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
+    bytes32 public constant ESCROW_ROLE = keccak256("ESCROW_ROLE");
 
     // Core contracts
     IERC20 public immutable sofToken;
@@ -202,7 +203,24 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
         _buyTokens(msg.sender, tokenAmount, maxSofAmount);
     }
 
-    function _buyTokens(address buyer, uint256 tokenAmount, uint256 maxSofAmount) internal {
+    /**
+     * @notice Buy raffle tokens on behalf of a recipient — payer is msg.sender (the escrow)
+     * @dev Requires ESCROW_ROLE. SOF is pulled from msg.sender; raffle tokens are minted to recipient.
+     * @param recipient  Address that will receive the raffle tokens and have their position tracked
+     * @param tokenAmount Amount of raffle tokens to buy
+     * @param maxSofAmount Maximum SOF the escrow is willing to spend (slippage protection)
+     */
+    function buyTokensFor(address recipient, uint256 tokenAmount, uint256 maxSofAmount)
+        external
+        onlyRole(ESCROW_ROLE)
+        nonReentrant
+        whenNotPaused
+    {
+        if (recipient == address(0)) revert InvalidAddress();
+        _buyTokensFor(msg.sender, recipient, tokenAmount, maxSofAmount);
+    }
+
+    function _buyTokensFor(address payer, address recipient, uint256 tokenAmount, uint256 maxSofAmount) internal {
         if (!curveConfig.initialized) revert CurveNotInitialized();
         if (curveConfig.tradingLocked) revert TradingLocked();
         if (curveConfig.sellOnly) revert TradingSellOnly();
@@ -211,12 +229,12 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
         // Guardrail: prevent addition overflow when computing target supply inside price calc
         if (tokenAmount > type(uint256).max - curveConfig.totalSupply) revert AmountTooLarge(tokenAmount);
         uint256 baseCost = calculateBuyPrice(tokenAmount);
-        uint256 fee = (baseCost * curveConfig.buyFee) / 10000; // fee accrues to accumulatedFees
-        uint256 totalCost = baseCost + fee; // fee on top to keep reserves consistent with pricing
+        uint256 fee = (baseCost * curveConfig.buyFee) / 10000;
+        uint256 totalCost = baseCost + fee;
         if (totalCost > maxSofAmount) revert SlippageExceeded(totalCost, maxSofAmount);
-        // Track old values prior to state mutation
+
         uint256 preTotal = curveConfig.totalSupply;
-        uint256 oldTickets = playerTickets[buyer];
+        uint256 oldTickets = playerTickets[recipient];
 
         // Do not allow supply to exceed the final bond step's cap
         if (bondSteps.length > 0) {
@@ -224,35 +242,38 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
             if (preTotal + tokenAmount > lastCap) revert ExceedsMaxSupply(preTotal + tokenAmount, lastCap);
         }
 
-        // Transfer $SOF from buyer (base + fee)
-        sofToken.safeTransferFrom(buyer, address(this), totalCost);
+        // Transfer SOF from payer (the escrow contract)
+        sofToken.safeTransferFrom(payer, address(this), totalCost);
 
-        // Mint raffle tokens to buyer (assumes raffleToken has mint(address,uint256))
-        _mintRaffleTokens(buyer, tokenAmount);
+        // Mint raffle tokens to recipient (the end user)
+        _mintRaffleTokens(recipient, tokenAmount);
 
-        // Update curve state (reserves track only base cost; fees accumulate separately)
+        // Update curve state
         curveConfig.totalSupply += tokenAmount;
         curveConfig.sofReserves += baseCost;
         accumulatedFees += fee;
 
-        // Update player position
+        // Update recipient's position
         uint256 newTickets = oldTickets + tokenAmount;
-        playerTickets[buyer] = newTickets;
+        playerTickets[recipient] = newTickets;
 
         _updateCurrentStep();
 
-        emit TokensPurchased(buyer, totalCost, tokenAmount, fee);
+        emit TokensPurchased(recipient, totalCost, tokenAmount, fee);
 
-        // Emit position update
+        // Emit position update for recipient
         uint256 totalTickets = curveConfig.totalSupply;
         uint256 newBps = (newTickets * 10000) / (totalTickets == 0 ? 1 : totalTickets);
+        emit PositionUpdate(raffleSeasonId, recipient, oldTickets, newTickets, totalTickets, newBps);
 
-        emit PositionUpdate(raffleSeasonId, buyer, oldTickets, newTickets, totalTickets, newBps);
-
-        // Callback to raffle for participant tracking
+        // Callback to raffle for participant tracking under recipient's address
         if (raffle != address(0)) {
-            IRaffle(raffle).recordParticipant(raffleSeasonId, buyer, tokenAmount);
+            IRaffle(raffle).recordParticipant(raffleSeasonId, recipient, tokenAmount);
         }
+    }
+
+    function _buyTokens(address buyer, uint256 tokenAmount, uint256 maxSofAmount) internal {
+        _buyTokensFor(buyer, buyer, tokenAmount, maxSofAmount);
     }
 
     /**
