@@ -116,13 +116,6 @@ contract RolloverIntegrationTest is Test {
         vm.prank(treasury);
         sofToken.approve(address(escrow), type(uint256).max);
 
-        // The distributor must pre-approve escrow for the rollover deposit pull.
-        // claimConsolation does: safeTransfer(escrow, amount) then escrow.deposit(),
-        // which internally calls safeTransferFrom(distributor, escrow, amount).
-        // That second pull requires a prior allowance from distributor → escrow.
-        vm.prank(address(distributor));
-        sofToken.approve(address(escrow), type(uint256).max);
-
         // Fund the distributor for Season 1 via RAFFLE_ROLE
         uint256 totalPrize = GRAND_AMOUNT + CONSOLATION_AMOUNT;
         vm.prank(admin);
@@ -184,13 +177,13 @@ contract RolloverIntegrationTest is Test {
 
         // User1 wallet unchanged; escrow received the funds.
         // The flow is: distributor.safeTransfer(escrow, amount) — then escrow.deposit()
-        // which calls safeTransferFrom(distributor, escrow, amount).
-        // Net result: escrow gains 2× PER_LOSER from distributor; user position credited PER_LOSER.
+        // which is accounting-only (no second transfer).
+        // Net result: escrow gains PER_LOSER from distributor; user position credited PER_LOSER.
         assertEq(sofToken.balanceOf(user1), user1BalBefore, "user1 wallet should not change on rollover");
         assertEq(
             sofToken.balanceOf(address(escrow)),
-            escrowBalBefore + 2 * PER_LOSER,
-            "escrow should hold double PER_LOSER (safeTransfer + safeTransferFrom)"
+            escrowBalBefore + PER_LOSER,
+            "escrow should hold PER_LOSER (safeTransfer only; deposit() is accounting-only)"
         );
 
         // Escrow position recorded

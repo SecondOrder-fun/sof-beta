@@ -312,8 +312,11 @@ contract RolloverEscrowDepositTest is Test {
         uint256 distributorBalBefore = sofToken.balanceOf(distributor);
         uint256 escrowBalBefore      = sofToken.balanceOf(address(escrow));
 
-        vm.prank(distributor);
+        // Simulate PrizeDistributor flow: transfer SOF to escrow, then call deposit()
+        vm.startPrank(distributor);
+        sofToken.transfer(address(escrow), DEPOSIT_AMOUNT);
         escrow.deposit(user, DEPOSIT_AMOUNT, SEASON_ID);
+        vm.stopPrank();
 
         // Position recorded
         (uint256 deposited, uint256 spent, bool refunded) = escrow.getUserPosition(SEASON_ID, user);
@@ -449,8 +452,10 @@ contract RolloverEscrowDepositTest is Test {
         vm.prank(admin);
         escrow.openCohort(SEASON_ID, 600);
 
-        vm.prank(distributor);
+        vm.startPrank(distributor);
+        sofToken.transfer(address(escrow), DEPOSIT_AMOUNT);
         escrow.deposit(user, DEPOSIT_AMOUNT, SEASON_ID);
+        vm.stopPrank();
 
         uint256 avail = escrow.getAvailableBalance(SEASON_ID, user);
         assertEq(avail, DEPOSIT_AMOUNT, "available balance should equal deposited");
@@ -543,8 +548,10 @@ contract RolloverEscrowSpendTest is Test {
         vm.prank(admin);
         escrow.openCohort(SEASON_ID, uint16(BONUS_BPS));
 
-        vm.prank(distributor);
+        vm.startPrank(distributor);
+        sofToken.transfer(address(escrow), DEPOSIT_AMOUNT);
         escrow.deposit(user, DEPOSIT_AMOUNT, SEASON_ID);
+        vm.stopPrank();
 
         vm.prank(admin);
         escrow.activateCohort(SEASON_ID, NEXT_SEASON_ID);
@@ -690,8 +697,10 @@ contract RolloverEscrowRefundTest is Test {
         vm.prank(admin);
         escrow.openCohort(SEASON_ID, 600);
 
-        vm.prank(distributor);
+        vm.startPrank(distributor);
+        sofToken.transfer(address(escrow), DEPOSIT_AMOUNT);
         escrow.deposit(user1, DEPOSIT_AMOUNT, SEASON_ID);
+        vm.stopPrank();
 
         vm.prank(admin);
         escrow.activateCohort(SEASON_ID, NEXT_SEASON_ID);
@@ -753,8 +762,10 @@ contract RolloverEscrowRefundTest is Test {
         vm.prank(admin);
         escrow.openCohort(SEASON_ID_2, 600);
 
-        vm.prank(distributor);
+        vm.startPrank(distributor);
+        sofToken.transfer(address(escrow), DEPOSIT_AMOUNT);
         escrow.deposit(user1, DEPOSIT_AMOUNT, SEASON_ID_2);
+        vm.stopPrank();
 
         // Warp past expiry — do NOT activate
         vm.warp(block.timestamp + 31 days);
