@@ -1,10 +1,12 @@
 import { raffleTransactionService } from "../../src/services/raffleTransactionService.js";
+import { createRequireAdmin } from "../../shared/adminGuard.js";
 
 /**
  * Raffle transaction history API routes
  * Provides endpoints for querying user transaction history and positions
  */
 export default async function raffleTransactionRoutes(fastify) {
+  const requireAdmin = createRequireAdmin();
   // Get all transactions for a season (paginated)
   fastify.get(
     "/transactions/season/:seasonId",
@@ -105,7 +107,7 @@ export default async function raffleTransactionRoutes(fastify) {
   });
 
   // Admin: Check partition status and create missing partitions
-  fastify.get("/admin/diagnostics", async (request, reply) => {
+  fastify.get("/admin/diagnostics", { preHandler: [requireAdmin] }, async (request, reply) => {
     try {
       const { db } = await import("../../shared/supabaseClient.js");
 
@@ -168,7 +170,7 @@ export default async function raffleTransactionRoutes(fastify) {
   });
 
   // Admin: Sync transactions for a season
-  fastify.post("/admin/sync/:seasonId", async (request, reply) => {
+  fastify.post("/admin/sync/:seasonId", { preHandler: [requireAdmin] }, async (request, reply) => {
     const { seasonId } = request.params;
     const { bondingCurveAddress } = request.body;
 
@@ -190,7 +192,7 @@ export default async function raffleTransactionRoutes(fastify) {
   });
 
   // Admin: Refresh materialized view
-  fastify.post("/admin/refresh-positions", async (request, reply) => {
+  fastify.post("/admin/refresh-positions", { preHandler: [requireAdmin] }, async (request, reply) => {
     const { seasonId } = request.body;
 
     try {

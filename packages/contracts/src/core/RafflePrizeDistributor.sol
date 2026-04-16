@@ -7,7 +7,6 @@ import {IERC721} from "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol
 import {ERC721Holder} from "openzeppelin-contracts/contracts/token/ERC721/utils/ERC721Holder.sol";
 import {AccessControl} from "openzeppelin-contracts/contracts/access/AccessControl.sol";
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
-// MerkleProof import removed - no longer needed
 import {IRafflePrizeDistributor} from "../lib/IRafflePrizeDistributor.sol";
 
 error InvalidTier(uint256 tier, uint256 maxTier);
@@ -16,6 +15,7 @@ error ZeroWinnersInTier(uint256 tierIndex);
 error NotATierWinner(uint256 seasonId, address caller);
 error NoWinnersInTier(uint256 seasonId, uint256 tierIndex);
 error TierConfigFailed();
+error NotAParticipant(uint256 seasonId, address caller);
 
 /**
  * @title RafflePrizeDistributor
@@ -58,6 +58,9 @@ contract RafflePrizeDistributor is IRafflePrizeDistributor, AccessControl, Reent
 
     // seasonId => participant => claimed status
     mapping(uint256 => mapping(address => bool)) private _consolationClaimed;
+
+    // seasonId => participant => eligible for consolation
+    mapping(uint256 => mapping(address => bool)) private _consolationEligible;
 
     // seasonId => array of sponsored ERC-20 tokens
     mapping(uint256 => SponsoredERC20[]) private _sponsoredERC20;
@@ -142,7 +145,23 @@ contract RafflePrizeDistributor is IRafflePrizeDistributor, AccessControl, Reent
         emit SeasonConfigured(seasonId, token, grandWinner, grandAmount, consolationAmount, totalParticipants);
     }
 
-    // Merkle root system removed - using direct claim instead
+    /**
+     * @notice Register addresses eligible for consolation claims
+     * @dev Must be called by RAFFLE_ROLE before participants can claim consolation prizes.
+     *      Can be called multiple times to add more participants (e.g., in batches).
+     * @param seasonId The season to set eligibility for
+     * @param participants Array of participant addresses to mark as eligible
+     */
+    function setConsolationEligible(uint256 seasonId, address[] calldata participants)
+        external
+        override
+        onlyRole(RAFFLE_ROLE)
+    {
+        for (uint256 i = 0; i < participants.length; i++) {
+            _consolationEligible[seasonId][participants[i]] = true;
+        }
+        emit ConsolationEligibilitySet(seasonId, participants.length);
+    }
 
     function fundSeason(uint256 seasonId, uint256 amount) external override onlyRole(RAFFLE_ROLE) {
         Season storage s = _seasons[seasonId];
@@ -173,6 +192,11 @@ contract RafflePrizeDistributor is IRafflePrizeDistributor, AccessControl, Reent
         require(!_consolationClaimed[seasonId][msg.sender], "Distributor: already claimed");
         require(s.totalParticipants > 1, "Distributor: no other participants");
 
+        // Verify caller was a participant in this season
+        if (!_consolationEligible[seasonId][msg.sender]) {
+            revert NotAParticipant(seasonId, msg.sender);
+        }
+
         // Calculate equal share for each loser
         uint256 loserCount = s.totalParticipants - 1; // Exclude grand winner
         uint256 amount = s.consolationAmount / loserCount;
@@ -187,6 +211,14 @@ contract RafflePrizeDistributor is IRafflePrizeDistributor, AccessControl, Reent
         return _consolationClaimed[seasonId][account];
     }
 
+    /// @notice Check if an address is eligible for consolation claims
+    /// @param seasonId The season to check
+    /// @param account The address to check
+    /// @return Whether the address is eligible
+    function isConsolationEligible(uint256 seasonId, address account) external view override returns (bool) {
+        return _consolationEligible[seasonId][account];
+    }
+
     function getSeason(uint256 seasonId) external view override returns (SeasonPayouts memory) {
         Season storage s = _seasons[seasonId];
         return SeasonPayouts({
@@ -199,9 +231,6 @@ contract RafflePrizeDistributor is IRafflePrizeDistributor, AccessControl, Reent
             grandClaimed: s.grandClaimed
         });
     }
-
-    // ----------------------- internal helpers --------------------
-    // (Merkle bitmap helpers removed - using simple mapping instead)
 
     // ----------------------- Sponsorship functions --------------------
 

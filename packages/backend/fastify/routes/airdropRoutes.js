@@ -9,12 +9,14 @@ import process from "node:process";
 import { privateKeyToAccount } from "viem/accounts";
 import { recoverMessageAddress } from "viem";
 import { getDeployment } from '@sof/contracts/deployments';
+import { getChainByKey } from "../../src/config/chain.js";
 import { getPaymasterService } from "../../src/services/paymasterService.js";
 
 // EIP-712 domain and type constants
 const DOMAIN_NAME = "SecondOrder.fun SOFAirdrop";
 const DOMAIN_VERSION = "1";
-const CHAIN_ID = 84532; // Base Sepolia
+const NETWORK = (process.env.NETWORK || "LOCAL").toUpperCase();
+const CHAIN_ID = getChainByKey(NETWORK).id;
 
 const EIP712_TYPES = {
   FarcasterAttestation: [
@@ -85,7 +87,7 @@ export default async function airdropRoutes(fastify) {
     }
 
     // ── Resolve airdrop contract address ───────────────────────────────
-    const verifyingContract = getDeployment('testnet').SOFAirdrop;
+    const verifyingContract = getDeployment().SOFAirdrop;
 
     if (!verifyingContract) {
       fastify.log.error(
@@ -176,7 +178,7 @@ export default async function airdropRoutes(fastify) {
           .send({ error: 'Invalid type. Must be "initial", "basic", or "daily"' });
       }
 
-      const airdropAddress = getDeployment('testnet').SOFAirdrop;
+      const airdropAddress = getDeployment().SOFAirdrop;
       if (!airdropAddress) {
         return reply
           .code(503)

@@ -27,6 +27,7 @@ export default async function adminRoutes(fastify) {
   const requireAdmin = createRequireAdmin();
   // Respect NETWORK from .env, with LOCAL as final fallback
   const NETWORK = process.env.NETWORK || "LOCAL";
+  const isTestnet = NETWORK.toUpperCase() === "TESTNET" || NETWORK.toUpperCase() === "LOCAL";
 
   /**
    * GET /api/admin/backend-wallet

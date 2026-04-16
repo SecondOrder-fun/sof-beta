@@ -15,6 +15,8 @@ error InsufficientDeposit();
 ///         approval for each UserOperation and this contract validates that signature
 ///         before agreeing to sponsor the gas.
 /// @dev Designed for EntryPoint v0.8 (packed UserOperation format).
+///      Follows the standard VerifyingPaymaster pattern with validUntil/validAfter
+///      timestamps for signature expiry.
 
 contract SOFPaymaster is IPaymaster, Ownable {
     using ECDSA for bytes32;
@@ -65,11 +67,17 @@ contract SOFPaymaster is IPaymaster, Ownable {
     // ──────────────────────────────────────────────────────────────────────
 
     /// @inheritdoc IPaymaster
-    /// @dev The backend signs `userOpHash` with its private key and appends the
-    ///      65-byte signature to `paymasterAndData` after the standard 52-byte
-    ///      prefix (20 address + 16 verificationGasLimit + 16 postOpGasLimit).
-    ///      Validation data layout: `authorizer` (20 bytes) | `validUntil` (6) | `validAfter` (6)
-    ///      We return 0 for success or 1 (SIG_VALIDATION_FAILED) for failure.
+    /// @dev The backend signs `keccak256(abi.encode(userOpHash, validUntil, validAfter))`
+    ///      with its private key. The paymasterAndData layout is:
+    ///        [0:20]   paymaster address
+    ///        [20:36]  paymasterVerificationGasLimit (uint128)
+    ///        [36:52]  paymasterPostOpGasLimit (uint128)
+    ///        [52:58]  validUntil (uint48) — 0 means no expiry
+    ///        [58:64]  validAfter (uint48) — 0 means immediately valid
+    ///        [64:129] signature (65 bytes: r[32] + s[32] + v[1])
+    ///
+    ///      Returns packed validationData per ERC-4337:
+    ///        `uint256(sigFailed ? 1 : 0) | (uint256(validUntil) << 160) | (uint256(validAfter) << 208)`
     function validatePaymasterUserOp(
         PackedUserOperation calldata userOp,
         bytes32 userOpHash,
@@ -79,27 +87,34 @@ contract SOFPaymaster is IPaymaster, Ownable {
         //   [0:20]   paymaster address
         //   [20:36]  paymasterVerificationGasLimit (uint128)
         //   [36:52]  paymasterPostOpGasLimit (uint128)
-        //   [52:117] signature (65 bytes: r[32] + s[32] + v[1])
+        //   [52:58]  validUntil (uint48)
+        //   [58:64]  validAfter (uint48)
+        //   [64:129] signature (65 bytes: r[32] + s[32] + v[1])
         bytes calldata paymasterAndData = userOp.paymasterAndData;
 
-        if (paymasterAndData.length < 117) {
-            // Not enough data for a valid signature — return SIG_VALIDATION_FAILED
+        // Need at least 129 bytes: 52 (prefix) + 6 (validUntil) + 6 (validAfter) + 65 (signature)
+        if (paymasterAndData.length < 129) {
+            // Not enough data — return SIG_VALIDATION_FAILED with no time bounds
             return ("", 1);
         }
 
-        bytes calldata signature = paymasterAndData[52:117];
+        // Extract validUntil and validAfter (uint48 each, 6 bytes each)
+        uint48 validUntil = uint48(bytes6(paymasterAndData[52:58]));
+        uint48 validAfter = uint48(bytes6(paymasterAndData[58:64]));
 
-        // Recover signer from the EIP-191 signed hash of the userOpHash
-        bytes32 ethSignedHash = userOpHash.toEthSignedMessageHash();
+        bytes calldata signature = paymasterAndData[64:129];
+
+        // The backend signs over the hash that includes the time bounds
+        bytes32 hash = keccak256(abi.encode(userOpHash, validUntil, validAfter));
+        bytes32 ethSignedHash = hash.toEthSignedMessageHash();
         address recovered = ethSignedHash.recover(signature);
 
-        if (recovered != verifyingSigner) {
-            // Signature doesn't match — return SIG_VALIDATION_FAILED (1)
-            return ("", 1);
-        }
+        // Pack validationData per ERC-4337 spec:
+        //   authorizer (0 = success, 1 = failure) | validUntil << 160 | validAfter << 208
+        uint256 sigFailed = (recovered != verifyingSigner) ? 1 : 0;
+        validationData = sigFailed | (uint256(validUntil) << 160) | (uint256(validAfter) << 208);
 
-        // Valid signature — return success (0) with empty context (no postOp needed)
-        return ("", 0);
+        return ("", validationData);
     }
 
     /// @inheritdoc IPaymaster

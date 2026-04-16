@@ -59,7 +59,6 @@ export function useSmartTransactions() {
   });
 
   const chainCaps = useMemo(() => {
-    const hasBatch = true;
     let atomicStatus = null;
     let hasPaymaster = false;
 
@@ -68,6 +67,8 @@ export function useSmartTransactions() {
       atomicStatus = caps?.atomic?.status || null;
       hasPaymaster = !!caps?.paymasterService?.supported;
     }
+
+    const hasBatch = !!(capabilities && chainId && capabilities[chainId]?.atomic?.status);
 
     return { hasBatch, hasPaymaster, atomicStatus };
   }, [capabilities, chainId]);

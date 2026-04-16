@@ -4,26 +4,28 @@
  */
 
 import { db, hasSupabase } from "../../shared/supabaseClient.js";
+import { createRequireAdmin } from "../../shared/adminGuard.js";
 
 /**
  * Register NFT drop routes
  * @param {import('fastify').FastifyInstance} fastify
  */
 export default async function nftDropRoutes(fastify) {
+  const requireAdmin = createRequireAdmin();
   /**
    * GET /api/nft-drops
    * Get all active NFT drops
    * Query: ?type=mint|airdrop&featured=true
    */
   fastify.get("/", async (request, reply) => {
-    if (!hasSupabase()) {
+    if (!hasSupabase) {
       return reply.code(503).send({ error: "Database not configured" });
     }
 
     const { type, featured, includeInactive } = request.query;
 
     try {
-      let query = db()
+      let query = db.client
         .from("nft_drops")
         .select("*")
         .order("created_at", { ascending: false });
@@ -59,14 +61,14 @@ export default async function nftDropRoutes(fastify) {
    * Get a specific NFT drop by ID
    */
   fastify.get("/:id", async (request, reply) => {
-    if (!hasSupabase()) {
+    if (!hasSupabase) {
       return reply.code(503).send({ error: "Database not configured" });
     }
 
     const { id } = request.params;
 
     try {
-      const { data, error } = await db()
+      const { data, error } = await db.client
         .from("nft_drops")
         .select("*")
         .eq("id", id)
@@ -91,14 +93,14 @@ export default async function nftDropRoutes(fastify) {
    * Get currently active drops (within time window)
    */
   fastify.get("/active/current", async (request, reply) => {
-    if (!hasSupabase()) {
+    if (!hasSupabase) {
       return reply.code(503).send({ error: "Database not configured" });
     }
 
     try {
       const now = new Date().toISOString();
 
-      const { data, error } = await db()
+      const { data, error } = await db.client
         .from("nft_drops")
         .select("*")
         .eq("is_active", true)
@@ -124,8 +126,8 @@ export default async function nftDropRoutes(fastify) {
    * POST /api/nft-drops/admin/create
    * Create a new NFT drop (admin only)
    */
-  fastify.post("/admin/create", async (request, reply) => {
-    if (!hasSupabase()) {
+  fastify.post("/admin/create", { preHandler: [requireAdmin] }, async (request, reply) => {
+    if (!hasSupabase) {
       return reply.code(503).send({ error: "Database not configured" });
     }
 
@@ -172,7 +174,7 @@ export default async function nftDropRoutes(fastify) {
     }
 
     try {
-      const { data, error } = await db()
+      const { data, error } = await db.client
         .from("nft_drops")
         .insert({
           name,
@@ -214,8 +216,8 @@ export default async function nftDropRoutes(fastify) {
    * PUT /api/nft-drops/admin/:id
    * Update an NFT drop (admin only)
    */
-  fastify.put("/admin/:id", async (request, reply) => {
-    if (!hasSupabase()) {
+  fastify.put("/admin/:id", { preHandler: [requireAdmin] }, async (request, reply) => {
+    if (!hasSupabase) {
       return reply.code(503).send({ error: "Database not configured" });
     }
 
@@ -230,7 +232,7 @@ export default async function nftDropRoutes(fastify) {
     updates.updated_at = new Date().toISOString();
 
     try {
-      const { data, error } = await db()
+      const { data, error } = await db.client
         .from("nft_drops")
         .update(updates)
         .eq("id", id)
@@ -257,8 +259,8 @@ export default async function nftDropRoutes(fastify) {
    * DELETE /api/nft-drops/admin/:id
    * Delete an NFT drop (admin only) - soft delete by setting is_active = false
    */
-  fastify.delete("/admin/:id", async (request, reply) => {
-    if (!hasSupabase()) {
+  fastify.delete("/admin/:id", { preHandler: [requireAdmin] }, async (request, reply) => {
+    if (!hasSupabase) {
       return reply.code(503).send({ error: "Database not configured" });
     }
 
@@ -268,14 +270,14 @@ export default async function nftDropRoutes(fastify) {
     try {
       if (hard === "true") {
         // Hard delete
-        const { error } = await db().from("nft_drops").delete().eq("id", id);
+        const { error } = await db.client.from("nft_drops").delete().eq("id", id);
 
         if (error) throw error;
 
         fastify.log.info({ dropId: id }, "NFT drop hard deleted");
       } else {
         // Soft delete
-        const { error } = await db()
+        const { error } = await db.client
           .from("nft_drops")
           .update({ is_active: false, updated_at: new Date().toISOString() })
           .eq("id", id);
@@ -296,8 +298,8 @@ export default async function nftDropRoutes(fastify) {
    * POST /api/nft-drops/admin/:id/toggle-active
    * Toggle active status of an NFT drop
    */
-  fastify.post("/admin/:id/toggle-active", async (request, reply) => {
-    if (!hasSupabase()) {
+  fastify.post("/admin/:id/toggle-active", { preHandler: [requireAdmin] }, async (request, reply) => {
+    if (!hasSupabase) {
       return reply.code(503).send({ error: "Database not configured" });
     }
 
@@ -305,7 +307,7 @@ export default async function nftDropRoutes(fastify) {
 
     try {
       // Get current status
-      const { data: current, error: fetchError } = await db()
+      const { data: current, error: fetchError } = await db.client
         .from("nft_drops")
         .select("is_active")
         .eq("id", id)
@@ -319,7 +321,7 @@ export default async function nftDropRoutes(fastify) {
       }
 
       // Toggle
-      const { data, error } = await db()
+      const { data, error } = await db.client
         .from("nft_drops")
         .update({
           is_active: !current.is_active,
@@ -349,8 +351,8 @@ export default async function nftDropRoutes(fastify) {
    * POST /api/nft-drops/admin/:id/toggle-featured
    * Toggle featured status of an NFT drop
    */
-  fastify.post("/admin/:id/toggle-featured", async (request, reply) => {
-    if (!hasSupabase()) {
+  fastify.post("/admin/:id/toggle-featured", { preHandler: [requireAdmin] }, async (request, reply) => {
+    if (!hasSupabase) {
       return reply.code(503).send({ error: "Database not configured" });
     }
 
@@ -358,7 +360,7 @@ export default async function nftDropRoutes(fastify) {
 
     try {
       // Get current status
-      const { data: current, error: fetchError } = await db()
+      const { data: current, error: fetchError } = await db.client
         .from("nft_drops")
         .select("is_featured")
         .eq("id", id)
@@ -372,7 +374,7 @@ export default async function nftDropRoutes(fastify) {
       }
 
       // Toggle
-      const { data, error } = await db()
+      const { data, error } = await db.client
         .from("nft_drops")
         .update({
           is_featured: !current.is_featured,

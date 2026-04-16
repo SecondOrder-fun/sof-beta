@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {RafflePrizeDistributor} from "../src/core/RafflePrizeDistributor.sol";
+import {RafflePrizeDistributor, NotAParticipant} from "../src/core/RafflePrizeDistributor.sol";
 import {IRafflePrizeDistributor} from "../src/lib/IRafflePrizeDistributor.sol";
 import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 
@@ -24,6 +24,7 @@ contract ConsolationClaimsTest is Test {
     address public loser1 = address(0x3);
     address public loser2 = address(0x4);
     address public loser3 = address(0x5);
+    address public nonParticipant = address(0x99);
 
     uint256 constant SEASON_ID = 1;
     uint256 constant GRAND_AMOUNT = 6500 ether;
@@ -38,10 +39,18 @@ contract ConsolationClaimsTest is Test {
         distributor.grantRole(distributor.RAFFLE_ROLE(), raffle);
 
         // Configure season
-        vm.prank(raffle);
+        vm.startPrank(raffle);
         distributor.configureSeason(
             SEASON_ID, address(sofToken), grandWinner, GRAND_AMOUNT, CONSOLATION_AMOUNT, TOTAL_PARTICIPANTS
         );
+
+        // Register eligible participants
+        address[] memory participants = new address[](3);
+        participants[0] = loser1;
+        participants[1] = loser2;
+        participants[2] = loser3;
+        distributor.setConsolationEligible(SEASON_ID, participants);
+        vm.stopPrank();
 
         // Fund the distributor
         sofToken.mint(address(distributor), GRAND_AMOUNT + CONSOLATION_AMOUNT);
@@ -88,6 +97,19 @@ contract ConsolationClaimsTest is Test {
         vm.stopPrank();
     }
 
+    function testNonParticipantCannotClaimConsolation() public {
+        vm.prank(nonParticipant);
+        vm.expectRevert(abi.encodeWithSelector(NotAParticipant.selector, SEASON_ID, nonParticipant));
+        distributor.claimConsolation(SEASON_ID);
+    }
+
+    function testConsolationEligibilityView() public view {
+        assertTrue(distributor.isConsolationEligible(SEASON_ID, loser1));
+        assertTrue(distributor.isConsolationEligible(SEASON_ID, loser2));
+        assertTrue(distributor.isConsolationEligible(SEASON_ID, loser3));
+        assertFalse(distributor.isConsolationEligible(SEASON_ID, nonParticipant));
+    }
+
     function testConsolationClaimStatus() public {
         // Initially not claimed
         assertFalse(distributor.isConsolationClaimed(SEASON_ID, loser1));
@@ -122,10 +144,16 @@ contract ConsolationClaimsTest is Test {
         uint256 season2 = 2;
         uint256 participants = 10;
 
-        vm.prank(raffle);
+        vm.startPrank(raffle);
         distributor.configureSeason(
             season2, address(sofToken), grandWinner, GRAND_AMOUNT, CONSOLATION_AMOUNT, participants
         );
+
+        // Register loser1 as eligible for season 2
+        address[] memory eligible = new address[](1);
+        eligible[0] = loser1;
+        distributor.setConsolationEligible(season2, eligible);
+        vm.stopPrank();
 
         sofToken.mint(address(distributor), GRAND_AMOUNT + CONSOLATION_AMOUNT);
         vm.prank(raffle);
