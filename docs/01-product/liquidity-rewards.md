@@ -4,6 +4,8 @@ trigger: always_on
 
 # Graduated Liquidity & Rollover Bonus System: Deep Dive
 
+> **WIP:** Rollover incentives and graduated liquidity are not yet implemented. The content below is the original design from the alpha — retain as reference material for the upcoming spec. Conversion/linear unlocking was never built; rollover bonuses are deferred to post-1.0.
+
 ## Core Philosophy: Reward Winners, Incentivize Commitment
 
 The graduated liquidity system solves multiple problems simultaneously:
