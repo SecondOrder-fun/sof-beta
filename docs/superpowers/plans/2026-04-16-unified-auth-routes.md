@@ -1,5 +1,7 @@
 # Unified Auth Routes Implementation Plan
 
+> **Status:** Complete (merged PR #20)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Unify the wallet SIWE and Farcaster SIWF auth routes into a single nonce + verify endpoint pair with method-based dispatch, eliminating the address-in-URL security issue.
