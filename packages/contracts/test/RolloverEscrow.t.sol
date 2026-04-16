@@ -8,6 +8,13 @@ import {SOFBondingCurve} from "../src/curve/SOFBondingCurve.sol";
 import {RaffleTypes} from "../src/lib/RaffleTypes.sol";
 import {RafflePrizeDistributor, NotAParticipant, RolloverEscrowNotSet} from "../src/core/RafflePrizeDistributor.sol";
 import {IRolloverEscrow} from "../src/core/IRolloverEscrow.sol";
+import {RolloverEscrow} from "../src/core/RolloverEscrow.sol";
+import {
+    PhaseNotOpen,
+    PhaseNotActive,
+    AmountZero,
+    InvalidPhaseTransition
+} from "../src/core/RolloverEscrow.sol";
 import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 
 /**
@@ -253,5 +260,206 @@ contract ClaimToRolloverTest is Test {
         vm.prank(loser1);
         vm.expectRevert(RolloverEscrowNotSet.selector);
         distributor.claimConsolation(SEASON_ID, true);
+    }
+}
+
+// =============================================================================
+// RolloverEscrowDepositTest
+// Task 3: Deposit + Phase State Machine
+// =============================================================================
+contract RolloverEscrowDepositTest is Test {
+    RolloverEscrow public escrow;
+    MockSOFToken public sofToken;
+
+    address public admin     = address(0xAD);
+    address public treasury  = address(0x7EA);
+    address public raffle    = address(0x1);
+    address public distributor = address(0xD157);
+    address public user      = address(0xBEEF);
+
+    uint256 constant SEASON_ID = 1;
+    uint256 constant NEXT_SEASON_ID = 2;
+    uint256 constant DEPOSIT_AMOUNT = 1000e18;
+
+    function setUp() public {
+        sofToken = new MockSOFToken();
+
+        vm.startPrank(admin);
+        escrow = new RolloverEscrow(address(sofToken), treasury, raffle);
+        // Grant DISTRIBUTOR_ROLE to the distributor address
+        escrow.grantRole(escrow.DISTRIBUTOR_ROLE(), distributor);
+        vm.stopPrank();
+
+        // Mint SOF to distributor and pre-approve escrow
+        sofToken.mint(distributor, 100_000e18);
+        vm.prank(distributor);
+        sofToken.approve(address(escrow), type(uint256).max);
+    }
+
+    // =========================================================================
+    // test_deposit_happyPath
+    // Distributor deposits for user; position and token balances updated correctly
+    // =========================================================================
+    function test_deposit_happyPath() public {
+        // Open cohort first
+        vm.prank(admin);
+        escrow.openCohort(SEASON_ID, 600);
+
+        uint256 distributorBalBefore = sofToken.balanceOf(distributor);
+        uint256 escrowBalBefore      = sofToken.balanceOf(address(escrow));
+
+        vm.prank(distributor);
+        escrow.deposit(user, DEPOSIT_AMOUNT, SEASON_ID);
+
+        // Position recorded
+        (uint256 deposited, uint256 spent, bool refunded) = escrow.getUserPosition(SEASON_ID, user);
+        assertEq(deposited, DEPOSIT_AMOUNT, "deposited amount");
+        assertEq(spent, 0, "spent should be 0");
+        assertFalse(refunded, "refunded should be false");
+
+        // Cohort total updated
+        (RolloverEscrow.EscrowPhase phase,,, uint256 totalDeposited,,,) = escrow.getCohortState(SEASON_ID);
+        assertEq(totalDeposited, DEPOSIT_AMOUNT, "cohort totalDeposited");
+        assertEq(uint8(phase), uint8(RolloverEscrow.EscrowPhase.Open), "phase should still be Open");
+
+        // Token balances
+        assertEq(sofToken.balanceOf(distributor), distributorBalBefore - DEPOSIT_AMOUNT, "distributor SOF reduced");
+        assertEq(sofToken.balanceOf(address(escrow)), escrowBalBefore + DEPOSIT_AMOUNT, "escrow SOF increased");
+    }
+
+    // =========================================================================
+    // test_deposit_revertIfNotDistributorRole
+    // =========================================================================
+    function test_deposit_revertIfNotDistributorRole() public {
+        vm.prank(admin);
+        escrow.openCohort(SEASON_ID, 600);
+
+        vm.prank(user); // user does NOT have DISTRIBUTOR_ROLE
+        vm.expectRevert(); // AccessControl revert
+        escrow.deposit(user, DEPOSIT_AMOUNT, SEASON_ID);
+    }
+
+    // =========================================================================
+    // test_deposit_revertIfPhaseNotOpen
+    // After activation, deposit must revert with PhaseNotOpen
+    // =========================================================================
+    function test_deposit_revertIfPhaseNotOpen() public {
+        vm.startPrank(admin);
+        escrow.openCohort(SEASON_ID, 600);
+        escrow.activateCohort(SEASON_ID, NEXT_SEASON_ID);
+        vm.stopPrank();
+
+        vm.prank(distributor);
+        vm.expectRevert(abi.encodeWithSelector(PhaseNotOpen.selector, SEASON_ID));
+        escrow.deposit(user, DEPOSIT_AMOUNT, SEASON_ID);
+    }
+
+    // =========================================================================
+    // test_deposit_revertIfZeroAmount
+    // =========================================================================
+    function test_deposit_revertIfZeroAmount() public {
+        vm.prank(admin);
+        escrow.openCohort(SEASON_ID, 600);
+
+        vm.prank(distributor);
+        vm.expectRevert(AmountZero.selector);
+        escrow.deposit(user, 0, SEASON_ID);
+    }
+
+    // =========================================================================
+    // test_phaseTransition_open_to_active
+    // =========================================================================
+    function test_phaseTransition_open_to_active() public {
+        vm.startPrank(admin);
+        escrow.openCohort(SEASON_ID, 600);
+
+        (RolloverEscrow.EscrowPhase phaseBefore,,,,,,) = escrow.getCohortState(SEASON_ID);
+        assertEq(uint8(phaseBefore), uint8(RolloverEscrow.EscrowPhase.Open), "should be Open");
+
+        escrow.activateCohort(SEASON_ID, NEXT_SEASON_ID);
+        vm.stopPrank();
+
+        (RolloverEscrow.EscrowPhase phaseAfter, uint256 nextSeason,,,,,) = escrow.getCohortState(SEASON_ID);
+        assertEq(uint8(phaseAfter), uint8(RolloverEscrow.EscrowPhase.Active), "should be Active");
+        assertEq(nextSeason, NEXT_SEASON_ID, "nextSeasonId should be set");
+    }
+
+    // =========================================================================
+    // test_phaseTransition_active_to_closed
+    // =========================================================================
+    function test_phaseTransition_active_to_closed() public {
+        vm.startPrank(admin);
+        escrow.openCohort(SEASON_ID, 600);
+        escrow.activateCohort(SEASON_ID, NEXT_SEASON_ID);
+        escrow.closeCohort(SEASON_ID);
+        vm.stopPrank();
+
+        (RolloverEscrow.EscrowPhase phase,,,,,,) = escrow.getCohortState(SEASON_ID);
+        assertEq(uint8(phase), uint8(RolloverEscrow.EscrowPhase.Closed), "should be Closed");
+    }
+
+    // =========================================================================
+    // test_phaseTransition_open_to_expired_afterTimeout
+    // Warp past expiryTimeout; next call auto-transitions Open -> Expired
+    // =========================================================================
+    function test_phaseTransition_open_to_expired_afterTimeout() public {
+        vm.prank(admin);
+        escrow.openCohort(SEASON_ID, 600);
+
+        // Warp past the 30-day expiry timeout
+        vm.warp(block.timestamp + 31 days);
+
+        // Attempting a deposit triggers _checkAndUpdateExpiry internally,
+        // but the phase check will revert with PhaseNotOpen after expiry update.
+        // We verify expiry by reading getCohortState which also triggers expiry check
+        // via a view path — or we trigger via a state-changing call.
+        // The simplest approach: call activateCohort (admin) which checks expiry first.
+        vm.prank(admin);
+        vm.expectRevert(); // InvalidPhaseTransition — Open was auto-expired to Expired
+        escrow.activateCohort(SEASON_ID, NEXT_SEASON_ID);
+
+        // Now getCohortState should show Expired
+        (RolloverEscrow.EscrowPhase phase,,,,,, bool isExpired) = escrow.getCohortState(SEASON_ID);
+        assertEq(uint8(phase), uint8(RolloverEscrow.EscrowPhase.Expired), "should be Expired");
+        assertTrue(isExpired, "isExpired should be true");
+    }
+
+    // =========================================================================
+    // test_phaseTransition_revertInvalidTransitions
+    // Cannot close an Open cohort (must go Open -> Active -> Closed)
+    // =========================================================================
+    function test_phaseTransition_revertInvalidTransitions() public {
+        vm.startPrank(admin);
+        escrow.openCohort(SEASON_ID, 600);
+
+        // Attempt to close directly from Open — must revert
+        vm.expectRevert(abi.encodeWithSelector(PhaseNotActive.selector, SEASON_ID));
+        escrow.closeCohort(SEASON_ID);
+        vm.stopPrank();
+    }
+
+    // =========================================================================
+    // test_getAvailableBalance
+    // =========================================================================
+    function test_getAvailableBalance() public {
+        vm.prank(admin);
+        escrow.openCohort(SEASON_ID, 600);
+
+        vm.prank(distributor);
+        escrow.deposit(user, DEPOSIT_AMOUNT, SEASON_ID);
+
+        uint256 avail = escrow.getAvailableBalance(SEASON_ID, user);
+        assertEq(avail, DEPOSIT_AMOUNT, "available balance should equal deposited");
+    }
+
+    // =========================================================================
+    // test_getBonusAmount
+    // =========================================================================
+    function test_getBonusAmount() public {
+        vm.prank(admin);
+        escrow.openCohort(SEASON_ID, 600); // 6% bonus
+
+        uint256 bonus = escrow.getBonusAmount(SEASON_ID, 1000e18);
+        assertEq(bonus, 60e18, "6% of 1000 SOF = 60 SOF");
     }
 }

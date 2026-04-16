@@ -102,7 +102,11 @@ MetaMask `wallet_sendCalls` does not support `paymasterService` capability. Batc
 - [ ] TBD
 
 ### Task 3: RolloverEscrow — Deposit + State Machine
-- [ ] TBD
+- [x] Create `packages/contracts/src/core/RolloverEscrow.sol` with AccessControl, ReentrancyGuard, Pausable
+- [x] Implement deposit(), openCohort(), activateCohort(), closeCohort(), admin setters, view functions
+- [x] Auto-expiry logic: `_checkAndUpdateExpiry` transitions Open → Expired after 30 days
+- [x] Add `RolloverEscrowDepositTest` with 10 passing tests (TDD)
+- [x] All 285 contract tests pass
 
 ### Task 4: RolloverEscrow — Spend with Bonus
 - [ ] TBD
