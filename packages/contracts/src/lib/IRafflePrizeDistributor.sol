@@ -28,6 +28,7 @@ interface IRafflePrizeDistributor {
     event SeasonFunded(uint256 indexed seasonId, uint256 amount);
     event GrandClaimed(uint256 indexed seasonId, address indexed winner, uint256 amount);
     event ConsolationClaimed(uint256 indexed seasonId, address indexed account, uint256 amount);
+    event ConsolationEligibilitySet(uint256 indexed seasonId, uint256 participantCount);
 
     event TiersConfigured(uint256 indexed seasonId, uint256 tierCount, uint256 totalWinners);
     event TierWinnersSet(uint256 indexed seasonId, uint256 tierCount);
@@ -40,6 +41,8 @@ interface IRafflePrizeDistributor {
         uint256 consolationAmount,
         uint256 totalParticipants
     ) external;
+
+    function setConsolationEligible(uint256 seasonId, address[] calldata participants) external;
 
     function configureTiers(uint256 seasonId, TierConfig[] calldata tiers) external;
 
@@ -54,6 +57,8 @@ interface IRafflePrizeDistributor {
     function claimConsolation(uint256 seasonId) external;
 
     function isConsolationClaimed(uint256 seasonId, address account) external view returns (bool);
+
+    function isConsolationEligible(uint256 seasonId, address account) external view returns (bool);
 
     function getSeason(uint256 seasonId) external view returns (SeasonPayouts memory);
 

@@ -633,43 +633,42 @@ try {
 // Graceful shutdown
 let isShuttingDown = false;
 
-process.on("SIGINT", async () => {
-  // Prevent multiple shutdown attempts
+async function shutdown(signal) {
   if (isShuttingDown) {
-    app.log.warn("⚠️  Shutdown already in progress, ignoring duplicate SIGINT");
+    app.log.warn(`Shutdown already in progress, ignoring duplicate ${signal}`);
     return;
   }
 
   isShuttingDown = true;
-  app.log.info("Shutting down server...");
+  app.log.info(`${signal} received — shutting down server...`);
 
   try {
     // Stop all listeners
     if (unwatchSeasonStarted) {
       unwatchSeasonStarted();
-      app.log.info("🛑 Stopped SeasonStarted listener");
+      app.log.info("Stopped SeasonStarted listener");
     }
 
     if (unwatchSeasonCompleted) {
       unwatchSeasonCompleted();
-      app.log.info("🛑 Stopped SeasonCompleted listener");
+      app.log.info("Stopped SeasonCompleted listener");
     }
 
     if (unwatchMarketCreated) {
       unwatchMarketCreated();
-      app.log.info("🛑 Stopped MarketCreated listener");
+      app.log.info("Stopped MarketCreated listener");
     }
 
     // Stop all PositionUpdate listeners
     for (const [seasonId, unwatch] of positionUpdateListeners.entries()) {
       unwatch();
-      app.log.info(`🛑 Stopped PositionUpdate listener for season ${seasonId}`);
+      app.log.info(`Stopped PositionUpdate listener for season ${seasonId}`);
     }
 
     // Stop all Trade listeners
     for (const [fpmmAddress, unwatch] of tradeListeners.entries()) {
       unwatch();
-      app.log.info(`🛑 Stopped Trade listener for FPMM ${fpmmAddress}`);
+      app.log.info(`Stopped Trade listener for FPMM ${fpmmAddress}`);
     }
 
     // Stop Season Lifecycle Service
@@ -681,12 +680,15 @@ process.on("SIGINT", async () => {
     }
 
     await app.close();
-    app.log.info("✅ Server shut down gracefully");
+    app.log.info("Server shut down gracefully");
   } catch (error) {
     app.log.error({ error }, "Error during shutdown");
   }
 
   process.exit(0);
-});
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
 
 export { app };

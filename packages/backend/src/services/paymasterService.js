@@ -10,6 +10,9 @@ import { baseSepolia, base } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { publicClient } from "../lib/viemClient.js";
 
+const NETWORK = (process.env.NETWORK || "LOCAL").toUpperCase();
+const isTestnet = NETWORK === "TESTNET" || NETWORK === "LOCAL";
+
 /**
  * PaymasterService - Handles gasless transaction submission via Base Paymaster
  * @class

@@ -1,10 +1,13 @@
 import { db } from "../../shared/supabaseClient.js";
+import { createRequireAdmin } from "../../shared/adminGuard.js";
 
 const MAX_SIGNATURES = 200;
 
 export default async function gatingRoutes(fastify) {
-  // Bulk upload signed allowlist entries
-  fastify.post("/signatures/:seasonId", async (request, reply) => {
+  const requireAdmin = createRequireAdmin();
+
+  // Bulk upload signed allowlist entries (admin only)
+  fastify.post("/signatures/:seasonId", { preHandler: [requireAdmin] }, async (request, reply) => {
     const { seasonId } = request.params;
     const { signatures } = request.body;
 

@@ -6,12 +6,14 @@ import {
   historicalOddsService,
   historicalOddsRanges,
 } from "../../shared/historicalOddsService.js";
+import { createRequireAdmin } from "../../shared/adminGuard.js";
 
 /**
  * InfoFi Markets API Routes
  * Provides endpoints for fetching prediction market data from Supabase
  */
 export default async function infoFiRoutes(fastify) {
+  const requireAdmin = createRequireAdmin();
   /**
    * GET /api/infofi/markets
    * Get all markets, optionally filtered by season, status, or type
@@ -1106,7 +1108,7 @@ export default async function infoFiRoutes(fastify) {
    * Manually settle all InfoFi markets for a completed season
    * Body: { seasonId: number, winnerAddress: string, resolveOnchain?: boolean }
    */
-  fastify.post("/admin/settle-season", async (request, reply) => {
+  fastify.post("/admin/settle-season", { preHandler: [requireAdmin] }, async (request, reply) => {
     try {
       const {
         seasonId,

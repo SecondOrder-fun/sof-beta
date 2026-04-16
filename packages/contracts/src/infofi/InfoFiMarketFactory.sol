@@ -224,24 +224,24 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
         uint256 newTickets,
         uint256 totalTickets
     ) external onlyRole(PAYMASTER_ROLE) nonReentrant {
-        // ✅ INPUT VALIDATION
+        // INPUT VALIDATION
         if (player == address(0)) revert InvalidAddress();
         if (totalTickets == 0) revert ZeroTotalTickets();
 
-        // ✅ CALCULATE PROBABILITIES
+        // CALCULATE PROBABILITIES
         uint256 oldBps = (oldTickets * 10000) / totalTickets;
         uint256 newBps = (newTickets * 10000) / totalTickets;
 
-        // ✅ EMIT PROBABILITY UPDATE EVENT
+        // EMIT PROBABILITY UPDATE EVENT
         emit ProbabilityUpdated(seasonId, player, oldBps, newBps);
 
-        // ✅ MONITOR TREASURY BALANCE
+        // MONITOR TREASURY BALANCE
         uint256 treasuryBalance = sofToken.balanceOf(treasury);
         if (treasuryBalance < INITIAL_LIQUIDITY * 10) {
             emit TreasuryLow(treasuryBalance, INITIAL_LIQUIDITY);
         }
 
-        // ✅ CREATE MARKET IF THRESHOLD CROSSED
+        // CREATE MARKET IF THRESHOLD CROSSED
         if (newBps >= THRESHOLD_BPS && oldBps < THRESHOLD_BPS && !marketCreated[seasonId][player]) {
             _createMarket(seasonId, player, newBps);
         }
@@ -254,12 +254,10 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
      * @param player The player address
      */
     function _createMarket(uint256 seasonId, address player, uint256 probabilityBps) internal {
-        // ✅ DETERMINE MARKET TYPE
-        // For now, always use WINNER_PREDICTION (backward compatible)
-        // In future, can add logic to determine different market types based on criteria
+        // DETERMINE MARKET TYPE
         bytes32 marketType = WINNER_PREDICTION;
 
-        // ✅ CHECK TREASURY BALANCE BEFORE ATTEMPTING CREATION
+        // CHECK TREASURY BALANCE BEFORE ATTEMPTING CREATION
         if (sofToken.balanceOf(treasury) < INITIAL_LIQUIDITY) {
             marketStatus[seasonId][player] = MarketCreationStatus.Failed;
             marketFailureReason[seasonId][player] = "Insufficient treasury balance";
@@ -267,9 +265,9 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
             return;
         }
 
-        // ✅ ATTEMPT MARKET CREATION WITH ERROR HANDLING
-        try this._createMarketInternal(seasonId, player, marketType, probabilityBps) {
-            // Success - status already updated in _createMarketInternal
+        // ATTEMPT MARKET CREATION WITH ERROR HANDLING
+        try this.executeMarketCreation(seasonId, player, marketType, probabilityBps) {
+            // Success - status already updated in executeMarketCreation
         } catch Error(string memory reason) {
             // Solidity error with message
             marketStatus[seasonId][player] = MarketCreationStatus.Failed;
@@ -280,7 +278,7 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
             string memory reason = "Unknown error";
             if (lowLevelData.length > 0) {
                 // Attempt to decode revert reason
-                try this._decodeRevertReason(lowLevelData) returns (string memory decoded) {
+                try this.decodeRevertReason(lowLevelData) returns (string memory decoded) {
                     reason = decoded;
                 } catch {}
             }
@@ -291,12 +289,13 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
     }
 
     /**
-     * @notice Internal function to decode low-level revert reasons
-     * @dev Helper for error handling in try-catch blocks
+     * @notice Decodes low-level revert reasons into human-readable strings
+     * @dev Helper for error handling in try-catch blocks. External so it can be
+     *      called via try/catch from within the same contract.
      * @param data The encoded revert data
      * @return The decoded error message
      */
-    function _decodeRevertReason(bytes memory data) external pure returns (string memory) {
+    function decodeRevertReason(bytes memory data) external pure returns (string memory) {
         if (data.length == 0) return "Empty revert data";
         if (data.length < 4) return "Invalid revert data";
 
@@ -367,25 +366,28 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
     }
 
     /**
-     * @notice Internal function to create a market for a player
+     * @notice Executes the market creation pipeline for a player
+     * @dev External so it can be called via try/catch from _createMarket.
+     *      Guarded by msg.sender == address(this) to prevent external abuse.
      * @param seasonId The season identifier
      * @param player The player address
      * @param marketType The type of market to create (validated against registry)
+     * @param probabilityBps The player's win probability in basis points
      */
-    function _createMarketInternal(uint256 seasonId, address player, bytes32 marketType, uint256 probabilityBps) external {
-        // ✅ AUTHORIZATION CHECK
+    function executeMarketCreation(uint256 seasonId, address player, bytes32 marketType, uint256 probabilityBps) external {
+        // AUTHORIZATION CHECK
         if (msg.sender != address(this)) revert UnauthorizedCaller();
 
-        // ✅ VALIDATE MARKET TYPE
+        // VALIDATE MARKET TYPE
         if (!marketTypeRegistry.isValidMarketType(marketType)) {
             revert InvalidMarketType(marketType);
         }
 
-        // ✅ PRECONDITION CHECKS (before any state changes)
+        // PRECONDITION CHECKS (before any state changes)
         require(sofToken.balanceOf(treasury) >= INITIAL_LIQUIDITY, "Insufficient treasury");
         require(!marketCreated[seasonId][player], "Market already created");
 
-        // ✅ STEP 1: PREPARE CONDITION (or reuse if already prepared)
+        // STEP 1: PREPARE CONDITION (or reuse if already prepared)
         MarketCreationStatus oldStatus = marketStatus[seasonId][player];
         bytes32 conditionId = playerConditions[seasonId][player];
 
@@ -399,14 +401,13 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
             conditionId = oracleAdapter.preparePlayerCondition(seasonId, player);
         } else {
             // Condition already prepared (idempotent retry scenario)
-            // Update status to reflect we're reusing it
             marketStatus[seasonId][player] = MarketCreationStatus.ConditionPrepared;
             emit MarketStatusChanged(
                 seasonId, player, oldStatus, MarketCreationStatus.ConditionPrepared, "Reusing existing condition"
             );
         }
 
-        // ✅ STEP 2: TRANSFER LIQUIDITY
+        // STEP 2: TRANSFER LIQUIDITY
         oldStatus = marketStatus[seasonId][player];
 
         // Check treasury allowance first
@@ -445,9 +446,8 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
         bool transferSuccess = sofToken.transferFrom(treasury, address(this), INITIAL_LIQUIDITY);
         require(transferSuccess, "Treasury transfer failed - transferFrom returned false");
 
-        // ✅ STEP 3: APPROVE AND CREATE MARKET
+        // STEP 3: APPROVE AND CREATE MARKET
         // Use defensive approval pattern: reset to 0 first, then approve exact amount
-        // This prevents issues with certain token implementations that don't allow increasing allowance
         uint256 currentAllowance = sofToken.allowance(address(this), address(fpmmManager));
         if (currentAllowance > 0) {
             require(sofToken.approve(address(fpmmManager), 0), "Approval reset failed");
@@ -456,7 +456,7 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
 
         (address fpmm,) = fpmmManager.createMarket(seasonId, player, conditionId, probabilityBps);
 
-        // ✅ STEP 4: SET ALL STATE AT END
+        // STEP 4: SET ALL STATE AT END
         marketCreated[seasonId][player] = true;
         playerConditions[seasonId][player] = conditionId;
         playerMarkets[seasonId][player] = fpmm;
@@ -480,16 +480,16 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
      * @param winner The winner address
      */
     function resolveSeasonMarkets(uint256 seasonId, address winner) external onlyRole(ADMIN_ROLE) nonReentrant {
-        // ✅ INPUT VALIDATION
+        // INPUT VALIDATION
         if (winner == address(0)) revert InvalidAddress();
 
         address[] memory players = _seasonPlayers[seasonId];
         if (players.length == 0) revert("No markets to resolve");
 
-        // ✅ RESOLVE MARKETS VIA ORACLE ADAPTER
+        // RESOLVE MARKETS VIA ORACLE ADAPTER
         oracleAdapter.batchResolveSeasonMarkets(seasonId, players, winner);
 
-        // ✅ EMIT RESOLUTION EVENT
+        // EMIT RESOLUTION EVENT
         emit SeasonMarketsResolved(seasonId, winner, players.length);
     }
 
@@ -499,17 +499,17 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
      * @param newTreasury The new treasury address
      */
     function setTreasury(address newTreasury) external onlyRole(ADMIN_ROLE) {
-        // ✅ INPUT VALIDATION
+        // INPUT VALIDATION
         if (newTreasury == address(0)) revert InvalidAddress();
 
         address oldTreasury = treasury;
         treasury = newTreasury;
 
-        // ✅ UPDATE ROLES
+        // UPDATE ROLES
         _revokeRole(TREASURY_ROLE, oldTreasury);
         _grantRole(TREASURY_ROLE, newTreasury);
 
-        // ✅ EMIT UPDATE EVENT
+        // EMIT UPDATE EVENT
         emit TreasuryUpdated(oldTreasury, newTreasury);
     }
 
@@ -519,13 +519,13 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
      * @param newRegistry The new MarketTypeRegistry address
      */
     function setMarketTypeRegistry(address newRegistry) external onlyRole(ADMIN_ROLE) {
-        // ✅ INPUT VALIDATION
+        // INPUT VALIDATION
         if (newRegistry == address(0)) revert InvalidAddress();
 
         address oldRegistry = address(marketTypeRegistry);
         marketTypeRegistry = MarketTypeRegistry(newRegistry);
 
-        // ✅ EMIT UPDATE EVENT
+        // EMIT UPDATE EVENT
         emit MarketTypeRegistryUpdated(oldRegistry, newRegistry);
     }
 
@@ -536,13 +536,13 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
      * @param player The player address
      */
     function retryMarketCreation(uint256 seasonId, address player) external onlyRole(ADMIN_ROLE) {
-        // ✅ VALIDATION: Market must not already exist
+        // VALIDATION: Market must not already exist
         if (marketCreated[seasonId][player]) revert MarketAlreadyCreated();
 
-        // ✅ VALIDATION: Market must be in failed state
+        // VALIDATION: Market must be in failed state
         if (marketStatus[seasonId][player] != MarketCreationStatus.Failed) revert NotInFailedState();
 
-        // ✅ CALCULATE CURRENT PROBABILITY FROM ON-CHAIN STATE
+        // CALCULATE CURRENT PROBABILITY FROM ON-CHAIN STATE
         (,,, uint256 totalTickets,) = raffle.getSeasonDetails(seasonId);
         uint256 probabilityBps = 5000; // default 50% if no data
         if (totalTickets > 0) {
@@ -550,7 +550,7 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
             probabilityBps = (pos.ticketCount * 10000) / totalTickets;
         }
 
-        // ✅ RETRY MARKET CREATION
+        // RETRY MARKET CREATION
         _createMarket(seasonId, player, probabilityBps);
     }
 
@@ -591,16 +591,16 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
      * @return probabilityBps The win probability in basis points (0-10000)
      */
     function getPlayerProbability(uint256 seasonId, address player) external view returns (uint256 probabilityBps) {
-        // ✅ GET SEASON DETAILS
+        // GET SEASON DETAILS
         (,,, uint256 totalTickets,) = raffle.getSeasonDetails(seasonId);
 
-        // ✅ HANDLE ZERO TOTAL TICKETS
+        // HANDLE ZERO TOTAL TICKETS
         if (totalTickets == 0) return 0;
 
-        // ✅ GET PLAYER POSITION
+        // GET PLAYER POSITION
         IRaffleRead.ParticipantPosition memory pos = raffle.getParticipantPosition(seasonId, player);
 
-        // ✅ CALCULATE PROBABILITY
+        // CALCULATE PROBABILITY
         probabilityBps = (pos.ticketCount * 10000) / totalTickets;
     }
 

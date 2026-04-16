@@ -1,7 +1,7 @@
 // src/components/admin/CreateSeasonForm.jsx
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import PropTypes from "prop-types";
-import { useAccount, usePublicClient, useWriteContract } from "wagmi";
+import { useAccount, usePublicClient } from "wagmi";
 import { isAddress, decodeEventLog, encodeFunctionData, parseUnits } from "viem";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -81,9 +81,6 @@ const CreateSeasonForm = ({ createSeason, chainTimeQuery, activeSection = "all" 
   const netKey = getStoredNetworkKey();
   const addresses = getContractAddresses(netKey);
   
-  // For configuring gates after season creation
-  const { writeContractAsync: writeGatingContract } = useWriteContract();
-
   // Handle curve editor changes
   const handleCurveChange = useCallback((data) => {
     setCurveData(data);
@@ -213,17 +210,17 @@ const CreateSeasonForm = ({ createSeason, chainTimeQuery, activeSection = "all" 
         configHash: g.configHash,
       }));
 
-      writeGatingContract({
-        address: addresses.SEASON_GATING,
-        abi: SEASON_GATING_ABI,
-        functionName: "configureGates",
-        args: [seasonId, formattedGates],
-      })
-        .then(async (hash) => {
-          // Wait for confirmation
-          if (publicClient) {
-            await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
-          }
+      executeBatch([
+        {
+          to: addresses.SEASON_GATING,
+          data: encodeFunctionData({
+            abi: SEASON_GATING_ABI,
+            functionName: "configureGates",
+            args: [seasonId, formattedGates],
+          }),
+        },
+      ])
+        .then(() => {
           if (!cancelled) setGatingStatus("success");
         })
         .catch((err) => {
@@ -340,7 +337,7 @@ const CreateSeasonForm = ({ createSeason, chainTimeQuery, activeSection = "all" 
     if (confirmedPrizes.length === 0) setSponsorStatus("");
     confirmedDataRef.current = null;
     return () => { cancelled = true; };
-  }, [createSeason?.isConfirmed, createSeason?.receipt, gated, gatingGates, addresses.SEASON_GATING, addresses.RAFFLE, writeGatingContract, publicClient, executeBatch, address, t]);
+  }, [createSeason?.isConfirmed, createSeason?.receipt, gated, gatingGates, addresses.SEASON_GATING, addresses.RAFFLE, publicClient, executeBatch, address, t]);
 
   // Tier helpers
   const totalWinnerCount = useMemo(() => tiers.reduce((sum, t) => sum + (t.winnerCount || 0), 0), [tiers]);

@@ -89,12 +89,42 @@ contract DeployAll is Script {
         console2.log("=== 15: SOFPaymaster ===");
         addrs = new DeployPaymaster().run(addrs);
 
-        // --- 4. Write deployment JSON ---
+        // --- 4. Write deployment JSON (merge with existing file) ---
         string memory networkName;
         if (block.chainid == 31337) networkName = "local";
         else if (block.chainid == 84532) networkName = "base-sepolia";
         else if (block.chainid == 8453) networkName = "base-mainnet";
         else networkName = "unknown";
+
+        // Read existing file to preserve non-managed keys (e.g. SOFBondingCurve,
+        // SeasonGating, SOFExchange, SOFAirdrop, USDC, VRFCoordinator).
+        // These are deployed outside DeployAll and hand-maintained in the JSON.
+        string[6] memory preserveKeys = ["SOFBondingCurve", "SeasonGating", "SOFExchange", "SOFAirdrop", "USDC", "VRFCoordinator"];
+        string[6] memory preserveVals;
+
+        try vm.readFile(deploymentPath) returns (string memory existingJson) {
+            for (uint256 i = 0; i < preserveKeys.length; i++) {
+                string memory jsonPath = string.concat(".contracts.", preserveKeys[i]);
+                try vm.parseJsonString(existingJson, jsonPath) returns (string memory val) {
+                    preserveVals[i] = val;
+                } catch {
+                    preserveVals[i] = "";
+                }
+            }
+        } catch {
+            // File doesn't exist yet — no values to preserve
+        }
+
+        // Build preserved keys section (only include non-empty values)
+        string memory preservedSection = "";
+        for (uint256 i = 0; i < preserveKeys.length; i++) {
+            if (bytes(preserveVals[i]).length > 0) {
+                preservedSection = string.concat(
+                    preservedSection,
+                    ',\n    "', preserveKeys[i], '": "', preserveVals[i], '"'
+                );
+            }
+        }
 
         // Split JSON construction to avoid Yul stack-too-deep
         string memory part1 = string.concat(
@@ -119,8 +149,9 @@ contract DeployAll is Script {
             '    "PrizeDistributor": "', vm.toString(addrs.prizeDistributor), '",\n',
             '    "SOFFaucet": "', vm.toString(addrs.faucet), '",\n',
             '    "SOFSmartAccount": "', vm.toString(addrs.sofSmartAccount), '",\n',
-            '    "Paymaster": "', vm.toString(addrs.paymasterAddress), '"\n',
-            '  }\n}'
+            '    "Paymaster": "', vm.toString(addrs.paymasterAddress), '"',
+            preservedSection,
+            '\n  }\n}'
         );
         string memory json = string.concat(part1, part2, part3);
 

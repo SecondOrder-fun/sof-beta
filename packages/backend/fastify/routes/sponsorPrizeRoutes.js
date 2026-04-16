@@ -3,8 +3,10 @@ import {
   createSponsorPrize,
   getTierConfigs,
 } from "../../shared/sponsorPrizeService.js";
+import { createRequireAdmin } from "../../shared/adminGuard.js";
 
 export default async function sponsorPrizeRoutes(fastify) {
+  const requireAdmin = createRequireAdmin();
   // Get all sponsored prizes for a season
   fastify.get("/:seasonId", async (request, reply) => {
     const { seasonId } = request.params;
@@ -31,8 +33,8 @@ export default async function sponsorPrizeRoutes(fastify) {
     }
   });
 
-  // Create an off-chain (cross-chain) sponsored prize
-  fastify.post("/:seasonId/offchain", async (request, reply) => {
+  // Create an off-chain (cross-chain) sponsored prize (admin only)
+  fastify.post("/:seasonId/offchain", { preHandler: [requireAdmin] }, async (request, reply) => {
     const { seasonId } = request.params;
     const {
       chainId,
