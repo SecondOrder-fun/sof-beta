@@ -447,6 +447,11 @@ COMMENT ON COLUMN allowlist_entries.wallet_address IS 'Primary Ethereum wallet a
 COMMENT ON COLUMN allowlist_entries.source       IS 'How user was added: webhook (app add), manual (admin), import (bulk)';
 COMMENT ON COLUMN allowlist_entries.access_level IS 'Access tier: 0=public, 1=connected, 2=allowlist, 3=beta, 4=admin';
 
+-- Seed local admin: Anvil account #0 (deployer / treasury)
+INSERT INTO allowlist_entries (wallet_address, source, access_level, is_active)
+VALUES ('0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266', 'manual', 4, true)
+ON CONFLICT DO NOTHING;
+
 -- ==========================================================================
 -- 11. allowlist_config — Time-gated allowlist windows
 -- ==========================================================================
