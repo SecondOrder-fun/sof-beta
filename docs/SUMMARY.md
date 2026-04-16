@@ -29,11 +29,7 @@
   * [Part 7: Arbitrage](02-architecture/infofi-integration/part-7-arbitrage.md)
   * [Part 8: Security](02-architecture/infofi-integration/part-8-security.md)
   * [Part 9: Deployment](02-architecture/infofi-integration/part-9-deployment.md)
-
-## Development
-
-* [Overview](03-development/README.md)
-* [Frontend Guidelines](03-development/frontend-guidelines.md)
+* [Frontend Guidelines](02-architecture/frontend-guidelines.md)
 
 ## Features
 
