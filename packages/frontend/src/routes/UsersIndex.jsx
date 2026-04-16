@@ -14,7 +14,7 @@ import {
 import { usePlatform } from "@/hooks/usePlatform";
 import MobileLeaderboard from "@/components/mobile/MobileLeaderboard";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
+import { API_BASE } from "@/lib/apiBase";
 
 const UsersIndex = () => {
   const { isMobile } = usePlatform();

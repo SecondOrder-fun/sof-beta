@@ -105,8 +105,7 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
     }
 
     function setSeasonFactory(address _seasonFactoryAddress) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (address(seasonFactory) != address(0)) revert FactoryNotSet();
-        if (_seasonFactoryAddress == address(0)) revert InvalidAddress();
+        if (_seasonFactoryAddress == address(0)) revert FactoryNotSet();
         seasonFactory = ISeasonFactory(_seasonFactoryAddress);
     }
 
@@ -166,13 +165,13 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         if (hasRole(SEASON_CREATOR_ROLE, account)) {
             return true;
         }
-        
+
         // Check hat-based access if Hats is configured
         if (address(hatsProtocol) != address(0) && sponsorHatId != 0) {
-            return hatsProtocol.isWearerOfHat(account, sponsorHatId) 
+            return hatsProtocol.isWearerOfHat(account, sponsorHatId)
                 && hatsProtocol.isInGoodStanding(account, sponsorHatId);
         }
-        
+
         return false;
     }
 
@@ -290,6 +289,11 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         if (block.timestamp >= seasons[seasonId].endTime) revert SeasonAlreadyEnded(seasonId);
         if (seasonStates[seasonId].status != SeasonStatus.NotStarted) {
             revert InvalidSeasonStatus(seasonId, uint8(seasonStates[seasonId].status), uint8(SeasonStatus.NotStarted));
+        }
+
+        // Hat wearers (non-role holders) can only start their own seasons
+        if (!hasRole(SEASON_CREATOR_ROLE, msg.sender)) {
+            if (seasons[seasonId].sponsor != msg.sender) revert UnauthorizedCaller();
         }
 
         seasons[seasonId].isActive = true;
@@ -561,7 +565,7 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         uint256 oldTickets = pos.ticketCount;
         uint256 newTicketsLocal = oldTickets + ticketAmount;
         uint256 newTotalTickets = state.totalTickets + ticketAmount;
-        
+
         // Update state
         if (!pos.isActive) {
             uint32 maxP = seasons[seasonId].maxParticipants;
@@ -597,12 +601,12 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         ParticipantPosition storage pos = state.participantPositions[participant];
         require(pos.isActive, "Raffle: not active");
         require(pos.ticketCount >= ticketAmount, "Raffle: too much");
-        
+
         // Calculate new values before state updates
         uint256 oldTickets = pos.ticketCount;
         uint256 newTickets = oldTickets - ticketAmount;
         uint256 newTotalTickets = state.totalTickets - ticketAmount;
-        
+
         // Update state
         pos.ticketCount = newTickets;
         pos.lastUpdateBlock = block.number;
@@ -785,7 +789,7 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         seasons[seasonId].isActive = false;
     }
 
-    function updateVRFConfig(uint64 _subscriptionId, bytes32 _keyHash, uint32 _callbackGasLimit)
+    function updateVRFConfig(uint256 _subscriptionId, bytes32 _keyHash, uint32 _callbackGasLimit)
         external
         onlyRole(DEFAULT_ADMIN_ROLE)
     {

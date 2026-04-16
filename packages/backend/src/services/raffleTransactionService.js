@@ -97,6 +97,16 @@ class RaffleTransactionService {
     bondingCurveAddress,
     fromBlock = null,
   ) {
+    // Block cache to avoid redundant RPC calls for the same block
+    const blockCache = new Map();
+
+    async function getCachedBlock(blockNumber) {
+      if (!blockCache.has(blockNumber)) {
+        blockCache.set(blockNumber, await publicClient.getBlock({ blockNumber }));
+      }
+      return blockCache.get(blockNumber);
+    }
+
     try {
       // Get season's last synced block
       const { data: season } = await db.client
@@ -162,10 +172,8 @@ class RaffleTransactionService {
         const { player, oldTickets, newTickets } = log.args;
 
         try {
-          // Get block timestamp
-          const block = await publicClient.getBlock({
-            blockNumber: log.blockNumber,
-          });
+          // Get block timestamp (cached to avoid N+1 RPC calls)
+          const block = await getCachedBlock(log.blockNumber);
 
           // Determine transaction type and amounts
           const oldTicketsNum = Number(oldTickets);
@@ -211,6 +219,9 @@ class RaffleTransactionService {
         }
       }
 
+      // Clear block cache after sync completes
+      blockCache.clear();
+
       // Update last synced block
       await db.client
         .from("season_contracts")
@@ -232,6 +243,8 @@ class RaffleTransactionService {
         toBlock: latestBlock.toString(),
       };
     } catch (error) {
+      // Clear block cache on error as well
+      blockCache.clear();
       // eslint-disable-next-line no-console
       console.error("Error syncing season transactions:", error);
       throw error;
@@ -368,6 +381,7 @@ class RaffleTransactionService {
       order = "desc",
     } = options;
 
+    // orderBy is validated at the route layer via ALLOWED_ORDER_COLUMNS whitelist
     const { data, error } = await db.client
       .from("raffle_transactions")
       .select("*")

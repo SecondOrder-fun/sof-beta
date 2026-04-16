@@ -42,7 +42,8 @@ export function useSmartTransactions() {
   // Both are issued by the same backend AuthService and accepted by the session endpoint.
   const farcasterAuth = useContext(FarcasterContext);
   const backendJwt = farcasterAuth?.backendJwt
-    ?? localStorage.getItem('sof:jwt')
+    ?? localStorage.getItem('sof:farcaster_jwt')
+    ?? localStorage.getItem('sof:admin_jwt')
     ?? null;
   const sessionCacheRef = useRef({ token: null, expiresAt: 0 });
   const { isSOFDelegate, isDelegated } = useDelegationStatus();

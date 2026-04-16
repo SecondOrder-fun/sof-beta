@@ -83,6 +83,9 @@ contract SimpleFPMM is ERC20, ReentrancyGuard {
 
     address public treasury;
 
+    /// @dev True after initializeReserves has been called; prevents re-initialization
+    bool private _reservesInitialized;
+
     event LiquidityAdded(address indexed provider, uint256 amount, uint256 lpTokens);
     event LiquidityRemoved(address indexed provider, uint256 lpTokens, uint256 amount);
     event Trade(address indexed trader, bool buyYes, uint256 amountIn, uint256 amountOut);
@@ -176,10 +179,9 @@ contract SimpleFPMM is ERC20, ReentrancyGuard {
         require(balanceOf(msg.sender) >= lpTokens, "Insufficient balance");
 
         uint256 totalReserves = yesReserve + noReserve;
-        amount = (lpTokens * totalReserves) / totalSupply();
-
         uint256 yesRemove = (lpTokens * yesReserve) / totalSupply();
-        uint256 noRemove = (lpTokens * noReserve) / totalSupply();
+        amount = (lpTokens * totalReserves) / totalSupply();
+        uint256 noRemove = amount - yesRemove; // eliminates rounding discrepancy
 
         yesReserve -= yesRemove;
         noReserve -= noRemove;
@@ -374,9 +376,12 @@ contract SimpleFPMM is ERC20, ReentrancyGuard {
 
     /**
      * @notice Withdraw collected fees to treasury
+     * @dev Only callable by the treasury address
      */
     function withdrawFees() external {
+        require(msg.sender == treasury, "Only treasury");
         uint256 amount = feesCollected;
+        require(amount > 0, "No fees");
         feesCollected = 0;
 
         require(collateralToken.transfer(treasury, amount), "Transfer failed");
@@ -384,12 +389,13 @@ contract SimpleFPMM is ERC20, ReentrancyGuard {
 
     /**
      * @notice Initialize reserves after market creation
-     * @dev Only callable once by manager during market creation
+     * @dev Only callable once; protected by _reservesInitialized flag
      */
     function initializeReserves(uint256 _yesReserve, uint256 _noReserve) external {
-        require(yesReserve == 0 && noReserve == 0, "Already initialized");
+        require(!_reservesInitialized, "Already initialized");
         require(_yesReserve > 0 && _noReserve > 0, "Invalid reserves");
 
+        _reservesInitialized = true;
         yesReserve = _yesReserve;
         noReserve = _noReserve;
     }
@@ -500,10 +506,10 @@ contract InfoFiFPMMV2 is AccessControl, ReentrancyGuard {
         uint256 yesPositionId = fpmmContract.positionIds(0);
         uint256 noPositionId = fpmmContract.positionIds(1);
 
-        // ✅ ORACLE-SEEDED INITIAL RESERVES
+        // ORACLE-SEEDED INITIAL RESERVES
         // Set reserves proportional to raffle probability instead of hardcoded 50/50
         // In CPMM: P(YES) = noReserve / (yesReserve + noReserve)
-        // So: yesReserve ∝ (1 - probability), noReserve ∝ probability
+        // So: yesReserve proportional to (1 - probability), noReserve proportional to probability
         //
         // Floor each side at 5% of INITIAL_FUNDING to prevent single-trade liquidity drain
         uint256 minReserve = INITIAL_FUNDING / 20; // 5 SOF minimum per side

@@ -6,6 +6,7 @@
  */
 
 import process from "node:process";
+import crypto from "node:crypto";
 import { privateKeyToAccount } from "viem/accounts";
 import { recoverMessageAddress } from "viem";
 import { getDeployment } from '@sof/contracts/deployments';
@@ -29,6 +30,10 @@ const EIP712_TYPES = {
 // Attestation validity window (1 hour in seconds)
 const ATTESTATION_TTL_SECONDS = 3600;
 
+// Replay protection for basic claim signatures (in-memory with size limit)
+const MAX_USED_SIGNATURES = 10000;
+const usedBasicSignatures = new Set();
+
 /**
  * Lazily resolve the backend signer account.
  * Deferred so that env vars are guaranteed to be loaded before first use.
@@ -50,6 +55,15 @@ function getSignerAccount() {
   const normalizedKey = rawKey.startsWith("0x") ? rawKey : `0x${rawKey}`;
   _signerAccount = privateKeyToAccount(normalizedKey);
   return _signerAccount;
+}
+
+/**
+ * Hash a signature for replay protection using SHA-256.
+ * @param {string} signature - Hex signature string
+ * @returns {string} Hex hash
+ */
+function hashSignature(signature) {
+  return crypto.createHash("sha256").update(signature).digest("hex");
 }
 
 /**
@@ -91,7 +105,7 @@ export default async function airdropRoutes(fastify) {
 
     if (!verifyingContract) {
       fastify.log.error(
-        "SOFAirdrop address not found in testnet deployment — cannot produce attestation",
+        "SOFAirdrop address not found in testnet deployment -- cannot produce attestation",
       );
       return reply.code(503).send({
         error: "Airdrop contract not configured. Please try again later.",
@@ -263,6 +277,12 @@ export default async function airdropRoutes(fastify) {
             .send({ error: "Signature required for basic claim" });
         }
 
+        // Replay protection: reject already-used signatures
+        const sigHash = hashSignature(signature);
+        if (usedBasicSignatures.has(sigHash)) {
+          return reply.code(409).send({ error: "Signature already used" });
+        }
+
         // Verify wallet ownership via personal_sign
         const expectedMessage = `Claim SOF airdrop for ${address}`;
         let recoveredAddress;
@@ -278,6 +298,17 @@ export default async function airdropRoutes(fastify) {
         if (recoveredAddress.toLowerCase() !== address.toLowerCase()) {
           return reply.code(401).send({ error: "Signature does not match address" });
         }
+
+        // Mark signature as used (with size limit to prevent unbounded memory growth)
+        if (usedBasicSignatures.size >= MAX_USED_SIGNATURES) {
+          // Evict oldest entries (Set iterates in insertion order)
+          const iterator = usedBasicSignatures.values();
+          const halfToRemove = Math.floor(MAX_USED_SIGNATURES / 2);
+          for (let i = 0; i < halfToRemove; i++) {
+            usedBasicSignatures.delete(iterator.next().value);
+          }
+        }
+        usedBasicSignatures.add(sigHash);
 
         const paymasterService = getPaymasterService(fastify.log);
         if (!paymasterService.initialized) {

@@ -31,6 +31,7 @@ export default async function authRoutes(fastify) {
    * GET /nonce?address=0x...
    * Returns { nonce } and stores it in Redis with a 5-minute TTL.
    */
+  // TODO: migrate to POST to avoid wallet address in query params (requires coordinated frontend change)
   fastify.get("/nonce", async (request, reply) => {
     const { address } = request.query;
 

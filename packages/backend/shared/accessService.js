@@ -37,6 +37,10 @@ export async function getUserAccess({ fid, wallet }) {
 
       if (!error && data) {
         entry = data;
+      } else if (error && error.code !== "PGRST116") {
+        // PGRST116 = "not found" from .single(), which is expected
+        // Any other error is unexpected (DB down, network timeout, etc.)
+        throw error;
       }
     }
 
@@ -51,6 +55,8 @@ export async function getUserAccess({ fid, wallet }) {
 
       if (!error && data) {
         entry = data;
+      } else if (error && error.code !== "PGRST116") {
+        throw error;
       }
     }
 
@@ -75,13 +81,17 @@ export async function getUserAccess({ fid, wallet }) {
       entry,
     };
   } catch (error) {
+    // Only swallow "not found" type errors, rethrow unexpected ones
+    if (error.code === "PGRST116") {
+      return {
+        level: ACCESS_LEVELS.PUBLIC,
+        levelName: ACCESS_LEVEL_NAMES[ACCESS_LEVELS.PUBLIC],
+        groups: [],
+        entry: null,
+      };
+    }
     console.error("Error getting user access:", error);
-    return {
-      level: ACCESS_LEVELS.PUBLIC,
-      levelName: ACCESS_LEVEL_NAMES[ACCESS_LEVELS.PUBLIC],
-      groups: [],
-      entry: null,
-    };
+    throw error;
   }
 }
 

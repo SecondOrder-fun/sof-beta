@@ -23,6 +23,8 @@ export class PaymasterService {
     this.walletClient = null;
     this.account = null;
     this.initialized = false;
+    // Serial queue to prevent nonce race conditions across concurrent calls
+    this._txQueue = Promise.resolve();
   }
 
   /**
@@ -83,7 +85,7 @@ export class PaymasterService {
       this.initialized = true;
 
       this.logger.info(
-        `✅ PaymasterService initialized with viem wallet client`,
+        `PaymasterService initialized with viem wallet client`,
       );
       this.logger.info(
         `   Network: ${isTestnet ? "Base Sepolia" : "Base Mainnet"}`,
@@ -91,10 +93,32 @@ export class PaymasterService {
       this.logger.info(`   Account: ${this.account.address}`);
     } catch (error) {
       this.logger.error(
-        `❌ PaymasterService initialization failed: ${error.message}`,
+        `PaymasterService initialization failed: ${error.message}`,
       );
       throw error;
     }
+  }
+
+  /**
+   * Enqueue a sendTransaction call to serialize nonce usage.
+   * Prevents concurrent calls from reading the same pending nonce.
+   * @private
+   * @param {Object} txParams - Parameters for walletClient.sendTransaction
+   * @param {Object} logger - Logger instance
+   * @returns {Promise<string>} Transaction hash
+   */
+  _enqueueSendTransaction(txParams, logger) {
+    return new Promise((resolve, reject) => {
+      this._txQueue = this._txQueue
+        .then(async () => {
+          logger.info("Sending transaction (queued)...");
+          const hash = await this.walletClient.sendTransaction(txParams);
+          resolve(hash);
+        })
+        .catch((err) => {
+          reject(err);
+        });
+    });
   }
 
   /**
@@ -133,7 +157,7 @@ export class PaymasterService {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         logger.info(
-          `🔄 Attempt ${attempt}/${maxRetries}: Creating market for player ${player}`,
+          `Attempt ${attempt}/${maxRetries}: Creating market for player ${player}`,
         );
 
         // Encode the onPositionUpdate function call
@@ -163,31 +187,31 @@ export class PaymasterService {
           ],
         });
 
-        // Send transaction - Paymaster RPC will sponsor if contract is in allowlist
-        const hash = await this.walletClient.sendTransaction({
+        // Send transaction via serial queue to avoid nonce conflicts
+        const hash = await this._enqueueSendTransaction({
           to: infoFiFactoryAddress,
           data,
           value: 0n,
           gas: 5000000n, // Increased gas limit for market creation (FPMM deployment needs ~3M gas)
-        });
+        }, logger);
 
-        logger.info(`✅ Market creation transaction submitted: ${hash}`);
+        logger.info(`Market creation transaction submitted: ${hash}`);
 
         // Wait for transaction confirmation (don't block the listener)
         publicClient
           .waitForTransactionReceipt({ hash, timeout: 60000 })
           .then((receipt) => {
             if (receipt.status === "success") {
-              logger.info(`✅ Market creation confirmed: ${hash}`);
+              logger.info(`Market creation confirmed: ${hash}`);
               logger.info(`   Block: ${receipt.blockNumber}`);
               logger.info(`   Gas used: ${receipt.gasUsed}`);
             } else {
-              logger.error(`❌ Market creation transaction reverted: ${hash}`);
+              logger.error(`Market creation transaction reverted: ${hash}`);
             }
           })
           .catch((error) => {
             logger.error(
-              `❌ Failed to wait for market creation receipt: ${error.message}`,
+              `Failed to wait for market creation receipt: ${error.message}`,
             );
           });
 
@@ -197,7 +221,7 @@ export class PaymasterService {
           attempts: attempt,
         };
       } catch (error) {
-        logger.error(`❌ Attempt ${attempt} failed: ${error.message}`);
+        logger.error(`Attempt ${attempt} failed: ${error.message}`);
 
         try {
           logger.error({
@@ -229,11 +253,11 @@ export class PaymasterService {
 
         if (attempt < maxRetries) {
           const delayMs = retryDelays[attempt - 1];
-          logger.info(`⏳ Retrying in ${delayMs / 1000}s...`);
+          logger.info(`Retrying in ${delayMs / 1000}s...`);
           await new Promise((resolve) => setTimeout(resolve, delayMs));
         } else {
           logger.error(
-            `❌ Market creation failed after ${maxRetries} attempts`,
+            `Market creation failed after ${maxRetries} attempts`,
           );
           return {
             success: false,
@@ -302,7 +326,7 @@ export class PaymasterService {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         logger.info(
-          `🔄 Attempt ${attempt}/${maxRetries}: Airdrop relay ${functionName} for ${args[0]}`,
+          `Attempt ${attempt}/${maxRetries}: Airdrop relay ${functionName} for ${args[0]}`,
         );
 
         const data = encodeFunctionData({
@@ -311,37 +335,38 @@ export class PaymasterService {
           args,
         });
 
-        const hash = await this.walletClient.sendTransaction({
+        // Send transaction via serial queue to avoid nonce conflicts
+        const hash = await this._enqueueSendTransaction({
           to: airdropAddress,
           data,
           value: 0n,
           gas: 200000n,
-        });
+        }, logger);
 
-        logger.info(`✅ Airdrop relay tx submitted: ${hash}`);
+        logger.info(`Airdrop relay tx submitted: ${hash}`);
 
-        // Await receipt — frontend needs confirmation
+        // Await receipt -- frontend needs confirmation
         const receipt = await publicClient.waitForTransactionReceipt({
           hash,
           timeout: 60000,
         });
 
         if (receipt.status === "success") {
-          logger.info(`✅ Airdrop relay confirmed: ${hash}`);
+          logger.info(`Airdrop relay confirmed: ${hash}`);
           return { success: true, hash };
         } else {
           throw new Error(`Transaction reverted: ${hash}`);
         }
       } catch (error) {
-        logger.error(`❌ Attempt ${attempt} failed: ${error.message}`);
+        logger.error(`Attempt ${attempt} failed: ${error.message}`);
 
         if (attempt < maxRetries) {
           const delayMs = retryDelays[attempt - 1];
-          logger.info(`⏳ Retrying in ${delayMs / 1000}s...`);
+          logger.info(`Retrying in ${delayMs / 1000}s...`);
           await new Promise((resolve) => setTimeout(resolve, delayMs));
         } else {
           logger.error(
-            `❌ Airdrop relay failed after ${maxRetries} attempts`,
+            `Airdrop relay failed after ${maxRetries} attempts`,
           );
           return {
             success: false,

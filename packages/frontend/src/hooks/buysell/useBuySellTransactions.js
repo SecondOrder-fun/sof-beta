@@ -307,21 +307,51 @@ export function useBuySellTransactions(
           }
         }
 
-        // Execute sell transaction
+        // Tier 1: ERC-5792 batch + paymaster (single gasless confirmation)
+        if (hasBatch) {
+          try {
+            const sellTx = {
+              to: bondingCurveAddress,
+              data: encodeFunctionData({
+                abi: SOFBondingCurveAbi,
+                functionName: 'sellTokens',
+                args: [tokenAmount, floor],
+              }),
+            };
+
+            const batchId = await executeBatch([sellTx], { sofAmount: floor });
+
+            onNotify?.({
+              type: "success",
+              message: t("transactions:sold"),
+              hash: batchId || "",
+            });
+
+            onSuccess?.();
+            onComplete?.();
+            void refetchBalance?.();
+
+            return { success: true, hash: batchId || "" };
+          } catch (batchErr) {
+            if (
+              batchErr?.code === 4001 ||
+              batchErr?.name === "UserRejectedRequestError"
+            ) {
+              throw batchErr;
+            }
+            // eslint-disable-next-line no-console
+            console.warn("Batch sell flow failed, falling back to direct sell:", batchErr.message);
+          }
+        }
+
+        // Fallback: direct sell transaction
         const tx = await sellTokens.mutateAsync({
           tokenAmount,
           minSofAmount: floor,
         });
         const hash = tx?.hash ?? tx ?? "";
 
-        // Notify immediately with transaction hash
-        onNotify?.({
-          type: "success",
-          message: t("transactions:sold"),
-          hash,
-        });
-
-        // Wait for confirmation in background
+        // Wait for confirmation before notifying success
         if (client && hash) {
           try {
             const receipt = await client.waitForTransactionReceipt({
@@ -338,10 +368,16 @@ export function useBuySellTransactions(
               return { success: false, hash };
             }
 
+            onNotify?.({
+              type: "success",
+              message: t("transactions:sold"),
+              hash,
+            });
+
             onSuccess?.();
             onComplete?.();
             void refetchBalance?.();
-            
+
             return { success: true, hash };
           } catch (waitErr) {
             const waitMsg =
@@ -349,23 +385,29 @@ export function useBuySellTransactions(
                 ? waitErr.message
                 : "Failed waiting for transaction receipt";
             onNotify?.({ type: "error", message: waitMsg, hash });
-            
+
             // Still trigger refresh after delay
             setTimeout(() => {
               onSuccess?.();
               onComplete?.();
             }, 2000);
-            
+
             return { success: false, hash, error: waitMsg };
           }
         }
 
         // Fallback: no client available
+        onNotify?.({
+          type: "success",
+          message: t("transactions:sold"),
+          hash,
+        });
+
         setTimeout(() => {
           onSuccess?.();
           onComplete?.();
         }, 2000);
-        
+
         return { success: true, hash };
       } catch (err) {
         // eslint-disable-next-line no-console
@@ -375,7 +417,7 @@ export function useBuySellTransactions(
         return { success: false, error: message };
       }
     },
-    [sellTokens, client, bondingCurveAddress, onNotify, onSuccess, refetchBalance, t]
+    [sellTokens, client, bondingCurveAddress, onNotify, onSuccess, refetchBalance, t, hasBatch, executeBatch, contracts]
   );
 
   return {

@@ -1,6 +1,9 @@
 import { raffleTransactionService } from "../../src/services/raffleTransactionService.js";
 import { createRequireAdmin } from "../../shared/adminGuard.js";
 
+// Whitelist of allowed columns for orderBy to prevent injection
+const ALLOWED_ORDER_COLUMNS = new Set(["block_timestamp", "block_number", "id"]);
+
 /**
  * Raffle transaction history API routes
  * Provides endpoints for querying user transaction history and positions
@@ -58,11 +61,14 @@ export default async function raffleTransactionRoutes(fastify) {
       const { userAddress, seasonId } = request.params;
       const { limit, offset, orderBy, order } = request.query;
 
+      // Validate orderBy against whitelist to prevent injection
+      const safeOrderBy = ALLOWED_ORDER_COLUMNS.has(orderBy) ? orderBy : "block_timestamp";
+
       try {
         const transactions = await raffleTransactionService.getUserTransactions(
           userAddress,
           parseInt(seasonId),
-          { limit, offset, orderBy, order }
+          { limit, offset, orderBy: safeOrderBy, order }
         );
 
         return { transactions };

@@ -45,9 +45,9 @@ contract SeasonFactory is AccessControl {
         );
         raffleTokenAddr = address(raffleToken);
 
-        // Deploy curve for this season with transaction originator as admin
-        // tx.origin is the wallet that initiated the createSeason transaction
-        SOFBondingCurve curve = new SOFBondingCurve(address(IRaffle(raffleAddress).sofToken()), tx.origin);
+        // Deploy curve for this season with the Raffle contract (msg.sender) as admin.
+        // msg.sender is the Raffle contract which has proper admin controls for season management.
+        SOFBondingCurve curve = new SOFBondingCurve(address(IRaffle(raffleAddress).sofToken()), msg.sender);
         curveAddr = address(curve);
 
         // Grant RAFFLE_MANAGER_ROLE to this factory temporarily to initialize, and to Raffle permanently
