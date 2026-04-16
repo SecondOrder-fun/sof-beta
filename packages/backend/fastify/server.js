@@ -11,6 +11,7 @@ import { startPositionUpdateListener } from "../src/listeners/positionUpdateList
 import { startMarketCreatedListener } from "../src/listeners/marketCreatedListener.js";
 import { startTradeListener } from "../src/listeners/tradeListener.js";
 import { startSponsorHatListener } from "../src/listeners/sponsorHatListener.js";
+import { startRolloverEventListener } from "../src/listeners/rolloverEventListener.js";
 import { infoFiPositionService } from "../src/services/infoFiPositionService.js";
 import { historicalOddsService } from "../shared/historicalOddsService.js";
 import { RaffleABI as raffleAbi, SOFBondingCurveABI as sofBondingCurveAbi, InfoFiMarketFactoryABI as infoFiMarketFactoryAbi, SimpleFPMMABI as simpleFpmmAbi } from '@sof/contracts';
@@ -265,6 +266,15 @@ try {
   app.log.error({ err }, "Failed to mount /api/wallet");
 }
 
+try {
+  await app.register((await import("./routes/rolloverRoutes.js")).default, {
+    prefix: "/api/rollover",
+  });
+  app.log.info("Mounted /api/rollover");
+} catch (err) {
+  app.log.error({ err }, "Failed to mount /api/rollover");
+}
+
 // Debug: print all mounted routes
 // app.ready(() => {
 //   try {
@@ -505,6 +515,16 @@ async function startListeners() {
     } catch (error) {
       app.log.error(
         `❌ Failed to start SponsorHatListener: ${error.message}`
+      );
+    }
+
+    // Start Rollover Event Listener (indexes RolloverEscrow events)
+    try {
+      startRolloverEventListener(NETWORK, app.log);
+      app.log.info("✅ RolloverEventListener started");
+    } catch (error) {
+      app.log.error(
+        `❌ Failed to start RolloverEventListener: ${error.message}`
       );
     }
   } catch (error) {
