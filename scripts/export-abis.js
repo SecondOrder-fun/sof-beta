@@ -67,6 +67,9 @@ const CONTRACTS_TO_EXPORT = [
 
   // Smart Account (ERC-7702)
   { source: 'SOFSmartAccount.sol/SOFSmartAccount.json', name: 'SOFSmartAccount' },
+
+  // Rollover Incentives
+  { source: 'RolloverEscrow.sol/RolloverEscrow.json', name: 'RolloverEscrow' },
 ];
 
 async function exportAbis() {

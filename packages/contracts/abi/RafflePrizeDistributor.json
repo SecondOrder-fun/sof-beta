@@ -44,6 +44,11 @@
         "name": "seasonId",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "toRollover",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "outputs": [],
@@ -510,6 +515,30 @@
   },
   {
     "type": "function",
+    "name": "isConsolationEligible",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "isSponsoredERC20Claimed",
     "inputs": [
       {
@@ -659,6 +688,50 @@
   },
   {
     "type": "function",
+    "name": "rolloverEscrow",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IRolloverEscrow"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "setConsolationEligible",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "participants",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setRolloverEscrow",
+    "inputs": [
+      {
+        "name": "escrow",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setTierWinners",
     "inputs": [
       {
@@ -751,6 +824,19 @@
     "stateMutability": "view"
   },
   {
+    "type": "function",
+    "name": "sweepConsolationDust",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
     "type": "event",
     "name": "AdminGranted",
     "inputs": [
@@ -794,6 +880,50 @@
       },
       {
         "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ConsolationDustSwept",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ConsolationEligibilitySet",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "participantCount",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -1210,6 +1340,22 @@
   },
   {
     "type": "error",
+    "name": "NotAParticipant",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "NotATierWinner",
     "inputs": [
       {
@@ -1227,6 +1373,11 @@
   {
     "type": "error",
     "name": "ReentrancyGuardReentrantCall",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "RolloverEscrowNotSet",
     "inputs": []
   },
   {

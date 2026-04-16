@@ -64,17 +64,17 @@ contract ConsolationClaimsTest is Test {
 
         // Loser 1 claims
         vm.prank(loser1);
-        distributor.claimConsolation(SEASON_ID);
+        distributor.claimConsolation(SEASON_ID, false);
         assertEq(sofToken.balanceOf(loser1), expectedPerLoser);
 
         // Loser 2 claims
         vm.prank(loser2);
-        distributor.claimConsolation(SEASON_ID);
+        distributor.claimConsolation(SEASON_ID, false);
         assertEq(sofToken.balanceOf(loser2), expectedPerLoser);
 
         // Loser 3 claims
         vm.prank(loser3);
-        distributor.claimConsolation(SEASON_ID);
+        distributor.claimConsolation(SEASON_ID, false);
         assertEq(sofToken.balanceOf(loser3), expectedPerLoser);
 
         // All losers received equal amounts
@@ -85,22 +85,22 @@ contract ConsolationClaimsTest is Test {
     function testGrandWinnerCannotClaimConsolation() public {
         vm.prank(grandWinner);
         vm.expectRevert("Distributor: winner cannot claim consolation");
-        distributor.claimConsolation(SEASON_ID);
+        distributor.claimConsolation(SEASON_ID, false);
     }
 
     function testCannotClaimConsolationTwice() public {
         vm.startPrank(loser1);
-        distributor.claimConsolation(SEASON_ID);
+        distributor.claimConsolation(SEASON_ID, false);
 
         vm.expectRevert("Distributor: already claimed");
-        distributor.claimConsolation(SEASON_ID);
+        distributor.claimConsolation(SEASON_ID, false);
         vm.stopPrank();
     }
 
     function testNonParticipantCannotClaimConsolation() public {
         vm.prank(nonParticipant);
         vm.expectRevert(abi.encodeWithSelector(NotAParticipant.selector, SEASON_ID, nonParticipant));
-        distributor.claimConsolation(SEASON_ID);
+        distributor.claimConsolation(SEASON_ID, false);
     }
 
     function testConsolationEligibilityView() public view {
@@ -116,7 +116,7 @@ contract ConsolationClaimsTest is Test {
 
         // Claim
         vm.prank(loser1);
-        distributor.claimConsolation(SEASON_ID);
+        distributor.claimConsolation(SEASON_ID, false);
 
         // Now claimed
         assertTrue(distributor.isConsolationClaimed(SEASON_ID, loser1));
@@ -136,7 +136,7 @@ contract ConsolationClaimsTest is Test {
         // Try to claim before funding
         vm.prank(loser1);
         vm.expectRevert("Distributor: not funded");
-        distributor.claimConsolation(2);
+        distributor.claimConsolation(2, false);
     }
 
     function testConsolationWithDifferentParticipantCounts() public {
@@ -163,7 +163,7 @@ contract ConsolationClaimsTest is Test {
         uint256 expectedPerLoser = CONSOLATION_AMOUNT / (participants - 1);
 
         vm.prank(loser1);
-        distributor.claimConsolation(season2);
+        distributor.claimConsolation(season2, false);
         assertEq(sofToken.balanceOf(loser1), expectedPerLoser);
     }
 
@@ -189,11 +189,11 @@ contract ConsolationClaimsTest is Test {
         uint256 expectedPerLoser = CONSOLATION_AMOUNT / (TOTAL_PARTICIPANTS - 1);
 
         vm.prank(loser1);
-        distributor.claimConsolation(SEASON_ID);
+        distributor.claimConsolation(SEASON_ID, false);
         assertEq(sofToken.balanceOf(loser1), expectedPerLoser);
 
         vm.prank(loser2);
-        distributor.claimConsolation(SEASON_ID);
+        distributor.claimConsolation(SEASON_ID, false);
         assertEq(sofToken.balanceOf(loser2), expectedPerLoser);
     }
 }
