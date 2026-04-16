@@ -90,7 +90,7 @@ export function AdminAuthProvider({ children }) {
 
     try {
       // 1. Request nonce
-      const nonceRes = await fetch(`${API_BASE}/auth/nonce?address=${address}`);
+      const nonceRes = await fetch(`${API_BASE}/auth/nonce`);
       if (!nonceRes.ok) {
         const data = await nonceRes.json().catch(() => ({}));
         throw new Error(data.error || "Failed to fetch nonce");
@@ -105,7 +105,7 @@ export function AdminAuthProvider({ children }) {
       const verifyRes = await fetch(`${API_BASE}/auth/verify`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address, signature, nonce }),
+        body: JSON.stringify({ method: "wallet", address, signature, nonce }),
       });
 
       if (!verifyRes.ok) {
