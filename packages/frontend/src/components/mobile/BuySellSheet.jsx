@@ -37,6 +37,8 @@ import {
   SlippageSettings,
   TradingStatusOverlay,
 } from "@/components/buysell";
+import { useRollover } from "@/hooks/useRollover";
+import RolloverBanner from "@/components/curve/RolloverBanner";
 import { Button } from "@/components/ui/button";
 import { SOFBondingCurveAbi } from "@/utils/abis";
 import { useToast } from "@/hooks/useToast";
@@ -79,6 +81,10 @@ export const BuySellSheet = ({
   const [showSettings, setShowSettings] = useState(false);
   const [ticketPosition, setTicketPosition] = useState(null);
   const { toast } = useToast();
+
+  // Rollover state
+  const [rolloverEnabled, setRolloverEnabled] = useState(true);
+  const [rolloverAmountOverride, setRolloverAmountOverride] = useState(null);
 
   // Sync activeTab with mode prop when modal opens
   useEffect(() => {
@@ -137,6 +143,14 @@ export const BuySellSheet = ({
     if (open) refreshPosition();
   }, [open, refreshPosition]);
 
+  // Rollover hook
+  const {
+    rolloverBalance,
+    bonusBps,
+    bonusAmount,
+    isRolloverAvailable,
+  } = useRollover(seasonId);
+
   // Shared hooks
   const { tradingLocked, buyFeeBps, sellFeeBps } = useTradingLockStatus(
     client,
@@ -166,6 +180,13 @@ export const BuySellSheet = ({
     sofDecimals,
     estBuyWithFees,
     isBalanceLoading
+  );
+
+  // Computed rollover amount: override takes precedence, otherwise auto-deplete up to estBuyWithFees
+  const rolloverAmount = rolloverAmountOverride ?? (
+    isRolloverAvailable && rolloverEnabled
+      ? (rolloverBalance < estBuyWithFees ? rolloverBalance : estBuyWithFees)
+      : 0n
   );
 
   const txSuccessCallback = useCallback(() => {
@@ -338,6 +359,18 @@ export const BuySellSheet = ({
           </TabsList>
 
           <TabsContent value="buy" className="space-y-6">
+            {isRolloverAvailable && (
+              <RolloverBanner
+                rolloverBalance={rolloverBalance}
+                bonusBps={bonusBps}
+                bonusAmount={bonusAmount}
+                sourceSeasonId={seasonId}
+                enabled={rolloverEnabled}
+                onEnabledChange={setRolloverEnabled}
+                rolloverAmount={rolloverAmount}
+                onRolloverAmountChange={setRolloverAmountOverride}
+              />
+            )}
             <BuyForm
               quantityInput={quantityInput}
               onQuantityChange={setQuantityInput}

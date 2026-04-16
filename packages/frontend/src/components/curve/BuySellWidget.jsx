@@ -23,6 +23,8 @@ import {
   SlippageSettings,
   TradingStatusOverlay,
 } from "@/components/buysell";
+import { useRollover } from "@/hooks/useRollover";
+import RolloverBanner from "./RolloverBanner";
 
 const BuySellWidget = ({
   bondingCurveAddress,
@@ -32,6 +34,7 @@ const BuySellWidget = ({
   isGated = false,
   isVerified = null,
   onGatingRequired,
+  seasonId,
 }) => {
   const { t } = useTranslation(["common", "transactions"]);
   const sofDecimalsState = useSofDecimals();
@@ -64,12 +67,24 @@ const BuySellWidget = ({
   const [slippagePct, setSlippagePct] = useState("1"); // 1%
   const [showSettings, setShowSettings] = useState(false);
 
+  // Rollover state
+  const [rolloverEnabled, setRolloverEnabled] = useState(true);
+  const [rolloverAmountOverride, setRolloverAmountOverride] = useState(null);
+
   const netKey = getStoredNetworkKey();
   const net = getNetworkByKey(netKey);
   const client = useMemo(() => {
     if (!net?.rpcUrl) return null;
     return buildPublicClient(netKey);
   }, [net?.rpcUrl, netKey]);
+
+  // Rollover hook
+  const {
+    rolloverBalance,
+    bonusBps,
+    bonusAmount,
+    isRolloverAvailable,
+  } = useRollover(seasonId);
 
   // Shared hooks
   const { tradingLocked, buyFeeBps, sellFeeBps } = useTradingLockStatus(
@@ -92,6 +107,13 @@ const BuySellWidget = ({
     sofDecimals,
     estBuyWithFees,
     isBalanceLoading
+  );
+
+  // Computed rollover amount: override takes precedence, otherwise auto-deplete up to estBuyWithFees
+  const rolloverAmount = rolloverAmountOverride ?? (
+    isRolloverAvailable && rolloverEnabled
+      ? (rolloverBalance < estBuyWithFees ? rolloverBalance : estBuyWithFees)
+      : 0n
   );
 
   const { executeBuy, executeSell, isPending } = useBuySellTransactions(
@@ -216,6 +238,18 @@ const BuySellWidget = ({
         </div>
 
         <TabsContent value="buy">
+          {isRolloverAvailable && (
+            <RolloverBanner
+              rolloverBalance={rolloverBalance}
+              bonusBps={bonusBps}
+              bonusAmount={bonusAmount}
+              sourceSeasonId={seasonId}
+              enabled={rolloverEnabled}
+              onEnabledChange={setRolloverEnabled}
+              rolloverAmount={rolloverAmount}
+              onRolloverAmountChange={setRolloverAmountOverride}
+            />
+          )}
           <form className="space-y-2" onSubmit={onBuy}>
             <div className="font-medium">
               {t("common:amount", { defaultValue: "Amount" })}
@@ -334,6 +368,7 @@ BuySellWidget.propTypes = {
   isGated: PropTypes.bool,
   isVerified: PropTypes.bool,
   onGatingRequired: PropTypes.func,
+  seasonId: PropTypes.any,
 };
 
 export default BuySellWidget;
