@@ -1,8 +1,5 @@
 root: ./
 
 structure:
-  readme: README.md
+  readme: 01-product/README.md
   summary: SUMMARY.md
-
-redirects:
-  previous/page: new-folder/page.md
