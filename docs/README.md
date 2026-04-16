@@ -1,6 +1,6 @@
 # SecondOrder.fun
 
-SecondOrder.fun is a prediction market platform built on Base where users buy raffle tickets that double as prediction market positions. Each season creates bonding curve-priced tickets and InfoFi prediction markets for participant outcomes.
+SecondOrder.fun is a two-tiered speculation platform on Base. Users buy bonding curve-priced raffle tickets to speculate on season outcomes, while InfoFi prediction markets provide additional instruments for hedging and speculation on participant positions.
 
 ## Documentation
 
