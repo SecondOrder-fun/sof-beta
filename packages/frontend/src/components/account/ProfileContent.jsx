@@ -22,6 +22,7 @@ import { useProfileData } from "@/hooks/useProfileData";
 import { useUsername } from "@/hooks/useUsername";
 import { useUsernameContext } from "@/context/UsernameContext";
 import { RafflePrizeDistributorAbi as PrizeDistributorAbi } from "@/utils/abis";
+import RolloverPortfolioCard from "@/components/user/RolloverPortfolioCard";
 
 /**
  * ProfileContent - Shared profile layout used by AccountPage (desktop) and UserProfile.
@@ -115,6 +116,19 @@ const ProfileContent = ({ address, isOwnProfile }) => {
             </Carousel>
           </div>
         )}
+
+      {/* Rollover position — rendered when available */}
+      {isOwnProfile && allSeasonsQuery.data && (
+        <div className="mb-4">
+          <RolloverPortfolioCard
+            seasonId={
+              allSeasonsQuery.data
+                .filter((s) => s.status === "ended" || s.status === "settled")
+                .sort((a, b) => Number(b.id) - Number(a.id))[0]?.id ?? 0
+            }
+          />
+        </div>
+      )}
 
       {/* Holdings card — 3-tab layout */}
       <div className="mb-4">
