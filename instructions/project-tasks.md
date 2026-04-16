@@ -115,7 +115,11 @@ MetaMask `wallet_sendCalls` does not support `paymasterService` capability. Batc
 - [x] All 290 contract tests pass
 
 ### Task 5: RolloverEscrow — Refund
-- [ ] TBD
+- [x] Implemented `refund(seasonId)` in RolloverEscrow.sol (replaced stub)
+- [x] No `whenNotPaused` modifier — refunds remain available even when paused
+- [x] CEI pattern: `pos.refunded = true` before `safeTransfer`
+- [x] Added `RolloverEscrowRefundTest` with 5 tests (TDD: tests written before implementation)
+- [x] All 295 contract tests pass
 
 ### Task 6: Deployment Script and Role Wiring
 - [ ] TBD

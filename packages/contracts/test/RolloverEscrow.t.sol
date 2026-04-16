@@ -12,9 +12,12 @@ import {RolloverEscrow} from "../src/core/RolloverEscrow.sol";
 import {
     PhaseNotOpen,
     PhaseNotActive,
+    PhaseNotActiveOrClosedOrExpired,
     AmountZero,
     ExceedsBalance,
-    InvalidPhaseTransition
+    InvalidPhaseTransition,
+    AlreadyRefunded,
+    NothingToRefund
 } from "../src/core/RolloverEscrow.sol";
 import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 
@@ -644,5 +647,151 @@ contract RolloverEscrowSpendTest is Test {
         vm.prank(user);
         vm.expectRevert(); // ERC20 transfer will fail
         escrow.spendFromRollover(SEASON_ID, 50e18, 53, type(uint256).max);
+    }
+}
+
+// =============================================================================
+// RolloverEscrowRefundTest
+// Task 5: refund — returns unspent rollover balance to user without bonus
+// =============================================================================
+contract RolloverEscrowRefundTest is Test {
+    SOFToken public sofToken;
+    RolloverEscrow public escrow;
+
+    address public admin       = address(0xAD);
+    address public treasury    = address(0x7EA);
+    address public raffle      = address(0x1);
+    address public distributor = address(0xD157);
+    address public user1       = address(0xBEEF);
+
+    uint256 constant SEASON_ID      = 1;
+    uint256 constant SEASON_ID_2    = 2;
+    uint256 constant NEXT_SEASON_ID = 99;
+    uint256 constant DEPOSIT_AMOUNT = 500e18;
+
+    function setUp() public {
+        vm.startPrank(admin);
+
+        sofToken = new SOFToken("SOF", "SOF", 1_000_000e18);
+
+        escrow = new RolloverEscrow(address(sofToken), treasury, raffle);
+        escrow.grantRole(escrow.DISTRIBUTOR_ROLE(), distributor);
+
+        vm.stopPrank();
+
+        // Fund distributor and pre-approve escrow
+        vm.prank(admin);
+        sofToken.transfer(distributor, DEPOSIT_AMOUNT * 2); // enough for two seasons
+
+        vm.prank(distributor);
+        sofToken.approve(address(escrow), type(uint256).max);
+
+        // Open cohort, deposit for user1, then activate
+        vm.prank(admin);
+        escrow.openCohort(SEASON_ID, 600);
+
+        vm.prank(distributor);
+        escrow.deposit(user1, DEPOSIT_AMOUNT, SEASON_ID);
+
+        vm.prank(admin);
+        escrow.activateCohort(SEASON_ID, NEXT_SEASON_ID);
+    }
+
+    // =========================================================================
+    // test_refund_fromActive_returnsUnspent
+    // User refunds from Active phase, gets full deposit back (nothing spent).
+    // =========================================================================
+    function test_refund_fromActive_returnsUnspent() public {
+        uint256 userBalBefore   = sofToken.balanceOf(user1);
+        uint256 escrowBalBefore = sofToken.balanceOf(address(escrow));
+
+        vm.prank(user1);
+        escrow.refund(SEASON_ID);
+
+        // User received full deposit
+        assertEq(sofToken.balanceOf(user1), userBalBefore + DEPOSIT_AMOUNT, "user should receive deposit back");
+
+        // Escrow lost the deposit
+        assertEq(sofToken.balanceOf(address(escrow)), escrowBalBefore - DEPOSIT_AMOUNT, "escrow balance reduced");
+
+        // Position flagged as refunded
+        (uint256 deposited, uint256 spent, bool refunded) = escrow.getUserPosition(SEASON_ID, user1);
+        assertEq(deposited, DEPOSIT_AMOUNT, "deposited unchanged");
+        assertEq(spent, 0, "spent unchanged");
+        assertTrue(refunded, "refunded should be true");
+
+        // Available balance is now zero
+        assertEq(escrow.getAvailableBalance(SEASON_ID, user1), 0, "available balance should be zero");
+    }
+
+    // =========================================================================
+    // test_refund_fromClosed_returnsUnspent
+    // Close the cohort, then user refunds — full deposit returned.
+    // =========================================================================
+    function test_refund_fromClosed_returnsUnspent() public {
+        vm.prank(admin);
+        escrow.closeCohort(SEASON_ID);
+
+        uint256 userBalBefore = sofToken.balanceOf(user1);
+
+        vm.prank(user1);
+        escrow.refund(SEASON_ID);
+
+        assertEq(sofToken.balanceOf(user1), userBalBefore + DEPOSIT_AMOUNT, "user should receive deposit back");
+
+        (,, bool refunded) = escrow.getUserPosition(SEASON_ID, user1);
+        assertTrue(refunded, "refunded should be true");
+    }
+
+    // =========================================================================
+    // test_refund_fromExpired_returnsFull
+    // Create a SECOND cohort that expires (don't activate, warp 31 days),
+    // then refund from Expired phase.
+    // =========================================================================
+    function test_refund_fromExpired_returnsFull() public {
+        // Open second cohort and deposit for user1
+        vm.prank(admin);
+        escrow.openCohort(SEASON_ID_2, 600);
+
+        vm.prank(distributor);
+        escrow.deposit(user1, DEPOSIT_AMOUNT, SEASON_ID_2);
+
+        // Warp past expiry — do NOT activate
+        vm.warp(block.timestamp + 31 days);
+
+        uint256 userBalBefore = sofToken.balanceOf(user1);
+
+        vm.prank(user1);
+        escrow.refund(SEASON_ID_2);
+
+        assertEq(sofToken.balanceOf(user1), userBalBefore + DEPOSIT_AMOUNT, "user should receive deposit back");
+
+        (,, bool refunded) = escrow.getUserPosition(SEASON_ID_2, user1);
+        assertTrue(refunded, "refunded should be true");
+    }
+
+    // =========================================================================
+    // test_refund_revertIfAlreadyRefunded
+    // Refund twice — second call reverts with AlreadyRefunded.
+    // =========================================================================
+    function test_refund_revertIfAlreadyRefunded() public {
+        vm.prank(user1);
+        escrow.refund(SEASON_ID);
+
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSelector(AlreadyRefunded.selector, SEASON_ID, user1));
+        escrow.refund(SEASON_ID);
+    }
+
+    // =========================================================================
+    // test_refund_revertIfNothingToRefund
+    // User with no deposit tries to refund — reverts with NothingToRefund.
+    // =========================================================================
+    function test_refund_revertIfNothingToRefund() public {
+        address noDeposit = address(0xDEAD);
+
+        vm.prank(noDeposit);
+        vm.expectRevert(abi.encodeWithSelector(NothingToRefund.selector, SEASON_ID, noDeposit));
+        escrow.refund(SEASON_ID);
     }
 }

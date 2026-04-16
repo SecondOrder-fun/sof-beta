@@ -313,11 +313,30 @@ contract RolloverEscrow is IRolloverEscrow, AccessControl, ReentrancyGuard, Paus
     }
 
     // -----------------------------------------------------------------------
-    // External: Refund (stub — Task 5)
+    // External: Refund (Task 5)
     // -----------------------------------------------------------------------
 
-    // TODO Task 5: implement refund
-    // function refund(uint256 seasonId) external { ... }
+    /**
+     * @notice Refund the caller's unspent rollover balance for a season.
+     * @dev Available in Active, Closed, or Expired phases. No whenNotPaused —
+     *      users can always exit even when the contract is paused.
+     * @param seasonId The season cohort to refund from.
+     */
+    function refund(uint256 seasonId) external nonReentrant whenPhaseRefundable(seasonId) {
+        UserPosition storage pos = _positions[seasonId][msg.sender];
+
+        if (pos.refunded) revert AlreadyRefunded(seasonId, msg.sender);
+
+        uint256 refundAmount = pos.deposited - pos.spent;
+        if (refundAmount == 0) revert NothingToRefund(seasonId, msg.sender);
+
+        // CEI: state update before transfer
+        pos.refunded = true;
+
+        sofToken.safeTransfer(msg.sender, refundAmount);
+
+        emit RolloverRefund(msg.sender, seasonId, refundAmount);
+    }
 
     // -----------------------------------------------------------------------
     // View Functions
