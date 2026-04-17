@@ -5,7 +5,7 @@
 -- Represents the FINAL schema after all migrations have been applied.
 -- Intended for local development with plain Postgres (not Supabase).
 --
--- Tables (22):
+-- Tables (23):
 --   1.  players
 --   2.  infofi_markets
 --   3.  infofi_positions
@@ -26,10 +26,11 @@
 --  18.  gating_signatures
 --  19.  sponsor_prizes
 --  20.  season_tier_configs
+--  21.  rollover_events
 --
 -- Materialized views (2):
---  21.  user_raffle_positions
---  22.  user_market_positions
+--  22.  user_raffle_positions
+--  23.  user_market_positions
 -- ==========================================================================
 
 -- ==========================================================================
@@ -714,7 +715,29 @@ CREATE INDEX IF NOT EXISTS idx_season_tier_configs_season ON season_tier_configs
 COMMENT ON TABLE season_tier_configs IS 'Tier configuration per season, mirroring on-chain TierConfig for fast reads';
 
 -- ==========================================================================
--- 21. MATERIALIZED VIEW: user_raffle_positions
+-- 21. rollover_events — Rollover escrow event history
+-- ==========================================================================
+CREATE TABLE IF NOT EXISTS rollover_events (
+    id               BIGSERIAL    PRIMARY KEY,
+    event_type       VARCHAR(20)  NOT NULL CHECK (event_type IN ('DEPOSIT', 'SPEND', 'REFUND')),
+    season_id        BIGINT       NOT NULL,
+    user_address     VARCHAR(42)  NOT NULL,
+    amount           NUMERIC      NOT NULL,
+    bonus_amount     NUMERIC      DEFAULT 0,
+    next_season_id   BIGINT,
+    tx_hash          VARCHAR(66)  NOT NULL,
+    block_number     BIGINT       NOT NULL,
+    created_at       TIMESTAMPTZ  DEFAULT now(),
+    UNIQUE(tx_hash, event_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rollover_events_user ON rollover_events (user_address, season_id);
+CREATE INDEX IF NOT EXISTS idx_rollover_events_type ON rollover_events (event_type, season_id);
+
+COMMENT ON TABLE rollover_events IS 'On-chain rollover escrow events: deposits, spends, and refunds indexed from RolloverEscrow contract';
+
+-- ==========================================================================
+-- 22. MATERIALIZED VIEW: user_raffle_positions
 -- ==========================================================================
 CREATE MATERIALIZED VIEW IF NOT EXISTS user_raffle_positions AS
 SELECT
@@ -745,7 +768,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ==========================================================================
--- 22. VIEW: user_market_positions
+-- 23. VIEW: user_market_positions
 -- ==========================================================================
 -- Aggregated InfoFi positions per user + market + outcome for efficient reads.
 CREATE OR REPLACE VIEW user_market_positions AS

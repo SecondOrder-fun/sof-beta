@@ -111,5 +111,14 @@
   "raffleContract": "Raffle",
   "marketContract": "Market",
   "conditionalToken": "Cond. Token",
-  "userProfile": "User Profile"
+  "userProfile": "User Profile",
+  "rolloverBalance": "Rollover Balance",
+  "fromSeason": "From Season {{season}}",
+  "rolloverBonusRate": "+{{percent}} bonus",
+  "buyTicketsInSeason": "Buy Tickets in Season {{season}} →",
+  "refundToWallet": "Refund to Wallet",
+  "rolloverPending": "Pending",
+  "rolloverReady": "Ready",
+  "rolloverClosed": "Closed",
+  "rolloverExpired": "Expired"
 }

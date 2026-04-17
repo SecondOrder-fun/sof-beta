@@ -11,6 +11,7 @@ import { startPositionUpdateListener } from "../src/listeners/positionUpdateList
 import { startMarketCreatedListener } from "../src/listeners/marketCreatedListener.js";
 import { startTradeListener } from "../src/listeners/tradeListener.js";
 import { startSponsorHatListener } from "../src/listeners/sponsorHatListener.js";
+import { startRolloverEventListener } from "../src/listeners/rolloverEventListener.js";
 import { infoFiPositionService } from "../src/services/infoFiPositionService.js";
 import { historicalOddsService } from "../shared/historicalOddsService.js";
 import { RaffleABI as raffleAbi, SOFBondingCurveABI as sofBondingCurveAbi, InfoFiMarketFactoryABI as infoFiMarketFactoryAbi, SimpleFPMMABI as simpleFpmmAbi } from '@sof/contracts';
@@ -265,6 +266,15 @@ try {
   app.log.error({ err }, "Failed to mount /api/wallet");
 }
 
+try {
+  await app.register((await import("./routes/rolloverRoutes.js")).default, {
+    prefix: "/api/rollover",
+  });
+  app.log.info("Mounted /api/rollover");
+} catch (err) {
+  app.log.error({ err }, "Failed to mount /api/rollover");
+}
+
 // Debug: print all mounted routes
 // app.ready(() => {
 //   try {
@@ -291,6 +301,7 @@ app.setNotFoundHandler((_request, reply) => {
 let unwatchSeasonStarted;
 let unwatchSeasonCompleted;
 let unwatchMarketCreated;
+let unwatchRollover;
 const positionUpdateListeners = new Map(); // Map of seasonId -> unwatch function
 const tradeListeners = new Map(); // Map of fpmmAddress -> unwatch function
 
@@ -507,6 +518,16 @@ async function startListeners() {
         `❌ Failed to start SponsorHatListener: ${error.message}`
       );
     }
+
+    // Start Rollover Event Listener (indexes RolloverEscrow events)
+    try {
+      unwatchRollover = startRolloverEventListener(NETWORK, app.log);
+      app.log.info("✅ RolloverEventListener started");
+    } catch (error) {
+      app.log.error(
+        `❌ Failed to start RolloverEventListener: ${error.message}`
+      );
+    }
   } catch (error) {
     app.log.error("Failed to start listeners:", error);
     // Don't crash server, but log the error
@@ -657,6 +678,11 @@ async function shutdown(signal) {
     if (unwatchMarketCreated) {
       unwatchMarketCreated();
       app.log.info("Stopped MarketCreated listener");
+    }
+
+    if (unwatchRollover) {
+      unwatchRollover();
+      app.log.info("Stopped Rollover listener");
     }
 
     // Stop all PositionUpdate listeners

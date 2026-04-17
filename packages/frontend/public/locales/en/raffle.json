@@ -284,5 +284,21 @@
   "confirmYes": "Yes",
   "confirmNo": "No",
   "confirmCancelBtn": "Cancel",
-  "confirmSignBtn": "Confirm & Sign Transaction"
+  "confirmSignBtn": "Confirm & Sign Transaction",
+  "rolloverToNextSeason": "Rollover to Next Season",
+  "earnBonusPercent": "Earn +{{percent}}% bonus",
+  "rolloverAmount": "Rollover {{amount}} SOF",
+  "claimToWalletInstead": "Claim to wallet instead",
+  "rolloverAvailable": "Rollover Available",
+  "rolloverFromSeason": "{{amount}} SOF from Season {{season}}",
+  "bonusLabel": "+{{percent}}% bonus",
+  "adjust": "Adjust",
+  "useOfRollover": "Use {{used}} of {{total}} SOF from rollover",
+  "fromRollover": "From rollover",
+  "fromWallet": "From wallet",
+  "bonusPercent": "Bonus ({{percent}}%)",
+  "totalTicketValue": "Total ticket value",
+  "rolloverSuccess": "Rollover confirmed",
+  "refundSuccess": "Refund confirmed",
+  "rolloverBuy": "Rollover"
 }

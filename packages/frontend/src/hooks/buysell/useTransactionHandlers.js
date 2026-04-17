@@ -25,6 +25,9 @@ export function useTransactionHandlers({
   isGated = false,
   isVerified = null,
   onGatingRequired,
+  rolloverEnabled = false,
+  rolloverAmount = 0n,
+  rolloverSeasonId,
 }) {
   const { t } = useTranslation(["common", "transactions"]);
 
@@ -90,7 +93,18 @@ export function useTransactionHandlers({
         return { success: false };
       }
 
-      // Execute transaction
+      // Execute transaction — route through rollover if enabled
+      if (rolloverEnabled && rolloverAmount > 0n && rolloverSeasonId) {
+        return await executeBuy({
+          tokenAmount,
+          maxSofAmount: estBuyWithFees,
+          slippagePct,
+          onComplete,
+          rolloverSeasonId,
+          rolloverAmount,
+        });
+      }
+
       return await executeBuy({
         tokenAmount,
         maxSofAmount: estBuyWithFees,
@@ -113,6 +127,9 @@ export function useTransactionHandlers({
       t,
       executeBuy,
       slippagePct,
+      rolloverEnabled,
+      rolloverAmount,
+      rolloverSeasonId,
     ]
   );
 
