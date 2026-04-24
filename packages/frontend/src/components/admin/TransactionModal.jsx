@@ -22,24 +22,29 @@ const TransactionModal = ({ mutation, title = "Transaction Status" }) => {
   const netKey = getStoredNetworkKey();
   const netCfg = getNetworkByKey(netKey);
 
+  // useSmartTransactions.executeBatch normalizes the result to a hash string,
+  // but defend against a future regression that leaks the ERC-5792 `{id}`
+  // object through — rendering that as a React child would hard-crash.
+  const hash = typeof mutation?.hash === "string" ? mutation.hash : null;
+
   const explorerUrl = useMemo(() => {
-    if (!netCfg.explorer || !mutation?.hash) return "";
+    if (!netCfg.explorer || !hash) return "";
     const base = netCfg.explorer.endsWith("/")
       ? netCfg.explorer.slice(0, -1)
       : netCfg.explorer;
-    return `${base}/tx/${mutation.hash}`;
-  }, [netCfg.explorer, mutation?.hash]);
+    return `${base}/tx/${hash}`;
+  }, [netCfg.explorer, hash]);
 
   // Determine if modal should be shown
   const shouldShow = useMemo(() => {
     return (
       mutation?.isPending ||
       mutation?.isConfirming ||
-      (mutation?.hash && !mutation?.isConfirmed && !mutation?.isError) ||
+      (hash && !mutation?.isConfirmed && !mutation?.isError) ||
       mutation?.isConfirmed ||
       mutation?.isError
     );
-  }, [mutation?.isPending, mutation?.isConfirming, mutation?.hash, mutation?.isConfirmed, mutation?.isError]);
+  }, [mutation?.isPending, mutation?.isConfirming, hash, mutation?.isConfirmed, mutation?.isError]);
 
   // Open modal when transaction activity starts (but not if user manually dismissed)
   useEffect(() => {
@@ -57,13 +62,13 @@ const TransactionModal = ({ mutation, title = "Transaction Status" }) => {
 
   // Track pending duration for warning
   useEffect(() => {
-    if (mutation?.hash && !mutation?.isConfirmed && !mutation?.isError) {
+    if (hash && !mutation?.isConfirmed && !mutation?.isError) {
       if (!pendingSince) setPendingSince(Date.now());
     } else {
       setPendingSince(null);
       setShowPendingWarn(false);
     }
-  }, [mutation?.hash, mutation?.isConfirmed, mutation?.isError, pendingSince]);
+  }, [hash, mutation?.isConfirmed, mutation?.isError, pendingSince]);
 
   useEffect(() => {
     if (!pendingSince) return;
@@ -92,7 +97,7 @@ const TransactionModal = ({ mutation, title = "Transaction Status" }) => {
         color: "text-info",
       };
     }
-    if (mutation?.isConfirming || (mutation?.hash && !mutation?.isConfirmed && !mutation?.isError)) {
+    if (mutation?.isConfirming || (hash && !mutation?.isConfirmed && !mutation?.isError)) {
       return {
         icon: <Loader2 className="h-8 w-8 animate-spin text-warning" />,
         text: "Transaction submitted. Waiting for confirmation...",
@@ -159,10 +164,10 @@ const TransactionModal = ({ mutation, title = "Transaction Status" }) => {
             </>
           )}
 
-          {mutation?.hash && (
+          {hash && (
             <div className="w-full rounded border bg-muted/30 p-3">
               <p className="text-xs text-muted-foreground mb-1">Transaction Hash:</p>
-              <p className="text-xs font-mono break-all">{mutation.hash}</p>
+              <p className="text-xs font-mono break-all">{hash}</p>
               {explorerUrl && (
                 <a
                   href={explorerUrl}

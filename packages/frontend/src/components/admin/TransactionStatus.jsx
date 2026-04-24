@@ -7,26 +7,29 @@ import { getNetworkByKey } from "@/config/networks";
 const TransactionStatus = ({ mutation }) => {
   const netKey = getStoredNetworkKey();
   const netCfg = getNetworkByKey(netKey);
+  // Guard against an ERC-5792 `{id}` object leaking through — executeBatch
+  // normalizes the result, but never render an object as a React child.
+  const hash = typeof mutation?.hash === "string" ? mutation.hash : null;
   const explorerUrl = useMemo(() => {
-    if (!netCfg.explorer || !mutation.hash) return "";
+    if (!netCfg.explorer || !hash) return "";
     const base = netCfg.explorer.endsWith("/")
       ? netCfg.explorer.slice(0, -1)
       : netCfg.explorer;
-    return `${base}/tx/${mutation.hash}`;
-  }, [netCfg.explorer, mutation.hash]);
+    return `${base}/tx/${hash}`;
+  }, [netCfg.explorer, hash]);
 
   // Pending warning if >60s
   const [pendingSince, setPendingSince] = useState(null);
   const [showPendingWarn, setShowPendingWarn] = useState(false);
   
   useEffect(() => {
-    if (mutation.hash && !mutation.isConfirmed && !mutation.isError) {
+    if (hash && !mutation.isConfirmed && !mutation.isError) {
       if (!pendingSince) setPendingSince(Date.now());
     } else {
       setPendingSince(null);
       setShowPendingWarn(false);
     }
-  }, [mutation.hash, mutation.isConfirmed, mutation.isError, pendingSince]);
+  }, [hash, mutation.isConfirmed, mutation.isError, pendingSince]);
 
   useEffect(() => {
     if (!pendingSince) return;
@@ -38,7 +41,7 @@ const TransactionStatus = ({ mutation }) => {
 
   // Decide rendering after hooks are set
   const shouldRender =
-    !!mutation && (mutation.isPending || mutation.isError || mutation.isSuccess || mutation.hash);
+    !!mutation && (mutation.isPending || mutation.isError || mutation.isSuccess || hash);
   if (!shouldRender) return null;
 
   return (
@@ -46,7 +49,7 @@ const TransactionStatus = ({ mutation }) => {
       {mutation.isPending && !mutation.isConfirming && (
         <p>Please confirm in your wallet...</p>
       )}
-      {(mutation.isConfirming || (mutation.hash && !mutation.isConfirmed && !mutation.isError)) && (
+      {(mutation.isConfirming || (hash && !mutation.isConfirmed && !mutation.isError)) && (
         <p>Transaction submitted. Waiting for confirmation...</p>
       )}
       {mutation.isConfirmed && mutation.receipt?.status === "success" && (
@@ -55,9 +58,9 @@ const TransactionStatus = ({ mutation }) => {
       {mutation.isConfirmed && mutation.receipt?.status === "reverted" && (
         <p className="text-destructive">Transaction reverted on-chain.</p>
       )}
-      {mutation.hash && (
+      {hash && (
         <p className="text-xs text-muted-foreground break-all">
-          Hash: {mutation.hash}
+          Hash: {hash}
           {explorerUrl && (
             <>
               {" "}

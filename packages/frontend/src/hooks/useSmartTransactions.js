@@ -1,12 +1,48 @@
 import { useMemo, useCallback, useContext, useRef } from 'react';
 import { useAccount, useChainId, useCapabilities, useSendCalls, useCallsStatus } from 'wagmi';
+import { waitForCallsStatus } from '@wagmi/core';
 import { encodeFunctionData } from 'viem';
 import { ERC20Abi } from '@/utils/abis';
 import { getContractAddresses } from '@/config/contracts';
 import { getStoredNetworkKey } from '@/lib/wagmi';
+import { config as wagmiConfig } from '@/lib/wagmiConfig';
 import FarcasterContext from '@/context/farcasterContext';
 import { useDelegationStatus } from './useDelegationStatus';
 import { useDelegatedAccount } from './useDelegatedAccount';
+
+// Upper bound for waiting on an ERC-5792 batch to land on chain after the
+// wallet prompt is accepted. Local Anvil confirms within seconds; 120s is
+// enough headroom for a congested testnet without hanging the UI forever.
+const BATCH_CONFIRM_TIMEOUT_MS = 120_000;
+
+/**
+ * Resolve whatever `sendCallsAsync` returned into a plain transaction hash
+ * string, so callers that feed the result into `useWaitForTransactionReceipt`
+ * or render it in a modal get a valid viem `Hex`.
+ *
+ * wagmi v2's `useSendCalls` resolves with `{ id: string }` (the EIP-5792
+ * batch id), not a tx hash — some wallets even resolve it before the user
+ * confirms. We block here until the batch has status ≥ 200 (CONFIRMED) and
+ * return the first receipt's `transactionHash`.
+ *
+ * If the result already looks like a hash (path A userOpHash, or a wallet
+ * that returns the hash directly), it passes through unchanged.
+ */
+async function normalizeBatchResult(result) {
+  if (typeof result === 'string') return result;
+  if (!result || typeof result !== 'object') return result;
+
+  const batchId = result.id ?? result;
+  if (typeof batchId !== 'string') return result;
+
+  const { receipts } = await waitForCallsStatus(wagmiConfig, {
+    id: batchId,
+    timeout: BATCH_CONFIRM_TIMEOUT_MS,
+    throwOnFailure: true,
+  });
+
+  return receipts?.[0]?.transactionHash ?? null;
+}
 
 /**
  * SOF fee rate charged per sponsored transaction batch (0.05%).
@@ -181,10 +217,10 @@ export function useSmartTransactions() {
       }
     }
 
-    // Race against a 30s timeout so wallets that never resolve
-    // (e.g. Farcaster miniapp) don't hang the UI forever.
+    // Race the wallet prompt against a 30s timeout so wallets that never
+    // resolve (e.g. Farcaster miniapp) don't hang the UI forever.
     const BATCH_TIMEOUT_MS = 30_000;
-    return await Promise.race([
+    const sendResult = await Promise.race([
       sendCallsAsync({
         account: address,
         calls: finalCalls,
@@ -198,6 +234,11 @@ export function useSmartTransactions() {
         ),
       ),
     ]);
+
+    // sendCallsAsync resolves with { id } in wagmi v2 — resolve to a tx hash
+    // before returning so callers can feed the value to useWaitForTransactionReceipt
+    // and render it in the UI.
+    return await normalizeBatchResult(sendResult);
   }, [address, apiBase, backendJwt, connector, sendCallsAsync, buildFeeCall, isSOFDelegate, delegatedAccount]);
 
   return {
