@@ -491,6 +491,10 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
             totalParticipants
         );
 
+        // Mark every participant eligible for consolation. The distributor itself
+        // rejects the grand winner on claim, so no filtering is needed here.
+        IRafflePrizeDistributor(prizeDistributor).setConsolationEligible(seasonId, state.participants);
+
         SOFBondingCurve(curveAddr).extractSof(prizeDistributor, totalPrizePool);
 
         IRafflePrizeDistributor(prizeDistributor).fundSeason(seasonId, totalPrizePool);

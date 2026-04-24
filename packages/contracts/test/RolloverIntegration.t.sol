@@ -104,9 +104,6 @@ contract RolloverIntegrationTest is Test {
         // Grant ESCROW_ROLE on curve to the escrow contract
         curve.grantRole(curve.ESCROW_ROLE(), address(escrow));
 
-        // 6. Wire escrow: set bonding curve
-        escrow.setBondingCurve(address(curve));
-
         // Fund treasury with SOF and approve escrow to pull bonus
         sofToken.transfer(treasury, TREASURY_SOF);
 
@@ -208,7 +205,7 @@ contract RolloverIntegrationTest is Test {
 
         // --- Step 4: Activate cohort targeting Season 2 ---
         vm.prank(admin);
-        escrow.activateCohort(SEASON_1, SEASON_2);
+        escrow.activateCohort(SEASON_1, SEASON_2, address(curve));
 
         (RolloverEscrow.EscrowPhase phase, uint256 nextSeason,,,,,) = escrow.getCohortState(SEASON_1);
         assertEq(uint8(phase), uint8(RolloverEscrow.EscrowPhase.Active), "cohort should be Active");
@@ -299,7 +296,7 @@ contract RolloverIntegrationTest is Test {
 
         // Activate then close cohort without any spend
         vm.startPrank(admin);
-        escrow.activateCohort(SEASON_1, SEASON_2);
+        escrow.activateCohort(SEASON_1, SEASON_2, address(curve));
         escrow.closeCohort(SEASON_1);
         vm.stopPrank();
 

@@ -18,13 +18,23 @@ contract SeasonFactory is AccessControl {
     address public immutable raffleAddress;
     address public immutable deployerAddress;
 
+    /// @notice RolloverEscrow that should receive ESCROW_ROLE on every new curve.
+    ///         Zero address disables the auto-grant (seasons without rollover support).
+    address public rolloverEscrow;
+
     event SeasonContractsDeployed(uint256 indexed seasonId, address indexed raffleToken, address indexed bondingCurve);
+    event RolloverEscrowUpdated(address indexed previous, address indexed current);
 
     constructor(address _raffleAddress) {
         raffleAddress = _raffleAddress;
         deployerAddress = msg.sender;
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(RAFFLE_ADMIN_ROLE, _raffleAddress);
+    }
+
+    function setRolloverEscrow(address _escrow) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        emit RolloverEscrowUpdated(rolloverEscrow, _escrow);
+        rolloverEscrow = _escrow;
     }
 
     function createSeasonContracts(
@@ -61,6 +71,12 @@ contract SeasonFactory is AccessControl {
         // Grant curve rights on raffle token
         raffleToken.grantRole(raffleToken.MINTER_ROLE(), curveAddr);
         raffleToken.grantRole(raffleToken.BURNER_ROLE(), curveAddr);
+
+        // Auto-grant ESCROW_ROLE to the rollover escrow so spendFromRollover works
+        // out of the box for every new season. Skipped when no escrow is configured.
+        if (rolloverEscrow != address(0)) {
+            curve.grantRole(curve.ESCROW_ROLE(), rolloverEscrow);
+        }
 
         emit SeasonContractsDeployed(seasonId, raffleTokenAddr, curveAddr);
     }
