@@ -13,5 +13,8 @@
   "exports": {
     ".": "./abi/index.js",
     "./deployments": "./deployments/index.js"
+  },
+  "devDependencies": {
+    "@account-abstraction/contracts": "^0.8.0"
   }
 }

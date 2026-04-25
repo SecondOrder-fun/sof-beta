@@ -143,42 +143,61 @@ export function useSmartTransactions() {
   const executeBatch = useCallback(async (calls, options = {}) => {
     const { sofAmount, ...sendOptions } = options;
 
-    // ─── Path A: Delegated EOA → ERC-4337 UserOp via Pimlico bundler ───
-    if (isSOFDelegate && delegatedAccount && apiBase && backendJwt) {
+    // ─── Path A: Delegated EOA → ERC-4337 UserOp ───
+    // On local Anvil (chain 31337) we talk to our own bundler+paymaster
+    // endpoint (no session token — it's the dev server). On testnet/mainnet
+    // we use the session-gated Pimlico proxy.
+    const isLocalChain = chainId === 31337;
+    if (isSOFDelegate && delegatedAccount && apiBase && (isLocalChain || backendJwt)) {
       let finalCalls = calls;
       if (sofAmount && sofAmount > 0n) {
         finalCalls = [buildFeeCall(sofAmount), ...calls];
       }
 
-      // Get a paymaster session token
-      const now = Date.now();
-      let sessionToken;
-      if (sessionCacheRef.current.token && sessionCacheRef.current.expiresAt > now) {
-        sessionToken = sessionCacheRef.current.token;
+      let paymasterUrl;
+      if (isLocalChain) {
+        paymasterUrl = `${apiBase}/paymaster/local`;
       } else {
-        sessionToken = await fetchPaymasterSession(apiBase, backendJwt);
-        if (sessionToken) {
-          sessionCacheRef.current = { token: sessionToken, expiresAt: now + 4 * 60 * 1000 };
+        const now = Date.now();
+        let sessionToken;
+        if (sessionCacheRef.current.token && sessionCacheRef.current.expiresAt > now) {
+          sessionToken = sessionCacheRef.current.token;
+        } else {
+          sessionToken = await fetchPaymasterSession(apiBase, backendJwt);
+          if (sessionToken) {
+            sessionCacheRef.current = { token: sessionToken, expiresAt: now + 4 * 60 * 1000 };
+          }
+        }
+        if (!sessionToken) {
+          // Session unavailable — fall through to standard ERC-5792 path
+          paymasterUrl = null;
+        } else {
+          paymasterUrl = `${apiBase}/paymaster/pimlico?session=${sessionToken}`;
         }
       }
 
-      if (sessionToken) {
-        const paymasterUrl = `${apiBase}/paymaster/pimlico?session=${sessionToken}`;
-        const client = await delegatedAccount.create(paymasterUrl);
+      if (paymasterUrl) {
+        try {
+          const client = await delegatedAccount.create(paymasterUrl);
 
-        const userOpHash = await client.sendUserOperation({
-          calls: finalCalls,
-        });
+          const userOpHash = await client.sendUserOperation({
+            calls: finalCalls,
+          });
 
-        // Wait for UserOp receipt
-        const receipt = await client.waitForUserOperationReceipt({
-          hash: userOpHash,
-          timeout: 30_000,
-        });
+          const receipt = await client.waitForUserOperationReceipt({
+            hash: userOpHash,
+            timeout: 30_000,
+          });
 
-        return receipt.userOpHash;
+          return receipt.userOpHash;
+        } catch (err) {
+          // Local backend down, bundler error, paymaster sig invalid — fall
+          // through to the ERC-5792 path so the UI doesn't hard-fail. The user
+          // pays gas, but the tx still goes through.
+          // eslint-disable-next-line no-console
+          console.warn("[executeBatch] sponsored path failed, falling back", err);
+        }
       }
-      // Session token unavailable — fall through to standard ERC-5792 path
     }
 
     // ─── Path B: Coinbase Wallet → ERC-5792 + CDP paymaster (unchanged) ───
@@ -239,7 +258,7 @@ export function useSmartTransactions() {
     // before returning so callers can feed the value to useWaitForTransactionReceipt
     // and render it in the UI.
     return await normalizeBatchResult(sendResult);
-  }, [address, apiBase, backendJwt, connector, sendCallsAsync, buildFeeCall, isSOFDelegate, delegatedAccount]);
+  }, [address, apiBase, backendJwt, chainId, connector, sendCallsAsync, buildFeeCall, isSOFDelegate, delegatedAccount]);
 
   return {
     ...chainCaps,
