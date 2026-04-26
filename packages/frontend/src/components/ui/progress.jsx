@@ -47,7 +47,7 @@ const Progress = React.forwardRef(
           return (
             <div
               key={idx}
-              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-primary border-2 border-primary-foreground shadow-sm cursor-help"
+              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-primary border-2 border-foreground shadow-sm cursor-help"
               style={{ left: `${step.position}%` }}
               onMouseEnter={() => setTip({ ...step, idx })}
             />
