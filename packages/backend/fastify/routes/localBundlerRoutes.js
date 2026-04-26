@@ -9,6 +9,7 @@ import { dirname, resolve } from "node:path";
 
 import { defineChain } from "viem";
 import { createBundlerService } from "../../shared/aa/bundler.js";
+import { redisClient } from "../../shared/redisClient.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -65,11 +66,26 @@ export default async function localBundlerRoutes(fastify) {
 
   const rpcUrl = process.env.LOCAL_RPC_URL || "http://127.0.0.1:8545";
 
+  // Redis is wired even on LOCAL (where quota is force-disabled, so this is
+  // a no-op) so the same construction shape works once the same factory is
+  // mounted from a testnet/mainnet route. Keeps the prod wire-up to a single
+  // route registration rather than threading redis through later.
+  let redis = null;
+  try {
+    redis = redisClient.getClient();
+  } catch (err) {
+    fastify.log.warn(
+      { err: err.message },
+      "[local-bundler] redis client unavailable — quota will be skipped",
+    );
+  }
+
   const svc = createBundlerService({
     rpcUrl,
     chain: anvilChain(),
     relayKey,
     paymasterAddress,
+    redis,
   });
 
   fastify.log.info(
@@ -124,7 +140,8 @@ export default async function localBundlerRoutes(fastify) {
       }
     } catch (err) {
       request.log.error({ err, method }, "[local-bundler] handler failed");
-      return respondError(-32000, err?.shortMessage || err?.message || "bundler error");
+      const code = typeof err?.code === "number" ? err.code : -32000;
+      return respondError(code, err?.shortMessage || err?.message || "bundler error");
     }
   };
 
