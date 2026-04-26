@@ -37,12 +37,16 @@ export function useBuySellTransactions(
   const { data: walletClient } = useWalletClient();
   const chainId = useChainId();
   const contracts = getContractAddresses(getStoredNetworkKey());
-  const { hasBatch, isDelegated, executeBatch } = useSmartTransactions();
-  // Use the sponsored path whenever the wallet either advertises atomic
-  // ERC-5792 capability *or* the EOA is 7702-delegated. The latter handles
-  // wallets (MetaMask, etc.) that don't advertise atomic on every chain but
-  // still authorize a smart-account UserOp through our local bundler.
-  const canBatch = hasBatch || isDelegated;
+  const { hasBatch, isDelegated, needsDelegation, executeBatch } = useSmartTransactions();
+  // Sponsored path is allowed when either:
+  //   - the EOA is 7702-delegated (Path A: sponsored UserOp via our bundler), OR
+  //   - the wallet advertises atomic ERC-5792 capability AND the EOA isn't
+  //     a non-CB EOA waiting on delegation.
+  // The second clause guards against wallets (e.g. Rabby) that *advertise*
+  // wallet_sendCalls but return a malformed response shape that crashes
+  // viem's parser. Those wallets MUST go through delegation first so we
+  // route via Path A and never touch wallet_sendCalls.
+  const canBatch = isDelegated || (hasBatch && !needsDelegation);
 
   /**
    * Execute buy transaction

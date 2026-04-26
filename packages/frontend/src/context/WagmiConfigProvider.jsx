@@ -107,14 +107,20 @@ const DelegationGate = () => {
   const { data: walletClient } = useWalletClient();
   const { isDelegated, isSOFDelegate, isLoading } = useDelegationStatus();
   const [showModal, setShowModal] = useState(false);
-  const [hasChecked, setHasChecked] = useState(false);
+  // Track which address we already evaluated rather than a boolean flag.
+  // The original `hasChecked` boolean wasn't reset on wallet-switch (only on
+  // explicit disconnect), so connecting Rabby right after MetaMask used the
+  // stale "checked" state and skipped the modal silently. Per-address
+  // tracking re-runs the check whenever the connected address changes.
+  const [checkedAddress, setCheckedAddress] = useState(null);
 
   useEffect(() => {
-    if (!isConnected || !address || !walletClient || isLoading || hasChecked) return;
+    if (!isConnected || !address || !walletClient || isLoading) return;
+    if (checkedAddress?.toLowerCase() === address.toLowerCase()) return;
 
     // Skip Coinbase Wallet (already smart)
     if (connector?.id === "coinbaseWalletSDK") {
-      setHasChecked(true);
+      setCheckedAddress(address);
       return;
     }
 
@@ -127,13 +133,13 @@ const DelegationGate = () => {
       !isLocalChain &&
       (connector?.id === "metaMaskSDK" || connector?.id === "io.metamask")
     ) {
-      setHasChecked(true);
+      setCheckedAddress(address);
       return;
     }
 
     // Skip if already delegated to our contract
     if (isSOFDelegate) {
-      setHasChecked(true);
+      setCheckedAddress(address);
       return;
     }
 
@@ -142,25 +148,25 @@ const DelegationGate = () => {
     // SOFSmartAccount gets a fresh address on every contract redeploy and we
     // _want_ to re-prompt so the EOA points at the live SOFSmartAccount.
     if (isDelegated && !isLocalChain) {
-      setHasChecked(true);
+      setCheckedAddress(address);
       return;
     }
 
     // Skip if this address previously opted out
     if (localStorage.getItem(`${OPT_OUT_PREFIX}${address.toLowerCase()}`) === "true") {
-      setHasChecked(true);
+      setCheckedAddress(address);
       return;
     }
 
     // Show delegation modal
     setShowModal(true);
-    setHasChecked(true);
-  }, [address, chainId, isConnected, walletClient, isLoading, hasChecked, connector, isDelegated, isSOFDelegate]);
+    setCheckedAddress(address);
+  }, [address, chainId, isConnected, walletClient, isLoading, checkedAddress, connector, isDelegated, isSOFDelegate]);
 
-  // Reset when wallet disconnects
+  // Reset when wallet disconnects so the next connect re-evaluates.
   useEffect(() => {
     if (!isConnected) {
-      setHasChecked(false);
+      setCheckedAddress(null);
       setShowModal(false);
     }
   }, [isConnected]);
