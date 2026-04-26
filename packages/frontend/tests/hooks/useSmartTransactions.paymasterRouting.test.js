@@ -8,7 +8,15 @@ vi.stubEnv("VITE_API_BASE_URL", "https://api.test.com");
 
 const mockSendCallsAsync = vi.fn();
 const mockSendUserOperation = vi.fn().mockResolvedValue("0xUserOpHash");
-const mockWaitForReceipt = vi.fn().mockResolvedValue({ userOpHash: "0xReceiptHash" });
+// Path A returns the wrapping handleOps tx hash (not the userOpHash), since
+// callers feed it into useWaitForTransactionReceipt which expects an on-chain
+// tx hash. permissionless's waitForUserOperationReceipt resolves to a populated
+// receipt — match that shape so the hook's `receipt?.receipt?.transactionHash`
+// path resolves cleanly.
+const mockWaitForReceipt = vi.fn().mockResolvedValue({
+  userOpHash: "0xUserOpHash",
+  receipt: { transactionHash: "0xOnChainTxHash" },
+});
 
 vi.mock("wagmi", () => ({
   useAccount: vi.fn(() => ({ address: "0xabc", connector: { id: "metaMaskSDK" } })),
@@ -76,7 +84,10 @@ describe("useSmartTransactions — Path A (delegated EOA)", () => {
     vi.clearAllMocks();
     mockSendCallsAsync.mockResolvedValue("0xBatchId");
     mockSendUserOperation.mockResolvedValue("0xUserOpHash");
-    mockWaitForReceipt.mockResolvedValue({ userOpHash: "0xReceiptHash" });
+    mockWaitForReceipt.mockResolvedValue({
+      userOpHash: "0xUserOpHash",
+      receipt: { transactionHash: "0xOnChainTxHash" },
+    });
   });
 
   it("returns isDelegated=true and needsDelegation=false when EOA is delegated", () => {
@@ -138,7 +149,10 @@ describe("useSmartTransactions — Path A (delegated EOA)", () => {
       calls: [{ to: "0xTarget", data: "0x" }],
     });
     expect(mockWaitForReceipt).toHaveBeenCalled();
-    expect(returnValue).toBe("0xReceiptHash");
+    // Path A returns the wrapping handleOps tx hash, NOT the userOpHash. The
+    // UI feeds this into useWaitForTransactionReceipt, which would poll a
+    // userOpHash forever (it's an EIP-4337 identifier, not an on-chain hash).
+    expect(returnValue).toBe("0xOnChainTxHash");
 
     vi.restoreAllMocks();
   });
@@ -166,6 +180,39 @@ describe("useSmartTransactions — Path A (delegated EOA)", () => {
     // Path B (sendCallsAsync) should have been attempted
     expect(mockSendCallsAsync).toHaveBeenCalled();
 
+    vi.restoreAllMocks();
+  });
+
+  it("falls through to Path B when bundler returns a receipt without a tx hash", async () => {
+    // PR #28 added a defensive throw: if waitForUserOperationReceipt resolves
+    // with a receipt that has no on-chain transactionHash (a bundler bug),
+    // Path A throws and the hook falls back to Path B rather than returning
+    // a userOpHash that the UI can't resolve. Pin that contract here so a
+    // future refactor can't quietly drop the throw.
+    const mockCreate = vi.fn().mockResolvedValue({
+      sendUserOperation: mockSendUserOperation,
+      // Receipt missing the nested `receipt.transactionHash` — exactly the
+      // shape the hook treats as "bundler bug" and falls back from.
+      waitForUserOperationReceipt: vi.fn().mockResolvedValue({ userOpHash: "0xUserOpHash" }),
+    });
+    useDelegationStatus.mockReturnValue({ isSOFDelegate: true, isDelegated: true });
+    useDelegatedAccount.mockReturnValue({ create: mockCreate, address: "0xabc", chainId: 8453 });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ sessionToken: "session123" }),
+    });
+
+    const { result } = renderHook(() => useSmartTransactions());
+    await act(async () => {
+      try {
+        await result.current.executeBatch([{ to: "0xTarget", data: "0x" }]);
+      } catch {
+        // sendCallsAsync may reject — that's fine, we're asserting Path B fired
+      }
+    });
+
+    expect(mockCreate).toHaveBeenCalled();
+    expect(mockSendCallsAsync).toHaveBeenCalled();
     vi.restoreAllMocks();
   });
 });

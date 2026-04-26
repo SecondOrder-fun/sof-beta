@@ -62,9 +62,8 @@ export function useDelegationStatus() {
         const sofAccount = (contracts.SOF_SMART_ACCOUNT || '').toLowerCase();
         const isSOFDelegate = !!sofAccount && delegate === sofAccount.toLowerCase();
         setState((prev) => {
-          // Skip the state update + log entirely when nothing changed; this
-          // hook ticks on a 5s interval and was flooding the console with
-          // identical "delegated" lines on every poll.
+          // Return the prior state object identity when nothing changed so
+          // React skips re-renders — this hook polls on an interval.
           if (
             prev.isDelegated &&
             prev.delegateAddress === delegate &&
@@ -73,8 +72,6 @@ export function useDelegationStatus() {
           ) {
             return prev;
           }
-          // eslint-disable-next-line no-console
-          console.log("[useDelegationStatus] delegated", { delegate, sofAccount, isSOFDelegate });
           return {
             isDelegated: true,
             delegateAddress: delegate,
