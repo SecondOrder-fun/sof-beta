@@ -44,6 +44,7 @@ error UserNotVerified(uint256 seasonId, address user);
 error VRFTimeoutNotReached(uint256 seasonId, uint256 requestTime, uint256 timeoutAt);
 error SeasonNotVRFPending(uint256 seasonId);
 error SeasonFull(uint256 seasonId, uint32 maxParticipants);
+error SeasonNotCompleted(uint256 seasonId);
 
 /**
  * @title Raffle Contract
@@ -491,9 +492,12 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
             totalParticipants
         );
 
-        // Mark every participant eligible for consolation. The distributor itself
-        // rejects the grand winner on claim, so no filtering is needed here.
-        IRafflePrizeDistributor(prizeDistributor).setConsolationEligible(seasonId, state.participants);
+        // Consolation eligibility is registered post-finalize via
+        // pokeConsolationEligible — see the function below for the rationale.
+        // _executeFinalization runs from the VRF callback under a bounded
+        // `callbackGasLimit` (configured per-subscription on the VRF
+        // coordinator); touching N storage slots inline would OOG once N
+        // exceeds ~1500 regardless of the limit chosen.
 
         SOFBondingCurve(curveAddr).extractSof(prizeDistributor, totalPrizePool);
 
@@ -847,6 +851,48 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
 
         // Deprecated: manual setup flow has been replaced by finalizeSeason
         revert("Raffle: use finalizeSeason");
+    }
+
+    /// @notice Register a slice of a finalized season's participants as
+    /// consolation-eligible. Replaces the inline loop that used to run inside
+    /// _executeFinalization, which OOG'd at ~1500 participants (each
+    /// participant is a cold SSTORE in the distributor's eligibility mapping;
+    /// 22.1k gas × 10_000 = 221M gas, well past Base's block limit).
+    ///
+    /// Permissionless: the function reads addresses ONLY from the on-chain
+    /// `state.participants` array (frozen at finalize), so a caller cannot
+    /// register a non-participant — the worst they can do is pay gas to
+    /// speed up consolation availability for the protocol. Mirrors
+    /// `finalizeSeason`, which is also permissionless once VRF words land.
+    ///
+    /// Idempotent — re-registering the same range writes already-true mapping
+    /// slots (warm SSTORE, ~100 gas), so a buggy backend looping forever is
+    /// merely wasteful, not damaging. `limit` is silently clamped to the
+    /// array length, so passing `type(uint256).max` from the last chunk is
+    /// safe.
+    ///
+    /// Pre-finalize the participant set is still mutating, so registration
+    /// is rejected until the season is Completed.
+    /// @param seasonId The season whose participants to register.
+    /// @param offset Index into seasonStates[seasonId].participants to start at.
+    /// @param limit Maximum number of indices to process from offset.
+    function pokeConsolationEligible(uint256 seasonId, uint256 offset, uint256 limit) external {
+        if (seasonId == 0 || seasonId > currentSeasonId) revert SeasonNotFound(seasonId);
+        SeasonState storage state = seasonStates[seasonId];
+        if (state.status != SeasonStatus.Completed) revert SeasonNotCompleted(seasonId);
+
+        uint256 total = state.participants.length;
+        if (offset >= total) return; // out-of-range chunk is a no-op
+
+        uint256 end = offset + limit;
+        if (end > total || end < offset /* overflow */) end = total;
+        uint256 sliceLen = end - offset;
+
+        address[] memory slice = new address[](sliceLen);
+        for (uint256 i = 0; i < sliceLen; i++) {
+            slice[i] = state.participants[offset + i];
+        }
+        IRafflePrizeDistributor(prizeDistributor).setConsolationEligible(seasonId, slice);
     }
 
     /// @notice Manual fallback to finalize a season if auto-finalization failed

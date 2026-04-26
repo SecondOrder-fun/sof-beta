@@ -197,12 +197,22 @@ contract FullSeasonFlowTest is Test {
             assertTrue(found, "Winner must be a participant");
         }
 
-        // Step 11: Gap fix — finalizeSeason must auto-register every participant
-        // as consolation-eligible. No extra admin call should be needed.
+        // Step 11: Consolation eligibility is now registered post-finalize via
+        // pokeConsolationEligible (see Raffle.sol — the inline loop in
+        // _executeFinalization OOG'd at ~1500 participants). Pre-poke nobody
+        // is eligible; post-poke everyone is. Backend would chunk this in
+        // production; here the participant set is small so one call covers all.
+        for (uint256 i = 0; i < participants.length; i++) {
+            assertFalse(
+                distributor.isConsolationEligible(seasonId, participants[i]),
+                "No participant should be eligible before pokeConsolationEligible"
+            );
+        }
+        raffle.pokeConsolationEligible(seasonId, 0, type(uint256).max);
         for (uint256 i = 0; i < participants.length; i++) {
             assertTrue(
                 distributor.isConsolationEligible(seasonId, participants[i]),
-                "Participant should be consolation-eligible after finalize"
+                "Participant should be consolation-eligible after poke"
             );
         }
     }
