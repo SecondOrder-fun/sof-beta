@@ -17,7 +17,7 @@ import { useDelegationStatus } from './useDelegationStatus';
  * through the Pimlico bundler with paymaster sponsorship.
  */
 export function useDelegatedAccount() {
-  const { address } = useAccount();
+  const { address, connector } = useAccount();
   const chainId = useChainId();
   const { data: walletClient } = useWalletClient();
   const { isSOFDelegate } = useDelegationStatus();
@@ -53,7 +53,34 @@ export function useDelegatedAccount() {
       // cause Path A to silently skip.
       let wc = walletClient;
       if (!wc) {
+        // Try the global getter first (uses the active connector); fall
+        // back to building a client from the specific connector if that
+        // returns null. Some wallets (Rabby and other MM-forks under
+        // wagmi v2) need the explicit connector hint.
         try { wc = await getWalletClient(config); } catch { wc = null; }
+        if (!wc && connector) {
+          try { wc = await getWalletClient(config, { connector }); } catch { wc = null; }
+        }
+        // Last resort: build the WalletClient manually from the
+        // connector's provider. Bypasses any wagmi-internal heuristic
+        // that may be misclassifying a Rabby/injected provider.
+        if (!wc && connector?.getProvider) {
+          try {
+            const provider = await connector.getProvider();
+            if (provider) {
+              const { createWalletClient, custom } = await import('viem');
+              const accounts = await provider.request({ method: 'eth_accounts' });
+              const acct = accounts?.[0];
+              if (acct) {
+                wc = createWalletClient({
+                  account: acct,
+                  chain: config.chains[0],
+                  transport: custom(provider),
+                });
+              }
+            }
+          } catch { /* fall through */ }
+        }
       }
       if (!wc?.account?.address || !wc?.chain) {
         throw new Error('Wallet client not available; please reconnect your wallet.');
@@ -80,7 +107,7 @@ export function useDelegatedAccount() {
     };
 
     return { create, address, chainId };
-  }, [isSOFDelegate, walletClient, address, chainId]);
+  }, [isSOFDelegate, walletClient, address, chainId, connector]);
 
   return smartAccountClient;
 }
