@@ -303,8 +303,8 @@ const SettingsMenu = ({ address, username, farcasterUser, onDisconnect }) => {
 
           {/* Language Sub-menu (opens to the left) */}
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="cursor-pointer flex-row-reverse justify-end">
-              <span className="flex items-center gap-2 ml-2">
+            <DropdownMenuSubTrigger className="cursor-pointer">
+              <span className="flex items-center gap-2">
                 <Globe className="h-4 w-4" />
                 <span>{currentLanguage.flag}</span>
                 <span>{currentLanguage.nativeName}</span>

@@ -3,7 +3,6 @@ import { Link, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAccount, useDisconnect } from "wagmi";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, Ticket, User, Crown } from "lucide-react";
-import LanguageToggle from "@/components/common/LanguageToggle";
 import SettingsMenu from "@/components/common/SettingsMenu";
 import FarcasterAuth from "@/components/auth/FarcasterAuth";
 import { useFarcaster } from "@/hooks/useFarcaster";
@@ -139,7 +138,6 @@ const Header = () => {
           </nav>
         </div>
         <div className="flex items-center space-x-4">
-          <LanguageToggle />
           {isConnected ? (
             <SettingsMenu
               address={address}
