@@ -6,7 +6,6 @@ import {
   createPublicClient,
   createWalletClient,
   decodeErrorResult,
-  decodeEventLog,
   hexToBigInt,
   http,
   numberToHex,
@@ -67,10 +66,75 @@ function normalizeUserOp(raw) {
   };
 }
 
+/**
+ * How long a paymaster signature stays valid past the moment it's issued.
+ * 10 minutes is enough headroom for any wallet/UI flow including the user
+ * staring at a MetaMask popup, but short enough that a leaked signer key
+ * stops draining the deposit shortly after detection. Override per-deploy
+ * via PAYMASTER_VALIDITY_WINDOW_SEC; takes effect on backend restart (the
+ * value is read once at service construction, not per request).
+ */
+const DEFAULT_VALIDITY_WINDOW_SECONDS = 600n;
+
+/** Hard upper bound on the env override — one day is already excessive. */
+const MAX_VALIDITY_WINDOW_SECONDS = 86_400n;
+
+/**
+ * Backdate `validAfter` slightly to absorb relay-vs-bundler clock skew. A
+ * userOp signed at T=now sometimes arrives at the EntryPoint at T-2s
+ * because the relay's clock leads — without a backdate the paymaster would
+ * reject "valid in the future" sigs.
+ */
+const VALID_AFTER_BACKDATE_SECONDS = 30n;
+
+function resolveValidityWindow(envValue, isLocalNetwork) {
+  if (envValue == null || envValue === "") {
+    return isLocalNetwork ? 0n : DEFAULT_VALIDITY_WINDOW_SECONDS;
+  }
+  if (!/^\d+$/.test(envValue)) {
+    throw new Error(
+      `PAYMASTER_VALIDITY_WINDOW_SEC must be a non-negative integer, got: ${envValue}`,
+    );
+  }
+  const parsed = BigInt(envValue);
+  if (parsed > MAX_VALIDITY_WINDOW_SECONDS) {
+    throw new Error(
+      `PAYMASTER_VALIDITY_WINDOW_SEC=${envValue} exceeds max of ${MAX_VALIDITY_WINDOW_SECONDS}s`,
+    );
+  }
+  if (parsed === 0n && !isLocalNetwork) {
+    // Don't refuse — alpha may genuinely want this — but make it loud so a
+    // stray env var can't silently deploy an unbounded paymaster on testnet.
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[bundler] PAYMASTER_VALIDITY_WINDOW_SEC=0 on non-local network: paymaster signatures will be UNBOUNDED",
+    );
+  }
+  return parsed;
+}
+
+export const _internals = {
+  DEFAULT_VALIDITY_WINDOW_SECONDS,
+  MAX_VALIDITY_WINDOW_SECONDS,
+  VALID_AFTER_BACKDATE_SECONDS,
+  resolveValidityWindow,
+};
+
 export function createBundlerService({ rpcUrl, chain, relayKey, paymasterAddress }) {
   // Hoisted to the top so any closure that fires before `return` (e.g. in
   // future refactors that extract methods) doesn't hit a TDZ on `submissions`.
   const submissions = new Map();
+
+  // Bounded validity window for paymaster signatures. On local Anvil the
+  // verifying signer is the deployer key, the chain is ephemeral, and the
+  // headless E2E asserts unbounded sigs (validUntil=0); on testnet/mainnet
+  // unbounded sigs let a leaked signer drain the deposit until setSigner
+  // lands, so default to a 10-minute window.
+  const isLocalNetwork = (process.env.NETWORK || "LOCAL").toUpperCase() === "LOCAL";
+  const validityWindowSec = resolveValidityWindow(
+    process.env.PAYMASTER_VALIDITY_WINDOW_SEC,
+    isLocalNetwork,
+  );
 
   const account = privateKeyToAccount(
     relayKey.startsWith("0x") ? relayKey : `0x${relayKey}`,
@@ -109,6 +173,27 @@ export function createBundlerService({ rpcUrl, chain, relayKey, paymasterAddress
    * (e.g. one populated from eth_estimateUserOperationGas).
    */
   async function getPaymasterData(userOp) {
+    // Bound the validity window. validityWindowSec=0 means unbounded (local
+    // dev only). Otherwise: validAfter = now − backdate, validUntil = now +
+    // window. Use unix seconds, not millis — the contract's uint48 fields
+    // are seconds.
+    let validUntil = 0n;
+    let validAfter = 0n;
+    if (validityWindowSec > 0n) {
+      const now = BigInt(Math.floor(Date.now() / 1000));
+      validAfter = now > VALID_AFTER_BACKDATE_SECONDS
+        ? now - VALID_AFTER_BACKDATE_SECONDS
+        : 0n;
+      validUntil = now + validityWindowSec;
+      // Sanity check the bound. Upstream EntryPoint rejects with AA22 when
+      // validAfter >= validUntil, so failing here gives a clearer error than
+      // a generic on-chain revert.
+      if (validAfter >= validUntil) {
+        throw new Error(
+          `bundler validity window invariant broken: validAfter=${validAfter} >= validUntil=${validUntil}`,
+        );
+      }
+    }
     return buildPaymasterResponse({
       userOperation: userOp,
       paymasterAddress,
@@ -116,6 +201,8 @@ export function createBundlerService({ rpcUrl, chain, relayKey, paymasterAddress
       chainId: chain.id,
       paymasterVerificationGasLimit: userOp.paymasterVerificationGasLimit ?? 150_000n,
       paymasterPostOpGasLimit: userOp.paymasterPostOpGasLimit ?? 30_000n,
+      validUntil,
+      validAfter,
     });
   }
 

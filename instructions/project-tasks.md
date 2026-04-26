@@ -96,6 +96,11 @@ MetaMask `wallet_sendCalls` does not support `paymasterService` capability. Batc
 - [x] `15_DeployPaymaster.s.sol` removed Stub fallback; deposit moved to post-deploy `cast send` in `local-dev.sh` (forge's local sim doesn't see `anvil_setCode` injections)
 - [x] Bundler returns decoded `FailedOp`/`FailedOpWithRevert` reasons + serializes BigInts in `eth_getUserOperationReceipt`; tolerates the "tx not yet mined" race
 
+### Pre-testnet paymaster operational hardening (Task #41)
+- [x] Phase 1 — Bounded `validUntil` per signature. `createBundlerService` reads `NETWORK` + `PAYMASTER_VALIDITY_WINDOW_SEC`: LOCAL → unbounded (`0n`, matches headless E2E), TESTNET/MAINNET → 600s default (10 min headroom for MM popups), 30s `validAfter` backdate for clock skew. Env override is validated (non-negative integer, max 86_400s); `=0` on non-local logs a loud `console.warn` so a stray env can't silently deploy unbounded sigs. Removed dead in-route Pimlico fallback that used the old digest scheme. 19 tests covering bounds, env validation, anti-replay across bounds + callData.
+- [ ] Phase 2 — Server-side gas caps + per-session sponsorship quota (cap `callGasLimit`/`verificationGasLimit` returned by `eth_estimateUserOperationGas`, gate `pm_getPaymasterData` on a per-EOA Redis budget)
+- [ ] Phase 3 — Verifying-signer rotation playbook (doc-only): how to revoke + re-issue without bundler downtime
+
 ## Monorepo Migration (In Progress)
 
 - [x] Verify all builds pass (`turbo build`) — all 3 packages pass
