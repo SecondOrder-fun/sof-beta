@@ -120,9 +120,9 @@ const GatingVerification = ({ seasonId, onVerified }) => {
   // If no gates or already verified
   if (!hasGates || isVerified) {
     return (
-      <div className="flex items-center gap-2 p-3 border rounded-lg bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800">
-        <CheckCircle2 className="h-5 w-5 text-green-600" />
-        <span className="text-sm text-green-700 dark:text-green-400">
+      <div className="flex items-center gap-2 p-3 border rounded-lg bg-success/10 border-success/20">
+        <CheckCircle2 className="h-5 w-5 text-success" />
+        <span className="text-sm text-success">
           {hasGates
             ? t('verificationComplete') || 'You are verified to participate!'
             : t('noVerificationRequired') || 'No verification required for this season.'}
@@ -133,20 +133,20 @@ const GatingVerification = ({ seasonId, onVerified }) => {
 
   // Show verification form
   return (
-    <div className="space-y-4 p-4 border rounded-lg bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800">
+    <div className="space-y-4 p-4 border rounded-lg bg-warning/10 border-warning/20">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <ShieldCheck className="h-5 w-5 text-amber-600" />
-          <span className="font-medium text-amber-800 dark:text-amber-200">
+          <ShieldCheck className="h-5 w-5 text-warning" />
+          <span className="font-medium text-warning">
             {t('verificationRequired') || 'Verification Required'}
           </span>
         </div>
-        <Badge variant="outline" className="text-amber-600 border-amber-300">
+        <Badge variant="outline" className="text-warning border-warning/40">
           {passwordGates.length} {passwordGates.length === 1 ? 'password' : 'passwords'}
         </Badge>
       </div>
 
-      <p className="text-sm text-amber-700 dark:text-amber-300">
+      <p className="text-sm text-warning/80">
         {t('verificationDesc') || 'Enter the password(s) to unlock participation in this season.'}
       </p>
 
@@ -159,7 +159,7 @@ const GatingVerification = ({ seasonId, onVerified }) => {
 
           return (
             <div key={originalIndex} className="space-y-2">
-              <label className="text-xs font-medium text-amber-700 dark:text-amber-300">
+              <label className="text-xs font-medium text-warning">
                 {t('password') || 'Password'} {passwordGates.length > 1 ? `#${index + 1}` : ''}
               </label>
               <div className="flex gap-2">
@@ -220,16 +220,16 @@ const GatingVerification = ({ seasonId, onVerified }) => {
 
       {/* Success message */}
       {isVerifyConfirmed && (
-        <Alert className="border-green-200 bg-green-50 dark:bg-green-950/30">
-          <CheckCircle2 className="h-4 w-4 text-green-600" />
-          <AlertDescription className="text-green-700 dark:text-green-400">
+        <Alert variant="success">
+          <CheckCircle2 className="h-4 w-4" />
+          <AlertDescription>
             {t('passwordVerified') || 'Password verified! Checking if all requirements are met...'}
           </AlertDescription>
         </Alert>
       )}
 
       {/* Help text */}
-      <p className="text-xs text-amber-600/80 dark:text-amber-400/80">
+      <p className="text-xs text-warning/70">
         {t('verificationHelpText') || 'All passwords must be verified to participate.'}
       </p>
     </div>

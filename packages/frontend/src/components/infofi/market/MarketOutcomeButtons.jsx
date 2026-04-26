@@ -24,25 +24,26 @@ const MarketOutcomeButtons = ({
     <div className="grid grid-cols-2 gap-2">
       {/* YES Button */}
       <button
+        type="button"
         onClick={() => onSelectSide("YES")}
         className={`relative overflow-hidden rounded-lg border-2 transition-all ${
           selectedSide === "YES"
-            ? "border-emerald-500 bg-emerald-50"
-            : "border-gray-200 hover:border-emerald-300 bg-white"
+            ? "border-success bg-success/10"
+            : "border-border bg-card hover:border-success/50"
         }`}
       >
         <div
-          className="absolute inset-0 bg-emerald-100"
+          className="absolute inset-0 bg-success/20"
           style={{ width: `${percent}%` }}
         />
         <div className="relative px-4 py-3 flex flex-col items-center">
-          <span className="text-2xl font-bold text-emerald-700">
+          <span className="text-2xl font-bold text-success">
             {percent}%
           </span>
-          <span className="text-xs font-medium text-emerald-900 mt-1">
+          <span className="text-xs font-medium text-success/80 mt-1">
             {t("yes")}
           </span>
-          <div className="mt-2 text-xs text-emerald-600">
+          <div className="mt-2 text-xs text-success/70">
             {betAmount && Number(betAmount) > 0 ? (
               <>
                 <div className="font-semibold">
@@ -66,25 +67,26 @@ const MarketOutcomeButtons = ({
 
       {/* NO Button */}
       <button
+        type="button"
         onClick={() => onSelectSide("NO")}
         className={`relative overflow-hidden rounded-lg border-2 transition-all ${
           selectedSide === "NO"
-            ? "border-rose-500 bg-rose-50"
-            : "border-gray-200 hover:border-rose-300 bg-white"
+            ? "border-destructive bg-destructive/10"
+            : "border-border bg-card hover:border-destructive/50"
         }`}
       >
         <div
-          className="absolute inset-0 bg-rose-100"
+          className="absolute inset-0 bg-destructive/20"
           style={{ width: `${100 - Number(percent)}%` }}
         />
         <div className="relative px-4 py-3 flex flex-col items-center">
-          <span className="text-2xl font-bold text-rose-700">
+          <span className="text-2xl font-bold text-destructive">
             {(100 - Number(percent)).toFixed(1)}%
           </span>
-          <span className="text-xs font-medium text-rose-900 mt-1">
+          <span className="text-xs font-medium text-destructive/80 mt-1">
             {t("no")}
           </span>
-          <div className="mt-2 text-xs text-rose-600">
+          <div className="mt-2 text-xs text-destructive/70">
             {betAmount && Number(betAmount) > 0 ? (
               <>
                 <div className="font-semibold">

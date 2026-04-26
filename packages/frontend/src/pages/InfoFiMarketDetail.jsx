@@ -277,8 +277,8 @@ const ActivityFeed = ({ marketId }) => {
             <span
               className={`px-2 py-0.5 rounded text-xs font-semibold ${
                 trade.outcome === "YES"
-                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                  : "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400"
+                  ? "bg-success/10 text-success"
+                  : "bg-destructive/10 text-destructive"
               }`}
             >
               {trade.outcome}

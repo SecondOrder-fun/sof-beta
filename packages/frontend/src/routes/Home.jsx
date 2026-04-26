@@ -25,7 +25,7 @@ const FarcasterHome = () => {
           className="w-full max-w-2xl mx-auto p-8 rounded-lg bg-card/60 border border-primary/40 shadow-[0_0_30px_rgba(200,42,84,0.15)]"
         >
           <p
-            className="mb-8 leading-relaxed text-muted-foreground/70 dark:text-white/60 font-mono"
+            className="mb-8 leading-relaxed text-muted-foreground/70 font-mono"
           >
             SecondOrder.fun transforms memecoins from chaotic infinite games
             into structured, fair finite games. Join our community and be the
@@ -58,7 +58,7 @@ const FarcasterHome = () => {
                 href="https://x.com/SecondOrderfun"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="p-2 rounded-md transition-all hover:bg-primary/20 text-muted-foreground/60 dark:text-white/50"
+                className="p-2 rounded-md transition-all hover:bg-primary/20 text-muted-foreground/60"
                 aria-label="X (Twitter)"
               >
                 <svg viewBox="0 0 24 24" className="w-5 h-5" fill="currentColor">
@@ -69,7 +69,7 @@ const FarcasterHome = () => {
                 href="https://farcaster.xyz/secondorderfun"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="p-2 rounded-md transition-all hover:bg-primary/20 text-muted-foreground/60 dark:text-white/50"
+                className="p-2 rounded-md transition-all hover:bg-primary/20 text-muted-foreground/60"
                 aria-label="Farcaster"
               >
                 <svg viewBox="0 0 1000 1000" className="w-5 h-5" fill="currentColor">
@@ -79,7 +79,7 @@ const FarcasterHome = () => {
                 </svg>
               </a>
             </div>
-            <span className="text-sm text-muted-foreground/60 dark:text-white/50">@SecondOrderfun</span>
+            <span className="text-sm text-muted-foreground/60">@SecondOrderfun</span>
           </div>
         </div>
       </main>
@@ -111,7 +111,7 @@ const WebHome = () => {
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link
               to="/raffles"
-              className="inline-flex items-center justify-center px-6 py-3 rounded-lg bg-primary text-white font-semibold hover:bg-primary/80 transition-colors"
+              className="inline-flex items-center justify-center px-6 py-3 rounded-lg bg-primary text-primary-foreground font-semibold hover:bg-primary/80 transition-colors"
             >
               View Raffles
             </Link>
