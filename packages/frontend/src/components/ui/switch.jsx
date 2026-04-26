@@ -18,8 +18,12 @@ const Switch = React.forwardRef(({ className, ...props }, ref) => (
   >
     <SwitchPrimitives.Thumb
       className={cn(
-        // Default shadcn/ui classes
-        "pointer-events-none block h-5 w-5 rounded-full bg-foreground shadow-lg ring-0 transition-transform data-[state=checked]:translate-x-5 data-[state=unchecked]:translate-x-0",
+        // bg-background so the thumb inverts cleanly with theme: white in
+        // light, near-black in dark. Using bg-foreground (the original
+        // shadcn default) makes a disabled/unchecked switch look "filled"
+        // in light mode (dark thumb on muted track) — the inverse of the
+        // intended unchecked semantic.
+        "pointer-events-none block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform data-[state=checked]:translate-x-5 data-[state=unchecked]:translate-x-0",
       )}
     />
   </SwitchPrimitives.Root>

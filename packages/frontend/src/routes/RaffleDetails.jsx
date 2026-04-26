@@ -11,6 +11,7 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import PageTitle from "@/components/layout/PageTitle";
 import { formatUnits } from "viem";
 // removed inline buy/sell form controls
@@ -406,7 +407,7 @@ const RaffleDetails = () => {
                 }
               />
 
-              <div className="px-6 text-xs text-[#f9d6de] flex flex-wrap items-center gap-x-4 gap-y-1">
+              <div className="px-6 text-xs text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1">
                 <span>
                   {t("start")}: {formatTimestamp(cfg.startTime)}
                 </span>
@@ -430,7 +431,7 @@ const RaffleDetails = () => {
                   if (preStart) {
                     return (
                       <span className="flex items-center gap-1">
-                        <span className="text-[#c82a54]">
+                        <span className="text-primary">
                           {t("startsIn", {
                             defaultValue: "Raffle starts in",
                           })}
@@ -439,7 +440,7 @@ const RaffleDetails = () => {
                         <CountdownTimer
                           targetTimestamp={startTs}
                           compact
-                          className="text-white"
+                          className="text-foreground"
                         />
                       </span>
                     );
@@ -448,11 +449,11 @@ const RaffleDetails = () => {
                   if (activeWindow) {
                     return (
                       <span className="flex items-center gap-1">
-                        <span className="text-[#c82a54]">{t("endsIn")}:</span>
+                        <span className="text-primary">{t("endsIn")}:</span>
                         <CountdownTimer
                           targetTimestamp={endTs}
                           compact
-                          className="text-white"
+                          className="text-foreground"
                         />
                       </span>
                     );
@@ -493,15 +494,15 @@ const RaffleDetails = () => {
 
               {isCompletedSeason && winnerSummaryQuery.data && (
                 <div className="px-6 mt-3">
-                  <Card className="border border-[#353e34] bg-[#130013]">
+                  <Card>
                     <CardContent className="p-4">
-                      <div className="text-sm font-semibold text-white">
+                      <div className="text-sm font-semibold text-foreground">
                         {t("winnerAnnouncement")}
                       </div>
-                      <div className="mt-2 text-sm uppercase tracking-wide text-[#c82a54]">
+                      <div className="mt-2 text-sm uppercase tracking-wide text-primary">
                         {t("winner")}:
                       </div>
-                      <div className="text-lg font-semibold text-white mt-1">
+                      <div className="text-lg font-semibold text-foreground mt-1">
                         <UsernameDisplay
                           address={winnerSummaryQuery.data.winnerAddress}
                           className="text-lg"
@@ -608,7 +609,7 @@ const RaffleDetails = () => {
                         {localPosition ? (
                           <div className="space-y-1">
                             <div>
-                              <span className="text-[#c82a54]">
+                              <span className="text-primary">
                                 {t("tickets")}:
                               </span>{" "}
                               <span className="font-mono">
@@ -616,7 +617,7 @@ const RaffleDetails = () => {
                               </span>
                             </div>
                             <div>
-                              <span className="text-[#c82a54]">
+                              <span className="text-primary">
                                 {t("winProbability")}:
                               </span>{" "}
                               <span className="font-mono">
@@ -630,7 +631,7 @@ const RaffleDetails = () => {
                                 })()}
                               </span>
                             </div>
-                            <div className="text-xs text-[#f9d6de]">
+                            <div className="text-xs text-muted-foreground">
                               {t("totalTicketsAtSnapshot")}:{" "}
                               <span className="font-mono">
                                 {localPosition.total.toString()}
@@ -647,25 +648,23 @@ const RaffleDetails = () => {
                     {/* Toasts container (inline under position) */}
                     {toasts.length > 0 && (
                       <div className="mt-3 space-y-2">
-                        {toasts.map((t) => (
-                          <div
-                            key={t.id}
-                            className="p-3 rounded-md border border-[#353e34] bg-[#130013] shadow"
+                        {toasts.map((toast) => (
+                          <Alert
+                            key={toast.id}
+                            variant={toast.type === "error" ? "destructive" : "success"}
                           >
-                            <div className="text-sm font-medium mb-1">
-                              {t.message}
-                            </div>
-                            {t.hash && (
-                              <div className="text-xs flex items-center gap-2">
+                            <AlertTitle>{toast.message}</AlertTitle>
+                            {toast.hash && (
+                              <AlertDescription>
                                 <ExplorerLink
-                                  value={t.hash}
+                                  value={toast.hash}
                                   type="tx"
                                   text="View Transaction"
-                                  className="underline text-[#c82a54] font-mono break-all"
+                                  className="underline text-primary font-mono break-all"
                                 />
-                              </div>
+                              </AlertDescription>
                             )}
-                          </div>
+                          </Alert>
                         ))}
                       </div>
                     )}
