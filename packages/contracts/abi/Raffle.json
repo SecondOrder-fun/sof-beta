@@ -1011,6 +1011,29 @@
   },
   {
     "type": "function",
+    "name": "pokeConsolationEligible",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "offset",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "limit",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "prizeDistributor",
     "inputs": [],
     "outputs": [
@@ -2325,6 +2348,17 @@
   {
     "type": "error",
     "name": "SeasonNotActive",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SeasonNotCompleted",
     "inputs": [
       {
         "name": "seasonId",
