@@ -6,6 +6,7 @@ import { Loader2, ArrowLeft } from "lucide-react";
 import { useLoginModal } from "@/hooks/useLoginModal";
 import { useFarcasterSignIn } from "@/hooks/useFarcasterSignIn";
 import { Button } from "@/components/ui/button";
+import { QrFrame } from "@/components/ui/qr-frame";
 import {
   Dialog,
   DialogContent,
@@ -179,9 +180,9 @@ const LoginModal = () => {
             <div className="flex flex-col items-center gap-4 py-4">
               {url ? (
                 <>
-                  <div className="rounded-lg overflow-hidden bg-white p-3">
+                  <QrFrame>
                     <QRCodeSVG value={url} size={220} level="L" />
-                  </div>
+                  </QrFrame>
                   <a
                     href={url}
                     target="_blank"

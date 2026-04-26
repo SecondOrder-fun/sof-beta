@@ -142,7 +142,7 @@ export function MarketCreationProgress({
 
         {/* Market Data */}
         {marketData && (
-          <div className="space-y-2 rounded-md bg-white p-3 text-sm">
+          <div className="space-y-2 rounded-md bg-card border p-3 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">{t('market_season')}:</span>
               <span className="font-medium">{marketData.seasonId}</span>

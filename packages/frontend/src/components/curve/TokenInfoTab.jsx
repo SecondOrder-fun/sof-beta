@@ -211,7 +211,7 @@ const TokenInfoTab = ({
 
               {walletToast && (
                 <div
-                  className={`absolute inset-0 flex items-center justify-center rounded-md bg-black/60 transition-opacity duration-500 ${
+                  className={`absolute inset-0 flex items-center justify-center rounded-md bg-foreground/60 transition-opacity duration-500 ${
                     walletToastVisible
                       ? "opacity-100"
                       : "opacity-0 pointer-events-none"

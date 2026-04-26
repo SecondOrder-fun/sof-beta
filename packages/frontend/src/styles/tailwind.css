@@ -29,6 +29,11 @@
     --secondary: 346 66% 91%; /* Pastel Rose */
     --secondary-foreground: 300 100% 4%; /* Black */
 
+    /* Track for inactive/empty states (Switch off, Progress empty). Held at
+     * light rose in BOTH themes so dark-mode tracks don't blend with the
+     * page bg. Don't conflate with --secondary, which flips with theme. */
+    --track-rest: 346 66% 91%; /* Pastel Rose */
+
     --accent: 346 66% 91%; /* Pastel Rose */
     --accent-foreground: 300 100% 4%; /* Black */
 
@@ -90,6 +95,9 @@
 
     --secondary: 300 10% 14%; /* Matches card (was Asphalt green) */
     --secondary-foreground: 20 9% 63%; /* Cement */
+
+    /* Same light-rose track in dark mode so off-states stay visible. */
+    --track-rest: 346 66% 91%; /* Pastel Rose */
 
     --accent: 300 10% 14%; /* Matches card (was Asphalt green) */
     --accent-foreground: 20 9% 63%; /* Cement */

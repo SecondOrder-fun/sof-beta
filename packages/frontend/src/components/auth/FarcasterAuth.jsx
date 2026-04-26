@@ -3,6 +3,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { useFarcaster } from "@/hooks/useFarcaster";
 import { useFarcasterSignIn } from "@/hooks/useFarcasterSignIn";
 import { Button } from "@/components/ui/button";
+import { QrFrame } from "@/components/ui/qr-frame";
 import {
   Dialog,
   DialogContent,
@@ -100,9 +101,9 @@ const FarcasterAuth = () => {
           <div className="flex flex-col items-center gap-4 py-4">
             {url ? (
               <>
-                <div className="rounded-lg overflow-hidden bg-white p-3">
+                <QrFrame>
                   <QRCodeSVG value={url} size={220} level="L" />
-                </div>
+                </QrFrame>
                 <a
                   href={url}
                   target="_blank"
