@@ -36,10 +36,10 @@ With the Phase 1+2 hardening in production (REMOTE network config):
 
 - Each signature is bound to its userOp (sender, nonce, callData, gas fields, paymasterAddress, chainId, validUntil, validAfter) — see [`SOFPaymaster.getHash`](../../packages/contracts/src/paymaster/SOFPaymaster.sol). Replay across userOps is impossible.
 - Each signature is valid for `PAYMASTER_VALIDITY_WINDOW_SEC` seconds (default 600s on testnet/mainnet). After expiry the sig is rejected with AA22.
-- An attacker with the leaked key cannot mint sigs at unlimited rate — the on-chain side imposes no quota, but per-op deposit drain is bounded by `actualGasUsed × maxFeePerGas`, where `actualGasUsed ≤ preVerificationGas + verificationGasLimit + callGasLimit + paymasterVerificationGasLimit + paymasterPostOpGasLimit`. With Phase 2 REMOTE caps and the bundler's 100k `preVerificationGas` suggestion, the per-op ceiling is ~2.86M gas. **Caveat:** `preVerificationGas` is currently NOT in `assertGasLimitsWithinCaps` (only the four cap fields are checked). An attacker with the leaked sig key can claim an arbitrary `preVerificationGas` and increase per-op damage. Filed as Phase 4 follow-up in `instructions/project-tasks.md`.
+- An attacker with the leaked key cannot mint sigs at unlimited rate — the on-chain side imposes no quota, but per-op deposit drain is bounded by `actualGasUsed × maxFeePerGas`, where `actualGasUsed ≤ preVerificationGas + verificationGasLimit + callGasLimit + paymasterVerificationGasLimit + paymasterPostOpGasLimit`. With Phase 2 + Phase 4 REMOTE caps, all five fields are bounded by `assertGasLimitsWithinCaps`, so the per-op ceiling is **firmly** ~2.91M gas (150k + 500k + 2M + 200k + 60k).
 - Per-EOA quota does **not** apply to the attacker because they sign sigs for arbitrary senders; quota gates *our backend's* sponsorship endpoint, not on-chain validation.
 
-So the realistic loss window is `validityWindowSec × (~2.86M gas × maxFeePerGas) × (number of distinct EOAs the attacker can fund-and-execute)`. At 600s window, ~2.86M gas/op, 0.05 gwei on Base = ~0.00014 ETH/op, the attacker would need ~7,000 ops in 10 minutes to drain 1 ETH. Detect-and-rotate within 10 minutes and the leak is survivable.
+So the realistic loss window is `validityWindowSec × (~2.91M gas × maxFeePerGas) × (number of distinct EOAs the attacker can fund-and-execute)`. At 600s window, ~2.91M gas/op, 0.05 gwei on Base = ~0.000146 ETH/op, the attacker would need ~6,800 ops in 10 minutes to drain 1 ETH. Detect-and-rotate within 10 minutes and the leak is survivable.
 
 ---
 
@@ -193,6 +193,7 @@ These live in env vars consumed by the backend; tune them based on incident-resp
 | `PAYMASTER_VALIDITY_WINDOW_SEC` | `0` (unbounded) | `600` (10 min) | Smaller = shorter blast radius after leak; too small = legit users see AA22 if their wallet popup takes longer than the window. |
 | `PAYMASTER_QUOTA_PER_HOUR` | `0` (disabled) | `40` (≈20 user-ops/hr) | Per-EOA cap; doesn't directly slow an attacker (they pick the sender), but caps damage from accidental leaks where your own backend is the source of unauthorised sigs. |
 | `PAYMASTER_MAX_CALL_GAS` | `8_000_000` | `2_000_000` | Per-op deposit-drain cap. Lower means each fraudulent op costs the attacker less but also constrains legit ops; tune to the largest legit user op (currently `createSeason` ~1.8M). |
+| `PAYMASTER_MAX_PRE_VERIFICATION_GAS` | `200_000` | `150_000` | Caps the userOp's `preVerificationGas` claim. Real ops need ~50-100k; the cap is roughly 2× headroom. Closes a gap where a leaked sig key could otherwise inflate per-op damage by claiming arbitrary preVerificationGas. |
 
 After changing any of these, restart the backend so `createBundlerService` re-reads them. There is no hot-reload — the values are captured in closure at construction time. See the comment at [`packages/backend/shared/aa/bundler.js`](../../packages/backend/shared/aa/bundler.js) `DEFAULT_VALIDITY_WINDOW_SECONDS`.
 
