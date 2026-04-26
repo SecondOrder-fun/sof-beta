@@ -101,6 +101,12 @@ export function createBundlerService({ rpcUrl, chain, relayKey, paymasterAddress
    * which intentionally excludes the trailing validUntil/validAfter/signature
    * bytes from paymasterAndData — that's the only way to break the
    * chicken-and-egg of "userOpHash depends on the paymaster signature".
+   *
+   * IMPORTANT: pull the paymaster gas limits from the userOp when present so
+   * the digest the off-chain signer hashes over matches the bytes the client
+   * will actually pack into paymasterAndData. Falling back to fixed defaults
+   * here would cause AA34 the moment a client uses any other gas limit
+   * (e.g. one populated from eth_estimateUserOperationGas).
    */
   async function getPaymasterData(userOp) {
     return buildPaymasterResponse({
@@ -108,6 +114,8 @@ export function createBundlerService({ rpcUrl, chain, relayKey, paymasterAddress
       paymasterAddress,
       signerKey: relayKey,
       chainId: chain.id,
+      paymasterVerificationGasLimit: userOp.paymasterVerificationGasLimit ?? 150_000n,
+      paymasterPostOpGasLimit: userOp.paymasterPostOpGasLimit ?? 30_000n,
     });
   }
 

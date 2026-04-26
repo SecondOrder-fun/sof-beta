@@ -44,20 +44,14 @@ contract SOFSmartAccount is Account, SignerERC7702, ERC7821, IERC721Receiver, IE
         bytes data;
     }
 
-    function execute(address target, uint256 value, bytes calldata data) external payable {
-        if (msg.sender != address(entryPoint()) && msg.sender != address(this)) {
-            revert AccountUnauthorized(msg.sender);
-        }
+    function execute(address target, uint256 value, bytes calldata data) external payable onlyEntryPointOrSelf {
         (bool ok, bytes memory ret) = target.call{value: value}(data);
         if (!ok) {
             assembly { revert(add(ret, 0x20), mload(ret)) }
         }
     }
 
-    function executeBatch(Call[] calldata calls) external payable {
-        if (msg.sender != address(entryPoint()) && msg.sender != address(this)) {
-            revert AccountUnauthorized(msg.sender);
-        }
+    function executeBatch(Call[] calldata calls) external payable onlyEntryPointOrSelf {
         for (uint256 i = 0; i < calls.length; ++i) {
             (bool ok, bytes memory ret) = calls[i].target.call{value: calls[i].value}(calls[i].data);
             if (!ok) {

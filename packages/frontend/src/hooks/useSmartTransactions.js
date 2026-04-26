@@ -154,18 +154,20 @@ export function useSmartTransactions() {
     // endpoint (no session token — it's the dev server). On testnet/mainnet
     // we use the session-gated Pimlico proxy.
     const isLocalChain = chainId === 31337;
-    // eslint-disable-next-line no-console
-    console.log("[executeBatch] gate", {
-      isSOFDelegate,
-      hasDelegatedAccount: !!delegatedAccount,
-      apiBase,
-      chainId,
-      isLocalChain,
-      hasBackendJwt: !!backendJwt,
-      pathAWillFire: !!(
-        isSOFDelegate && delegatedAccount && apiBase && (isLocalChain || backendJwt)
-      ),
-    });
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.log("[executeBatch] gate", {
+        isSOFDelegate,
+        hasDelegatedAccount: !!delegatedAccount,
+        apiBase,
+        chainId,
+        isLocalChain,
+        hasBackendJwt: !!backendJwt,
+        pathAWillFire: !!(
+          isSOFDelegate && delegatedAccount && apiBase && (isLocalChain || backendJwt)
+        ),
+      });
+    }
     if (isSOFDelegate && delegatedAccount && apiBase && (isLocalChain || backendJwt)) {
       let finalCalls = calls;
       if (sofAmount && sofAmount > 0n) {
@@ -211,9 +213,15 @@ export function useSmartTransactions() {
           // Callers feed the return value into `useWaitForTransactionReceipt`,
           // which expects an actual on-chain tx hash. The userOpHash is an
           // EIP-4337 identifier and isn't a tx hash — wagmi would poll it
-          // forever. Return the wrapping handleOps tx hash so the UI can
-          // resolve the receipt immediately.
-          return receipt?.receipt?.transactionHash ?? userOpHash;
+          // forever. Return the wrapping handleOps tx hash. permissionless's
+          // waitForUserOperationReceipt only resolves with a populated receipt,
+          // so this should never fall through; throw rather than hand back a
+          // userOpHash that the UI can't resolve.
+          const txHash = receipt?.receipt?.transactionHash;
+          if (!txHash) {
+            throw new Error("UserOp landed without a tx hash — bundler bug");
+          }
+          return txHash;
         } catch (err) {
           // Local backend down, bundler error, paymaster sig invalid — fall
           // through to the ERC-5792 path so the UI doesn't hard-fail. The user
@@ -257,7 +265,7 @@ export function useSmartTransactions() {
         };
         if (sofAmount && sofAmount > 0n) {
           const feeCall = buildFeeCall(sofAmount);
-        finalCalls = feeCall ? [feeCall, ...calls] : calls;
+          finalCalls = feeCall ? [feeCall, ...calls] : calls;
         }
       }
     }

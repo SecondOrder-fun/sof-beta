@@ -79,20 +79,21 @@ contract SOFPaymasterTest is Test {
         });
     }
 
-    /// @dev Build valid paymasterAndData with a proper signature over
-    ///      `keccak256(abi.encode(userOpHash, validUntil, validAfter))`.
+    /// @dev Build valid paymasterAndData by signing the contract-side `getHash`.
+    ///      The userOp must be passed in with the paymasterAndData prefix already
+    ///      populated so `getHash` can hash `paymasterAndData[0:52]` correctly.
     function _signPaymasterData(
-        bytes32 userOpHash,
+        PackedUserOperation memory userOp,
         uint48 validUntil,
         uint48 validAfter
     ) internal view returns (bytes memory) {
-        bytes32 hash = keccak256(abi.encode(userOpHash, validUntil, validAfter));
+        bytes32 hash = paymaster.getHash(userOp, validUntil, validAfter);
         bytes32 ethSignedHash = hash.toEthSignedMessageHash();
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerPk, ethSignedHash);
 
         // Layout: paymaster(20) + verificationGasLimit(16) + postOpGasLimit(16)
         //       + validUntil(6) + validAfter(6) + sig(65) = 129
-        bytes memory data = abi.encodePacked(
+        return abi.encodePacked(
             address(paymaster),  // 20 bytes
             uint128(0),          // verificationGasLimit — 16 bytes
             uint128(0),          // postOpGasLimit — 16 bytes
@@ -102,13 +103,32 @@ contract SOFPaymasterTest is Test {
             s,                   // 32 bytes
             v                    // 1 byte
         );
-
-        return data;
     }
 
-    /// @dev Convenience overload: no time bounds (validUntil=0, validAfter=0).
-    function _signPaymasterData(bytes32 userOpHash) internal view returns (bytes memory) {
-        return _signPaymasterData(userOpHash, 0, 0);
+    /// @dev Build a userOp + valid paymasterAndData together: first construct a
+    ///      userOp whose paymasterAndData prefix matches what we'll sign, then
+    ///      sign, then splice the signature in. Returns the final userOp.
+    function _userOpWithSig(uint48 validUntil, uint48 validAfter)
+        internal
+        view
+        returns (PackedUserOperation memory)
+    {
+        // Prefix has to be present when we hash; the trailing signature bytes
+        // are what we're computing, so they're filled with zeros for the hash.
+        bytes memory prefix = abi.encodePacked(
+            address(paymaster),
+            uint128(0),
+            uint128(0),
+            validUntil,
+            validAfter,
+            bytes32(0),  // r placeholder
+            bytes32(0),  // s placeholder
+            uint8(0)     // v placeholder
+        );
+        PackedUserOperation memory userOp = _buildUserOp(prefix);
+        bytes memory finalData = _signPaymasterData(userOp, validUntil, validAfter);
+        userOp.paymasterAndData = finalData;
+        return userOp;
     }
 
     /// @dev Helper to extract packed validationData components.
@@ -164,14 +184,13 @@ contract SOFPaymasterTest is Test {
     }
 
     function test_validatePaymasterUserOp_validSigner() public {
-        bytes32 userOpHash = keccak256("test-user-op");
-        bytes memory paymasterData = _signPaymasterData(userOpHash);
-        PackedUserOperation memory userOp = _buildUserOp(paymasterData);
+        PackedUserOperation memory userOp = _userOpWithSig(0, 0);
 
-        // Call from entryPoint
         vm.prank(address(entryPoint));
+        // The userOpHash arg is ignored by the new SOFPaymaster (it derives its
+        // own digest via getHash). Pass any value.
         (bytes memory context, uint256 validationData) =
-            paymaster.validatePaymasterUserOp(userOp, userOpHash, 0);
+            paymaster.validatePaymasterUserOp(userOp, bytes32(0), 0);
 
         (uint256 sigFailed,,) = _unpackValidationData(validationData);
         assertEq(sigFailed, 0, "should return 0 for valid signature");
@@ -179,16 +198,14 @@ contract SOFPaymasterTest is Test {
     }
 
     function test_validatePaymasterUserOp_withTimeBounds() public {
-        bytes32 userOpHash = keccak256("test-user-op-timed");
-        uint48 validUntil = uint48(block.timestamp + 300); // 5 minutes from now
+        uint48 validUntil = uint48(block.timestamp + 300);
         uint48 validAfter = uint48(block.timestamp);
 
-        bytes memory paymasterData = _signPaymasterData(userOpHash, validUntil, validAfter);
-        PackedUserOperation memory userOp = _buildUserOp(paymasterData);
+        PackedUserOperation memory userOp = _userOpWithSig(validUntil, validAfter);
 
         vm.prank(address(entryPoint));
         (bytes memory context, uint256 validationData) =
-            paymaster.validatePaymasterUserOp(userOp, userOpHash, 0);
+            paymaster.validatePaymasterUserOp(userOp, bytes32(0), 0);
 
         (uint256 sigFailed, uint48 retValidUntil, uint48 retValidAfter) = _unpackValidationData(validationData);
         assertEq(sigFailed, 0, "should return 0 for valid signature");
@@ -198,44 +215,43 @@ contract SOFPaymasterTest is Test {
     }
 
     function test_validatePaymasterUserOp_invalidSigner() public {
-        // Sign with a different key
+        // Sign with a different key — signature recovers to wrong address.
         (, uint256 wrongPk) = makeAddrAndKey("wrongSigner");
-        bytes32 userOpHash = keccak256("test-user-op");
-
         uint48 validUntil = 0;
         uint48 validAfter = 0;
 
-        bytes32 hash = keccak256(abi.encode(userOpHash, validUntil, validAfter));
+        bytes memory prefix = abi.encodePacked(
+            address(paymaster), uint128(0), uint128(0),
+            validUntil, validAfter,
+            bytes32(0), bytes32(0), uint8(0)
+        );
+        PackedUserOperation memory userOp = _buildUserOp(prefix);
+
+        bytes32 hash = paymaster.getHash(userOp, validUntil, validAfter);
         bytes32 ethSignedHash = hash.toEthSignedMessageHash();
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongPk, ethSignedHash);
 
-        bytes memory data = abi.encodePacked(
-            address(paymaster),
-            uint128(0),
-            uint128(0),
-            validUntil,
-            validAfter,
+        userOp.paymasterAndData = abi.encodePacked(
+            address(paymaster), uint128(0), uint128(0),
+            validUntil, validAfter,
             r, s, v
         );
 
-        PackedUserOperation memory userOp = _buildUserOp(data);
-
         vm.prank(address(entryPoint));
         (, uint256 validationData) =
-            paymaster.validatePaymasterUserOp(userOp, userOpHash, 0);
+            paymaster.validatePaymasterUserOp(userOp, bytes32(0), 0);
 
         (uint256 sigFailed,,) = _unpackValidationData(validationData);
         assertEq(sigFailed, 1, "should return 1 for invalid signature");
     }
 
     function test_validatePaymasterUserOp_shortData() public {
-        // paymasterAndData too short — should return SIG_VALIDATION_FAILED
         bytes memory shortData = new bytes(51);
         PackedUserOperation memory userOp = _buildUserOp(shortData);
 
         vm.prank(address(entryPoint));
         (, uint256 validationData) =
-            paymaster.validatePaymasterUserOp(userOp, keccak256("x"), 0);
+            paymaster.validatePaymasterUserOp(userOp, bytes32(0), 0);
 
         assertEq(validationData, 1, "should return 1 for short data");
     }
@@ -245,36 +261,39 @@ contract SOFPaymasterTest is Test {
 
         vm.prank(user);
         vm.expectRevert("SOFPaymaster: not EntryPoint");
-        paymaster.validatePaymasterUserOp(userOp, keccak256("x"), 0);
+        paymaster.validatePaymasterUserOp(userOp, bytes32(0), 0);
     }
 
     function test_validatePaymasterUserOp_replayWithDifferentTimeBounds() public {
-        // Sign with one set of time bounds, try to validate with different bounds
-        bytes32 userOpHash = keccak256("test-replay");
+        // Sign for one set of bounds, then tamper validUntil before submission.
         uint48 validUntil = uint48(block.timestamp + 300);
         uint48 validAfter = uint48(block.timestamp);
 
-        // Sign with the correct time bounds
-        bytes32 hash = keccak256(abi.encode(userOpHash, validUntil, validAfter));
-        bytes32 ethSignedHash = hash.toEthSignedMessageHash();
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerPk, ethSignedHash);
+        PackedUserOperation memory userOp = _userOpWithSig(validUntil, validAfter);
 
-        // But submit with different time bounds (tampered)
-        uint48 tamperedValidUntil = uint48(block.timestamp + 3600); // extended expiry
-        bytes memory data = abi.encodePacked(
-            address(paymaster),
-            uint128(0),
-            uint128(0),
-            tamperedValidUntil,  // tampered
-            validAfter,
+        // Tamper validUntil bytes [52:58] in paymasterAndData
+        uint48 tamperedValidUntil = uint48(block.timestamp + 3600);
+        // Read sig bytes from the trailing 65 bytes of paymasterAndData
+        bytes memory pmData = userOp.paymasterAndData;
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+        assembly {
+            // offset = 32 (length prefix) + 64 (start of sig bytes [64:64+65])
+            let p := add(pmData, 96)
+            r := mload(p)
+            s := mload(add(p, 32))
+            v := byte(0, mload(add(p, 64)))
+        }
+        userOp.paymasterAndData = abi.encodePacked(
+            address(paymaster), uint128(0), uint128(0),
+            tamperedValidUntil, validAfter,
             r, s, v
         );
 
-        PackedUserOperation memory userOp = _buildUserOp(data);
-
         vm.prank(address(entryPoint));
         (, uint256 validationData) =
-            paymaster.validatePaymasterUserOp(userOp, userOpHash, 0);
+            paymaster.validatePaymasterUserOp(userOp, bytes32(0), 0);
 
         (uint256 sigFailed,,) = _unpackValidationData(validationData);
         assertEq(sigFailed, 1, "should fail when time bounds are tampered");
