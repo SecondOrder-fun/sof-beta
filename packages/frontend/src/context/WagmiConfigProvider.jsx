@@ -171,6 +171,21 @@ const DelegationGate = () => {
     }
   }, [isConnected]);
 
+  // Listen for explicit "open delegation modal" requests from anywhere in the
+  // app. This is the escape hatch for cases where the on-connect gate didn't
+  // fire (timing race, version-bump auto-reload, etc.) but a downstream
+  // sponsored-tx flow needs the user to delegate before proceeding.
+  useEffect(() => {
+    const onRequest = () => {
+      // Only show if connected and not already in a delegated terminal state.
+      if (isConnected && address && !isSOFDelegate) {
+        setShowModal(true);
+      }
+    };
+    window.addEventListener("sof:request-delegation", onRequest);
+    return () => window.removeEventListener("sof:request-delegation", onRequest);
+  }, [isConnected, address, isSOFDelegate]);
+
   return (
     <DelegationModal
       open={showModal}
