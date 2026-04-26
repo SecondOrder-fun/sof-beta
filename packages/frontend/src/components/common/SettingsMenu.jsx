@@ -28,6 +28,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
@@ -144,13 +145,10 @@ const SettingsMenu = ({ address, username, farcasterUser, onDisconnect }) => {
     <TooltipProvider>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className="px-4 py-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/90 transition-colors font-medium flex items-center gap-2"
-          >
+          <Button variant="outline" className="gap-2">
             <Settings className="h-4 w-4" />
             {t("navigation:settings", "Settings")}
-          </button>
+          </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
           {/* SOF Balance */}
@@ -202,18 +200,17 @@ const SettingsMenu = ({ address, username, farcasterUser, onDisconnect }) => {
               <div className="flex items-center gap-1">
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <button
-                      type="button"
+                    <Button
+                      size="icon"
                       onClick={handleCopyAddress}
-                      className="p-1 hover:bg-accent rounded-sm transition-colors"
                       aria-label={t("common:copyToClipboard", "Copy to clipboard")}
                     >
                       {copied ? (
-                        <Check className="h-3.5 w-3.5 text-green-500" />
+                        <Check className="h-3.5 w-3.5" />
                       ) : (
-                        <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                        <Copy className="h-3.5 w-3.5" />
                       )}
-                    </button>
+                    </Button>
                   </TooltipTrigger>
                   <TooltipContent>
                     {copied
@@ -224,17 +221,16 @@ const SettingsMenu = ({ address, username, farcasterUser, onDisconnect }) => {
                 {net.explorer && (
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <button
-                        type="button"
+                      <Button
+                        size="icon"
                         onClick={handleOpenExplorer}
-                        className="p-1 hover:bg-accent rounded-sm transition-colors"
                         aria-label={t(
                           "common:viewOnExplorer",
                           "View on block explorer"
                         )}
                       >
-                        <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
-                      </button>
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </Button>
                     </TooltipTrigger>
                     <TooltipContent>
                       {t("common:viewOnExplorer", "View on block explorer")}
@@ -283,19 +279,22 @@ const SettingsMenu = ({ address, username, farcasterUser, onDisconnect }) => {
           </DropdownMenuLabel>
           <div className="flex gap-1 px-2 py-1.5">
             {themeOptions.map(({ value, icon: Icon, label }) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setTheme(value)}
-                className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-xs transition-colors ${
-                  theme === value
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted hover:bg-muted/80 text-muted-foreground"
-                }`}
-                title={label}
-              >
-                <Icon className="h-3.5 w-3.5" />
-              </button>
+              <Tooltip key={value}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setTheme(value)}
+                    className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-xs transition-colors ${
+                      theme === value
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted hover:bg-muted/80 text-muted-foreground"
+                    }`}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{label}</TooltipContent>
+              </Tooltip>
             ))}
           </div>
 
