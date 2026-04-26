@@ -25,10 +25,13 @@ const Progress = React.forwardRef(
         ref={ref}
         className={cn(
           // bg-track-rest is light rose in BOTH modes (see tailwind.css for
-          // --track-rest). Avoids the dark-mode bg-secondary that blended
-          // with the page bg. Height matches the bordered step-marker outer
-          // diameter so begin/end markers feel like the bar's end-caps.
-          "relative h-3 w-full overflow-hidden rounded-full border border-primary bg-track-rest",
+          // --track-rest). In dark mode soften to 70% alpha so the rose
+          // doesn't overpower the dark page bg — same pattern the Switch
+          // off-state uses, scoped here in a primitive (the only places
+          // dark: appears in the codebase).
+          // Height matches the bordered step-marker outer diameter so
+          // begin/end markers feel like the bar's end-caps.
+          "relative h-3 w-full overflow-hidden rounded-full border border-primary bg-track-rest dark:bg-track-rest/70",
           className,
         )}
         {...props}
@@ -46,22 +49,29 @@ const Progress = React.forwardRef(
       <div className="relative" onMouseLeave={() => setTip(null)}>
         {bar}
         {/* Step markers — sit on top of the bar, vertically centered.
+            Middle markers center on their position (-translate-x-1/2);
+            the FIRST and LAST sit fully inside the bar (left edge at 0%,
+            right edge at 100%) so they don't protrude past the rounded
+            ends.
             Markers in the FILLED section get a 1px page-bg ring so they
-            read as bullseyes against the pink fill. The leftmost marker
-            (idx 0) is excepted: it sits at position 0% and should blend
-            into the bar's primary border as a continuous end-cap, so it
-            stays a plain bg-primary dot regardless of fill state.
-            Markers in the EMPTY section sit on the rose track and are
-            cleaner without a border (the bg-primary dot already contrasts). */}
+            read as bullseyes against the pink fill — except the leftmost
+            (idx 0), which stays a plain bg-primary dot so it blends with
+            the bar's primary border as a continuous end-cap.
+            Markers in the EMPTY section sit on the rose track without a
+            ring (the bg-primary dot already contrasts). */}
         {steps.map((step, idx) => {
           if (step.position > 100) return null
+          const isFirst = idx === 0
+          const isLast = idx === steps.length - 1
           const inFilled = step.position <= (value || 0)
-          const showRing = inFilled && idx > 0
+          const showRing = inFilled && !isFirst
           return (
             <div
               key={idx}
               className={cn(
-                "absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-primary shadow-sm cursor-help",
+                "absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-primary shadow-sm cursor-help",
+                // Inset first/last fully inside the bar; center the rest.
+                isFirst ? "translate-x-0" : isLast ? "-translate-x-full" : "-translate-x-1/2",
                 showRing && "border border-background",
               )}
               style={{ left: `${step.position}%` }}
