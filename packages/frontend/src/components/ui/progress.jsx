@@ -27,7 +27,7 @@ const Progress = React.forwardRef(
           // bg-track-rest is light rose in BOTH modes (see tailwind.css for
           // --track-rest). Avoids the dark-mode bg-secondary that blended
           // with the page bg.
-          "relative h-4 w-full overflow-hidden rounded-full bg-track-rest",
+          "relative h-4 w-full overflow-hidden rounded-full border border-primary bg-track-rest",
           className,
         )}
         {...props}
