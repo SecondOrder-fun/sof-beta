@@ -32,6 +32,7 @@ describe("paymaster-signer-rotation runbook", () => {
       "packages/backend/shared/aa/bundler.js",
       "packages/backend/shared/aa/paymasterSigner.js",
       "packages/backend/fastify/routes/localBundlerRoutes.js",
+      "packages/backend/fastify/routes/paymasterServiceRoutes.js",
       "scripts/deploy-env.sh",
       "scripts/test-aa-e2e.js",
       "scripts/verify-paymaster-signer.js",

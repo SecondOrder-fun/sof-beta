@@ -246,6 +246,7 @@ A drill that fails to complete in under 10 minutes is a process bug — fix the 
 - [`packages/contracts/src/paymaster/SOFPaymaster.sol`](../../packages/contracts/src/paymaster/SOFPaymaster.sol) — `setSigner`, `withdrawTo`, `SignerUpdated` event, `getHash` digest scheme
 - [`packages/backend/shared/aa/bundler.js`](../../packages/backend/shared/aa/bundler.js) — `createBundlerService`, validity-window + gas-cap + quota config
 - [`packages/backend/shared/aa/paymasterSigner.js`](../../packages/backend/shared/aa/paymasterSigner.js) — `buildPaymasterResponse` (off-chain digest mirror)
-- [`packages/backend/fastify/routes/localBundlerRoutes.js`](../../packages/backend/fastify/routes/localBundlerRoutes.js) — current production-ready route (LOCAL gate; testnet wire-up tracked in `instructions/project-tasks.md` Task #41)
+- [`packages/backend/fastify/routes/localBundlerRoutes.js`](../../packages/backend/fastify/routes/localBundlerRoutes.js) — full bundler + paymaster JSON-RPC route, LOCAL only (where Pimlico isn't available)
+- [`packages/backend/fastify/routes/paymasterServiceRoutes.js`](../../packages/backend/fastify/routes/paymasterServiceRoutes.js) — paymaster-only ERC-7677 service, every NETWORK. Mounted at `/api/paymaster/sof`. Pimlico is the bundler in production; this endpoint signs `pm_getPaymasterStubData` / `pm_getPaymasterData` via SOFPaymaster's verifyingSigner
 - [`scripts/deploy-env.sh`](../../scripts/deploy-env.sh) — env push to Railway/Vercel
 - [`scripts/test-aa-e2e.js`](../../scripts/test-aa-e2e.js) — headless sponsored-UserOp probe
