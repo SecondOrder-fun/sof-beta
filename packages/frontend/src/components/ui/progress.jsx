@@ -24,7 +24,11 @@ const Progress = React.forwardRef(
       <ProgressPrimitive.Root
         ref={ref}
         className={cn(
-          "relative h-4 w-full overflow-hidden rounded-full bg-secondary",
+          // bg-primary/65 (cochineal at 65% alpha) so the empty/track segment
+          // reads as light rose in both modes. bg-secondary was too dim in dark
+          // mode (dark purple-grey blended with the page bg) and visually flat
+          // in light mode.
+          "relative h-4 w-full overflow-hidden rounded-full bg-primary/65",
           className,
         )}
         {...props}

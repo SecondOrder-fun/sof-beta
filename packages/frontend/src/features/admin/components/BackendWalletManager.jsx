@@ -78,9 +78,9 @@ export function BackendWalletManager() {
   });
 
   const getBalanceColor = (balanceEth) => {
-    if (balanceEth > 0.5) return "text-green-600";
-    if (balanceEth > 0.2) return "text-yellow-600";
-    return "text-red-600";
+    if (balanceEth > 0.5) return "text-success";
+    if (balanceEth > 0.2) return "text-warning";
+    return "text-destructive";
   };
 
   const copyToClipboard = (text) => {
@@ -185,13 +185,13 @@ export function BackendWalletManager() {
                 {walletInfo?.balanceEth?.toFixed(4) || "0.0000"} ETH
               </div>
               {walletInfo?.balanceEth < 0.2 && (
-                <div className="flex items-center gap-2 text-red-600 text-sm mt-2">
+                <div className="flex items-center gap-2 text-destructive text-sm mt-2">
                   <AlertCircle className="h-4 w-4" />
                   Low balance! Fund wallet soon.
                 </div>
               )}
               {walletInfo?.balanceEth >= 0.5 && (
-                <div className="flex items-center gap-2 text-green-600 text-sm mt-2">
+                <div className="flex items-center gap-2 text-success text-sm mt-2">
                   <CheckCircle className="h-4 w-4" />
                   Balance healthy
                 </div>
@@ -257,7 +257,7 @@ export function BackendWalletManager() {
               </label>
               <div className="mt-1">
                 {paymasterStatus?.initialized ? (
-                  <Badge className="bg-green-600 hover:bg-green-700">
+                  <Badge variant="success">
                     <CheckCircle className="h-3 w-3 mr-1" />
                     Initialized
                   </Badge>
@@ -288,7 +288,7 @@ export function BackendWalletManager() {
               </label>
               <div className="mt-1">
                 {paymasterStatus?.paymasterUrlConfigured ? (
-                  <Badge className="bg-green-600 hover:bg-green-700">
+                  <Badge variant="success">
                     Configured
                   </Badge>
                 ) : (
@@ -299,7 +299,7 @@ export function BackendWalletManager() {
           </div>
 
           {paymasterStatus?.initializationError && (
-            <div className="flex items-start gap-2 p-3 rounded-md bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm">
+            <div className="flex items-start gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-sm">
               <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
               <div>
                 <span className="font-medium">Initialization Error: </span>
@@ -429,7 +429,7 @@ export function BackendWalletManager() {
               </div>
               <div
                 className={`text-2xl font-bold ${
-                  stats?.failedAttempts > 0 ? "text-red-600" : "text-green-600"
+                  stats?.failedAttempts > 0 ? "text-destructive" : "text-success"
                 }`}
               >
                 {stats?.failedAttempts || 0}
@@ -453,7 +453,7 @@ export function BackendWalletManager() {
                         {new Date(market.createdAt).toLocaleString()}
                       </span>
                       {market.hasContract ? (
-                        <Badge variant="default" className="bg-green-600">
+                        <Badge variant="success">
                           <CheckCircle className="h-3 w-3 mr-1" />
                           Success
                         </Badge>
@@ -474,14 +474,14 @@ export function BackendWalletManager() {
 
       {/* Alerts and Recommendations */}
       {walletInfo?.balanceEth < 0.5 && (
-        <Card className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950/20">
+        <Card className="border-warning/50 bg-warning/10">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-yellow-700 dark:text-yellow-500">
+            <CardTitle className="flex items-center gap-2 text-warning">
               <AlertCircle className="h-5 w-5" />
               Action Required
             </CardTitle>
           </CardHeader>
-          <CardContent className="text-yellow-700 dark:text-yellow-500">
+          <CardContent className="text-warning">
             <p className="mb-2">
               Backend wallet balance is running low. Consider funding the wallet
               to ensure continuous market creation.

@@ -132,32 +132,34 @@ const BuySellWidget = ({ marketId, market }) => {
             {/* Outcome selector */}
             <div className="grid grid-cols-2 gap-2">
               <button
+                type="button"
                 onClick={() => setOutcome('YES')}
                 className={`relative overflow-hidden rounded-lg border-2 transition-all p-4 ${
-                  outcome === 'YES' 
-                    ? 'border-emerald-500 bg-emerald-50' 
-                    : 'border-gray-200 hover:border-emerald-300 bg-white'
+                  outcome === 'YES'
+                    ? 'border-success bg-success/10'
+                    : 'border-border bg-card hover:border-success/50'
                 }`}
               >
-                <div className="absolute inset-0 bg-emerald-100" style={{ width: `${yesOdds}%` }} />
+                <div className="absolute inset-0 bg-success/20" style={{ width: `${yesOdds}%` }} />
                 <div className="relative flex flex-col items-center">
-                  <span className="text-2xl font-bold text-emerald-700">{yesOdds}%</span>
-                  <span className="text-xs font-medium text-emerald-900 mt-1">{t('yes')}</span>
+                  <span className="text-2xl font-bold text-success">{yesOdds}%</span>
+                  <span className="text-xs font-medium text-success/80 mt-1">{t('yes')}</span>
                 </div>
               </button>
-              
+
               <button
+                type="button"
                 onClick={() => setOutcome('NO')}
                 className={`relative overflow-hidden rounded-lg border-2 transition-all p-4 ${
-                  outcome === 'NO' 
-                    ? 'border-rose-500 bg-rose-50' 
-                    : 'border-gray-200 hover:border-rose-300 bg-white'
+                  outcome === 'NO'
+                    ? 'border-destructive bg-destructive/10'
+                    : 'border-border bg-card hover:border-destructive/50'
                 }`}
               >
-                <div className="absolute inset-0 bg-rose-100" style={{ width: `${noOdds}%` }} />
+                <div className="absolute inset-0 bg-destructive/20" style={{ width: `${noOdds}%` }} />
                 <div className="relative flex flex-col items-center">
-                  <span className="text-2xl font-bold text-rose-700">{noOdds}%</span>
-                  <span className="text-xs font-medium text-rose-900 mt-1">{t('no')}</span>
+                  <span className="text-2xl font-bold text-destructive">{noOdds}%</span>
+                  <span className="text-xs font-medium text-destructive/80 mt-1">{t('no')}</span>
                 </div>
               </button>
             </div>
@@ -174,7 +176,7 @@ const BuySellWidget = ({ marketId, market }) => {
               />
               <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span>{t('balance')}: 0.00 SOF</span>
-                <button className="text-primary hover:underline">{t('max')}</button>
+                <Button variant="link" size="sm" className="h-auto p-0">{t('max')}</Button>
               </div>
             </div>
 
@@ -187,7 +189,7 @@ const BuySellWidget = ({ marketId, market }) => {
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">{t('potentialProfit')}</span>
-                  <span className={`font-semibold ${potentialProfit > 0 ? 'text-emerald-600' : 'text-muted-foreground'}`}>
+                  <span className={`font-semibold ${potentialProfit > 0 ? 'text-success' : 'text-muted-foreground'}`}>
                     +{potentialProfit.toFixed(2)} SOF
                   </span>
                 </div>
@@ -199,9 +201,9 @@ const BuySellWidget = ({ marketId, market }) => {
               onClick={() => placeBet.mutate()}
               disabled={!isConnected || !amount || placeBet.isPending}
               className={`w-full ${
-                outcome === 'YES' 
-                  ? 'bg-emerald-600 hover:bg-emerald-700' 
-                  : 'bg-rose-600 hover:bg-rose-700'
+                outcome === 'YES'
+                  ? 'bg-success text-success-foreground hover:bg-success/90'
+                  : 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
               }`}
               size="lg"
             >
@@ -227,15 +229,15 @@ const BuySellWidget = ({ marketId, market }) => {
             <div className="text-sm font-medium text-muted-foreground">{t('yourPositions')}</div>
             <div className="grid grid-cols-2 gap-2">
               {yesAmount !== '0' && (
-                <div className="flex items-center justify-between text-xs bg-emerald-50 rounded px-2 py-1.5">
-                  <span className="text-emerald-700 font-medium">{t('yes')}</span>
-                  <span className="font-mono font-semibold text-emerald-900">{yesAmount}</span>
+                <div className="flex items-center justify-between text-xs bg-success/10 rounded px-2 py-1.5">
+                  <span className="text-success font-medium">{t('yes')}</span>
+                  <span className="font-mono font-semibold text-success">{yesAmount}</span>
                 </div>
               )}
               {noAmount !== '0' && (
-                <div className="flex items-center justify-between text-xs bg-rose-50 rounded px-2 py-1.5">
-                  <span className="text-rose-700 font-medium">{t('no')}</span>
-                  <span className="font-mono font-semibold text-rose-900">{noAmount}</span>
+                <div className="flex items-center justify-between text-xs bg-destructive/10 rounded px-2 py-1.5">
+                  <span className="text-destructive font-medium">{t('no')}</span>
+                  <span className="font-mono font-semibold text-destructive">{noAmount}</span>
                 </div>
               )}
             </div>
