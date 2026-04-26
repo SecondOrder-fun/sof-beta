@@ -6,9 +6,9 @@ import {
   createPublicClient,
   createWalletClient,
   decodeErrorResult,
-  decodeEventLog,
   hexToBigInt,
   http,
+  isAddress,
   numberToHex,
   parseEventLogs,
   recoverAddress,
@@ -67,10 +67,160 @@ function normalizeUserOp(raw) {
   };
 }
 
-export function createBundlerService({ rpcUrl, chain, relayKey, paymasterAddress }) {
+/**
+ * How long a paymaster signature stays valid past the moment it's issued.
+ * 10 minutes is enough headroom for any wallet/UI flow including the user
+ * staring at a MetaMask popup, but short enough that a leaked signer key
+ * stops draining the deposit shortly after detection. Override per-deploy
+ * via PAYMASTER_VALIDITY_WINDOW_SEC; takes effect on backend restart (the
+ * value is read once at service construction, not per request).
+ */
+const DEFAULT_VALIDITY_WINDOW_SECONDS = 600n;
+
+/** Hard upper bound on the env override — one day is already excessive. */
+const MAX_VALIDITY_WINDOW_SECONDS = 86_400n;
+
+/**
+ * Backdate `validAfter` slightly to absorb relay-vs-bundler clock skew. A
+ * userOp signed at T=now sometimes arrives at the EntryPoint at T-2s
+ * because the relay's clock leads — without a backdate the paymaster would
+ * reject "valid in the future" sigs.
+ */
+const VALID_AFTER_BACKDATE_SECONDS = 30n;
+
+function resolveValidityWindow(envValue, isLocalNetwork) {
+  if (envValue == null || envValue === "") {
+    return isLocalNetwork ? 0n : DEFAULT_VALIDITY_WINDOW_SECONDS;
+  }
+  if (!/^\d+$/.test(envValue)) {
+    throw new Error(
+      `PAYMASTER_VALIDITY_WINDOW_SEC must be a non-negative integer, got: ${envValue}`,
+    );
+  }
+  const parsed = BigInt(envValue);
+  if (parsed > MAX_VALIDITY_WINDOW_SECONDS) {
+    throw new Error(
+      `PAYMASTER_VALIDITY_WINDOW_SEC=${envValue} exceeds max of ${MAX_VALIDITY_WINDOW_SECONDS}s`,
+    );
+  }
+  if (parsed === 0n && !isLocalNetwork) {
+    // Don't refuse — alpha may genuinely want this — but make it loud so a
+    // stray env var can't silently deploy an unbounded paymaster on testnet.
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[bundler] PAYMASTER_VALIDITY_WINDOW_SEC=0 on non-local network: paymaster signatures will be UNBOUNDED",
+    );
+  }
+  return parsed;
+}
+
+/**
+ * Per-network gas caps applied to userOps the verifying signer is asked to
+ * sponsor. Off-chain caps don't change EntryPoint enforcement; they cap how
+ * generous a single sponsored op can be. Chosen so that any of our real ops
+ * (createSeason, which deploys two contracts in a single execute) fits, but
+ * a runaway op claiming arbitrary gas budget is rejected with -32602.
+ *
+ * Local dev keeps the historical 8M call-gas because forge-deployed ops still
+ * occasionally need it; testnet/mainnet pay real money so cap them tighter.
+ */
+const DEFAULT_GAS_CAPS = {
+  LOCAL: {
+    callGasLimit: 8_000_000n,
+    verificationGasLimit: 1_000_000n,
+    paymasterVerificationGasLimit: 500_000n,
+    paymasterPostOpGasLimit: 100_000n,
+  },
+  REMOTE: {
+    callGasLimit: 2_000_000n,
+    verificationGasLimit: 500_000n,
+    paymasterVerificationGasLimit: 200_000n,
+    paymasterPostOpGasLimit: 60_000n,
+  },
+};
+
+const GAS_CAP_ENV_KEYS = {
+  callGasLimit: "PAYMASTER_MAX_CALL_GAS",
+  verificationGasLimit: "PAYMASTER_MAX_VERIFICATION_GAS",
+  paymasterVerificationGasLimit: "PAYMASTER_MAX_PAYMASTER_VERIFICATION_GAS",
+  paymasterPostOpGasLimit: "PAYMASTER_MAX_PAYMASTER_POSTOP_GAS",
+};
+
+function resolveGasCaps(env, isLocalNetwork) {
+  const defaults = isLocalNetwork ? DEFAULT_GAS_CAPS.LOCAL : DEFAULT_GAS_CAPS.REMOTE;
+  const out = { ...defaults };
+  for (const [field, key] of Object.entries(GAS_CAP_ENV_KEYS)) {
+    const raw = env[key];
+    if (raw == null || raw === "") continue;
+    if (!/^\d+$/.test(raw)) {
+      throw new Error(`${key} must be a non-negative integer, got: ${raw}`);
+    }
+    out[field] = BigInt(raw);
+  }
+  return out;
+}
+
+/**
+ * Per-EOA sponsorship quota over a rolling hour window. Enforced by Redis
+ * INCR + first-call EXPIRE so multiple backend instances share the count.
+ * Local dev skips Redis entirely (no quota). Configurable via
+ * PAYMASTER_QUOTA_PER_HOUR; defaults to 40 calls/hour/EOA on remote — that's
+ * effectively 20 user-ops since the standard ERC-7677 flow makes both a stub
+ * and a real call per op (both consume budget; see checkQuotaOrThrow comment).
+ */
+const DEFAULT_QUOTA_PER_HOUR = 40n;
+const QUOTA_WINDOW_SECONDS = 3600;
+
+function resolveQuotaPerHour(envValue, isLocalNetwork) {
+  if (envValue == null || envValue === "") {
+    return isLocalNetwork ? 0n : DEFAULT_QUOTA_PER_HOUR;
+  }
+  if (!/^\d+$/.test(envValue)) {
+    throw new Error(
+      `PAYMASTER_QUOTA_PER_HOUR must be a non-negative integer, got: ${envValue}`,
+    );
+  }
+  return BigInt(envValue);
+}
+
+export const _internals = {
+  DEFAULT_VALIDITY_WINDOW_SECONDS,
+  MAX_VALIDITY_WINDOW_SECONDS,
+  VALID_AFTER_BACKDATE_SECONDS,
+  DEFAULT_GAS_CAPS,
+  DEFAULT_QUOTA_PER_HOUR,
+  QUOTA_WINDOW_SECONDS,
+  resolveValidityWindow,
+  resolveGasCaps,
+  resolveQuotaPerHour,
+};
+
+export function createBundlerService({
+  rpcUrl,
+  chain,
+  relayKey,
+  paymasterAddress,
+  redis = null,
+}) {
   // Hoisted to the top so any closure that fires before `return` (e.g. in
   // future refactors that extract methods) doesn't hit a TDZ on `submissions`.
   const submissions = new Map();
+
+  // Bounded validity window for paymaster signatures. On local Anvil the
+  // verifying signer is the deployer key, the chain is ephemeral, and the
+  // headless E2E asserts unbounded sigs (validUntil=0); on testnet/mainnet
+  // unbounded sigs let a leaked signer drain the deposit until setSigner
+  // lands, so default to a 10-minute window.
+  const isLocalNetwork = (process.env.NETWORK || "LOCAL").toUpperCase() === "LOCAL";
+  const validityWindowSec = resolveValidityWindow(
+    process.env.PAYMASTER_VALIDITY_WINDOW_SEC,
+    isLocalNetwork,
+  );
+  const gasCaps = resolveGasCaps(process.env, isLocalNetwork);
+  const quotaPerHour = resolveQuotaPerHour(
+    process.env.PAYMASTER_QUOTA_PER_HOUR,
+    isLocalNetwork,
+  );
 
   const account = privateKeyToAccount(
     relayKey.startsWith("0x") ? relayKey : `0x${relayKey}`,
@@ -108,7 +258,105 @@ export function createBundlerService({ rpcUrl, chain, relayKey, paymasterAddress
    * here would cause AA34 the moment a client uses any other gas limit
    * (e.g. one populated from eth_estimateUserOperationGas).
    */
+  /**
+   * Reject userOps whose claimed gas budget would let a sponsored op consume
+   * an outsized share of the deposit. Off-chain caps; the EntryPoint already
+   * enforces actualGasUsed <= claimed, so this just refuses to sign for
+   * unreasonable claims in the first place.
+   */
+  function assertGasLimitsWithinCaps(userOp) {
+    for (const [field, max] of Object.entries(gasCaps)) {
+      const claimed = userOp[field];
+      if (claimed == null) continue;
+      const claimedBig = typeof claimed === "bigint" ? claimed : BigInt(claimed);
+      if (claimedBig > max) {
+        const err = new Error(
+          `userOp ${field}=${claimedBig} exceeds paymaster cap ${max}`,
+        );
+        err.code = -32602;
+        throw err;
+      }
+    }
+  }
+
+  /**
+   * Per-EOA quota: INCR a Redis counter keyed by chainId+sender, set TTL on
+   * first hit, reject when over budget. Skipped entirely when quotaPerHour=0
+   * (local) or when no redis client is configured. Fail-CLOSED on Redis
+   * errors so a quota infra outage can't accidentally turn into unbounded
+   * sponsorship.
+   *
+   * INCR + EXPIRE are pipelined into a single MULTI so the key always gets
+   * its TTL set on first hit — otherwise an EXPIRE that fails after a
+   * successful INCR would leave a permanent counter and lock the EOA out.
+   *
+   * Applied to BOTH stub and real paymaster calls. Splitting the quota across
+   * the two would let an attacker mint unlimited *real* paymaster sigs via
+   * the stub endpoint (each call returns a valid signature for the supplied
+   * userOp). Default REMOTE quota is sized so a normal flow (one stub + one
+   * real per user op) uses 2 of the budget.
+   */
+  async function checkQuotaOrThrow(sender) {
+    if (quotaPerHour === 0n || !redis) return;
+    if (!isAddress(sender)) {
+      const err = new Error(`paymaster quota: invalid sender address "${sender}"`);
+      err.code = -32602;
+      throw err;
+    }
+    const key = `paymaster:quota:${chain.id}:${sender.toLowerCase()}`;
+    let count;
+    try {
+      // ioredis pipeline: each entry is `[err, value]`. multi() guarantees
+      // both commands run together so the EXPIRE can't be skipped by a
+      // network blip after INCR has already bumped the counter.
+      const [[incrErr, incrVal], [expErr]] = await redis
+        .multi()
+        .incr(key)
+        .expire(key, QUOTA_WINDOW_SECONDS)
+        .exec();
+      if (incrErr) throw incrErr;
+      if (expErr) throw expErr;
+      count = incrVal;
+    } catch (err) {
+      const wrapped = new Error(`paymaster quota check failed: ${err.message}`);
+      wrapped.code = -32000;
+      throw wrapped;
+    }
+    if (BigInt(count) > quotaPerHour) {
+      const err = new Error(
+        `paymaster sponsorship quota exceeded for ${sender} (${count}/${quotaPerHour}/hr)`,
+      );
+      // -32603 is JSON-RPC "internal error" with custom data. Clients can
+      // branch on data.reason instead of memorising a non-standard code.
+      err.code = -32603;
+      err.data = { reason: "quota_exceeded", limit: Number(quotaPerHour), count };
+      throw err;
+    }
+  }
+
   async function getPaymasterData(userOp) {
+    assertGasLimitsWithinCaps(userOp);
+    // Bound the validity window. validityWindowSec=0 means unbounded (local
+    // dev only). Otherwise: validAfter = now − backdate, validUntil = now +
+    // window. Use unix seconds, not millis — the contract's uint48 fields
+    // are seconds.
+    let validUntil = 0n;
+    let validAfter = 0n;
+    if (validityWindowSec > 0n) {
+      const now = BigInt(Math.floor(Date.now() / 1000));
+      validAfter = now > VALID_AFTER_BACKDATE_SECONDS
+        ? now - VALID_AFTER_BACKDATE_SECONDS
+        : 0n;
+      validUntil = now + validityWindowSec;
+      // Sanity check the bound. Upstream EntryPoint rejects with AA22 when
+      // validAfter >= validUntil, so failing here gives a clearer error than
+      // a generic on-chain revert.
+      if (validAfter >= validUntil) {
+        throw new Error(
+          `bundler validity window invariant broken: validAfter=${validAfter} >= validUntil=${validUntil}`,
+        );
+      }
+    }
     return buildPaymasterResponse({
       userOperation: userOp,
       paymasterAddress,
@@ -116,6 +364,8 @@ export function createBundlerService({ rpcUrl, chain, relayKey, paymasterAddress
       chainId: chain.id,
       paymasterVerificationGasLimit: userOp.paymasterVerificationGasLimit ?? 150_000n,
       paymasterPostOpGasLimit: userOp.paymasterPostOpGasLimit ?? 30_000n,
+      validUntil,
+      validAfter,
     });
   }
 
@@ -126,10 +376,15 @@ export function createBundlerService({ rpcUrl, chain, relayKey, paymasterAddress
    * vs. production flows — one signature is enough.
    */
   async function pmGetPaymasterStubData(userOp) {
+    // Stub returns a real signature too (we don't run a separate dummy-bytes
+    // path) — so it MUST consume quota or it becomes a free-signature oracle
+    // for any attacker who exhausted the real-call budget.
+    await checkQuotaOrThrow(userOp.sender);
     return getPaymasterData(userOp);
   }
 
   async function pmGetPaymasterData(userOp) {
+    await checkQuotaOrThrow(userOp.sender);
     return getPaymasterData(userOp);
   }
 
@@ -143,12 +398,28 @@ export function createBundlerService({ rpcUrl, chain, relayKey, paymasterAddress
    * cost more when the op succeeds.
    */
   async function estimateUserOperationGas() {
+    // Static suggestions, then clamped to the network caps so we never hand
+    // out values we would later refuse to sign for in pm_getPaymasterData.
+    const suggested = {
+      preVerificationGas: 100_000n,
+      verificationGasLimit: 500_000n,
+      callGasLimit: 8_000_000n,
+      paymasterVerificationGasLimit: 200_000n,
+      paymasterPostOpGasLimit: 60_000n,
+    };
+    const min = (a, b) => (a < b ? a : b);
     return {
-      preVerificationGas: numberToHex(100_000n),
-      verificationGasLimit: numberToHex(500_000n),
-      callGasLimit: numberToHex(8_000_000n),
-      paymasterVerificationGasLimit: numberToHex(200_000n),
-      paymasterPostOpGasLimit: numberToHex(60_000n),
+      preVerificationGas: numberToHex(suggested.preVerificationGas),
+      verificationGasLimit: numberToHex(
+        min(suggested.verificationGasLimit, gasCaps.verificationGasLimit),
+      ),
+      callGasLimit: numberToHex(min(suggested.callGasLimit, gasCaps.callGasLimit)),
+      paymasterVerificationGasLimit: numberToHex(
+        min(suggested.paymasterVerificationGasLimit, gasCaps.paymasterVerificationGasLimit),
+      ),
+      paymasterPostOpGasLimit: numberToHex(
+        min(suggested.paymasterPostOpGasLimit, gasCaps.paymasterPostOpGasLimit),
+      ),
     };
   }
 

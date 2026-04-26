@@ -99,91 +99,17 @@ export default async function paymasterProxyRoutes(fastify) {
       }
 
       if (!pimlicoUrl) {
-        // Local dev: handle paymaster requests using the local SOFPaymaster
-        const body = request.body || {};
-        const method = body.method;
-
-        if (method === "pm_getPaymasterStubData") {
-          // Return stub data for gas estimation — tells the wallet "this will be sponsored"
-          const { getDeployment } = await import('@sof/contracts/deployments');
-          const paymasterAddr = getDeployment('local').Paymaster;
-          if (!paymasterAddr) {
-            return reply.status(503).send({ error: "Local paymaster not deployed — run docker compose up" });
-          }
-
-          return reply.send({
-            jsonrpc: "2.0",
-            id: body.id,
-            result: {
-              paymaster: paymasterAddr,
-              paymasterData: "0x" + "00".repeat(65), // stub 65-byte signature for gas estimation
-              paymasterVerificationGasLimit: "0x30000",
-              paymasterPostOpGasLimit: "0x10000",
-              sponsor: { name: "SecondOrder.fun", icon: "" },
-              isFinal: false,
-            },
-          });
-        }
-
-        if (method === "pm_getPaymasterData") {
-          // Sign the UserOp hash with the relay wallet to approve sponsorship
-          const { getDeployment } = await import('@sof/contracts/deployments');
-          const paymasterAddr = getDeployment('local').Paymaster;
-          if (!paymasterAddr) {
-            return reply.status(503).send({ error: "Local paymaster not deployed" });
-          }
-
-          try {
-            const { privateKeyToAccount } = await import('viem/accounts');
-            const relayKey = process.env.BACKEND_WALLET_PRIVATE_KEY;
-            if (!relayKey) {
-              return reply.status(503).send({ error: "BACKEND_WALLET_PRIVATE_KEY not set" });
-            }
-            const normalizedKey = relayKey.startsWith('0x') ? relayKey : `0x${relayKey}`;
-            const account = privateKeyToAccount(normalizedKey);
-
-            // The UserOp hash is typically the second parameter in pm_getPaymasterData
-            // ERC-7677 params: [userOp, entryPoint, chainId] — we need the hash of the userOp
-            // For now, sign the raw params as-is — the exact format depends on what MetaMask sends
-            // Log the params to see the actual structure
-            fastify.log.info({ method, params: body.params }, 'Local paymaster signing request');
-
-            // Extract the userOp hash — this may need adjustment based on actual MetaMask request format
-            // The hash to sign is typically computed by the EntryPoint from the UserOp
-            const userOpHash = body.params?.[1] || body.params?.[0]; // Try different positions
-
-            let signature;
-            if (typeof userOpHash === 'string' && userOpHash.startsWith('0x')) {
-              signature = await account.signMessage({ message: { raw: userOpHash } });
-            } else {
-              // If we get the full UserOp object, we need to hash it ourselves
-              // For now, sign a placeholder — this will be refined when we see the actual request
-              const { keccak256, encodeAbiParameters } = await import('viem');
-              const hashToSign = keccak256(encodeAbiParameters(
-                [{ type: 'string' }],
-                [JSON.stringify(body.params)]
-              ));
-              signature = await account.signMessage({ message: { raw: hashToSign } });
-            }
-
-            return reply.send({
-              jsonrpc: "2.0",
-              id: body.id,
-              result: {
-                paymaster: paymasterAddr,
-                paymasterData: signature,
-              },
-            });
-          } catch (err) {
-            fastify.log.error({ err }, 'Local paymaster signing failed');
-            return reply.status(500).send({ error: "Paymaster signing failed: " + err.message });
-          }
-        }
-
-        return reply.status(400).send({
-          jsonrpc: "2.0",
-          id: (body || {}).id,
-          error: { code: -32601, message: `Unknown paymaster method: ${method}` },
+        // Local dev sponsored flow lives in localBundlerRoutes.js (POST
+        // /api/paymaster/local). The previous in-route signer used the OLD
+        // keccak(userOpHash, validUntil, validAfter) digest scheme and never
+        // got migrated to SOFPaymaster.getHash, so it would have produced
+        // AA34 the moment any client hit it. Send callers to the right
+        // endpoint instead of pretending to sign.
+        const hint = networkKey === "LOCAL"
+          ? "On local dev, use /api/paymaster/local instead."
+          : "Pimlico misconfigured (PIMLICO_API_KEY missing) — contact ops.";
+        return reply.status(503).send({
+          error: `Pimlico not configured. ${hint}`,
         });
       }
 
