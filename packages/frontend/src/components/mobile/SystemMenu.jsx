@@ -83,7 +83,7 @@ const SystemMenu = ({ isOpen, onClose, profile }) => {
     <div className="fixed inset-0 z-40 pointer-events-none">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/50 pointer-events-auto"
+        className="absolute inset-0 bg-foreground/50 pointer-events-auto"
         onClick={onClose}
       />
 
@@ -222,7 +222,7 @@ const SystemMenu = ({ isOpen, onClose, profile }) => {
           {isLanguagePickerOpen && (
             <div className="fixed inset-0 z-[9999] flex items-center justify-center">
               <div
-                className="absolute inset-0 bg-black/60"
+                className="absolute inset-0 bg-foreground/60"
                 onClick={() => setIsLanguagePickerOpen(false)}
               />
               <div className="relative bg-card border border-border rounded-lg p-5 mx-4 w-full max-w-sm shadow-xl">

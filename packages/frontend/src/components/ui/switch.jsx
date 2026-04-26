@@ -9,11 +9,13 @@ const Switch = React.forwardRef(({ className, ...props }, ref) => (
     className={cn(
       // Default shadcn/ui classes with justify-start for proper thumb positioning
       "peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center justify-start rounded-full border-2 border-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50",
-      // Cochineal Red when checked. Unchecked: cochineal at 65% alpha so the
-      // track reads as light rose in BOTH modes — without this, the dark-mode
-      // unchecked track was bg-secondary (very dark purple-grey) and the
-      // bg-background thumb blended into both the track and the page bg.
-      "data-[state=checked]:bg-primary data-[state=unchecked]:bg-primary/65",
+      // Cochineal Red when checked. Unchecked uses --track-rest (light rose
+      // in BOTH modes). Light mode reads at full saturation against the
+      // white page; dark mode softens to 70% alpha so the rose doesn't pop
+      // too hard against the near-black page. This is the one place a
+      // `dark:` modifier is intentional — encoded in a primitive, not
+      // scattered through leaf components.
+      "data-[state=checked]:bg-primary data-[state=unchecked]:bg-track-rest dark:data-[state=unchecked]:bg-track-rest/70",
       className,
     )}
     {...props}

@@ -32,6 +32,9 @@ export default {
           DEFAULT: 'hsl(var(--secondary))',
           foreground: 'hsl(var(--secondary-foreground))',
         },
+        // Track for inactive/empty states (Switch off, Progress empty).
+        // Holds light-rose in BOTH themes — see tailwind.css.
+        'track-rest': 'hsl(var(--track-rest))',
         destructive: {
           DEFAULT: 'hsl(var(--destructive))',
           foreground: 'hsl(var(--destructive-foreground))',

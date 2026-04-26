@@ -24,11 +24,10 @@ const Progress = React.forwardRef(
       <ProgressPrimitive.Root
         ref={ref}
         className={cn(
-          // bg-primary/65 (cochineal at 65% alpha) so the empty/track segment
-          // reads as light rose in both modes. bg-secondary was too dim in dark
-          // mode (dark purple-grey blended with the page bg) and visually flat
-          // in light mode.
-          "relative h-4 w-full overflow-hidden rounded-full bg-primary/65",
+          // bg-track-rest is light rose in BOTH modes (see tailwind.css for
+          // --track-rest). Avoids the dark-mode bg-secondary that blended
+          // with the page bg.
+          "relative h-4 w-full overflow-hidden rounded-full bg-track-rest",
           className,
         )}
         {...props}
@@ -45,13 +44,21 @@ const Progress = React.forwardRef(
     return (
       <div className="relative" onMouseLeave={() => setTip(null)}>
         {bar}
-        {/* Step markers — sit on top of the bar, vertically centered */}
+        {/* Step markers — sit on top of the bar, vertically centered.
+            Markers in the FILLED section (position <= value) get a
+            page-bg ring so they read as bullseyes against the pink fill.
+            Markers in the EMPTY section sit on the rose track and are
+            cleaner without a border (the bg-primary dot already contrasts). */}
         {steps.map((step, idx) => {
           if (step.position > 100) return null
+          const inFilled = step.position <= (value || 0)
           return (
             <div
               key={idx}
-              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-primary border-2 border-foreground shadow-sm cursor-help"
+              className={cn(
+                "absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-primary shadow-sm cursor-help",
+                inFilled && "border-2 border-background",
+              )}
               style={{ left: `${step.position}%` }}
               onMouseEnter={() => setTip({ ...step, idx })}
             />

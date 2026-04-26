@@ -164,7 +164,7 @@ export const PasswordGateModal = ({
                 })}
                 disabled={status === "loading"}
                 autoFocus
-                className="bg-black/40 border-border"
+                className="bg-input border-border"
               />
             </div>
 
