@@ -314,13 +314,15 @@ for log in d.get('logs', []):
   # ------ Step 4: Seed admin wallets ------
   # allowlistService looks up wallets with `.eq(wallet_address, wallet.toLowerCase())`
   # so rows must be stored lowercase even though EIP-55 checksummed addresses
-  # come in as mixed case.
+  # come in as mixed case. UPSERT (not INSERT-WHERE-NOT-EXISTS) so a stale row
+  # with wrong access_level gets corrected — caught us when `supabase db reset`
+  # had wiped admin and a partial leftover row blocked the re-seed.
   log "Step 4/9: Seeding admin wallets in Supabase DB..."
   for wallet in "${ADMIN_WALLETS[@]}"; do
     local wallet_lc
     wallet_lc=$(echo "$wallet" | tr '[:upper:]' '[:lower:]')
     supabase_db_exec \
-      "INSERT INTO allowlist_entries (wallet_address, source, access_level, is_active) SELECT '$wallet_lc', 'manual', 4, true WHERE NOT EXISTS (SELECT 1 FROM allowlist_entries WHERE lower(wallet_address) = '$wallet_lc');" \
+      "INSERT INTO allowlist_entries (wallet_address, source, access_level, is_active) VALUES ('$wallet_lc', 'manual', 4, true) ON CONFLICT ((lower(wallet_address::text))) WHERE wallet_address IS NOT NULL DO UPDATE SET access_level = EXCLUDED.access_level, is_active = true, source = 'manual';" \
       > /dev/null 2>&1
   done
   ok "  ${#ADMIN_WALLETS[@]} admin wallet(s) seeded"
@@ -386,6 +388,7 @@ for log in d.get('logs', []):
   SUPABASE_URL=$SUPABASE_URL \
   SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY" \
   BACKEND_WALLET_PRIVATE_KEY=$DEPLOYER_KEY \
+  BACKEND_WALLET_ADDRESS=$DEPLOYER_ADDR \
   JWT_SECRET=local-dev-jwt-secret \
   JWT_EXPIRES_IN=7d \
   CORS_ORIGINS="http://localhost:5174,http://127.0.0.1:5174" \
@@ -430,16 +433,24 @@ for log in d.get('logs', []):
   echo "  Stop:  ./scripts/local-dev.sh stop"
   echo ""
 
-  # Verify admin access
-  local access
-  access=$(curl -s "http://127.0.0.1:3000/api/access/check?wallet=${ADMIN_WALLETS_CHECKSUMMED[1]}" 2>/dev/null)
-  local level
-  level=$(echo "$access" | python3 -c "import sys,json; print(json.load(sys.stdin).get('accessLevel',0))" 2>/dev/null || echo "0")
-  if [ "$level" = "4" ]; then
-    ok "Admin access verified for ${ADMIN_WALLETS_CHECKSUMMED[1]}"
-  else
-    warn "Admin access check returned level=$level (expected 4)"
-    warn "  Response: $access"
+  # Verify admin access for Account[0] (deployer) and Patrick — both must be 4
+  # or contract-admin actions silently fall back to public access.
+  local verify_failed=0
+  for idx in 0 1; do
+    local addr=${ADMIN_WALLETS_CHECKSUMMED[$idx]}
+    local resp level
+    resp=$(curl -s "http://127.0.0.1:3000/api/access/check?wallet=$addr" 2>/dev/null)
+    level=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('accessLevel',0))" 2>/dev/null || echo "0")
+    if [ "$level" = "4" ]; then
+      ok "Admin access verified for $addr"
+    else
+      warn "Admin access check returned level=$level for $addr (expected 4)"
+      warn "  Response: $resp"
+      verify_failed=1
+    fi
+  done
+  if [ "$verify_failed" = "1" ]; then
+    warn "One or more admin checks failed — review output above"
   fi
 }
 

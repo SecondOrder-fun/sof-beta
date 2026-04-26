@@ -335,8 +335,15 @@ CREATE TRIGGER raffle_tx_player_id_trigger
     EXECUTE FUNCTION populate_raffle_tx_player_id();
 
 -- Partition management: create a partition for a given season
+-- SECURITY DEFINER so the trigger can issue CREATE TABLE PARTITION OF
+-- raffle_transactions when invoked from the Supabase service_role (which
+-- doesn't own raffle_transactions). Without it inserts to season_contracts
+-- abort with "must be owner of table raffle_transactions".
 CREATE OR REPLACE FUNCTION create_raffle_tx_partition(season_num BIGINT)
-RETURNS VOID AS $$
+RETURNS VOID
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
 DECLARE
     partition_name TEXT;
 BEGIN
@@ -359,7 +366,10 @@ $$ LANGUAGE plpgsql;
 
 -- Auto-create raffle_transactions partition when a new season_contracts row is inserted
 CREATE OR REPLACE FUNCTION auto_create_raffle_tx_partition()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
 BEGIN
     PERFORM create_raffle_tx_partition(NEW.season_id);
     RETURN NEW;
@@ -448,13 +458,17 @@ COMMENT ON COLUMN allowlist_entries.wallet_address IS 'Primary Ethereum wallet a
 COMMENT ON COLUMN allowlist_entries.source       IS 'How user was added: webhook (app add), manual (admin), import (bulk)';
 COMMENT ON COLUMN allowlist_entries.access_level IS 'Access tier: 0=public, 1=connected, 2=allowlist, 3=beta, 4=admin';
 
--- Seed local admins
+-- Seed local admins. allowlistService looks up wallets via .eq(wallet_address,
+-- lower(input)), so rows MUST be stored lowercase. UPSERT (not DO NOTHING) so a
+-- stale row with wrong access_level gets corrected on every db reset.
 INSERT INTO allowlist_entries (wallet_address, source, access_level, is_active)
-VALUES ('0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266', 'manual', 4, true)
-ON CONFLICT DO NOTHING;
+VALUES ('0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266', 'manual', 4, true)
+ON CONFLICT ((lower(wallet_address::text))) WHERE wallet_address IS NOT NULL
+DO UPDATE SET access_level = EXCLUDED.access_level, is_active = true, source = 'manual';
 INSERT INTO allowlist_entries (wallet_address, source, access_level, is_active)
 VALUES ('0x1ed4ac856d7a072c3a336c0971a47db86a808ff4', 'manual', 4, true)
-ON CONFLICT DO NOTHING;
+ON CONFLICT ((lower(wallet_address::text))) WHERE wallet_address IS NOT NULL
+DO UPDATE SET access_level = EXCLUDED.access_level, is_active = true, source = 'manual';
 
 -- ==========================================================================
 -- 11. allowlist_config — Time-gated allowlist windows
