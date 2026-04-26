@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { useTranslation } from 'react-i18next';
 import { useWalletClient, useChainId } from 'wagmi';
-import { getBytecode } from '@wagmi/core';
+import { getBytecode, getWalletClient } from '@wagmi/core';
 import { config } from '@/lib/wagmiConfig';
 import { getContractAddresses } from '@/config/contracts';
 import { getStoredNetworkKey } from '@/lib/wagmi';
@@ -43,7 +43,26 @@ export function DelegationModal({ open, onOpenChange, onDelegated }) {
   }, []);
 
   const handleEnable = useCallback(async () => {
-    if (!walletClient) return;
+    // useWalletClient() is async — on early modal mount its `data` is still
+    // undefined even though the wallet is connected. Fall back to fetching
+    // the client imperatively from wagmi/core, which reaches into the
+    // already-provisioned connector state. Avoids a silent bail when the
+    // user clicks Enable before the React-query has resolved.
+    let wc = walletClient;
+    if (!wc) {
+      try {
+        wc = await getWalletClient(config);
+      } catch {
+        wc = null;
+      }
+    }
+    if (!wc?.account?.address) {
+      setStatus('error');
+      setErrorMsg(
+        'Wallet not ready. Please disconnect and reconnect, then try again.',
+      );
+      return;
+    }
 
     const contracts = getContractAddresses(getStoredNetworkKey());
     const sofSmartAccount = contracts.SOF_SMART_ACCOUNT;
@@ -54,7 +73,7 @@ export function DelegationModal({ open, onOpenChange, onDelegated }) {
     }
 
     try {
-      const userAddress = walletClient.account.address;
+      const userAddress = wc.account.address;
       const jwt = localStorage.getItem('sof:jwt');
       const isLocalChain = chainId === 31337;
 
@@ -81,7 +100,7 @@ export function DelegationModal({ open, onOpenChange, onDelegated }) {
       } else {
         // Testnet / mainnet: real EIP-7702 with wallet signature.
         setStatus('signing');
-        const authorization = await walletClient.signAuthorization({
+        const authorization = await wc.signAuthorization({
           contractAddress: sofSmartAccount,
           chainId,
         });
@@ -113,7 +132,7 @@ export function DelegationModal({ open, onOpenChange, onDelegated }) {
       const start = Date.now();
       let pollIter = 0;
       while (Date.now() - start < POLL_TIMEOUT_MS && mountedRef.current) {
-        const code = await getBytecode(config, { address: walletClient.account.address });
+        const code = await getBytecode(config, { address: wc.account.address });
         // eslint-disable-next-line no-console
         console.log('[DelegationModal] poll iter', pollIter++, { code, mounted: mountedRef.current });
         if (!mountedRef.current) return;
