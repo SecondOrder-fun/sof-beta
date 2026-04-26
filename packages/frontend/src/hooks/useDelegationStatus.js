@@ -60,17 +60,35 @@ export function useDelegationStatus() {
         const delegate = '0x' + hex.slice(DELEGATION_PREFIX.length);
         const contracts = getContractAddresses(getStoredNetworkKey());
         const sofAccount = (contracts.SOF_SMART_ACCOUNT || '').toLowerCase();
-        setState({
-          isDelegated: true,
-          delegateAddress: delegate,
-          isSOFDelegate: !!sofAccount && delegate === sofAccount.toLowerCase(),
-          isLoading: false,
+        const isSOFDelegate = !!sofAccount && delegate === sofAccount.toLowerCase();
+        setState((prev) => {
+          // Skip the state update + log entirely when nothing changed; this
+          // hook ticks on a 5s interval and was flooding the console with
+          // identical "delegated" lines on every poll.
+          if (
+            prev.isDelegated &&
+            prev.delegateAddress === delegate &&
+            prev.isSOFDelegate === isSOFDelegate &&
+            !prev.isLoading
+          ) {
+            return prev;
+          }
+          // eslint-disable-next-line no-console
+          console.log("[useDelegationStatus] delegated", { delegate, sofAccount, isSOFDelegate });
+          return {
+            isDelegated: true,
+            delegateAddress: delegate,
+            isSOFDelegate,
+            isLoading: false,
+          };
         });
       } else {
         // Has code but not a delegation designator (actual smart contract)
         setState({ isDelegated: false, delegateAddress: null, isSOFDelegate: false, isLoading: false });
       }
-    } catch {
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn("[useDelegationStatus] error", err);
       setState(prev => ({ ...prev, isLoading: false }));
     }
   }, [address, connector, isConnected]);
@@ -78,6 +96,22 @@ export function useDelegationStatus() {
   useEffect(() => {
     check();
   }, [check, chainId]);
+
+  // Re-check on a low-frequency interval and on a custom event the
+  // DelegationModal fires the moment a delegation lands. Without the event,
+  // freshly-delegated EOAs would stay stuck at isSOFDelegate=false until
+  // another wagmi state change happened to re-run the hook, which causes
+  // executeBatch's Path A gate to skip the sponsored UserOp flow.
+  useEffect(() => {
+    if (!isConnected) return;
+    const interval = setInterval(() => { check(); }, 30_000);
+    const onChanged = () => { check(); };
+    window.addEventListener("sof:delegation-changed", onChanged);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("sof:delegation-changed", onChanged);
+    };
+  }, [check, isConnected]);
 
   return { ...state, refetch: check };
 }

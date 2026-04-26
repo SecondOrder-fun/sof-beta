@@ -35,6 +35,10 @@ export function DelegationModal({ open, onOpenChange, onDelegated }) {
   const mountedRef = useRef(true);
 
   useEffect(() => {
+    // Reset on every mount so React 18 StrictMode's mount→unmount→remount
+    // dance doesn't leave the ref permanently false (cleanup sets false but
+    // the bare initial value never gets set on the second mount).
+    mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
 
@@ -50,27 +54,51 @@ export function DelegationModal({ open, onOpenChange, onDelegated }) {
     }
 
     try {
-      // 1. Sign the ERC-7702 authorization
-      setStatus('signing');
-      const authorization = await walletClient.signAuthorization({
-        contractAddress: sofSmartAccount,
-        chainId,
-      });
-
-      // 2. Send to backend relay
-      setStatus('submitting');
+      const userAddress = walletClient.account.address;
       const jwt = localStorage.getItem('sof:jwt');
-      const res = await fetch(`${apiBase}/wallet/delegate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(jwt ? { Authorization: `Bearer ${jwt}` } : {}),
-        },
-        body: JSON.stringify({
-          authorization,
-          userAddress: walletClient.account.address,
-        }),
-      });
+      const isLocalChain = chainId === 31337;
+
+      // eslint-disable-next-line no-console
+      console.log('[DelegationModal] handleEnable start', { userAddress, isLocalChain, chainId, apiBase });
+
+      let res;
+      if (isLocalChain) {
+        // Local Anvil: MetaMask doesn't expose eth_signAuthorization for
+        // arbitrary delegates and viem's signAuthorization is unimplemented
+        // for JSON-RPC accounts. Skip the wallet sig entirely and have the
+        // backend inject the 7702 designator via anvil_setCode. The EVM
+        // treats it identically to a real delegation, so everything past
+        // this point exercises the production code path.
+        setStatus('submitting');
+        res = await fetch(`${apiBase}/wallet/delegate-shortcut`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(jwt ? { Authorization: `Bearer ${jwt}` } : {}),
+          },
+          body: JSON.stringify({ userAddress }),
+        });
+      } else {
+        // Testnet / mainnet: real EIP-7702 with wallet signature.
+        setStatus('signing');
+        const authorization = await walletClient.signAuthorization({
+          contractAddress: sofSmartAccount,
+          chainId,
+        });
+
+        setStatus('submitting');
+        res = await fetch(`${apiBase}/wallet/delegate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(jwt ? { Authorization: `Bearer ${jwt}` } : {}),
+          },
+          body: JSON.stringify({ authorization, userAddress }),
+        });
+      }
+
+      // eslint-disable-next-line no-console
+      console.log('[DelegationModal] fetch returned', { ok: res.ok, status: res.status });
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -78,14 +106,22 @@ export function DelegationModal({ open, onOpenChange, onDelegated }) {
       }
 
       // 3. Poll getBytecode until delegation appears
+      // eslint-disable-next-line no-console
+      console.log('[DelegationModal] entering confirming poll', { mounted: mountedRef.current });
       if (!mountedRef.current) return;
       setStatus('confirming');
       const start = Date.now();
+      let pollIter = 0;
       while (Date.now() - start < POLL_TIMEOUT_MS && mountedRef.current) {
         const code = await getBytecode(config, { address: walletClient.account.address });
+        // eslint-disable-next-line no-console
+        console.log('[DelegationModal] poll iter', pollIter++, { code, mounted: mountedRef.current });
         if (!mountedRef.current) return;
         if (code && code.toLowerCase().startsWith(DELEGATION_PREFIX)) {
           setStatus('success');
+          // Wake useDelegationStatus immediately so the next executeBatch
+          // call sees isSOFDelegate=true without waiting for its 5s tick.
+          window.dispatchEvent(new Event("sof:delegation-changed"));
           onDelegated?.();
           return;
         }
@@ -94,7 +130,10 @@ export function DelegationModal({ open, onOpenChange, onDelegated }) {
 
       // Tx was submitted but confirmation not yet detected — close modal
       // and let useDelegationStatus detect it on next check
-      if (mountedRef.current) onDelegated?.();
+      if (mountedRef.current) {
+        window.dispatchEvent(new Event("sof:delegation-changed"));
+        onDelegated?.();
+      }
     } catch (err) {
       if (!mountedRef.current) return;
       setStatus('error');

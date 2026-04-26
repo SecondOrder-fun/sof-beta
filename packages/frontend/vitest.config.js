@@ -45,8 +45,10 @@ export default defineConfig({
       "src/components/delegation/DelegationModal.test.jsx", // ERR_REQUIRE_ESM: wagmi ESM in forks pool
       "tests/e2e/**", // E2E tests use Playwright, not Vitest
     ],
-    deps: {
-      inline: ["wagmi", "@wagmi/core"],
+    server: {
+      deps: {
+        inline: ["wagmi", "@wagmi/core"],
+      },
     },
     poolOptions: {
       forks: {

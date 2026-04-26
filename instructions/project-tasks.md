@@ -79,8 +79,22 @@ MetaMask `wallet_sendCalls` does not support `paymasterService` capability. Batc
 - [x] Refactor useSmartTransactions for delegation routing
 - [x] Wire DelegationGate into WagmiConfigProvider
 - [x] Deploy SOFSmartAccount to Base Sepolia
-- [ ] End-to-end testing with MetaMask + Rabby
+- [x] End-to-end testing with MetaMask on local Anvil (Test A — sponsored UserOp via local bundler+paymaster, season created and ticket buy gasless, both confirmed on-chain at 0 ETH user cost)
+- [ ] End-to-end testing with Rabby on local Anvil
+- [ ] End-to-end testing with Big Wallet on Safari (passkey, may need a non-permissionless account adapter)
 - [x] Add delegation locale strings for de, es, fr, it, ja, pt, ru, zh
+
+### Local AA bring-up fixes (this milestone)
+- [x] Deploy real EntryPoint v0.8 at canonical `0x4337...108` on Anvil — bootstrap deploys via tx so EIP-712 immutables (`name="ERC4337"`, `version="1"`) get inlined into the runtime, then `anvil_setCode` moves it to the canonical address
+- [x] Redesign SOFPaymaster to avoid the `userOpHash` chicken-and-egg — added `getHash(userOp, validUntil, validAfter)` mirroring eth-infinitism `VerifyingPaymaster`; off-chain signer mirrors the layout
+- [x] Add SimpleAccount-compatible `execute` + `executeBatch` shims to SOFSmartAccount so permissionless's `to7702SimpleSmartAccount` adapter can dispatch (selectors `0xb61d27f6` and `0x34fcd5be`)
+- [x] Fix `normalizeUserOp` defaults — `maxFeePerGas`/`maxPriorityFeePerGas` default to 0 (not 1 gwei) so they don't mutate the packed `gasFees` and break the wallet signature
+- [x] Bump bundler `eth_estimateUserOperationGas` defaults — `callGasLimit` 300k → 8M to cover ops that deploy contracts (createSeason was OOG'ing inside `new RaffleToken`)
+- [x] `executeBatch` Path A returns the real handleOps tx hash (not the userOpHash) so `useWaitForTransactionReceipt` resolves
+- [x] `WagmiConfigProvider` re-prompts delegation when the EOA is delegated to a stale SOFSmartAccount on local chain (`isDelegated && !isLocalChain` guard)
+- [x] `14_ConfigureRoles.s.sol` auto-broadcasts `sof.approve(InfoFiFactory, max)` and `sof.approve(RolloverEscrow, max)` when `TREASURY_ADDRESS == deployer`
+- [x] `15_DeployPaymaster.s.sol` removed Stub fallback; deposit moved to post-deploy `cast send` in `local-dev.sh` (forge's local sim doesn't see `anvil_setCode` injections)
+- [x] Bundler returns decoded `FailedOp`/`FailedOpWithRevert` reasons + serializes BigInts in `eth_getUserOperationReceipt`; tolerates the "tx not yet mined" race
 
 ## Monorepo Migration (In Progress)
 
@@ -133,3 +147,49 @@ MetaMask `wallet_sendCalls` does not support `paymasterService` capability. Batc
 ## UI Tasks
 
 - [ ] Landing page background animation: scale moving elements 6-8x, pixelated style (4x4 grid with blank corners for circular appearance)
+
+## Deferred from 2026-04-23 Code Analysis
+
+Audit done after iCloud cleanup / github restore. The three "blockers" (backend eslint config, gating-route test mocks, treasury→RolloverEscrow approval on local) were fixed in-session, plus the 9 frontend mock-drift failures, plus the rollover setter events + Fastify bodyLimit + useTreasury ERC-5792 compliance. Residual items below are non-blocking for E2E; tackle when ready.
+
+### Frontend cleanup
+- [ ] **Bundle size** — main chunk is 1,719 kB (>Vite's 1600 kB warning). No route-level code-splitting; all 20+ routes statically imported in `main.jsx`. Convert the top offenders (`RaffleDetails`, `RaffleList`, `UIGym`, `CreateSeasonPage`, admin routes) to `React.lazy` + `Suspense`.
+- [ ] **Files exceeding 500-line `lint:length` rule** (10 files; split or extract):
+  - `services/onchainInfoFi.js` 1036
+  - `components/admin/CreateSeasonForm.jsx` 1021
+  - `routes/UIGym.jsx` 765 (dev-only, tree-shaken in prod — low priority)
+  - `routes/RaffleDetails.jsx` 751
+  - `components/admin/BondingCurveEditor/GraphView.jsx` 629
+  - `components/admin/AllowlistPanel.jsx` 614
+  - `components/admin/NftDropsPanel.jsx` 596
+  - `pages/InfoFiMarketDetail.jsx` 568
+  - `hooks/useSOFTransactions.js` 526
+  - `routes/RaffleList.jsx` 506
+- [ ] Unguarded `console.log` leaks in `onchainInfoFi.js` (several) and `LocalizationAdmin.jsx` (lines 238, 241, 250). `useFundDistributor.js` has one with an `eslint-disable` — keep if debug was intentional, otherwise remove.
+
+### Backend hardening
+- [ ] **Schema validation on route bodies** — no zod/joi; handlers do ad-hoc `if (!Array.isArray(…))` checks. 109 endpoints, inconsistent coverage. Recommend adopting Fastify's built-in JSON Schema or `@fastify/type-provider-zod` and retrofitting the high-value admin + auth routes first.
+- [ ] **Admin guard caches nothing** — `shared/adminGuard.js:14` does a fresh `getUserAccess()` DB roundtrip per request. Cache access level in Redis (TTL ~60s) keyed by fid/wallet.
+- [ ] **Rollover listener has no tests** — `src/listeners/rolloverEventListener.js` and `fastify/routes/rolloverRoutes.js` are the newest code (commits e093cb3, d00519c) with zero coverage. Add unit tests for idempotent upsert and block-cursor recovery.
+- [ ] **Env vars validated lazily** — `BACKEND_WALLET_PRIVATE_KEY`, `NEYNAR_API_KEY`, `PAYMASTER_RPC_URL`, `PIMLICO_API_KEY`, `HATS_*` are read at call-site rather than at module load. A single `assertRequiredEnv()` called from `server.js` would fail fast on boot instead of at first user request.
+- [ ] **CORS regex is fragile** — `CORS_ORIGINS` supports wildcards; a trailing space in the env var silently breaks pattern matching. Trim + validate on load.
+- [ ] **No error tracking** — global error handler in `server.js:290` returns generic "Internal Server Error" with no context. Wire Sentry (or equivalent) so 5xx and listener crashes surface somewhere.
+- [ ] **Transitive `moderate` audit advisories** — 11 remaining from `@metamask/sdk`, `@coinbase/cdp-sdk`, `@solana/web3.js`, `vitest`. All require breaking upgrades of our direct deps; revisit after upstream ships patches.
+
+### Contracts / operations
+- [x] **Auto-register consolation eligibility in `Raffle.finalizeSeason`.** Gap surfaced during 2026-04-24 Test B: `claimConsolation` reverted with `NotAParticipant` because `setConsolationEligible` was never wired into finalization. `_executeFinalization` now calls `distributor.setConsolationEligible(seasonId, state.participants)` right after `configureSeason`; covered by new assertion in `FullSeasonFlow.t.sol`.
+- [x] **Auto-grant `ESCROW_ROLE` to `RolloverEscrow` on every new bonding curve.** Same session gap: deployer EOA had no admin on per-season curves, so rollover spends required `anvil_impersonateAccount`. `SeasonFactory` now stores a `rolloverEscrow` address (settable by admin) and grants `ESCROW_ROLE` during `createSeasonContracts`; `DeployAll` calls `seasonFactory.setRolloverEscrow` in the 16b rollover-wiring block. Covered by `test/SeasonFactoryRollover.t.sol`.
+- [x] **Bind `bondingCurve` to each cohort.** Reviewer blocker: the global `RolloverEscrow.bondingCurve` slot meant operators had to remember a separate `setBondingCurve` call per season, and two active cohorts would trample each other. Deleted the global slot + setter; `CohortState` now carries its own `bondingCurve`; `activateCohort(seasonId, nextSeasonId, curve)` locks it in atomically. Covered by `test/RolloverPerCohortCurve.t.sol` (two cohorts → two curves, no cross-contamination).
+- [ ] **`14_ConfigureRoles.s.sol` still duplicates rollover wiring from `DeployAll` 16b** — the `if (addrs.rolloverEscrow != address(0))` block at lines 97–116 is a no-op during full DeployAll (rollover escrow doesn't exist yet at step 14), but fires on standalone ConfigureRoles runs and double-wires. Harmless (both calls are idempotent) but muddies ownership. Delete or move all rollover wiring to one place.
+- [ ] **`Raffle._executeFinalization` eligibility loop is O(participants).** At default `maxParticipants = 10_000` the single `setConsolationEligible` call burns ~200M gas — will OOG on most blocks (Base block limit is higher but not infinite). Either cap `defaultMaxParticipants` at a safe value (~1_500 fits comfortably) or chunk the eligibility registration into a separate `pokeConsolationEligible(seasonId, offset, limit)` that admins/backend can call after finalize.
+- [ ] **`SeasonFactory.setRolloverEscrow` silently accepts `address(0)`** — clears the escrow with no warning. Low risk, but a dedicated `clearRolloverEscrow()` would make intent explicit and stop accidental zeroing during mid-deploy runs.
+- [ ] **No test for escrow rotation on `SeasonFactory`.** Rotating `rolloverEscrow` from A → B leaves older curves stuck on A with no way to reassign. Intentional by design, but the behavior is not asserted anywhere and could surprise an operator.
+- [ ] **`FullSeasonFlow.t.sol` asserts eligibility but never calls `claimConsolation`.** Close the loop end-to-end: one non-winner actually claims after finalize, verifies SOF hits their wallet / escrow.
+- [ ] **`RafflePrizeDistributor.configureSeason` (lines 142–145) and `Raffle.sol` lines 558, 601–607 use string `require` reverts.** Pre-existing, not introduced by the rollover fix, but now in the rollover happy path. Convert to custom errors per the contracts CLAUDE.md rule.
+- [ ] **Stale comment at `RolloverEscrow.sol:30`** claims spend/refund are stubs — both are fully implemented (lines 280-315, 327-341). Delete or rewrite.
+- [ ] **No auto-timeout on `Active` phase.** Only `Open` phase expires after 30d. If `PrizeDistributor` forgets `closeCohort()` after the spend window, users can never refund. Options: add an `activeTimeout` grace period, or surface a deadline on the state struct and let users force-close once elapsed.
+- [ ] **Missing invariant test** for `totalDeposited >= totalSpent + totalRefunded` on `RolloverEscrow`. Add a forge invariant target.
+- [ ] **No test for treasury zero-balance case** — `safeTransferFrom(treasury, …)` reverts with no friendly message if treasury was never funded. Add a regression.
+- [ ] **Deprecated OZ import** `@openzeppelin/contracts/interfaces/draft-IERC4337.sol` in `SOFPaymaster.sol:7`. ERC-4337 is finalized upstream; verify compatibility with the production EntryPoint before mainnet and switch to the final interface when OZ ships it.
+- [ ] **`testnet.json` is missing `RolloverEscrow`** — not yet deployed to Base Sepolia. Next testnet push should redeploy with the updated `DeployAll.s.sol` and include `RolloverEscrow` in the committed deployment file.
+- [ ] **`SOFToken` has no treasury admin surface** — `useTreasury` / `TreasuryControls` were trimmed to the curve-only path (fees flow directly from `SOFBondingCurve.extractFeesToTreasury()` to the per-curve treasury address). If we ever want a global SOFToken-level treasury (setter, balance view, distribute action), that needs to be designed + added to the contract first. Decision deferred — today's architecture is "each curve owns its own treasury address, set at deploy time, no changing it."

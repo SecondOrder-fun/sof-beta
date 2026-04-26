@@ -25,6 +25,8 @@ import {DeployPaymaster} from "./15_DeployPaymaster.s.sol";
 import {DeployRolloverEscrow} from "./16_DeployRolloverEscrow.s.sol";
 import {RafflePrizeDistributor} from "../../src/core/RafflePrizeDistributor.sol";
 import {RolloverEscrow} from "../../src/core/RolloverEscrow.sol";
+import {SeasonFactory} from "../../src/core/SeasonFactory.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract DeployAll is Script {
     function run() public {
@@ -99,6 +101,7 @@ contract DeployAll is Script {
         {
             RolloverEscrow rolloverEscrow = RolloverEscrow(addrs.rolloverEscrow);
             RafflePrizeDistributor distributor = RafflePrizeDistributor(addrs.prizeDistributor);
+            SeasonFactory seasonFactory = SeasonFactory(addrs.seasonFactory);
             vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
 
             try rolloverEscrow.grantRole(rolloverEscrow.DISTRIBUTOR_ROLE(), addrs.prizeDistributor) {
@@ -113,11 +116,35 @@ contract DeployAll is Script {
                 console2.log("RolloverEscrow on PrizeDistributor already set");
             }
 
+            try seasonFactory.setRolloverEscrow(addrs.rolloverEscrow) {
+                console2.log("Set RolloverEscrow on SeasonFactory (auto-grants ESCROW_ROLE on new curves)");
+            } catch {
+                console2.log("RolloverEscrow on SeasonFactory already set");
+            }
+
             vm.stopBroadcast();
         }
-        console2.log("IMPORTANT: Treasury must approve RolloverEscrow for SOF spending");
-        console2.log("  Run: sof.approve(", vm.toString(addrs.rolloverEscrow), ", type(uint256).max)");
-        console2.log("  From the treasury wallet");
+
+        // --- 16c: Treasury SOF approval for RolloverEscrow ---
+        // RolloverEscrow.spendFromRollover() pulls `bonusAmount` via
+        // safeTransferFrom(treasury, ...). If the deployer == treasury (always
+        // true on local Anvil), auto-grant max approval so rollover E2E works
+        // out of the box. On testnet/mainnet the treasury is usually a different
+        // wallet, so log a manual instruction instead.
+        {
+            address deployer = vm.addr(vm.envUint("PRIVATE_KEY"));
+            address treasury = vm.envAddress("TREASURY_ADDRESS");
+            if (treasury == deployer) {
+                vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
+                IERC20(addrs.sofToken).approve(addrs.rolloverEscrow, type(uint256).max);
+                vm.stopBroadcast();
+                console2.log("Treasury auto-approved RolloverEscrow for SOF (deployer == treasury)");
+            } else {
+                console2.log("IMPORTANT: Treasury must approve RolloverEscrow for SOF spending");
+                console2.log("  Run: sof.approve(", vm.toString(addrs.rolloverEscrow), ", type(uint256).max)");
+                console2.log("  From the treasury wallet");
+            }
+        }
 
         // --- 4. Write deployment JSON (merge with existing file) ---
         string memory networkName;

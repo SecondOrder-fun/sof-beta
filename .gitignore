@@ -63,3 +63,7 @@ seed.txt
 
 # Worktrees
 .worktrees/
+
+# Local dev
+.local-dev-pids/
+.superpowers/

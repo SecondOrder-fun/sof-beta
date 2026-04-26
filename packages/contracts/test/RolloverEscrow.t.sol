@@ -284,6 +284,7 @@ contract RolloverEscrowDepositTest is Test {
     uint256 constant SEASON_ID = 1;
     uint256 constant NEXT_SEASON_ID = 2;
     uint256 constant DEPOSIT_AMOUNT = 1000e18;
+    address constant DUMMY_CURVE = address(0xC0FFEE);
 
     function setUp() public {
         sofToken = new MockSOFToken();
@@ -353,7 +354,7 @@ contract RolloverEscrowDepositTest is Test {
     function test_deposit_revertIfPhaseNotOpen() public {
         vm.startPrank(admin);
         escrow.openCohort(SEASON_ID, 600);
-        escrow.activateCohort(SEASON_ID, NEXT_SEASON_ID);
+        escrow.activateCohort(SEASON_ID, NEXT_SEASON_ID, DUMMY_CURVE);
         vm.stopPrank();
 
         vm.prank(distributor);
@@ -383,7 +384,7 @@ contract RolloverEscrowDepositTest is Test {
         (RolloverEscrow.EscrowPhase phaseBefore,,,,,,) = escrow.getCohortState(SEASON_ID);
         assertEq(uint8(phaseBefore), uint8(RolloverEscrow.EscrowPhase.Open), "should be Open");
 
-        escrow.activateCohort(SEASON_ID, NEXT_SEASON_ID);
+        escrow.activateCohort(SEASON_ID, NEXT_SEASON_ID, DUMMY_CURVE);
         vm.stopPrank();
 
         (RolloverEscrow.EscrowPhase phaseAfter, uint256 nextSeason,,,,,) = escrow.getCohortState(SEASON_ID);
@@ -397,7 +398,7 @@ contract RolloverEscrowDepositTest is Test {
     function test_phaseTransition_active_to_closed() public {
         vm.startPrank(admin);
         escrow.openCohort(SEASON_ID, 600);
-        escrow.activateCohort(SEASON_ID, NEXT_SEASON_ID);
+        escrow.activateCohort(SEASON_ID, NEXT_SEASON_ID, DUMMY_CURVE);
         escrow.closeCohort(SEASON_ID);
         vm.stopPrank();
 
@@ -423,7 +424,7 @@ contract RolloverEscrowDepositTest is Test {
         // The simplest approach: call activateCohort (admin) which checks expiry first.
         vm.prank(admin);
         vm.expectRevert(); // InvalidPhaseTransition — Open was auto-expired to Expired
-        escrow.activateCohort(SEASON_ID, NEXT_SEASON_ID);
+        escrow.activateCohort(SEASON_ID, NEXT_SEASON_ID, DUMMY_CURVE);
 
         // Now getCohortState should show Expired
         (RolloverEscrow.EscrowPhase phase,,,,,, bool isExpired) = escrow.getCohortState(SEASON_ID);
@@ -527,7 +528,6 @@ contract RolloverEscrowSpendTest is Test {
         // Deploy escrow
         escrow = new RolloverEscrow(address(sofToken), treasury, raffle);
         escrow.grantRole(escrow.DISTRIBUTOR_ROLE(), distributor);
-        escrow.setBondingCurve(address(curve));
 
         // Grant ESCROW_ROLE on curve to the escrow contract
         curve.grantRole(curve.ESCROW_ROLE(), address(escrow));
@@ -554,7 +554,7 @@ contract RolloverEscrowSpendTest is Test {
         vm.stopPrank();
 
         vm.prank(admin);
-        escrow.activateCohort(SEASON_ID, NEXT_SEASON_ID);
+        escrow.activateCohort(SEASON_ID, NEXT_SEASON_ID, address(curve));
     }
 
     // =========================================================================
@@ -675,6 +675,7 @@ contract RolloverEscrowRefundTest is Test {
     uint256 constant SEASON_ID_2    = 2;
     uint256 constant NEXT_SEASON_ID = 99;
     uint256 constant DEPOSIT_AMOUNT = 500e18;
+    address constant DUMMY_CURVE    = address(0xC0FFEE);
 
     function setUp() public {
         vm.startPrank(admin);
@@ -703,7 +704,7 @@ contract RolloverEscrowRefundTest is Test {
         vm.stopPrank();
 
         vm.prank(admin);
-        escrow.activateCohort(SEASON_ID, NEXT_SEASON_ID);
+        escrow.activateCohort(SEASON_ID, NEXT_SEASON_ID, DUMMY_CURVE);
     }
 
     // =========================================================================
@@ -804,5 +805,58 @@ contract RolloverEscrowRefundTest is Test {
         vm.prank(noDeposit);
         vm.expectRevert(abi.encodeWithSelector(NothingToRefund.selector, SEASON_ID, noDeposit));
         escrow.refund(SEASON_ID);
+    }
+}
+
+/**
+ * @title RolloverEscrowAdminSetterTest
+ * @notice Verifies admin setters emit their corresponding events so off-chain
+ *         indexers can track parameter changes without replaying full state.
+ */
+contract RolloverEscrowAdminSetterTest is Test {
+    SOFToken public sofToken;
+    RolloverEscrow public escrow;
+
+    address public admin = address(0xA9);
+    address public treasury = address(0x7EA);
+    address public raffle = address(0xAFF);
+    address public nonAdmin = address(0xBEEF);
+
+    // Redeclared locally so vm.expectEmit can match by signature.
+    event DefaultBonusBpsUpdated(uint16 oldBps, uint16 newBps);
+    event TreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
+
+    function setUp() public {
+        vm.startPrank(admin);
+        sofToken = new SOFToken("SOF", "SOF", 1_000e18);
+        escrow = new RolloverEscrow(address(sofToken), treasury, raffle);
+        vm.stopPrank();
+    }
+
+    function test_setDefaultBonusBps_emitsEvent() public {
+        vm.expectEmit(false, false, false, true, address(escrow));
+        emit DefaultBonusBpsUpdated(600, 900);
+        vm.prank(admin);
+        escrow.setDefaultBonusBps(900);
+    }
+
+    function test_setTreasury_emitsEvent() public {
+        address newTreasury = address(0xFEE);
+        vm.expectEmit(true, true, false, false, address(escrow));
+        emit TreasuryUpdated(treasury, newTreasury);
+        vm.prank(admin);
+        escrow.setTreasury(newTreasury);
+    }
+
+    function test_setDefaultBonusBps_revertsForNonAdmin() public {
+        vm.prank(nonAdmin);
+        vm.expectRevert();
+        escrow.setDefaultBonusBps(900);
+    }
+
+    function test_setTreasury_revertsForNonAdmin() public {
+        vm.prank(nonAdmin);
+        vm.expectRevert();
+        escrow.setTreasury(address(0x1));
     }
 }

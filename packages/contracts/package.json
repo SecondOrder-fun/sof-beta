@@ -1,6 +1,6 @@
 {
   "name": "@sof/contracts",
-  "version": "0.21.0",
+  "version": "0.23.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,5 +13,8 @@
   "exports": {
     ".": "./abi/index.js",
     "./deployments": "./deployments/index.js"
+  },
+  "devDependencies": {
+    "@account-abstraction/contracts": "^0.8.0"
   }
 }

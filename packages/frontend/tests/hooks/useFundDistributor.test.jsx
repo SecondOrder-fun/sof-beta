@@ -6,7 +6,10 @@ import { renderHook, act, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import PropTypes from "prop-types";
 
-import useFundDistributor from "@/hooks/useFundDistributor";
+const executeBatch = vi.fn();
+vi.mock("@/hooks/useSmartTransactions", () => ({
+  useSmartTransactions: () => ({ executeBatch }),
+}));
 
 vi.mock("@/config/contracts", () => ({
   getContractAddresses: () => ({
@@ -17,77 +20,52 @@ vi.mock("@/config/contracts", () => ({
 
 vi.mock("@/lib/wagmi", () => ({
   getStoredNetworkKey: () => "TESTNET",
+  getChainConfig: () => ({ chain: { id: 84532 }, transport: {} }),
 }));
 
 const readContractMock = vi.fn();
 const waitForReceiptMock = vi.fn();
-vi.mock("wagmi", () => ({
-  useAccount: () => ({
-    chain: {
-      id: 84532,
-      name: "Base Sepolia",
-      rpcUrls: {
-        default: { http: ["https://sepolia.base.org"] },
-        public: { http: ["https://sepolia.base.org"] },
-      },
-    },
-    address: "0xAdmin000000000000000000000000000000000000",
-  }),
-  usePublicClient: () => ({
-    readContract: readContractMock,
-    waitForTransactionReceipt: waitForReceiptMock,
-  }),
-}));
-
-const writeContractMock = vi.fn();
-const getChainIdMock = vi.fn();
-const getAddressesMock = vi.fn();
-vi.mock("viem", async (importOriginal) => {
-  const original = await importOriginal();
+vi.mock("wagmi", async (importOriginal) => {
+  const actual = await importOriginal();
   return {
-    ...original,
-    createWalletClient: () => ({
-      getChainId: getChainIdMock,
-      getAddresses: getAddressesMock,
-      writeContract: writeContractMock,
+    ...actual,
+    useAccount: () => ({
+      address: "0xAdmin000000000000000000000000000000000000",
     }),
-    custom: () => ({}),
+    usePublicClient: () => ({
+      readContract: readContractMock,
+      waitForTransactionReceipt: waitForReceiptMock,
+    }),
   };
 });
 
+import useFundDistributor from "@/hooks/useFundDistributor";
+
 function createWrapper() {
   const client = new QueryClient();
-
   const Wrapper = ({ children }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   );
   Wrapper.displayName = "UseFundDistributorTestWrapper";
-  Wrapper.propTypes = {
-    children: PropTypes.node.isRequired,
-  };
-
+  Wrapper.propTypes = { children: PropTypes.node.isRequired };
   return Wrapper;
 }
 
 describe("useFundDistributor prerequisites", () => {
   const setEndingE2EId = vi.fn();
   const allSeasonsQuery = { refetch: vi.fn(), refresh: vi.fn() };
-  let originalEthereum;
 
   beforeEach(() => {
-    originalEthereum = window.ethereum;
     readContractMock.mockReset();
     waitForReceiptMock.mockReset();
-    writeContractMock.mockReset();
-    getChainIdMock.mockReset();
-    getAddressesMock.mockReset();
+    executeBatch.mockReset();
     setEndingE2EId.mockReset();
     allSeasonsQuery.refetch.mockReset();
     allSeasonsQuery.refresh.mockReset();
   });
 
   afterEach(() => {
-    window.ethereum = originalEthereum;
+    vi.clearAllMocks();
   });
 
   it("stops when prize distributor is not configured", async () => {
@@ -135,6 +113,7 @@ describe("useFundDistributor prerequisites", () => {
     });
     expect(verifyState[1].prizeDistributor).toBeUndefined();
     expect(verifyState[1].raffleRoleStatus).toBeUndefined();
+    expect(executeBatch).not.toHaveBeenCalled();
   });
 
   it("stops when raffle lacks RAFFLE_ROLE on distributor", async () => {
@@ -182,11 +161,10 @@ describe("useFundDistributor prerequisites", () => {
     });
     expect(verifyState[1].prizeDistributor).toBeUndefined();
     expect(verifyState[1].raffleRoleStatus).toBeUndefined();
+    expect(executeBatch).not.toHaveBeenCalled();
   });
 
-  it("records finalize hash after successful completion", async () => {
-    window.ethereum = {};
-
+  it("records finalize hash after successful executeBatch", async () => {
     readContractMock
       .mockResolvedValueOnce(["cfg", 4, 1n, 100n, 1_000n]) // getSeasonDetails
       .mockResolvedValueOnce("0x3333333333333333333333333333333333333333") // prizeDistributor
@@ -194,12 +172,7 @@ describe("useFundDistributor prerequisites", () => {
       .mockResolvedValueOnce(123n) // getVrfRequestForSeason
       .mockResolvedValueOnce(["cfg", 5, 1n, 100n, 1_000n]); // refreshed getSeasonDetails
 
-    getChainIdMock.mockResolvedValue(84532);
-    getAddressesMock.mockResolvedValue([
-      "0xAdmin000000000000000000000000000000000000",
-    ]);
-    writeContractMock.mockResolvedValue("0xtxhash");
-    waitForReceiptMock.mockResolvedValue({ status: "success" });
+    executeBatch.mockResolvedValue("0xtxhash");
 
     let verifyState = {};
     const setVerify = vi.fn((updater) => {
@@ -224,7 +197,7 @@ describe("useFundDistributor prerequisites", () => {
       await result.current.fundDistributorManual(1);
     });
 
-    await waitFor(() => expect(writeContractMock).toHaveBeenCalled());
+    await waitFor(() => expect(executeBatch).toHaveBeenCalled());
     await waitFor(() => expect(verifyState[1]?.finalizeHash).toBe("0xtxhash"));
     expect(verifyState[1].prizeDistributor).toBe(
       "0x3333333333333333333333333333333333333333",

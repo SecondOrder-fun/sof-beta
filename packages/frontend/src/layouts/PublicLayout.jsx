@@ -1,7 +1,7 @@
 /**
  * PublicLayout
  *
- * Wrapper for public-facing routes (Landing, login callbacks).
+ * Wrapper for public-facing routes (Home, login callbacks).
  * Automatically transitions into the main app once the user has an identity.
  *
  * @returns {JSX.Element}

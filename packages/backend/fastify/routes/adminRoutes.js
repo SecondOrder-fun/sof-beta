@@ -243,8 +243,6 @@ export default async function adminRoutes(fastify) {
           .send({ error: "seasonId must be a positive number" });
       }
 
-      const isTestnet = NETWORK === "TESTNET";
-
       const chain = getChainByKey(NETWORK);
       const raffleAddress = chain.raffle;
 
@@ -763,7 +761,7 @@ export default async function adminRoutes(fastify) {
       for (const market of markets) {
         try {
           // Read on-chain prices
-          const [yesPrice, noPrice] = await publicClient.readContract({
+          const [yesPrice, _noPrice] = await publicClient.readContract({
             address: market.contract_address,
             abi: simpleFpmmAbi,
             functionName: "getPrices",
@@ -772,7 +770,7 @@ export default async function adminRoutes(fastify) {
           const newProbBps = Number(yesPrice);
 
           // Update DB
-          const { data: updated, error: updateError } = await db.client
+          const { data: _updated, error: updateError } = await db.client
             .from("infofi_markets")
             .update({
               current_probability_bps: newProbBps,

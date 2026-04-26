@@ -54,6 +54,7 @@ vi.mock("viem", () => ({
   createPublicClient: vi.fn().mockReturnValue({
     waitForTransactionReceipt: mockWaitForTransactionReceipt,
   }),
+  defineChain: (cfg) => cfg,
   http: vi.fn(),
 }));
 

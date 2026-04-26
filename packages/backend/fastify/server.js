@@ -19,7 +19,9 @@ import { getChainByKey } from "../src/config/chain.js";
 import { authenticateFastify } from "../shared/auth.js";
 
 // Create Fastify instance
-const app = fastify({ logger: true });
+// 1 MiB request body cap — well above any real payload (signatures batch,
+// admin forms) but blocks accidental or hostile large bodies before handlers run.
+const app = fastify({ logger: true, bodyLimit: 1_048_576 });
 
 // Attach JWT authentication parsing (public endpoints still allowed)
 await authenticateFastify(app);
@@ -258,6 +260,15 @@ try {
 }
 
 try {
+  await app.register((await import("./routes/localBundlerRoutes.js")).default, {
+    prefix: "/api/paymaster/local",
+  });
+  app.log.info("Mounted /api/paymaster/local");
+} catch (err) {
+  app.log.error({ err }, "Failed to mount /api/paymaster/local");
+}
+
+try {
   await app.register((await import("./routes/delegationRoutes.js")).default, {
     prefix: "/api/wallet",
   });
@@ -307,8 +318,6 @@ const tradeListeners = new Map(); // Map of fpmmAddress -> unwatch function
 
 async function startListeners() {
   try {
-    const isTestnet = NETWORK === "TESTNET";
-
     const chain = getChainByKey(NETWORK);
     const raffleAddress = chain.raffle;
 

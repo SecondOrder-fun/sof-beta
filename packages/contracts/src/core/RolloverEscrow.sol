@@ -62,6 +62,10 @@ contract RolloverEscrow is IRolloverEscrow, AccessControl, ReentrancyGuard, Paus
         uint256 totalSpent;
         uint256 totalBonusPaid;
         uint40 openedAt;
+        // Set at activation; locks spendFromRollover to the curve that matches
+        // nextSeasonId. Removes the global mutable bondingCurve slot that
+        // could drift between cohorts.
+        address bondingCurve;
     }
 
     struct UserPosition {
@@ -80,7 +84,6 @@ contract RolloverEscrow is IRolloverEscrow, AccessControl, ReentrancyGuard, Paus
     address public raffle;
     uint16 public defaultBonusBps;
     uint32 public expiryTimeout;
-    address public bondingCurve;
 
     // -----------------------------------------------------------------------
     // Storage
@@ -103,8 +106,10 @@ contract RolloverEscrow is IRolloverEscrow, AccessControl, ReentrancyGuard, Paus
     );
     event RolloverRefund(address indexed user, uint256 indexed seasonId, uint256 amount);
     event CohortOpened(uint256 indexed seasonId, uint16 bonusBps);
-    event CohortActivated(uint256 indexed seasonId, uint256 indexed nextSeasonId);
+    event CohortActivated(uint256 indexed seasonId, uint256 indexed nextSeasonId, address indexed bondingCurve);
     event CohortClosed(uint256 indexed seasonId);
+    event DefaultBonusBpsUpdated(uint16 oldBps, uint16 newBps);
+    event TreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
 
     // -----------------------------------------------------------------------
     // Constructor
@@ -209,11 +214,18 @@ contract RolloverEscrow is IRolloverEscrow, AccessControl, ReentrancyGuard, Paus
 
     /**
      * @notice Transition a cohort from Open to Active (deposits locked, spend enabled).
-     * @param seasonId     The season cohort.
-     * @param nextSeasonId The next season tickets will be purchased for.
+     * @param seasonId      The season cohort.
+     * @param nextSeasonId  The next season tickets will be purchased for.
+     * @param _bondingCurve The bonding curve deployed for nextSeasonId. Locked in
+     *                      here so spendFromRollover always targets the correct curve.
      */
-    function activateCohort(uint256 seasonId, uint256 nextSeasonId) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function activateCohort(uint256 seasonId, uint256 nextSeasonId, address _bondingCurve)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
         _checkAndUpdateExpiry(seasonId);
+
+        if (_bondingCurve == address(0)) revert BondingCurveNotSet();
 
         CohortState storage cohort = _cohorts[seasonId];
         if (cohort.phase != EscrowPhase.Open) {
@@ -222,8 +234,9 @@ contract RolloverEscrow is IRolloverEscrow, AccessControl, ReentrancyGuard, Paus
 
         cohort.phase = EscrowPhase.Active;
         cohort.nextSeasonId = nextSeasonId;
+        cohort.bondingCurve = _bondingCurve;
 
-        emit CohortActivated(seasonId, nextSeasonId);
+        emit CohortActivated(seasonId, nextSeasonId, _bondingCurve);
     }
 
     /**
@@ -246,15 +259,15 @@ contract RolloverEscrow is IRolloverEscrow, AccessControl, ReentrancyGuard, Paus
     // -----------------------------------------------------------------------
 
     function setDefaultBonusBps(uint16 newBps) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        uint16 oldBps = defaultBonusBps;
         defaultBonusBps = newBps;
-    }
-
-    function setBondingCurve(address _curve) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        bondingCurve = _curve;
+        emit DefaultBonusBpsUpdated(oldBps, newBps);
     }
 
     function setTreasury(address _treasury) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        address oldTreasury = treasury;
         treasury = _treasury;
+        emit TreasuryUpdated(oldTreasury, _treasury);
     }
 
     function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -284,13 +297,13 @@ contract RolloverEscrow is IRolloverEscrow, AccessControl, ReentrancyGuard, Paus
         whenPhaseActive(seasonId)
     {
         if (sofAmount == 0) revert AmountZero();
-        if (bondingCurve == address(0)) revert BondingCurveNotSet();
 
         UserPosition storage pos = _positions[seasonId][msg.sender];
         uint256 available = pos.deposited - pos.spent;
         if (sofAmount > available) revert ExceedsBalance(sofAmount, available);
 
         CohortState storage cohort = _cohorts[seasonId];
+        address curve = cohort.bondingCurve;
         uint256 bonusAmount = (sofAmount * uint256(cohort.bonusBps)) / 10_000;
 
         // Checks-effects-interactions: update state before external calls
@@ -303,13 +316,13 @@ contract RolloverEscrow is IRolloverEscrow, AccessControl, ReentrancyGuard, Paus
 
         // Approve curve for the total SOF (base + bonus)
         uint256 totalSof = sofAmount + bonusAmount;
-        sofToken.approve(address(bondingCurve), totalSof);
+        sofToken.approve(curve, totalSof);
 
-        // Buy tickets for user via the bonding curve
-        SOFBondingCurve(bondingCurve).buyTokensFor(msg.sender, ticketAmount, maxTotalSof);
+        // Buy tickets for user via the cohort's bonding curve
+        SOFBondingCurve(curve).buyTokensFor(msg.sender, ticketAmount, maxTotalSof);
 
         // Clear any leftover allowance (defense-in-depth)
-        sofToken.approve(address(bondingCurve), 0);
+        sofToken.approve(curve, 0);
 
         emit RolloverSpend(msg.sender, seasonId, cohort.nextSeasonId, sofAmount, bonusAmount);
     }

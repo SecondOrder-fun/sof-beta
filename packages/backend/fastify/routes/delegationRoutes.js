@@ -1,13 +1,23 @@
 // backend/fastify/routes/delegationRoutes.js
 // POST /api/wallet/delegate — relay ERC-7702 authorization on-chain
 
-import { createWalletClient, http, createPublicClient } from 'viem';
+import { createWalletClient, defineChain, http, createPublicClient } from 'viem';
 import { recoverAuthorizationAddress } from 'viem/experimental';
 import { privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia, base } from 'viem/chains';
 import { AuthService } from '../../shared/auth.js';
 import { getChainByKey } from '../../src/config/chain.js';
 import { redisClient } from '../../shared/redisClient.js';
+
+const anvilChain = defineChain({
+  id: 31337,
+  name: 'Anvil',
+  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  rpcUrls: {
+    default: { http: ['http://127.0.0.1:8545'] },
+    public: { http: ['http://127.0.0.1:8545'] },
+  },
+});
 
 const NETWORK = process.env.NETWORK || 'LOCAL';
 const RATE_LIMIT_MAX = 2;
@@ -31,8 +41,16 @@ export default async function delegationRoutes(fastify) {
 
   const normalizedKey = relayKey.startsWith('0x') ? relayKey : `0x${relayKey}`;
   const relayAccount = privateKeyToAccount(normalizedKey);
-  const isTestnet = NETWORK.toUpperCase() === 'TESTNET' || NETWORK.toUpperCase() === 'LOCAL';
-  const viemChain = isTestnet ? baseSepolia : base;
+  // Each network targets a distinct chainId so authorization replay is impossible.
+  // LOCAL on Anvil (31337) was previously misconfigured to baseSepolia (84532),
+  // which made the chainId guard reject every local delegation request.
+  const networkUpper = NETWORK.toUpperCase();
+  const viemChain =
+    networkUpper === 'LOCAL'
+      ? anvilChain
+      : networkUpper === 'TESTNET'
+      ? baseSepolia
+      : base;
 
   const walletClient = createWalletClient({
     account: relayAccount,
@@ -142,4 +160,57 @@ export default async function delegationRoutes(fastify) {
       return reply.code(500).send({ error: 'Failed to submit delegation transaction after retries' });
     },
   });
+
+  // ─── Local-only shortcut: fake-delegate via anvil_setCode ──────────────
+  // MetaMask doesn't expose eth_signAuthorization for arbitrary delegates on
+  // arbitrary chains, and viem's signAuthorization isn't implemented for
+  // JSON-RPC accounts. To still exercise the full sponsored-UserOp path on
+  // local Anvil, we shortcut the type-0x04 protocol entirely: anvil_setCode
+  // injects the 0xef0100<smartAccount> delegation designator at the user's
+  // EOA. The EVM treats this byte-for-byte the same as a real 7702
+  // delegation, so the rest of the stack (SOFSmartAccount.validateUserOp,
+  // paymaster verification, bundler handleOps) is exercised exactly as it
+  // would be in production.
+  if (networkUpper === 'LOCAL') {
+    fastify.post('/delegate-shortcut', {
+      handler: async (request, reply) => {
+        const { userAddress } = request.body || {};
+        if (typeof userAddress !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(userAddress)) {
+          return reply.code(400).send({ error: 'Invalid userAddress format' });
+        }
+
+        const designator = `0xef0100${sofSmartAccount.slice(2).toLowerCase()}`;
+
+        try {
+          // anvil_setCode is exposed by Anvil on its JSON-RPC; viem doesn't
+          // wrap it directly, so call via raw fetch.
+          const rpcUrl = chain.rpcUrl || 'http://127.0.0.1:8545';
+          const res = await fetch(rpcUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'anvil_setCode',
+              params: [userAddress, designator],
+            }),
+          });
+          const body = await res.json();
+          if (body.error) {
+            return reply
+              .code(500)
+              .send({ error: `anvil_setCode failed: ${body.error.message}` });
+          }
+          fastify.log.info(
+            { userAddress, designator },
+            '[delegate-shortcut] injected 7702 delegation via anvil_setCode',
+          );
+          return reply.send({ status: 'shortcut', designator, target: sofSmartAccount });
+        } catch (err) {
+          fastify.log.error({ err: err.message, userAddress }, 'shortcut delegation failed');
+          return reply.code(500).send({ error: err.message });
+        }
+      },
+    });
+  }
 }

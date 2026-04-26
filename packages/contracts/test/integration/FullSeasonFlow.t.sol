@@ -196,6 +196,15 @@ contract FullSeasonFlowTest is Test {
             }
             assertTrue(found, "Winner must be a participant");
         }
+
+        // Step 11: Gap fix — finalizeSeason must auto-register every participant
+        // as consolation-eligible. No extra admin call should be needed.
+        for (uint256 i = 0; i < participants.length; i++) {
+            assertTrue(
+                distributor.isConsolationEligible(seasonId, participants[i]),
+                "Participant should be consolation-eligible after finalize"
+            );
+        }
     }
 
     function testPlayerCanSellBeforeSeasonEnd() public {

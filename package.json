@@ -16,7 +16,10 @@
     "deploy:env:dry": "bash ./scripts/deploy-env.sh --dry-run",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down -v",
-    "docker:deploy": "./scripts/docker-deploy-local.sh"
+    "docker:deploy": "./scripts/docker-deploy-local.sh",
+    "local:dev": "./scripts/local-dev.sh",
+    "local:stop": "./scripts/local-dev.sh stop",
+    "local:restart": "./scripts/local-dev.sh restart"
   },
   "devDependencies": {
     "turbo": "^2.0.0"

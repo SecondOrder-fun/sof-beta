@@ -66,9 +66,42 @@ contract SOFPaymaster is IPaymaster, Ownable {
     // IPaymaster implementation
     // ──────────────────────────────────────────────────────────────────────
 
+    /// @notice Compute the digest the off-chain signer signs over.
+    /// @dev We can't sign over EntryPoint's `userOpHash` directly because it
+    ///      includes `paymasterAndData` in full — and `paymasterAndData`
+    ///      contains the signature we are about to produce. To break the
+    ///      cycle we hash the "canonical" portion of the userOp ourselves and
+    ///      include only the prefix of `paymasterAndData` (paymaster address
+    ///      + gas limits, the bytes before validUntil/validAfter/signature).
+    ///      Mirrors the standard eth-infinitism VerifyingPaymaster pattern.
+    function getHash(
+        PackedUserOperation calldata userOp,
+        uint48 validUntil,
+        uint48 validAfter
+    ) public view returns (bytes32) {
+        // First 52 bytes of paymasterAndData = paymaster + verifGas + postOpGas;
+        // everything from byte 52 on (validUntil/validAfter/signature) is what
+        // we're signing over, so we must NOT include it in the input hash.
+        return keccak256(
+            abi.encode(
+                userOp.sender,
+                userOp.nonce,
+                keccak256(userOp.initCode),
+                keccak256(userOp.callData),
+                userOp.accountGasLimits,
+                userOp.preVerificationGas,
+                userOp.gasFees,
+                keccak256(userOp.paymasterAndData[0:52]),
+                block.chainid,
+                address(this),
+                validUntil,
+                validAfter
+            )
+        );
+    }
+
     /// @inheritdoc IPaymaster
-    /// @dev The backend signs `keccak256(abi.encode(userOpHash, validUntil, validAfter))`
-    ///      with its private key. The paymasterAndData layout is:
+    /// @dev paymasterAndData layout:
     ///        [0:20]   paymaster address
     ///        [20:36]  paymasterVerificationGasLimit (uint128)
     ///        [36:52]  paymasterPostOpGasLimit (uint128)
@@ -80,37 +113,24 @@ contract SOFPaymaster is IPaymaster, Ownable {
     ///        `uint256(sigFailed ? 1 : 0) | (uint256(validUntil) << 160) | (uint256(validAfter) << 208)`
     function validatePaymasterUserOp(
         PackedUserOperation calldata userOp,
-        bytes32 userOpHash,
+        bytes32 /* userOpHash */,
         uint256 /* maxCost */
     ) external onlyEntryPoint returns (bytes memory context, uint256 validationData) {
-        // paymasterAndData layout:
-        //   [0:20]   paymaster address
-        //   [20:36]  paymasterVerificationGasLimit (uint128)
-        //   [36:52]  paymasterPostOpGasLimit (uint128)
-        //   [52:58]  validUntil (uint48)
-        //   [58:64]  validAfter (uint48)
-        //   [64:129] signature (65 bytes: r[32] + s[32] + v[1])
         bytes calldata paymasterAndData = userOp.paymasterAndData;
 
         // Need at least 129 bytes: 52 (prefix) + 6 (validUntil) + 6 (validAfter) + 65 (signature)
         if (paymasterAndData.length < 129) {
-            // Not enough data — return SIG_VALIDATION_FAILED with no time bounds
             return ("", 1);
         }
 
-        // Extract validUntil and validAfter (uint48 each, 6 bytes each)
         uint48 validUntil = uint48(bytes6(paymasterAndData[52:58]));
         uint48 validAfter = uint48(bytes6(paymasterAndData[58:64]));
-
         bytes calldata signature = paymasterAndData[64:129];
 
-        // The backend signs over the hash that includes the time bounds
-        bytes32 hash = keccak256(abi.encode(userOpHash, validUntil, validAfter));
+        bytes32 hash = getHash(userOp, validUntil, validAfter);
         bytes32 ethSignedHash = hash.toEthSignedMessageHash();
         address recovered = ethSignedHash.recover(signature);
 
-        // Pack validationData per ERC-4337 spec:
-        //   authorizer (0 = success, 1 = failure) | validUntil << 160 | validAfter << 208
         uint256 sigFailed = (recovered != verifyingSigner) ? 1 : 0;
         validationData = sigFailed | (uint256(validUntil) << 160) | (uint256(validAfter) << 208);
 

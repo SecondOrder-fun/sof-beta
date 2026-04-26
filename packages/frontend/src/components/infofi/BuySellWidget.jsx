@@ -261,6 +261,7 @@ BuySellWidget.propTypes = {
     raffle_id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
     seasonId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
     player: PropTypes.string,
+    contract_address: PropTypes.string,
   }),
 };
 

@@ -1,24 +1,29 @@
 import { useEffect } from 'react';
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { formatEther } from 'viem';
-import { useQueryClient } from '@tanstack/react-query';
-import { SOFTokenAbi, SOFBondingCurveAbi } from '@/utils/abis';
+import { useAccount, useReadContract } from 'wagmi';
+import { encodeFunctionData, formatEther } from 'viem';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { SOFBondingCurveAbi } from '@/utils/abis';
 import { getContractAddresses } from '@/config/contracts';
 import { getStoredNetworkKey } from '@/lib/wagmi';
+import { useSmartTransactions } from '@/hooks/useSmartTransactions';
 
 /**
- * Hook for treasury management operations
- * @param {string} seasonId - The season ID to manage treasury for
- * @param {string} bondingCurveAddress - The bonding curve address for the season (optional, will be fetched if not provided)
- * @returns {Object} Treasury management functions and state
+ * Hook for treasury management operations.
+ *
+ * Treasury lives on SOFBondingCurve (one per season) — fees accumulate via
+ * buy/sell and are extracted in one step straight to the curve's configured
+ * treasury address. SOFToken itself has no treasury surface.
+ *
+ * @param {string|number} seasonId
+ * @param {string} [bondingCurveAddress] - optional; fetched from Raffle if omitted
  */
 export function useTreasury(seasonId, bondingCurveAddress) {
   const { address } = useAccount();
   const queryClient = useQueryClient();
   const networkKey = getStoredNetworkKey();
   const contracts = getContractAddresses(networkKey);
+  const { executeBatch } = useSmartTransactions();
 
-  // Use provided bondingCurveAddress or fetch it from the raffle contract
   const { data: fetchedBondingCurveAddress } = useReadContract({
     address: contracts.RAFFLE,
     abi: [
@@ -43,7 +48,7 @@ export function useTreasury(seasonId, bondingCurveAddress) {
     functionName: 'seasons',
     args: [BigInt(seasonId)],
     query: {
-      enabled: !!contracts.RAFFLE && !!seasonId && !bondingCurveAddress, // Only fetch if not provided
+      enabled: !!contracts.RAFFLE && !!seasonId && !bondingCurveAddress,
       select: (data) => {
         if (!data) return undefined;
         if (typeof data.bondingCurve === 'string') return data.bondingCurve;
@@ -53,76 +58,43 @@ export function useTreasury(seasonId, bondingCurveAddress) {
     },
   });
 
-  // Use provided address or fetched address
   const resolvedBondingCurveAddress = bondingCurveAddress || fetchedBondingCurveAddress;
 
-  // Get accumulated fees from bonding curve
   const { data: accumulatedFees, refetch: refetchAccumulatedFees } = useReadContract({
     address: resolvedBondingCurveAddress,
     abi: SOFBondingCurveAbi,
     functionName: 'accumulatedFees',
-    query: {
-      enabled: !!resolvedBondingCurveAddress,
-    },
+    query: { enabled: !!resolvedBondingCurveAddress },
   });
 
-  // Get SOF reserves from bonding curve
   const { data: sofReserves } = useReadContract({
     address: resolvedBondingCurveAddress,
     abi: SOFBondingCurveAbi,
     functionName: 'getSofReserves',
-    query: {
-      enabled: !!resolvedBondingCurveAddress,
-    },
+    query: { enabled: !!resolvedBondingCurveAddress },
   });
 
-  // Get SOF token contract balance (accumulated fees in treasury system)
-  const { data: treasuryBalance, refetch: refetchTreasuryBalance } = useReadContract({
-    address: contracts.SOF,
-    abi: SOFTokenAbi,
-    functionName: 'getContractBalance',
-    query: {
-      enabled: !!contracts.SOF,
-    },
-  });
-
-  // Get treasury address
+  // Treasury address lives on the curve — read-only, set at curve construction.
   const { data: treasuryAddress } = useReadContract({
-    address: contracts.SOF,
-    abi: SOFTokenAbi,
+    address: resolvedBondingCurveAddress,
+    abi: SOFBondingCurveAbi,
     functionName: 'treasuryAddress',
-    query: {
-      enabled: !!contracts.SOF,
-    },
+    query: { enabled: !!resolvedBondingCurveAddress },
   });
 
-  // Get total fees collected (cumulative)
-  const { data: totalFeesCollected } = useReadContract({
-    address: contracts.SOF,
-    abi: SOFTokenAbi,
-    functionName: 'totalFeesCollected',
-    query: {
-      enabled: !!contracts.SOF,
-    },
-  });
-
-  // Get RAFFLE_MANAGER_ROLE hash from contract
   const { data: managerRoleHash } = useReadContract({
     address: resolvedBondingCurveAddress,
     abi: SOFBondingCurveAbi,
     functionName: 'RAFFLE_MANAGER_ROLE',
-    query: {
-      enabled: !!resolvedBondingCurveAddress,
-    },
+    query: { enabled: !!resolvedBondingCurveAddress },
   });
 
-  // Check if user has RAFFLE_MANAGER_ROLE on bonding curve
   const { data: hasManagerRole } = useReadContract({
     address: resolvedBondingCurveAddress,
     abi: SOFBondingCurveAbi,
     functionName: 'hasRole',
     args: [
-      managerRoleHash || '0x03b4459c543e7fe245e8e148c6cab46a28e66bba7ee09988335c0dc88457fac2', // Fallback to hardcoded hash
+      managerRoleHash || '0x03b4459c543e7fe245e8e148c6cab46a28e66bba7ee09988335c0dc88457fac2',
       address,
     ],
     query: {
@@ -133,157 +105,58 @@ export function useTreasury(seasonId, bondingCurveAddress) {
     watch: true,
   });
 
-  // Check if user has TREASURY_ROLE on SOF token
-  const { data: hasTreasuryRole } = useReadContract({
-    address: contracts.SOF,
-    abi: SOFTokenAbi,
-    functionName: 'hasRole',
-    args: [
-      '0xe1dcbdb91df27212a29bc27177c840cf2f819ecf2187432e1fac86c2dd5dfca9', // TREASURY_ROLE
-      address,
-    ],
-    query: {
-      enabled: !!address,
-      staleTime: 0,
-      refetchInterval: 5000,
+  // Route admin treasury ops through executeBatch (ERC-5792) per CLAUDE.md —
+  // same gasless/batched path as every other on-chain op.
+  const extractMutation = useMutation({
+    mutationFn: async () => {
+      if (!resolvedBondingCurveAddress) throw new Error('Bonding curve address unavailable');
+      const call = {
+        to: resolvedBondingCurveAddress,
+        data: encodeFunctionData({
+          abi: SOFBondingCurveAbi,
+          functionName: 'extractFeesToTreasury',
+          args: [],
+        }),
+      };
+      return executeBatch([call]);
     },
-    watch: true,
-  });
-
-  // Extract fees from bonding curve to SOF token
-  const {
-    writeContract: extractFees,
-    data: extractHash,
-    isPending: isExtracting,
-    error: extractError,
-  } = useWriteContract();
-
-  const { isLoading: isExtractConfirming, isSuccess: isExtractConfirmed } =
-    useWaitForTransactionReceipt({
-      hash: extractHash,
-    });
-
-  // Transfer fees from SOF token to treasury
-  const {
-    writeContract: transferToTreasury,
-    data: transferHash,
-    isPending: isTransferring,
-    error: transferError,
-  } = useWriteContract();
-
-  const { isLoading: isTransferConfirming, isSuccess: isTransferConfirmed } =
-    useWaitForTransactionReceipt({
-      hash: transferHash,
-    });
-
-  // Update treasury address on SOF token
-  const {
-    writeContract: updateTreasuryAddress,
-    data: updateHash,
-    isPending: isUpdatingTreasury,
-    error: updateError,
-  } = useWriteContract();
-
-  const { isLoading: isUpdateConfirming, isSuccess: isUpdateConfirmed } =
-    useWaitForTransactionReceipt({
-      hash: updateHash,
-    });
-
-  // Extract fees from bonding curve
-  const handleExtractFees = async () => {
-    if (!resolvedBondingCurveAddress || !address) return;
-
-    try {
-      await extractFees({
-        address: resolvedBondingCurveAddress,
-        abi: SOFBondingCurveAbi,
-        functionName: 'extractFeesToTreasury',
-        account: address,
-      });
-
+    onSuccess: () => {
       queryClient.setQueryData(
         ['readContract', { address: resolvedBondingCurveAddress, functionName: 'accumulatedFees' }],
         0n,
       );
-    } catch (error) {
-      // Error is handled by wagmi
-      return;
-    }
-  };
+    },
+  });
 
-  // Transfer fees to treasury
-  const handleTransferToTreasury = async (amount) => {
-    if (!address) return;
-
+  const handleExtractFees = async () => {
+    if (!resolvedBondingCurveAddress || !address) return;
     try {
-      await transferToTreasury({
-        address: contracts.SOF,
-        abi: SOFTokenAbi,
-        functionName: 'transferToTreasury',
-        args: [amount],
-        account: address,
-      });
-
-      queryClient.setQueryData(
-        ['readContract', { address: contracts.SOF, functionName: 'getContractBalance' }],
-        0n,
-      );
-    } catch (error) {
-      // Error is handled by wagmi
-      return;
-    }
-  };
-
-  // Update treasury address
-  const handleUpdateTreasuryAddress = async (newAddress) => {
-    if (!address || !newAddress) return;
-
-    try {
-      await updateTreasuryAddress({
-        address: contracts.SOF,
-        abi: SOFTokenAbi,
-        functionName: 'setTreasuryAddress',
-        args: [newAddress],
-        account: address,
-      });
-    } catch (error) {
-      // Error is handled by wagmi
-      return;
+      await extractMutation.mutateAsync();
+    } catch {
+      // surfaced via extractError
     }
   };
 
   useEffect(() => {
-    if (!isExtractConfirmed) return;
+    if (!extractMutation.isSuccess) return;
     void Promise.all([
-      refetchAccumulatedFees(),
-      refetchTreasuryBalance(),
-      queryClient.invalidateQueries({ queryKey: ['sofBalance'] }),
-    ]);
-  }, [isExtractConfirmed, refetchAccumulatedFees, refetchTreasuryBalance, queryClient]);
-
-  useEffect(() => {
-    if (!isTransferConfirmed) return;
-    void Promise.all([
-      refetchTreasuryBalance(),
       refetchAccumulatedFees(),
       queryClient.invalidateQueries({ queryKey: ['sofBalance'] }),
     ]);
-  }, [isTransferConfirmed, refetchTreasuryBalance, refetchAccumulatedFees, queryClient]);
+  }, [extractMutation.isSuccess, refetchAccumulatedFees, queryClient]);
 
   useEffect(() => {
     if (!resolvedBondingCurveAddress) return;
     if (import.meta?.env?.DEV) {
-      // Reason: surface live on-chain fee/reserve readings for debugging discrepancies in UI
       // eslint-disable-next-line no-console
       console.debug('[Treasury] season', seasonId, {
         bondingCurveAddress: resolvedBondingCurveAddress,
         accumulatedFees: accumulatedFees?.toString?.() ?? '0',
         sofReserves: sofReserves?.toString?.() ?? '0',
-        treasuryBalance: treasuryBalance?.toString?.() ?? '0',
-        totalFeesCollected: totalFeesCollected?.toString?.() ?? '0',
+        treasuryAddress,
       });
     }
-  }, [seasonId, resolvedBondingCurveAddress, accumulatedFees, sofReserves, treasuryBalance, totalFeesCollected]);
+  }, [seasonId, resolvedBondingCurveAddress, accumulatedFees, sofReserves, treasuryAddress]);
 
   return {
     // Balances
@@ -291,36 +164,22 @@ export function useTreasury(seasonId, bondingCurveAddress) {
     accumulatedFeesRaw: accumulatedFees,
     sofReserves: sofReserves ? formatEther(sofReserves) : '0',
     sofReservesRaw: sofReserves,
-    treasuryBalance: treasuryBalance !== undefined ? formatEther(treasuryBalance) : '0',
-    treasuryBalanceRaw: treasuryBalance,
-    totalFeesCollected: totalFeesCollected ? formatEther(totalFeesCollected) : '0',
     treasuryAddress,
 
     // Permissions
     hasManagerRole: hasManagerRole || false,
-    hasTreasuryRole: hasTreasuryRole || false,
     canExtractFees: hasManagerRole && accumulatedFees > 0n,
-    canTransferToTreasury: hasTreasuryRole && treasuryBalance > 0n,
 
     // Actions
     extractFees: handleExtractFees,
-    transferToTreasury: handleTransferToTreasury,
-    updateTreasuryAddress: handleUpdateTreasuryAddress,
 
     // States
-    isExtracting: isExtracting || isExtractConfirming,
-    isExtractConfirmed,
-    extractError,
-    isTransferring: isTransferring || isTransferConfirming,
-    isTransferConfirmed,
-    transferError,
-    isUpdatingTreasury: isUpdatingTreasury || isUpdateConfirming,
-    isUpdateConfirmed,
-    updateError,
+    isExtracting: extractMutation.isPending,
+    isExtractConfirmed: extractMutation.isSuccess,
+    extractError: extractMutation.error,
 
-    // Refetch functions
+    // Refetch
     refetchAccumulatedFees,
-    refetchTreasuryBalance,
-    bondingCurveAddress,
+    bondingCurveAddress: resolvedBondingCurveAddress,
   };
 }

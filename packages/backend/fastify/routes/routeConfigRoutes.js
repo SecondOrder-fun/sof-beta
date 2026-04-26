@@ -9,7 +9,6 @@ import {
   setRouteDisabled,
   getAllRouteConfigs,
   getRouteConfigByPattern,
-  getRouteConfigByResource,
   deleteRouteConfig,
   getAccessSettings,
   updateAccessSetting,

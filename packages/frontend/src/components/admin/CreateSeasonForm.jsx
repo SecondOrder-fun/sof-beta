@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useTranslation } from "react-i18next";
 import { CalendarIcon, Check, Gift, Plus, Trash2 } from "lucide-react";
+import { Slider } from "@/components/ui/slider";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { AUTO_START_BUFFER_SECONDS } from "@/lib/seasonTime";
 import { getContractAddresses, RAFFLE_ABI, SEASON_GATING_ABI } from "@/config/contracts";
@@ -498,6 +499,7 @@ const CreateSeasonForm = ({ createSeason, chainTimeQuery, activeSection = "all" 
       isActive: false,
       isCompleted: false,
       gated,
+      maxParticipants: 0,
     };
 
     // Validate bond steps from curve editor
@@ -682,13 +684,12 @@ const CreateSeasonForm = ({ createSeason, chainTimeQuery, activeSection = "all" 
           <div>
             <label className="text-sm">{t("grandPrizeSplit")}</label>
             <div className="flex items-center gap-3">
-              <input
-                type="range"
+              <Slider
                 min={55}
                 max={75}
                 step={1}
-                value={grandPct}
-                onChange={(e) => setGrandPct(e.target.value)}
+                value={[Number(grandPct)]}
+                onValueChange={([v]) => setGrandPct(String(v))}
                 className="w-full"
               />
               <span className="w-12 text-right text-sm font-mono">

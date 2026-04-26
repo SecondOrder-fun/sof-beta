@@ -23,10 +23,25 @@ export function useDelegatedAccount() {
   const smartAccountClient = useMemo(() => {
     if (!isSOFDelegate || !walletClient || !address) return null;
 
-    // Lazy-create on first use — these are stateless clients
+    // Lazy-create on first use — these are stateless clients.
+    //
+    // permissionless's toOwner() inspects the `owner` parameter:
+    //  - if it has `.type === 'local'`, treat as local account (PK-backed)
+    //  - else if it has `.request`, treat as EIP-1193 provider (build a
+    //    fresh walletClient from it)
+    //  - else assume it IS already a walletClient and read `.account.address`
+    //
+    // wagmi's `walletClient.account` is a json-rpc account without a
+    // `.request`, so passing it tripped the third branch and dereferenced
+    // `account.account`. Passing the walletClient itself takes the second
+    // branch (it has `.request`) and produces a working signer. Passing
+    // `address` explicitly satisfies the eip7702 destructure that reads
+    // `owner.address` for the smart-account address.
     const create = async (paymasterUrl) => {
       const smartAccount = await to7702SimpleSmartAccount({
         client: walletClient,
+        owner: walletClient,
+        address,
         entryPoint: { address: entryPoint08Address, version: '0.8' },
       });
 

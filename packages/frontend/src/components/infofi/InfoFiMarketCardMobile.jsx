@@ -24,7 +24,7 @@ const InfoFiMarketCardMobile = ({ market }) => {
 
   // Place bet mutation
   const placeBetMutation = useMutation({
-    mutationFn: async ({ marketId, side, amount }) => {
+    mutationFn: async ({ marketId: _marketId, side, amount }) => {
       if (!market.contract_address) {
         throw new Error(t("market:marketContractAddressNotFound"));
       }
