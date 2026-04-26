@@ -17,50 +17,28 @@ contract DeployPaymaster is Script {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(deployerKey);
 
+        // The local stack runs scripts/setup-local-aa.js before this script,
+        // which deploys the real EntryPoint v0.8 at the canonical address. We
+        // unconditionally point the paymaster there so the off-chain bundler,
+        // viem, and the contract all share the same EntryPoint instance.
+        // Forge's local simulation EVM does not see the anvil_setCode injection,
+        // so a `code.length` check would always fall through to a stub even
+        // when the real EntryPoint exists on chain — see the AA24 root cause
+        // diagnosed during Test A bring-up.
+        address entryPointAddr = 0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108;
+        IEntryPoint entryPoint = IEntryPoint(entryPointAddr);
+
         vm.startBroadcast(deployerKey);
 
-        // On local Anvil, the EntryPoint v0.8 doesn't exist at the canonical address.
-        // Deploy a minimal StubEntryPoint that handles deposits.
-        address entryPointAddr = 0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108;
-        IEntryPoint entryPoint;
-        if (entryPointAddr.code.length == 0) {
-            StubEntryPoint stub = new StubEntryPoint();
-            entryPoint = IEntryPoint(address(stub));
-            console2.log("Deployed StubEntryPoint at:", address(stub));
-        } else {
-            entryPoint = IEntryPoint(entryPointAddr);
-        }
         SOFPaymaster paymaster = new SOFPaymaster(entryPoint, deployer, deployer);
-        paymaster.deposit{value: 100 ether}();
 
         vm.stopBroadcast();
 
         addrs.paymasterAddress = address(paymaster);
         console2.log("SOFPaymaster:", address(paymaster));
-        console2.log("Funded with 100 ETH deposit");
+        console2.log("EntryPoint deposit funded post-deploy via scripts/local-dev.sh");
 
         return addrs;
     }
 }
 
-/// @dev Minimal stub EntryPoint for local Anvil. Handles deposits only.
-///      NOT a real EntryPoint — just enough for the paymaster to deploy and fund.
-contract StubEntryPoint {
-    mapping(address => uint256) public deposits;
-
-    function depositTo(address account) external payable {
-        deposits[account] += msg.value;
-    }
-
-    function balanceOf(address account) external view returns (uint256) {
-        return deposits[account];
-    }
-
-    function withdrawTo(address payable withdrawAddress, uint256 withdrawAmount) external {
-        require(deposits[msg.sender] >= withdrawAmount, "insufficient deposit");
-        deposits[msg.sender] -= withdrawAmount;
-        withdrawAddress.transfer(withdrawAmount);
-    }
-
-    receive() external payable {}
-}

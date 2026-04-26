@@ -252,7 +252,7 @@ export default async function accessRoutes(fastify) {
    * GET /levels
    * Get all access level definitions
    */
-  fastify.get("/levels", async (request, reply) => {
+  fastify.get("/levels", async (_request, _reply) => {
     return {
       levels: Object.entries(ACCESS_LEVELS).map(([name, value]) => ({
         name: name.toLowerCase(),

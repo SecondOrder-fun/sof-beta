@@ -79,8 +79,22 @@ MetaMask `wallet_sendCalls` does not support `paymasterService` capability. Batc
 - [x] Refactor useSmartTransactions for delegation routing
 - [x] Wire DelegationGate into WagmiConfigProvider
 - [x] Deploy SOFSmartAccount to Base Sepolia
-- [ ] End-to-end testing with MetaMask + Rabby
+- [x] End-to-end testing with MetaMask on local Anvil (Test A — sponsored UserOp via local bundler+paymaster, season created and ticket buy gasless, both confirmed on-chain at 0 ETH user cost)
+- [ ] End-to-end testing with Rabby on local Anvil
+- [ ] End-to-end testing with Big Wallet on Safari (passkey, may need a non-permissionless account adapter)
 - [x] Add delegation locale strings for de, es, fr, it, ja, pt, ru, zh
+
+### Local AA bring-up fixes (this milestone)
+- [x] Deploy real EntryPoint v0.8 at canonical `0x4337...108` on Anvil — bootstrap deploys via tx so EIP-712 immutables (`name="ERC4337"`, `version="1"`) get inlined into the runtime, then `anvil_setCode` moves it to the canonical address
+- [x] Redesign SOFPaymaster to avoid the `userOpHash` chicken-and-egg — added `getHash(userOp, validUntil, validAfter)` mirroring eth-infinitism `VerifyingPaymaster`; off-chain signer mirrors the layout
+- [x] Add SimpleAccount-compatible `execute` + `executeBatch` shims to SOFSmartAccount so permissionless's `to7702SimpleSmartAccount` adapter can dispatch (selectors `0xb61d27f6` and `0x34fcd5be`)
+- [x] Fix `normalizeUserOp` defaults — `maxFeePerGas`/`maxPriorityFeePerGas` default to 0 (not 1 gwei) so they don't mutate the packed `gasFees` and break the wallet signature
+- [x] Bump bundler `eth_estimateUserOperationGas` defaults — `callGasLimit` 300k → 8M to cover ops that deploy contracts (createSeason was OOG'ing inside `new RaffleToken`)
+- [x] `executeBatch` Path A returns the real handleOps tx hash (not the userOpHash) so `useWaitForTransactionReceipt` resolves
+- [x] `WagmiConfigProvider` re-prompts delegation when the EOA is delegated to a stale SOFSmartAccount on local chain (`isDelegated && !isLocalChain` guard)
+- [x] `14_ConfigureRoles.s.sol` auto-broadcasts `sof.approve(InfoFiFactory, max)` and `sof.approve(RolloverEscrow, max)` when `TREASURY_ADDRESS == deployer`
+- [x] `15_DeployPaymaster.s.sol` removed Stub fallback; deposit moved to post-deploy `cast send` in `local-dev.sh` (forge's local sim doesn't see `anvil_setCode` injections)
+- [x] Bundler returns decoded `FailedOp`/`FailedOpWithRevert` reasons + serializes BigInts in `eth_getUserOperationReceipt`; tolerates the "tx not yet mined" race
 
 ## Monorepo Migration (In Progress)
 

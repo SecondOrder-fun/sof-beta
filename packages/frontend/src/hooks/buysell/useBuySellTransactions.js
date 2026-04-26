@@ -37,7 +37,12 @@ export function useBuySellTransactions(
   const { data: walletClient } = useWalletClient();
   const chainId = useChainId();
   const contracts = getContractAddresses(getStoredNetworkKey());
-  const { hasBatch, executeBatch } = useSmartTransactions();
+  const { hasBatch, isDelegated, executeBatch } = useSmartTransactions();
+  // Use the sponsored path whenever the wallet either advertises atomic
+  // ERC-5792 capability *or* the EOA is 7702-delegated. The latter handles
+  // wallets (MetaMask, etc.) that don't advertise atomic on every chain but
+  // still authorize a smart-account UserOp through our local bundler.
+  const canBatch = hasBatch || isDelegated;
 
   /**
    * Execute buy transaction
@@ -53,7 +58,7 @@ export function useBuySellTransactions(
         const cap = applyMaxSlippage(maxSofAmount, slippagePct);
 
         // Tier 1: ERC-5792 batch + paymaster (single gasless confirmation)
-        if (hasBatch) {
+        if (canBatch) {
           try {
             let calls;
 
@@ -276,7 +281,7 @@ export function useBuySellTransactions(
         return { success: false, error: message };
       }
     },
-    [approve, buyTokens, buyTokensWithPermit, client, walletClient, address, chainId, contracts, bondingCurveAddress, onNotify, onSuccess, refetchBalance, t, hasBatch, executeBatch]
+    [approve, buyTokens, buyTokensWithPermit, client, walletClient, address, chainId, contracts, bondingCurveAddress, onNotify, onSuccess, refetchBalance, t, canBatch, executeBatch]
   );
 
   /**
@@ -324,7 +329,7 @@ export function useBuySellTransactions(
         }
 
         // Tier 1: ERC-5792 batch + paymaster (single gasless confirmation)
-        if (hasBatch) {
+        if (canBatch) {
           try {
             const sellTx = {
               to: bondingCurveAddress,
@@ -433,7 +438,7 @@ export function useBuySellTransactions(
         return { success: false, error: message };
       }
     },
-    [sellTokens, client, bondingCurveAddress, onNotify, onSuccess, refetchBalance, t, hasBatch, executeBatch, contracts]
+    [sellTokens, client, bondingCurveAddress, onNotify, onSuccess, refetchBalance, t, canBatch, executeBatch]
   );
 
   return {

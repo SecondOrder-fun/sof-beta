@@ -103,6 +103,7 @@ const OPT_OUT_PREFIX = "sof:delegation-opt-out:";
 
 const DelegationGate = () => {
   const { address, connector, isConnected } = useAccount();
+  const chainId = useChainId();
   const { data: walletClient } = useWalletClient();
   const { isDelegated, isSOFDelegate, isLoading } = useDelegationStatus();
   const [showModal, setShowModal] = useState(false);
@@ -117,9 +118,15 @@ const DelegationGate = () => {
       return;
     }
 
-    // Skip MetaMask — handles EIP-7702 delegation internally via wallet_sendCalls.
-    // When we call sendCalls with atomicRequired, MetaMask auto-prompts for 7702 upgrade.
-    if (connector?.id === "metaMaskSDK" || connector?.id === "io.metamask") {
+    // On testnet/mainnet MetaMask handles EIP-7702 internally via wallet_sendCalls
+    // (atomicRequired triggers a built-in upgrade prompt). On local Anvil
+    // (chain 31337) MetaMask has no native AA flow, so we drive the 7702
+    // authorization ourselves through the DelegationModal + backend relay.
+    const isLocalChain = chainId === 31337;
+    if (
+      !isLocalChain &&
+      (connector?.id === "metaMaskSDK" || connector?.id === "io.metamask")
+    ) {
       setHasChecked(true);
       return;
     }
@@ -130,8 +137,11 @@ const DelegationGate = () => {
       return;
     }
 
-    // Skip if delegated to someone else (don't overwrite)
-    if (isDelegated) {
+    // Skip if delegated to a non-SOF target (don't overwrite some other
+    // protocol's delegation on the user's EOA). Exception: local Anvil, where
+    // SOFSmartAccount gets a fresh address on every contract redeploy and we
+    // _want_ to re-prompt so the EOA points at the live SOFSmartAccount.
+    if (isDelegated && !isLocalChain) {
       setHasChecked(true);
       return;
     }
@@ -145,7 +155,7 @@ const DelegationGate = () => {
     // Show delegation modal
     setShowModal(true);
     setHasChecked(true);
-  }, [address, isConnected, walletClient, isLoading, hasChecked, connector, isDelegated, isSOFDelegate]);
+  }, [address, chainId, isConnected, walletClient, isLoading, hasChecked, connector, isDelegated, isSOFDelegate]);
 
   // Reset when wallet disconnects
   useEffect(() => {

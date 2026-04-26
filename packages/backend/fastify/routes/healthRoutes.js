@@ -43,8 +43,6 @@ async function healthRoutes(fastify) {
     }
 
     // RPC check: call eth_blockNumber on configured RPC, if available
-    // Respect NETWORK from .env, with LOCAL as final fallback
-    const network = process.env.NETWORK || "LOCAL";
     const rpcUrl = process.env.RPC_URL || null;
 
     if (rpcUrl) {

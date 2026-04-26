@@ -53,6 +53,21 @@ export default [
       "react-refresh/only-export-components": "off",
     },
   },
+  // Test files: inline component mocks don't need PropTypes; allow node globals
+  {
+    files: ["**/*.test.{js,jsx}", "tests/**/*.{js,jsx}", "**/__tests__/**/*.{js,jsx}"],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+        ...globals.vitest,
+      },
+    },
+    rules: {
+      "react/prop-types": "off",
+      "react/display-name": "off",
+    },
+  },
   // Backend (Node) files: enable Node globals like `process`
   {
     files: ["backend/**/*.js"],

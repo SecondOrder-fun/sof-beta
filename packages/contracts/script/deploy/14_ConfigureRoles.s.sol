@@ -11,6 +11,7 @@ import {InfoFiFPMMV2} from "../../src/infofi/InfoFiFPMMV2.sol";
 import {InfoFiPriceOracle} from "../../src/infofi/InfoFiPriceOracle.sol";
 import {RafflePrizeDistributor} from "../../src/core/RafflePrizeDistributor.sol";
 import {RolloverEscrow} from "../../src/core/RolloverEscrow.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 
 contract ConfigureRoles is Script {
@@ -88,11 +89,25 @@ contract ConfigureRoles is Script {
             console2.log("PrizeDistributor on Raffle already set");
         }
 
-        // NOTE: The treasury wallet must separately approve InfoFiFactory for SOF spending.
-        // This cannot be done in the deploy script because the treasury is not the deployer.
-        console2.log("IMPORTANT: Treasury must approve InfoFiFactory for SOF spending");
-        console2.log("  Run: sof.approve(", vm.toString(addrs.infoFiFactory), ", type(uint256).max)");
-        console2.log("  From the treasury wallet");
+        // Treasury must approve InfoFiFactory for SOF spending — needed when
+        // a season's first market is created. On local/dev the deployer is
+        // also the treasury, so we can broadcast the approval here. On
+        // testnet/mainnet TREASURY_ADDRESS is a multisig and the env var
+        // TREASURY_PRIVATE_KEY (if set) drives the approval; otherwise we
+        // log the manual command and let ops handle it.
+        address treasury = vm.envAddress("TREASURY_ADDRESS");
+        IERC20 sof = IERC20(addrs.sofToken);
+        if (treasury == deployer) {
+            try sof.approve(addrs.infoFiFactory, type(uint256).max) {
+                console2.log("Approved InfoFiFactory for SOF spending (treasury == deployer)");
+            } catch {
+                console2.log("InfoFiFactory SOF approval already set or failed");
+            }
+        } else {
+            console2.log("IMPORTANT: Treasury must approve InfoFiFactory for SOF spending");
+            console2.log("  Run: sof.approve(", vm.toString(addrs.infoFiFactory), ", type(uint256).max)");
+            console2.log("  From the treasury wallet:", vm.toString(treasury));
+        }
 
         // 10. Wire RolloverEscrow
         if (addrs.rolloverEscrow != address(0)) {

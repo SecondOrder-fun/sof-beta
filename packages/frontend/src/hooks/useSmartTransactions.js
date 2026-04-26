@@ -118,6 +118,12 @@ export function useSmartTransactions() {
   const buildFeeCall = useCallback((sofAmount) => {
     const contracts = getContractAddresses(getStoredNetworkKey());
     const treasury = contracts.SOF_EXCHANGE;
+    // SOFExchange isn't deployed on every network (not on local Anvil for
+    // example). When the address is empty, skip the fee call rather than
+    // emit a transfer(0x"", ...) that viem rejects as invalid.
+    if (!treasury || treasury === "0x" || !/^0x[0-9a-fA-F]{40}$/.test(treasury)) {
+      return null;
+    }
     const fee = (sofAmount * SOF_FEE_BPS) / 10_000n;
     return {
       to: contracts.SOF,
@@ -148,10 +154,23 @@ export function useSmartTransactions() {
     // endpoint (no session token — it's the dev server). On testnet/mainnet
     // we use the session-gated Pimlico proxy.
     const isLocalChain = chainId === 31337;
+    // eslint-disable-next-line no-console
+    console.log("[executeBatch] gate", {
+      isSOFDelegate,
+      hasDelegatedAccount: !!delegatedAccount,
+      apiBase,
+      chainId,
+      isLocalChain,
+      hasBackendJwt: !!backendJwt,
+      pathAWillFire: !!(
+        isSOFDelegate && delegatedAccount && apiBase && (isLocalChain || backendJwt)
+      ),
+    });
     if (isSOFDelegate && delegatedAccount && apiBase && (isLocalChain || backendJwt)) {
       let finalCalls = calls;
       if (sofAmount && sofAmount > 0n) {
-        finalCalls = [buildFeeCall(sofAmount), ...calls];
+        const feeCall = buildFeeCall(sofAmount);
+        finalCalls = feeCall ? [feeCall, ...calls] : calls;
       }
 
       let paymasterUrl;
@@ -189,7 +208,12 @@ export function useSmartTransactions() {
             timeout: 30_000,
           });
 
-          return receipt.userOpHash;
+          // Callers feed the return value into `useWaitForTransactionReceipt`,
+          // which expects an actual on-chain tx hash. The userOpHash is an
+          // EIP-4337 identifier and isn't a tx hash — wagmi would poll it
+          // forever. Return the wrapping handleOps tx hash so the UI can
+          // resolve the receipt immediately.
+          return receipt?.receipt?.transactionHash ?? userOpHash;
         } catch (err) {
           // Local backend down, bundler error, paymaster sig invalid — fall
           // through to the ERC-5792 path so the UI doesn't hard-fail. The user
@@ -212,7 +236,8 @@ export function useSmartTransactions() {
         optional: true,
       };
       if (sofAmount && sofAmount > 0n) {
-        finalCalls = [buildFeeCall(sofAmount), ...calls];
+        const feeCall = buildFeeCall(sofAmount);
+        finalCalls = feeCall ? [feeCall, ...calls] : calls;
       }
     } else if (!isCoinbaseWallet && apiBase && backendJwt) {
       const now = Date.now();
@@ -231,7 +256,8 @@ export function useSmartTransactions() {
           optional: true,
         };
         if (sofAmount && sofAmount > 0n) {
-          finalCalls = [buildFeeCall(sofAmount), ...calls];
+          const feeCall = buildFeeCall(sofAmount);
+        finalCalls = feeCall ? [feeCall, ...calls] : calls;
         }
       }
     }

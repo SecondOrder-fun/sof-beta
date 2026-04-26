@@ -32,6 +32,11 @@ vi.mock("../../shared/supabaseClient.js", () => ({
   },
 }));
 
+// Admin guard is exercised in adminGuard tests; mock as pass-through here.
+vi.mock("../../shared/adminGuard.js", () => ({
+  createRequireAdmin: () => async () => {},
+}));
+
 import gatingRoutes from "../../fastify/routes/gatingRoutes.js";
 
 describe("Gating Routes", () => {

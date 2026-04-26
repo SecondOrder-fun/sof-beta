@@ -221,6 +221,28 @@ do_start() {
     ok "  RolloverEscrow at $escrow"
   fi
 
+  # ------ Step 2a: SOFPaymaster EntryPoint deposit ------
+  # Forge's local simulation EVM doesn't see the EntryPoint we injected via
+  # anvil_setCode, so the paymaster contract can't deposit during the deploy
+  # script (it would call into "code-less" canonical address from the
+  # simulator's perspective and abort). We fund it from cast, which talks to
+  # the real chain that has the real EntryPoint code at 0x4337....
+  local paymaster
+  paymaster=$(get_deployment Paymaster) || true
+  if [ -n "$paymaster" ] && [ "$paymaster" != "null" ]; then
+    log "Step 2a/9: Funding SOFPaymaster EntryPoint deposit (100 ETH)..."
+    if cast send "$paymaster" "deposit()" \
+        --value 100ether \
+        --private-key "$DEPLOYER_KEY" \
+        --rpc-url "$RPC" >/dev/null 2>&1; then
+      ok "  Paymaster funded with 100 ETH on EntryPoint"
+    else
+      warn "  Paymaster deposit failed — sponsored UserOps will revert until funded"
+    fi
+  else
+    warn "  Paymaster not in local.json — sponsored UserOps will not work"
+  fi
+
   # ------ Step 2b: VRF subscription setup ------
   # V2_5Mock.createSubscription() returns a blockhash-derived uint256 subId.
   # `forge script --broadcast` captures the simulated subId and encodes it into

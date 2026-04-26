@@ -1,118 +1,158 @@
 // tests/services/claimService.test.js
 import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("@/services/onchainRaffleDistributor", () => ({
+  buildClaimGrandCall: vi.fn(),
+  buildClaimConsolationCall: vi.fn(),
+}));
+
+vi.mock("@/services/onchainInfoFi", () => ({
+  buildClaimPayoutCall: vi.fn(),
+  buildRedeemPositionCall: vi.fn(),
+}));
+
+vi.mock("@/lib/wagmi", () => ({
+  getStoredNetworkKey: () => "LOCAL",
+}));
+
+import { buildClaimCalls } from "@/services/claimService";
 import {
-  executeClaim,
-  claimRaffleGrandPrize,
-  claimRaffleConsolationPrize,
-} from "@/services/claimService";
-import * as onchainRaffleDistributor from "@/services/onchainRaffleDistributor";
+  buildClaimGrandCall,
+  buildClaimConsolationCall,
+} from "@/services/onchainRaffleDistributor";
+import {
+  buildClaimPayoutCall,
+  buildRedeemPositionCall,
+} from "@/services/onchainInfoFi";
 
-// Mock the service modules
-vi.mock("@/services/onchainRaffleDistributor");
-
-describe("claimService", () => {
+describe("claimService.buildClaimCalls", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  describe("executeClaim", () => {
-    it("should route to raffle-grand claim correctly", async () => {
-      const mockHash = "0x123...";
-      onchainRaffleDistributor.claimGrand.mockResolvedValue(mockHash);
+  it("routes raffle-grand to buildClaimGrandCall with seasonId + networkKey", async () => {
+    const call = { to: "0xDist", data: "0xabc" };
+    buildClaimGrandCall.mockResolvedValue(call);
 
-      const result = await executeClaim({
-        type: "raffle-grand",
-        params: { seasonId: 1 },
-        networkKey: "LOCAL",
-      });
-
-      expect(result).toEqual({ success: true, hash: mockHash, error: null });
-      expect(onchainRaffleDistributor.claimGrand).toHaveBeenCalledWith({
-        seasonId: 1,
-        networkKey: "LOCAL",
-      });
+    const result = await buildClaimCalls({
+      type: "raffle-grand",
+      params: { seasonId: 1 },
+      networkKey: "LOCAL",
     });
 
-    it("should route to raffle-consolation claim correctly", async () => {
-      const mockHash = "0x456...";
-      onchainRaffleDistributor.claimConsolation.mockResolvedValue(mockHash);
-
-      const result = await executeClaim({
-        type: "raffle-consolation",
-        params: { seasonId: 2 },
-        networkKey: "LOCAL",
-      });
-
-      expect(result).toEqual({ success: true, hash: mockHash, error: null });
-      expect(onchainRaffleDistributor.claimConsolation).toHaveBeenCalledWith({
-        seasonId: 2,
-        networkKey: "LOCAL",
-      });
-    });
-
-    it("should handle claim errors correctly", async () => {
-      const mockError = new Error("Insufficient funds");
-      onchainRaffleDistributor.claimGrand.mockRejectedValue(mockError);
-
-      const result = await executeClaim({
-        type: "raffle-grand",
-        params: { seasonId: 1 },
-        networkKey: "LOCAL",
-      });
-
-      expect(result).toEqual({
-        success: false,
-        hash: null,
-        error: "Insufficient funds",
-      });
-    });
-
-    it("should handle unknown claim types", async () => {
-      const result = await executeClaim({
-        type: "unknown-type",
-        params: { seasonId: 1 },
-        networkKey: "LOCAL",
-      });
-
-      expect(result).toEqual({
-        success: false,
-        hash: null,
-        error: "Unknown claim type: unknown-type",
-      });
+    expect(result).toEqual({ calls: [call], error: null });
+    expect(buildClaimGrandCall).toHaveBeenCalledWith({
+      seasonId: 1,
+      networkKey: "LOCAL",
     });
   });
 
-  describe("convenience functions", () => {
-    it("should provide claimRaffleGrandPrize convenience function", async () => {
-      const mockHash = "0x789...";
-      onchainRaffleDistributor.claimGrand.mockResolvedValue(mockHash);
+  it("routes raffle-consolation with toRollover forwarded (default false)", async () => {
+    const call = { to: "0xDist", data: "0xdef" };
+    buildClaimConsolationCall.mockResolvedValue(call);
 
-      const result = await claimRaffleGrandPrize({
-        seasonId: 3,
-        networkKey: "TESTNET",
-      });
-
-      expect(result).toEqual({ success: true, hash: mockHash, error: null });
-      expect(onchainRaffleDistributor.claimGrand).toHaveBeenCalledWith({
-        seasonId: 3,
-        networkKey: "TESTNET",
-      });
+    const result = await buildClaimCalls({
+      type: "raffle-consolation",
+      params: { seasonId: 2 },
+      networkKey: "TESTNET",
     });
 
-    it("should provide claimRaffleConsolationPrize convenience function", async () => {
-      const mockHash = "0xabc...";
-      onchainRaffleDistributor.claimConsolation.mockResolvedValue(mockHash);
+    expect(result).toEqual({ calls: [call], error: null });
+    expect(buildClaimConsolationCall).toHaveBeenCalledWith({
+      seasonId: 2,
+      toRollover: false,
+      networkKey: "TESTNET",
+    });
+  });
 
-      const result = await claimRaffleConsolationPrize({
-        seasonId: 4,
-        networkKey: "TESTNET",
-      });
+  it("routes raffle-consolation with toRollover=true when set", async () => {
+    const call = { to: "0xDist", data: "0xfff" };
+    buildClaimConsolationCall.mockResolvedValue(call);
 
-      expect(result).toEqual({ success: true, hash: mockHash, error: null });
-      expect(onchainRaffleDistributor.claimConsolation).toHaveBeenCalledWith({
+    await buildClaimCalls({
+      type: "raffle-consolation",
+      params: { seasonId: 3, toRollover: true },
+      networkKey: "LOCAL",
+    });
+
+    expect(buildClaimConsolationCall).toHaveBeenCalledWith({
+      seasonId: 3,
+      toRollover: true,
+      networkKey: "LOCAL",
+    });
+  });
+
+  it("routes infofi-payout to buildClaimPayoutCall", async () => {
+    const call = { to: "0xMarket", data: "0x111" };
+    buildClaimPayoutCall.mockReturnValue(call);
+
+    const result = await buildClaimCalls({
+      type: "infofi-payout",
+      params: {
+        marketId: "m1",
+        prediction: true,
+        account: "0xUser",
+        contractAddress: "0xMarket",
+      },
+    });
+
+    expect(result).toEqual({ calls: [call], error: null });
+    expect(buildClaimPayoutCall).toHaveBeenCalledWith({
+      marketId: "m1",
+      prediction: true,
+      account: "0xUser",
+      contractAddress: "0xMarket",
+    });
+  });
+
+  it("routes fpmm-position to buildRedeemPositionCall", async () => {
+    const call = { to: "0xFpmm", data: "0x222" };
+    buildRedeemPositionCall.mockResolvedValue(call);
+
+    const result = await buildClaimCalls({
+      type: "fpmm-position",
+      params: {
         seasonId: 4,
-        networkKey: "TESTNET",
-      });
+        player: "0xPlayer",
+        fpmmAddress: "0xFpmm",
+      },
+      networkKey: "LOCAL",
+    });
+
+    expect(result).toEqual({ calls: [call], error: null });
+    expect(buildRedeemPositionCall).toHaveBeenCalledWith({
+      seasonId: 4,
+      player: "0xPlayer",
+      fpmmAddress: "0xFpmm",
+      networkKey: "LOCAL",
+    });
+  });
+
+  it("surfaces a friendly error for unknown claim types", async () => {
+    const result = await buildClaimCalls({
+      type: "bogus",
+      params: {},
+      networkKey: "LOCAL",
+    });
+
+    expect(result).toEqual({
+      calls: null,
+      error: "Unknown claim type: bogus",
+    });
+  });
+
+  it("propagates thrown errors as { error } result", async () => {
+    buildClaimGrandCall.mockRejectedValue(new Error("Insufficient funds"));
+
+    const result = await buildClaimCalls({
+      type: "raffle-grand",
+      params: { seasonId: 1 },
+      networkKey: "LOCAL",
+    });
+
+    expect(result).toEqual({
+      calls: null,
+      error: "Insufficient funds",
     });
   });
 });

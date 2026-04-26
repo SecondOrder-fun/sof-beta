@@ -41,6 +41,7 @@ vi.mock("wagmi", async (importOriginal) => {
 // Mock network key helper
 vi.mock("@/lib/wagmi", () => ({
   getStoredNetworkKey: () => "LOCAL",
+  getChainConfig: () => ({ chain: { id: 31337 }, transport: {} }),
 }));
 
 // Mock onchain InfoFi helpers used only for discovery in this test
@@ -72,6 +73,41 @@ vi.mock("@/services/onchainRaffleDistributor", () => ({
   claimConsolation: (...args) => mockClaimConsolation(...args),
   isConsolationClaimed: (...args) => mockIsConsolationClaimed(...args),
   isSeasonParticipant: (...args) => mockIsSeasonParticipant(...args),
+}));
+
+// Mock useRollover — unused in these tests but loaded by ConsolationClaimRow.
+vi.mock("@/hooks/useRollover", () => ({
+  useRollover: () => ({
+    rolloverBalance: 0n,
+    rolloverDeposited: 0n,
+    rolloverSpent: 0n,
+    isRefunded: false,
+    cohortPhase: "none",
+    bonusBps: 0,
+    nextSeasonId: 0,
+    bonusAmount: 0n,
+    isRolloverAvailable: false,
+    hasClaimableRollover: false,
+    bonusPercent: 0,
+    claimToRollover: { mutate: vi.fn(), isPending: false },
+    spendFromRollover: { mutate: vi.fn(), isPending: false },
+    refundRollover: { mutate: vi.fn(), isPending: false },
+    isLoading: false,
+  }),
+}));
+
+// Mock useClaims — ClaimCenter calls .mutate on these. Route calls to the
+// existing mockClaim* spies so assertions below still fire.
+vi.mock("@/hooks/useClaims", () => ({
+  useClaims: () => ({
+    pendingClaims: new Set(),
+    successfulClaims: new Set(),
+    getClaimKey: (type, params) => `${type}-${params?.seasonId ?? params?.marketId}`,
+    claimInfoFiOne: { mutate: vi.fn(), isPending: false },
+    claimFPMMOne: { mutate: vi.fn(), isPending: false },
+    claimRaffleGrand: { mutate: (args) => mockClaimGrand(args), isPending: false },
+    claimRaffleConsolation: { mutate: (args) => mockClaimConsolation(args), isPending: false },
+  }),
 }));
 
 vi.mock("@/hooks/useAllSeasons", () => ({

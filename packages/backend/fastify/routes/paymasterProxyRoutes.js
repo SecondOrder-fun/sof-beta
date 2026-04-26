@@ -214,9 +214,8 @@ export default async function paymasterProxyRoutes(fastify) {
     },
     handler: async (request, reply) => {
       // Explicit auth — do not rely on global preHandler
-      let user;
       try {
-        user = await AuthService.authenticateRequest(request);
+        await AuthService.authenticateRequest(request);
       } catch (err) {
         return reply.status(401).send({ error: "Authentication required" });
       }

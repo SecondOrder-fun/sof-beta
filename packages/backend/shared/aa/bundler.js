@@ -5,11 +5,13 @@
 import {
   createPublicClient,
   createWalletClient,
+  decodeErrorResult,
   decodeEventLog,
   hexToBigInt,
   http,
   numberToHex,
   parseEventLogs,
+  recoverAddress,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import {
@@ -45,8 +47,14 @@ function normalizeUserOp(raw) {
     callGasLimit: big(raw.callGasLimit ?? "0x186a0"), // 100k default
     verificationGasLimit: big(raw.verificationGasLimit ?? "0x249f0"), // 150k
     preVerificationGas: big(raw.preVerificationGas ?? "0xc350"), // 50k
-    maxFeePerGas: big(raw.maxFeePerGas ?? "0x3b9aca00"), // 1 gwei
-    maxPriorityFeePerGas: big(raw.maxPriorityFeePerGas ?? "0x3b9aca00"),
+    // Default to 0 (not 1 gwei) when the field is omitted from the JSON-RPC
+    // request. permissionless drops `maxFeePerGas` / `maxPriorityFeePerGas`
+    // entirely when they're zero in the signed userOp; defaulting them to
+    // 1 gwei here would mutate `gasFees` in the packed encoding and thus the
+    // userOpHash, making the wallet signature recover to a wrong address
+    // (every operation came back as AA24).
+    maxFeePerGas: big(raw.maxFeePerGas ?? 0),
+    maxPriorityFeePerGas: big(raw.maxPriorityFeePerGas ?? 0),
     paymaster: raw.paymaster ?? undefined,
     paymasterVerificationGasLimit:
       raw.paymasterVerificationGasLimit != null
@@ -88,29 +96,18 @@ export function createBundlerService({ rpcUrl, chain, relayKey, paymasterAddress
   }
 
   /**
-   * Build the digest the paymaster signs over.
-   *
-   * Verifying paymasters have a chicken-and-egg problem: the userOpHash
-   * computed by the EntryPoint depends on paymasterAndData, which contains
-   * the very signature being computed. To break the cycle we strip the
-   * variable paymaster fields (paymasterData / signature) before hashing,
-   * matching what the on-chain EntryPoint sees in the canonical hash path.
-   *
-   * Gas limits stay populated because they're fixed by `buildPaymasterResponse`'s
-   * defaults — both stub and final return the same numbers.
+   * Build the ERC-7677 paymaster response. The off-chain digest is computed
+   * by SOFPaymaster.getHash (mirrored in paymasterSigner.buildPaymasterDigest)
+   * which intentionally excludes the trailing validUntil/validAfter/signature
+   * bytes from paymasterAndData — that's the only way to break the
+   * chicken-and-egg of "userOpHash depends on the paymaster signature".
    */
   async function getPaymasterData(userOp) {
-    const cleaned = {
-      ...userOp,
-      signature: "0x",
-      // Zero-length paymaster signature placeholder so stub & final hashes match.
-      paymasterData: "0x",
-    };
-    const userOpHash = hashUserOp(cleaned);
     return buildPaymasterResponse({
-      userOpHash,
+      userOperation: userOp,
       paymasterAddress,
       signerKey: relayKey,
+      chainId: chain.id,
     });
   }
 
@@ -129,17 +126,21 @@ export function createBundlerService({ rpcUrl, chain, relayKey, paymasterAddress
   }
 
   /**
-   * eth_estimateUserOperationGas: minimal — use preset generous defaults
-   * since we don't implement full simulation. Real Pimlico would simulate
-   * validation + execution to squeeze these numbers down.
+   * eth_estimateUserOperationGas: we don't run real bundler-side simulation,
+   * so return generous fixed numbers. The previous 300k callGasLimit was too
+   * tight for ops that deploy new contracts (e.g. Raffle.createSeason, which
+   * deploys a RaffleToken + bonding curve and OOG'd at 300k). Real Pimlico
+   * would simulate to squeeze these; on local we'd rather over-provision than
+   * fail — paymaster only pays for `actualGasUsed`, so bigger limits don't
+   * cost more when the op succeeds.
    */
   async function estimateUserOperationGas() {
     return {
-      preVerificationGas: numberToHex(80_000n),
-      verificationGasLimit: numberToHex(300_000n),
-      callGasLimit: numberToHex(300_000n),
-      paymasterVerificationGasLimit: numberToHex(150_000n),
-      paymasterPostOpGasLimit: numberToHex(30_000n),
+      preVerificationGas: numberToHex(100_000n),
+      verificationGasLimit: numberToHex(500_000n),
+      callGasLimit: numberToHex(8_000_000n),
+      paymasterVerificationGasLimit: numberToHex(200_000n),
+      paymasterPostOpGasLimit: numberToHex(60_000n),
     };
   }
 
@@ -152,14 +153,72 @@ export function createBundlerService({ rpcUrl, chain, relayKey, paymasterAddress
     const userOpHash = hashUserOp(userOp);
     const packed = toPackedUserOperation(userOp);
 
-    const txHash = await walletClient.writeContract({
-      address: entryPoint,
-      abi: entryPoint08Abi,
-      functionName: "handleOps",
-      args: [[packed], account.address],
-    });
+    let txHash;
+    try {
+      txHash = await walletClient.writeContract({
+        address: entryPoint,
+        abi: entryPoint08Abi,
+        functionName: "handleOps",
+        args: [[packed], account.address],
+      });
+    } catch (err) {
+      // viem buries the revert data in err.cause(.cause).data — walk the chain
+      // and decode the FailedOp / FailedOpWithRevert error so the bundler
+      // returns a useful "AA24 signature error" string instead of a generic
+      // "Missing or invalid parameters" wrapper.
+      let data;
+      let cur = err;
+      while (cur) {
+        if (cur.data && typeof cur.data === "string" && cur.data.startsWith("0x")) {
+          data = cur.data;
+          break;
+        }
+        cur = cur.cause;
+      }
+      if (data) {
+        try {
+          const decoded = decodeErrorResult({ abi: entryPoint08Abi, data });
+          const reason = decoded.args?.[1] ?? decoded.errorName;
 
-    // Record the submission for later eth_getUserOperationReceipt queries.
+          // For AA24 (account signature), surface the canonical hash + the
+          // address the submitted signature actually recovers to so we can see
+          // at a glance whether the wallet signed something else.
+          if (typeof reason === "string" && reason.includes("AA24")) {
+            try {
+              const onChainHash = await publicClient.readContract({
+                address: entryPoint,
+                abi: entryPoint08Abi,
+                functionName: "getUserOpHash",
+                args: [packed],
+              });
+              const recovered = await recoverAddress({
+                hash: onChainHash,
+                signature: userOp.signature,
+              });
+              // eslint-disable-next-line no-console
+              console.warn("[bundler] AA24 diagnostic", {
+                expectedSender: userOp.sender,
+                recoveredFromSig: recovered,
+                onChainUserOpHash: onChainHash,
+                signature: userOp.signature,
+              });
+            } catch (diagErr) {
+              // eslint-disable-next-line no-console
+              console.warn("[bundler] AA24 diagnostic failed", diagErr?.message);
+            }
+          }
+
+          throw new Error(`EntryPoint.${decoded.errorName}: ${reason}`);
+        } catch (decodeErr) {
+          if (decodeErr instanceof Error && decodeErr.message?.startsWith("EntryPoint.")) {
+            throw decodeErr;
+          }
+          // fall through, rethrow original
+        }
+      }
+      throw err;
+    }
+
     submissions.set(userOpHash, { txHash, userOp, submittedAt: Date.now() });
     return userOpHash;
   }
@@ -172,7 +231,17 @@ export function createBundlerService({ rpcUrl, chain, relayKey, paymasterAddress
     const record = submissions.get(userOpHash);
     if (!record) return null;
 
-    const receipt = await publicClient.getTransactionReceipt({ hash: record.txHash });
+    // viem throws TransactionReceiptNotFoundError when the tx is still in the
+    // mempool. With Anvil's block-time=1 we can hit this window after the
+    // bundler returns the tx hash, so swallow the error and return null —
+    // permissionless will retry until either the receipt lands or its own
+    // timeout fires.
+    let receipt;
+    try {
+      receipt = await publicClient.getTransactionReceipt({ hash: record.txHash });
+    } catch {
+      return null;
+    }
     if (!receipt) return null;
 
     const events = parseEventLogs({
@@ -184,6 +253,21 @@ export function createBundlerService({ rpcUrl, chain, relayKey, paymasterAddress
       (e) => e.args?.userOpHash?.toLowerCase() === userOpHash.toLowerCase(),
     );
 
+    // viem returns BigInts for blockNumber/transactionIndex/logIndex on every
+    // log entry — Fastify's default JSON serialiser dies on those. Strip them
+    // to hex so the JSON-RPC response is round-trippable.
+    const serializeLog = (l) => ({
+      address: l.address,
+      topics: l.topics,
+      data: l.data,
+      blockNumber: l.blockNumber != null ? numberToHex(l.blockNumber) : null,
+      transactionHash: l.transactionHash,
+      transactionIndex: l.transactionIndex != null ? numberToHex(l.transactionIndex) : null,
+      blockHash: l.blockHash,
+      logIndex: l.logIndex != null ? numberToHex(l.logIndex) : null,
+      removed: !!l.removed,
+    });
+
     return {
       userOpHash,
       entryPoint,
@@ -194,7 +278,7 @@ export function createBundlerService({ rpcUrl, chain, relayKey, paymasterAddress
       actualGasUsed: numberToHex(match?.args?.actualGasUsed ?? 0n),
       success: match?.args?.success ?? false,
       reason: "",
-      logs: receipt.logs,
+      logs: receipt.logs.map(serializeLog),
       receipt: {
         transactionHash: receipt.transactionHash,
         transactionIndex: numberToHex(receipt.transactionIndex),

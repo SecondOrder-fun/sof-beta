@@ -26,6 +26,46 @@ contract SOFSmartAccount is Account, SignerERC7702, ERC7821, IERC721Receiver, IE
         return caller == address(entryPoint()) || super._erc7821AuthorizedExecutor(caller, mode, executionData);
     }
 
+    // ──────────────── SimpleAccount-compatible execution ────────────────
+    //
+    // permissionless's `to7702SimpleSmartAccount` adapter encodes calls using
+    // eth-infinitism's SimpleAccount selectors:
+    //   execute(address,uint256,bytes)            → 0xb61d27f6
+    //   executeBatch((address,uint256,bytes)[])   → 0x34fcd5be
+    //
+    // OZ's ERC-7821 exposes a single `execute(bytes32 mode, bytes executionData)`
+    // dispatcher and doesn't expose those selectors. We add thin shims so the
+    // standard permissionless flow lands here without needing a custom
+    // smart-account adapter.
+
+    struct Call {
+        address target;
+        uint256 value;
+        bytes data;
+    }
+
+    function execute(address target, uint256 value, bytes calldata data) external payable {
+        if (msg.sender != address(entryPoint()) && msg.sender != address(this)) {
+            revert AccountUnauthorized(msg.sender);
+        }
+        (bool ok, bytes memory ret) = target.call{value: value}(data);
+        if (!ok) {
+            assembly { revert(add(ret, 0x20), mload(ret)) }
+        }
+    }
+
+    function executeBatch(Call[] calldata calls) external payable {
+        if (msg.sender != address(entryPoint()) && msg.sender != address(this)) {
+            revert AccountUnauthorized(msg.sender);
+        }
+        for (uint256 i = 0; i < calls.length; ++i) {
+            (bool ok, bytes memory ret) = calls[i].target.call{value: calls[i].value}(calls[i].data);
+            if (!ok) {
+                assembly { revert(add(ret, 0x20), mload(ret)) }
+            }
+        }
+    }
+
     // ──────────────── Token Receivers ────────────────
 
     function onERC721Received(address, address, uint256, bytes calldata) external pure returns (bytes4) {

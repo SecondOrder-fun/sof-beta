@@ -8,10 +8,19 @@
  *  - permissionless' to7702SimpleSmartAccount expects that address to exist
  *  - SOFPaymaster validateUserOp is called by the EntryPoint
  *
- * We can't deploy via `CREATE` to a specific address, but we own the node,
- * so we inject the runtime bytecode directly with anvil_setCode. The
- * bytecode comes from @account-abstraction/contracts@0.8.0's prebuilt
- * artifact — same code that's verified on-chain at the canonical address.
+ * We can't `CREATE` to a specific address, so we:
+ *   1. Deploy the EntryPoint normally via a transaction (so the constructor
+ *      runs and EIP-712 immutables — _hashedName="ERC4337", _hashedVersion="1",
+ *      _cachedThis, _cachedDomainSeparator — get inlined into runtime code).
+ *   2. Read eth_getCode at the freshly-deployed address.
+ *   3. anvil_setCode that bytecode onto the canonical 0x4337... address.
+ *      Immutables travel with the bytes since they're encoded as PUSH
+ *      constants in the deployed code.
+ *
+ * Using only the artifact's `deployedBytecode` (placeholder zeros for
+ * immutables) yields an EntryPoint whose getUserOpHash uses an empty-string
+ * EIP-712 domain — viem signs with name="ERC4337" version="1" and the
+ * digests don't match, so every account signature fails AA24.
  *
  * Usage:
  *   node scripts/setup-local-aa.js [rpc]
@@ -63,35 +72,75 @@ async function main() {
   }
 
   const artifactPath = require.resolve("@account-abstraction/contracts/artifacts/EntryPoint.json");
-  const { deployedBytecode } = JSON.parse(readFileSync(artifactPath, "utf8"));
-  if (!deployedBytecode || deployedBytecode === "0x") {
-    throw new Error("EntryPoint artifact has no deployedBytecode");
+  const { bytecode: creationBytecode } = JSON.parse(readFileSync(artifactPath, "utf8"));
+  if (!creationBytecode || creationBytecode === "0x") {
+    throw new Error("EntryPoint artifact has no creation bytecode");
   }
 
+  // Anvil dev account #1. We deliberately avoid #0 (the canonical deployer
+  // used by `forge script DeployAll`) — bumping its nonce here would shift
+  // every contract address produced by the forge deploy, breaking the
+  // recorded deployments/local.json mapping.
+  const DEPLOYER = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
+
+  // 1. Deploy normally so the constructor runs and EIP-712 immutables are
+  //    inlined into the resulting runtime bytecode.
+  const txHash = await rpc("eth_sendTransaction", [
+    { from: DEPLOYER, data: creationBytecode, gas: "0x1c9c380" }, // 30M gas
+  ]);
+  let receipt = null;
+  for (let i = 0; i < 20; i++) {
+    receipt = await rpc("eth_getTransactionReceipt", [txHash]);
+    if (receipt) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  if (!receipt || receipt.status !== "0x1" || !receipt.contractAddress) {
+    throw new Error(`EntryPoint deploy failed (txHash=${txHash}): ${JSON.stringify(receipt)}`);
+  }
+  const deployedAt = receipt.contractAddress;
+  const deployedRuntime = await rpc("eth_getCode", [deployedAt, "latest"]);
+  if (!deployedRuntime || deployedRuntime === "0x") {
+    throw new Error("deployed EntryPoint has no runtime code");
+  }
+
+  // 2. Move the post-constructor runtime to the canonical address.
   const codeBefore = await rpc("eth_getCode", [ENTRYPOINT_V08, "latest"]);
-  if (codeBefore === deployedBytecode) {
+  if (codeBefore === deployedRuntime) {
     console.log(`[aa-setup] EntryPoint v0.8 already at ${ENTRYPOINT_V08} (code matches)`);
     return;
   }
 
-  await rpc("anvil_setCode", [ENTRYPOINT_V08, deployedBytecode]);
+  await rpc("anvil_setCode", [ENTRYPOINT_V08, deployedRuntime]);
 
   const codeAfter = await rpc("eth_getCode", [ENTRYPOINT_V08, "latest"]);
-  if (codeAfter !== deployedBytecode) {
+  if (codeAfter !== deployedRuntime) {
     throw new Error("anvil_setCode did not persist bytecode");
   }
 
-  // Smoke-test a view call: getDepositInfo(address) → (uint112 deposit, bool staked, ...)
-  // selector 0x5287ce12, arg = address(0)
+  // Smoke-test getDepositInfo(address) — selector 0x5287ce12, arg=address(0).
   const probe = await rpc("eth_call", [
     { to: ENTRYPOINT_V08, data: "0x5287ce12" + "0".repeat(64) },
     "latest",
   ]);
   if (!probe || probe === "0x") {
-    throw new Error("EntryPoint getDepositInfo returned empty — injection may be incomplete");
+    throw new Error("EntryPoint getDepositInfo returned empty — injection incomplete");
   }
 
-  console.log(`[aa-setup] EntryPoint v0.8 injected at ${ENTRYPOINT_V08} (${(deployedBytecode.length / 2 - 1)} bytes)`);
+  // Smoke-test eip712Domain() — selector 0x84b0196e — to confirm the EIP-712
+  // immutables are populated (would be empty if the constructor hadn't run).
+  const domainProbe = await rpc("eth_call", [
+    { to: ENTRYPOINT_V08, data: "0x84b0196e" },
+    "latest",
+  ]);
+  if (!domainProbe || domainProbe === "0x") {
+    throw new Error("EntryPoint eip712Domain returned empty");
+  }
+  // ABI-decoded result includes "ERC4337" and "1" — quick text grep.
+  if (!domainProbe.toLowerCase().includes("4552433433333700000000000000000000")) {
+    throw new Error("EntryPoint eip712Domain name != ERC4337 — immutables not set");
+  }
+
+  console.log(`[aa-setup] EntryPoint v0.8 injected at ${ENTRYPOINT_V08} (${(deployedRuntime.length / 2 - 1)} bytes, deployed via ${deployedAt})`);
 }
 
 main().catch((err) => {
