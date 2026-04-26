@@ -64,18 +64,43 @@ export function useBuySellTransactions(
       // response shape (Rabby, some other forks) crash viem in Path B with
       // "Cannot read properties of undefined (reading 'id')". The user has
       // no way to recover from that error in the UI.
+      //
+      // useDelegationStatus polls on a 30s tick and listens for our
+      // `sof:delegation-changed` event, but React state updates are async —
+      // a user clicking Buy immediately after the modal closes can hit
+      // stale state. Fall back to an on-chain bytecode check before
+      // bailing.
       if (needsDelegation && !isDelegated) {
+        let actuallyDelegated = false;
+        if (address) {
+          try {
+            const { getBytecode } = await import("@wagmi/core");
+            const { config } = await import("@/lib/wagmiConfig");
+            const code = await getBytecode(config, { address });
+            actuallyDelegated = !!(code && code.toLowerCase().startsWith("0xef0100"));
+          } catch {
+            /* fall through to bail */
+          }
+        }
+        if (!actuallyDelegated) {
+          try {
+            window.dispatchEvent(new Event("sof:request-delegation"));
+          } catch { /* SSR / unsupported */ }
+          onNotify?.({
+            type: "error",
+            message: t("transactions:delegateFirst", {
+              defaultValue: "Please complete the delegation step to enable gasless transactions.",
+            }),
+            hash: "",
+          });
+          return { success: false, error: "delegation_required" };
+        }
+        // Bytecode says delegated; let the React state catch up — wake the
+        // hook and let the buy proceed via permit/approve fallback this
+        // time. Next click will route through Path A.
         try {
-          window.dispatchEvent(new Event("sof:request-delegation"));
-        } catch { /* SSR / unsupported */ }
-        onNotify?.({
-          type: "error",
-          message: t("transactions:delegateFirst", {
-            defaultValue: "Please complete the delegation step to enable gasless transactions.",
-          }),
-          hash: "",
-        });
-        return { success: false, error: "delegation_required" };
+          window.dispatchEvent(new Event("sof:delegation-changed"));
+        } catch { /* SSR */ }
       }
 
       try {
@@ -318,20 +343,36 @@ export function useBuySellTransactions(
    */
   const executeSell = useCallback(
     async ({ tokenAmount, minSofAmount, slippagePct, onComplete }) => {
-      // Same guard as executeBuy — surface delegation modal if user is on a
-      // wallet that needs delegation before sponsorship can work.
+      // Same guard as executeBuy with on-chain fallback for the
+      // useDelegationStatus state-staleness race.
       if (needsDelegation && !isDelegated) {
+        let actuallyDelegated = false;
+        if (address) {
+          try {
+            const { getBytecode } = await import("@wagmi/core");
+            const { config } = await import("@/lib/wagmiConfig");
+            const code = await getBytecode(config, { address });
+            actuallyDelegated = !!(code && code.toLowerCase().startsWith("0xef0100"));
+          } catch {
+            /* fall through to bail */
+          }
+        }
+        if (!actuallyDelegated) {
+          try {
+            window.dispatchEvent(new Event("sof:request-delegation"));
+          } catch { /* SSR / unsupported */ }
+          onNotify?.({
+            type: "error",
+            message: t("transactions:delegateFirst", {
+              defaultValue: "Please complete the delegation step to enable gasless transactions.",
+            }),
+            hash: "",
+          });
+          return { success: false, error: "delegation_required" };
+        }
         try {
-          window.dispatchEvent(new Event("sof:request-delegation"));
-        } catch { /* SSR / unsupported */ }
-        onNotify?.({
-          type: "error",
-          message: t("transactions:delegateFirst", {
-            defaultValue: "Please complete the delegation step to enable gasless transactions.",
-          }),
-          hash: "",
-        });
-        return { success: false, error: "delegation_required" };
+          window.dispatchEvent(new Event("sof:delegation-changed"));
+        } catch { /* SSR */ }
       }
 
       try {
@@ -478,7 +519,7 @@ export function useBuySellTransactions(
         return { success: false, error: message };
       }
     },
-    [sellTokens, client, bondingCurveAddress, onNotify, onSuccess, refetchBalance, t, canBatch, executeBatch, needsDelegation, isDelegated]
+    [sellTokens, client, bondingCurveAddress, onNotify, onSuccess, refetchBalance, t, canBatch, executeBatch, needsDelegation, isDelegated, address]
   );
 
   return {
