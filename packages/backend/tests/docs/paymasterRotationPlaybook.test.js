@@ -67,17 +67,19 @@ describe("paymaster-signer-rotation runbook", () => {
       "PAYMASTER_VALIDITY_WINDOW_SEC",
       "PAYMASTER_QUOTA_PER_HOUR",
       "PAYMASTER_MAX_CALL_GAS",
+      "PAYMASTER_MAX_PRE_VERIFICATION_GAS",
       "BACKEND_WALLET_PRIVATE_KEY",
     ];
     for (const v of envVars) {
       expect(text).toContain(v);
     }
-    // bundler.js reads the first three directly. BACKEND_WALLET_PRIVATE_KEY
+    // bundler.js reads the first four directly. BACKEND_WALLET_PRIVATE_KEY
     // is read in the route layer, but its name is documented in the bundler
     // comments so verify it stays referenced.
     expect(bundler).toContain("PAYMASTER_VALIDITY_WINDOW_SEC");
     expect(bundler).toContain("PAYMASTER_QUOTA_PER_HOUR");
     expect(bundler).toContain("PAYMASTER_MAX_CALL_GAS");
+    expect(bundler).toContain("PAYMASTER_MAX_PRE_VERIFICATION_GAS");
   });
 
   it("verify-paymaster-signer.js exposes the CLI flags the runbook documents", () => {

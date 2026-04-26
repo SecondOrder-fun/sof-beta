@@ -130,12 +130,18 @@ const DEFAULT_GAS_CAPS = {
     verificationGasLimit: 1_000_000n,
     paymasterVerificationGasLimit: 500_000n,
     paymasterPostOpGasLimit: 100_000n,
+    // EntryPoint v0.8 charges paymaster for preVerificationGas too. Without
+    // an explicit cap a leaked verifying-signer key could let an attacker
+    // inflate per-op damage by claiming arbitrary preVerificationGas. Real
+    // userOps need ~50-100k; 200k is generous headroom for local dev.
+    preVerificationGas: 200_000n,
   },
   REMOTE: {
     callGasLimit: 2_000_000n,
     verificationGasLimit: 500_000n,
     paymasterVerificationGasLimit: 200_000n,
     paymasterPostOpGasLimit: 60_000n,
+    preVerificationGas: 150_000n,
   },
 };
 
@@ -144,6 +150,7 @@ const GAS_CAP_ENV_KEYS = {
   verificationGasLimit: "PAYMASTER_MAX_VERIFICATION_GAS",
   paymasterVerificationGasLimit: "PAYMASTER_MAX_PAYMASTER_VERIFICATION_GAS",
   paymasterPostOpGasLimit: "PAYMASTER_MAX_PAYMASTER_POSTOP_GAS",
+  preVerificationGas: "PAYMASTER_MAX_PRE_VERIFICATION_GAS",
 };
 
 function resolveGasCaps(env, isLocalNetwork) {
@@ -188,6 +195,7 @@ export const _internals = {
   MAX_VALIDITY_WINDOW_SECONDS,
   VALID_AFTER_BACKDATE_SECONDS,
   DEFAULT_GAS_CAPS,
+  GAS_CAP_ENV_KEYS,
   DEFAULT_QUOTA_PER_HOUR,
   QUOTA_WINDOW_SECONDS,
   resolveValidityWindow,
@@ -409,7 +417,9 @@ export function createBundlerService({
     };
     const min = (a, b) => (a < b ? a : b);
     return {
-      preVerificationGas: numberToHex(suggested.preVerificationGas),
+      preVerificationGas: numberToHex(
+        min(suggested.preVerificationGas, gasCaps.preVerificationGas),
+      ),
       verificationGasLimit: numberToHex(
         min(suggested.verificationGasLimit, gasCaps.verificationGasLimit),
       ),

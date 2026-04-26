@@ -131,6 +131,7 @@ describe("createBundlerService — bounded validity window", () => {
       "PAYMASTER_MAX_VERIFICATION_GAS",
       "PAYMASTER_MAX_PAYMASTER_VERIFICATION_GAS",
       "PAYMASTER_MAX_PAYMASTER_POSTOP_GAS",
+      "PAYMASTER_MAX_PRE_VERIFICATION_GAS",
       "PAYMASTER_QUOTA_PER_HOUR",
     ];
     for (const k of ENV_KEYS_TO_CLEAN) delete process.env[k];
@@ -177,6 +178,7 @@ describe("createBundlerService — bounded validity window", () => {
     delete process.env.PAYMASTER_MAX_VERIFICATION_GAS;
     delete process.env.PAYMASTER_MAX_PAYMASTER_VERIFICATION_GAS;
     delete process.env.PAYMASTER_MAX_PAYMASTER_POSTOP_GAS;
+    delete process.env.PAYMASTER_MAX_PRE_VERIFICATION_GAS;
     delete process.env.PAYMASTER_QUOTA_PER_HOUR;
   });
 
@@ -261,6 +263,7 @@ describe("createBundlerService — gas caps", () => {
       "PAYMASTER_MAX_VERIFICATION_GAS",
       "PAYMASTER_MAX_PAYMASTER_VERIFICATION_GAS",
       "PAYMASTER_MAX_PAYMASTER_POSTOP_GAS",
+      "PAYMASTER_MAX_PRE_VERIFICATION_GAS",
       "PAYMASTER_QUOTA_PER_HOUR",
     ];
     for (const k of ENV_KEYS_TO_CLEAN) delete process.env[k];
@@ -339,6 +342,63 @@ describe("createBundlerService — gas caps", () => {
       buildService({ network: "TESTNET", env: { PAYMASTER_MAX_CALL_GAS: "lots" } }),
     ).rejects.toThrow(/non-negative integer/);
   });
+
+  // ─── preVerificationGas cap (Phase 4) ──────────────────────────────────
+  // EntryPoint v0.8 charges paymaster for preVerificationGas alongside the
+  // other four limits. Without an explicit cap, a leaked verifying-signer key
+  // could let an attacker claim arbitrary preVerificationGas and inflate
+  // per-op damage well beyond the documented ceiling. Phase 4 closes that.
+
+  it("TESTNET: rejects userOp claiming preVerificationGas above the default cap", async () => {
+    const svc = await buildService({ network: "TESTNET" });
+    // Default REMOTE cap is 150k; claim 5M.
+    const oversized = { ...baseOp, preVerificationGas: "0x4c4b40" }; // 5M
+    await expect(svc.pm_getPaymasterData(oversized)).rejects.toMatchObject({
+      message: expect.stringContaining("preVerificationGas"),
+      code: -32602,
+    });
+  });
+
+  it("TESTNET: accepts userOp claiming preVerificationGas at the cap", async () => {
+    const svc = await buildService({ network: "TESTNET" });
+    // Right at 150k — exactly the default cap, must NOT revert.
+    const atCap = { ...baseOp, preVerificationGas: "0x249f0" }; // 150k
+    const res = await svc.pm_getPaymasterData(atCap);
+    expect(res.paymasterData).toMatch(/^0x/);
+  });
+
+  it("PAYMASTER_MAX_PRE_VERIFICATION_GAS env override applies on TESTNET", async () => {
+    const svc = await buildService({
+      network: "TESTNET",
+      env: { PAYMASTER_MAX_PRE_VERIFICATION_GAS: "50000" }, // 50k
+    });
+    // 100k claim now exceeds the lowered 50k cap.
+    const oversized = { ...baseOp, preVerificationGas: "0x186a0" }; // 100k
+    await expect(svc.pm_getPaymasterData(oversized)).rejects.toMatchObject({
+      message: expect.stringContaining("preVerificationGas"),
+      code: -32602,
+    });
+  });
+
+  it("eth_estimateUserOperationGas response clamps preVerificationGas to the cap", async () => {
+    const svc = await buildService({
+      network: "TESTNET",
+      env: { PAYMASTER_MAX_PRE_VERIFICATION_GAS: "75000" }, // 75k
+    });
+    const res = await svc.eth_estimateUserOperationGas(baseOp);
+    // Suggested 100k; cap 75k → must return 75k, not 100k. Otherwise the
+    // bundler would suggest values it would later refuse to sign for.
+    expect(BigInt(res.preVerificationGas)).toBe(75_000n);
+  });
+
+  it("rejects non-numeric PAYMASTER_MAX_PRE_VERIFICATION_GAS env", async () => {
+    await expect(
+      buildService({
+        network: "TESTNET",
+        env: { PAYMASTER_MAX_PRE_VERIFICATION_GAS: "lots" },
+      }),
+    ).rejects.toThrow(/non-negative integer/);
+  });
 });
 
 describe("createBundlerService — per-EOA quota", () => {
@@ -398,6 +458,7 @@ describe("createBundlerService — per-EOA quota", () => {
       "PAYMASTER_MAX_VERIFICATION_GAS",
       "PAYMASTER_MAX_PAYMASTER_VERIFICATION_GAS",
       "PAYMASTER_MAX_PAYMASTER_POSTOP_GAS",
+      "PAYMASTER_MAX_PRE_VERIFICATION_GAS",
       "PAYMASTER_QUOTA_PER_HOUR",
     ];
     for (const k of ENV_KEYS_TO_CLEAN) delete process.env[k];
@@ -624,6 +685,7 @@ describe("createBundlerService — default-cap parity", () => {
       verificationGasLimit: 1_000_000n,
       paymasterVerificationGasLimit: 500_000n,
       paymasterPostOpGasLimit: 100_000n,
+      preVerificationGas: 200_000n,
     });
   });
 
@@ -638,5 +700,36 @@ describe("createBundlerService — default-cap parity", () => {
     expect(REMOTE.verificationGasLimit).toBe(500_000n);
     expect(REMOTE.paymasterVerificationGasLimit).toBe(200_000n);
     expect(REMOTE.paymasterPostOpGasLimit).toBe(60_000n);
+    expect(REMOTE.preVerificationGas).toBe(150_000n);
+  });
+
+  it("every cap field has a matching env-var key (no field can be silently env-uncapped)", async () => {
+    // Catches the exact gap that motivated Phase 4: a future contributor
+    // adds a field to DEFAULT_GAS_CAPS but forgets to wire it into
+    // GAS_CAP_ENV_KEYS. The cap is still ENFORCED by assertGasLimitsWithinCaps
+    // (which iterates over gasCaps), but it's not env-overridable, so a
+    // production tightening can't be deployed without a code change.
+    //
+    // Asserts against the REAL GAS_CAP_ENV_KEYS map exported via _internals,
+    // not a hardcoded copy in the test (which would catch test-update misses
+    // but not the very thing this test is here to catch).
+    vi.resetModules();
+    const mod = await import("../../shared/aa/bundler.js");
+    const { DEFAULT_GAS_CAPS, GAS_CAP_ENV_KEYS } = mod._internals;
+    expect(GAS_CAP_ENV_KEYS).toBeDefined();
+    for (const field of Object.keys(DEFAULT_GAS_CAPS.LOCAL)) {
+      expect(
+        GAS_CAP_ENV_KEYS[field],
+        `cap field "${field}" has no env override key — extend GAS_CAP_ENV_KEYS in bundler.js`,
+      ).toBeDefined();
+    }
+    // Symmetry: every env-key entry must correspond to a real cap field too,
+    // so a stale env name doesn't linger after a field is removed.
+    for (const field of Object.keys(GAS_CAP_ENV_KEYS)) {
+      expect(
+        DEFAULT_GAS_CAPS.LOCAL[field],
+        `GAS_CAP_ENV_KEYS has stale entry "${field}" — DEFAULT_GAS_CAPS no longer declares it`,
+      ).toBeDefined();
+    }
   });
 });
