@@ -8,7 +8,9 @@ import { farcasterMiniApp } from "@farcaster/miniapp-wagmi-connector";
 import { connectorsForWallets } from "@rainbow-me/rainbowkit";
 import {
   coinbaseWallet,
+  injectedWallet,
   metaMaskWallet,
+  rabbyWallet,
   walletConnectWallet,
 } from "@rainbow-me/rainbowkit/wallets";
 import { getChainConfig, getStoredNetworkKey } from "@/lib/wagmi";
@@ -32,7 +34,16 @@ const rainbowWalletConnectors = walletProjectId
       [
         {
           groupName: "Recommended",
-          wallets: [coinbaseWallet, metaMaskWallet, walletConnectWallet],
+          // injectedWallet is the catch-all for any EIP-1193 provider that
+          // isn't an explicitly-listed wallet — keeps the door open for
+          // wallets we haven't dedicated a connector to yet.
+          wallets: [
+            coinbaseWallet,
+            metaMaskWallet,
+            rabbyWallet,
+            walletConnectWallet,
+            injectedWallet,
+          ],
         },
       ],
       { appName: "SecondOrder.fun", projectId: walletProjectId },
