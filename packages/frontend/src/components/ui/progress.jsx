@@ -26,8 +26,9 @@ const Progress = React.forwardRef(
         className={cn(
           // bg-track-rest is light rose in BOTH modes (see tailwind.css for
           // --track-rest). Avoids the dark-mode bg-secondary that blended
-          // with the page bg.
-          "relative h-4 w-full overflow-hidden rounded-full border border-primary bg-track-rest",
+          // with the page bg. Height matches the bordered step-marker outer
+          // diameter so begin/end markers feel like the bar's end-caps.
+          "relative h-3 w-full overflow-hidden rounded-full border border-primary bg-track-rest",
           className,
         )}
         {...props}
@@ -45,19 +46,23 @@ const Progress = React.forwardRef(
       <div className="relative" onMouseLeave={() => setTip(null)}>
         {bar}
         {/* Step markers — sit on top of the bar, vertically centered.
-            Markers in the FILLED section (position <= value) get a
-            page-bg ring so they read as bullseyes against the pink fill.
+            Markers in the FILLED section get a 1px page-bg ring so they
+            read as bullseyes against the pink fill. The leftmost marker
+            (idx 0) is excepted: it sits at position 0% and should blend
+            into the bar's primary border as a continuous end-cap, so it
+            stays a plain bg-primary dot regardless of fill state.
             Markers in the EMPTY section sit on the rose track and are
             cleaner without a border (the bg-primary dot already contrasts). */}
         {steps.map((step, idx) => {
           if (step.position > 100) return null
           const inFilled = step.position <= (value || 0)
+          const showRing = inFilled && idx > 0
           return (
             <div
               key={idx}
               className={cn(
                 "absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-primary shadow-sm cursor-help",
-                inFilled && "border-2 border-background",
+                showRing && "border border-background",
               )}
               style={{ left: `${step.position}%` }}
               onMouseEnter={() => setTip({ ...step, idx })}
