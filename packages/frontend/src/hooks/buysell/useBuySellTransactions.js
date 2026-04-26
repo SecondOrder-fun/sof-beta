@@ -58,6 +58,26 @@ export function useBuySellTransactions(
    */
   const executeBuy = useCallback(
     async ({ tokenAmount, maxSofAmount, slippagePct, onComplete, rolloverSeasonId, rolloverAmount }) => {
+      // If the wallet needs to delegate before sponsorship can work AND it's
+      // not a delegated EOA already, surface the modal and bail. Without this
+      // guard, wallets that advertise wallet_sendCalls but ship a broken
+      // response shape (Rabby, some other forks) crash viem in Path B with
+      // "Cannot read properties of undefined (reading 'id')". The user has
+      // no way to recover from that error in the UI.
+      if (needsDelegation && !isDelegated) {
+        try {
+          window.dispatchEvent(new Event("sof:request-delegation"));
+        } catch { /* SSR / unsupported */ }
+        onNotify?.({
+          type: "error",
+          message: t("transactions:delegateFirst", {
+            defaultValue: "Please complete the delegation step to enable gasless transactions.",
+          }),
+          hash: "",
+        });
+        return { success: false, error: "delegation_required" };
+      }
+
       try {
         const cap = applyMaxSlippage(maxSofAmount, slippagePct);
 
@@ -285,7 +305,7 @@ export function useBuySellTransactions(
         return { success: false, error: message };
       }
     },
-    [approve, buyTokens, buyTokensWithPermit, client, walletClient, address, chainId, contracts, bondingCurveAddress, onNotify, onSuccess, refetchBalance, t, canBatch, executeBatch]
+    [approve, buyTokens, buyTokensWithPermit, client, walletClient, address, chainId, contracts, bondingCurveAddress, onNotify, onSuccess, refetchBalance, t, canBatch, executeBatch, needsDelegation, isDelegated]
   );
 
   /**
@@ -298,6 +318,22 @@ export function useBuySellTransactions(
    */
   const executeSell = useCallback(
     async ({ tokenAmount, minSofAmount, slippagePct, onComplete }) => {
+      // Same guard as executeBuy — surface delegation modal if user is on a
+      // wallet that needs delegation before sponsorship can work.
+      if (needsDelegation && !isDelegated) {
+        try {
+          window.dispatchEvent(new Event("sof:request-delegation"));
+        } catch { /* SSR / unsupported */ }
+        onNotify?.({
+          type: "error",
+          message: t("transactions:delegateFirst", {
+            defaultValue: "Please complete the delegation step to enable gasless transactions.",
+          }),
+          hash: "",
+        });
+        return { success: false, error: "delegation_required" };
+      }
+
       try {
         const floor = applyMinSlippage(minSofAmount, slippagePct);
 
@@ -442,7 +478,7 @@ export function useBuySellTransactions(
         return { success: false, error: message };
       }
     },
-    [sellTokens, client, bondingCurveAddress, onNotify, onSuccess, refetchBalance, t, canBatch, executeBatch]
+    [sellTokens, client, bondingCurveAddress, onNotify, onSuccess, refetchBalance, t, canBatch, executeBatch, needsDelegation, isDelegated]
   );
 
   return {
