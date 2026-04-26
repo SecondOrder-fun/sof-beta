@@ -11,6 +11,7 @@ import {
   injectedWallet,
   metaMaskWallet,
   rabbyWallet,
+  rainbowWallet,
   walletConnectWallet,
 } from "@rainbow-me/rainbowkit/wallets";
 import { getChainConfig, getStoredNetworkKey } from "@/lib/wagmi";
@@ -40,6 +41,7 @@ const rainbowWalletConnectors = walletProjectId
           wallets: [
             coinbaseWallet,
             metaMaskWallet,
+            rainbowWallet,
             rabbyWallet,
             walletConnectWallet,
             injectedWallet,
