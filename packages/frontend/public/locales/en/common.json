@@ -131,7 +131,9 @@
   "processing": "Processing...",
   "home": {
     "welcome": "Welcome to SecondOrder.fun",
-    "blurb": "SecondOrder.fun is a transparent blockchain-powered raffle platform where your position can increase in value with every new player that joins. When you purchase tickets, bonding curve pricing creates dynamic valuations, giving players the choice to hold until the draw or sell anytime for profit—delivering a highly game-like raffle experience."
+    "blurb": "SecondOrder.fun is a transparent blockchain-powered raffle platform where your position can increase in value with every new player that joins. When you purchase tickets, bonding curve pricing creates dynamic valuations, giving players the choice to hold until the draw or sell anytime for profit—delivering a highly game-like raffle experience.",
+    "ctaRaffles": "View Raffles",
+    "ctaMarkets": "Explore Markets"
   },
   "delegation_title": "Enable Gasless Mode",
   "delegation_description": "Sign once to enable gasless transactions. SecondOrder.fun will cover gas fees so you can start trading immediately.",
