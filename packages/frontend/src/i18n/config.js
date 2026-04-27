@@ -11,7 +11,7 @@ i18n
     fallbackLng: 'en',
     supportedLngs: ['en', 'ja', 'fr', 'es', 'de', 'pt', 'it', 'zh', 'ru'],
     defaultNS: 'common',
-    ns: ['common', 'navigation', 'raffle', 'market', 'admin', 'account', 'auth', 'errors', 'transactions', 'swap', 'airdrop'],
+    ns: ['common', 'navigation', 'raffle', 'market', 'admin', 'account', 'auth', 'errors', 'transactions', 'swap', 'airdrop', 'getsof'],
     
     backend: {
       loadPath: '/locales/{{lng}}/{{ns}}.json',

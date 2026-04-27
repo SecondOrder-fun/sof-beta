@@ -1,10 +1,10 @@
-// src/components/faucet/AddToMetamaskButton.jsx
+// src/components/getsof/AddToMetamaskButton.jsx
 import AddTokenToMetamaskButton from '@/components/common/AddTokenToMetamaskButton';
 import { getContractAddresses } from '@/config/contracts';
 
 /**
- * AddToMetamaskButton component
- * Faucet-specific wrapper that adds the SOF token to MetaMask
+ * AddToMetamaskButton — Get SOF page wrapper that registers the $SOF token
+ * with the connected wallet for one-tap visibility.
  */
 const AddToMetamaskButton = () => {
   const contracts = getContractAddresses();

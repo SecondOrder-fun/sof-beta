@@ -462,6 +462,12 @@ export function useSOFTransactions(address, options = {}) {
           .map(tx => tx.hash?.toLowerCase())
       );
 
+      // Airdrop contract address for distinguishing airdrop claims from
+      // generic incoming transfers ("Receive" is the catch-all bucket).
+      const airdropAddressLower = contracts.SOF_AIRDROP
+        ? contracts.SOF_AIRDROP.toLowerCase()
+        : null;
+
       // Categorize incoming transfers based on sender
       // Re-categorize TRANSFER_IN items based on source
       for (let i = 0; i < transactions.length; i++) {
@@ -469,14 +475,14 @@ export function useSOFTransactions(address, options = {}) {
         if (tx.type === "TRANSFER_IN") {
           const senderLower = tx.from?.toLowerCase();
           const txHashLower = tx.hash?.toLowerCase();
-          
+
           // Skip if this transfer is already categorized as a prize claim
           if (categorizedHashes.has(txHashLower)) {
             // Mark for removal (we already have the specific prize claim entry)
             transactions[i] = null;
             continue;
           }
-          
+
           // From a bonding curve = raffle sell proceeds
           if (bondingCurveAddresses.includes(senderLower)) {
             const seasonInfo = bondingCurveMap[senderLower];
@@ -503,6 +509,15 @@ export function useSOFTransactions(address, options = {}) {
               ...tx,
               type: "PRIZE_CLAIM",
               description: "Prize claim",
+            };
+          }
+          // From the SOFAirdrop contract = airdrop claim (initial or daily).
+          // Distinct from the generic "Receive" bucket for portfolio clarity.
+          else if (airdropAddressLower && senderLower === airdropAddressLower) {
+            transactions[i] = {
+              ...tx,
+              type: "AIRDROP",
+              description: "Airdrop claim",
             };
           }
         }

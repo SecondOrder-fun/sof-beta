@@ -4,14 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useSOFToken } from '@/hooks/useSOFToken';
-import { useFaucet } from '@/hooks/useFaucet';
 import { getContractAddresses } from '@/config/contracts';
 import { getStoredNetworkKey } from '@/lib/wagmi';
 
 const Test = () => {
   const { isConnected, address } = useAccount();
   const { balance: sofBalance } = useSOFToken();
-  const { isClaimable } = useFaucet();
   const netKey = getStoredNetworkKey();
   const contracts = getContractAddresses(netKey);
 
@@ -45,10 +43,6 @@ const Test = () => {
                   <div className="flex justify-between">
                     <span className="font-medium">$SOF Balance:</span>
                     <span>{parseFloat(sofBalance).toLocaleString()} SOF</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="font-medium">Can Claim from Faucet:</span>
-                    <span>{isClaimable ? 'Yes' : 'No'}</span>
                   </div>
                 </div>
               ) : (
