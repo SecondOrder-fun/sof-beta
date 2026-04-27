@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { useAirdrop } from '@/hooks/useAirdrop';
 import { useAppIdentity } from '@/hooks/useAppIdentity';
 import { useToast } from '@/hooks/useToast';
+import CountdownTimer from '@/components/common/CountdownTimer';
 import DailyStreakBadge from './DailyStreakBadge';
 
 /**
@@ -38,7 +39,8 @@ const AirdropClaimCard = () => {
     basicAmount,
     dailyAmount,
     canClaimDaily,
-    timeUntilClaim,
+    lastDailyClaim,
+    cooldown,
     claimInitial,
     claimInitialBasic,
     claimInitialState,
@@ -201,6 +203,11 @@ const AirdropClaimCard = () => {
   }
 
   // State 3 — on cooldown
+  // CountdownTimer expects unix seconds; useAirdrop exposes both lastDailyClaim
+  // (seconds) and cooldown (seconds) so we can derive the target locally
+  // without the hook needing to expose another field.
+  const nextClaimAtSecs = lastDailyClaim + cooldown;
+
   return (
     <Card>
       <CardHeader>
@@ -213,13 +220,15 @@ const AirdropClaimCard = () => {
         </div>
       </CardHeader>
       <CardContent>
-        <div className="flex flex-col items-start gap-1">
+        <div className="flex items-baseline justify-between gap-3 rounded-md border px-3 py-2">
           <span className="text-xs uppercase tracking-wide text-muted-foreground">
             {t('nextClaimIn')}
           </span>
-          <span className="text-2xl font-semibold tabular-nums text-foreground">
-            {timeUntilClaim || '—'}
-          </span>
+          <CountdownTimer
+            targetTimestamp={nextClaimAtSecs}
+            compact
+            className="text-base font-semibold text-foreground"
+          />
         </div>
       </CardContent>
     </Card>

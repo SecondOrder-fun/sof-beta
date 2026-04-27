@@ -6,12 +6,11 @@
  */
 
 import { createWalletClient, http, encodeFunctionData } from "viem";
-import { baseSepolia, base } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { publicClient } from "../lib/viemClient.js";
+import { getChainByKey } from "../config/chain.js";
 
 const NETWORK = (process.env.NETWORK || "LOCAL").toUpperCase();
-const isTestnet = NETWORK === "TESTNET" || NETWORK === "LOCAL";
 
 /**
  * PaymasterService - Handles gasless transaction submission via Base Paymaster
@@ -74,8 +73,17 @@ export class PaymasterService {
         );
       }
 
-      // Create wallet client with Paymaster RPC
-      const chain = isTestnet ? baseSepolia : base;
+      // Build the viem chain object from our backend chain config so the
+      // wallet client signs txs with the correct chainId. The hardcoded
+      // baseSepolia/base from before broke LOCAL (Anvil rejects 84532-signed
+      // txs) and would also be wrong for any future non-Base deployment.
+      const chainConfig = getChainByKey(NETWORK);
+      const chain = {
+        id: chainConfig.id,
+        name: chainConfig.name,
+        nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+        rpcUrls: { default: { http: [paymasterUrl] } },
+      };
       this.walletClient = createWalletClient({
         account: this.account,
         chain,
@@ -87,9 +95,7 @@ export class PaymasterService {
       this.logger.info(
         `PaymasterService initialized with viem wallet client`,
       );
-      this.logger.info(
-        `   Network: ${isTestnet ? "Base Sepolia" : "Base Mainnet"}`,
-      );
+      this.logger.info(`   Network: ${chainConfig.name} (chainId ${chainConfig.id})`);
       this.logger.info(`   Account: ${this.account.address}`);
     } catch (error) {
       this.logger.error(
@@ -117,7 +123,12 @@ export class PaymasterService {
         })
         .catch((err) => {
           reject(err);
-        });
+        })
+        // Ensure the tail of `_txQueue` is always a resolved promise.
+        // Without this, a chained handler that itself throws (e.g. logger
+        // exception inside a future caller's then) could leave the queue
+        // permanently rejected and stall every subsequent enqueue.
+        .then(() => undefined);
     });
   }
 

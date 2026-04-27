@@ -332,14 +332,32 @@ export default async function airdropRoutes(fastify) {
       }
 
       if (type === "daily") {
-        const user = request.user;
-        if (
-          !user?.wallet_address ||
-          user.wallet_address.toLowerCase() !== address.toLowerCase()
-        ) {
+        // Wallet-ownership proof via personal_sign — symmetric with basic
+        // claim. No replay protection needed: SOFAirdrop.claimDailyFor
+        // enforces a per-user cooldown on-chain, and the relay always
+        // credits `address`'s own wallet, so a replayed signature can only
+        // ever benefit the original signer (no exfiltration vector).
+        if (!signature) {
+          return reply
+            .code(400)
+            .send({ error: "Signature required for daily claim" });
+        }
+
+        const expectedMessage = `Claim daily SOF airdrop for ${address}`;
+        let recoveredAddress;
+        try {
+          recoveredAddress = await recoverMessageAddress({
+            message: expectedMessage,
+            signature,
+          });
+        } catch {
+          return reply.code(400).send({ error: "Invalid signature" });
+        }
+
+        if (recoveredAddress.toLowerCase() !== address.toLowerCase()) {
           return reply
             .code(401)
-            .send({ error: "JWT wallet_address must match claim address" });
+            .send({ error: "Signature does not match address" });
         }
 
         const paymasterService = getPaymasterService(fastify.log);

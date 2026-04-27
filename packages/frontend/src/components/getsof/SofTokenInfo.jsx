@@ -51,68 +51,79 @@ const SofTokenInfo = () => {
         <CardTitle>{t('tokenInfoTitle')}</CardTitle>
         <CardDescription>{t('tokenInfoDescription')}</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="space-y-1">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">
-            {t('contractAddress')}
-          </p>
-          <div className="flex items-center gap-2">
-            <code className="font-mono text-xs text-foreground break-all">
-              {sofAddress || t('addressNotConfigured')}
-            </code>
-            {sofAddress ? (
-              <>
-                <Button
-                  size="icon"
-                  variant="outline"
-                  onClick={handleCopy}
-                  aria-label={t('copyAddress')}
-                  className="shrink-0"
-                >
-                  {copied ? (
-                    <Check className="h-4 w-4" />
-                  ) : (
-                    <Copy className="h-4 w-4" />
-                  )}
-                </Button>
-                {explorerUrl && (
-                  <Button
-                    size="icon"
-                    variant="outline"
-                    asChild
-                    className="shrink-0"
-                  >
-                    <a
-                      href={explorerUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label={t('viewOnExplorer')}
+      <CardContent>
+        {/*
+          2-column grid: left holds the data rows (contract address + copy/
+          explorer icons, symbol, decimals); right holds the Add-to-MetaMask
+          button vertically centered. Stacks on small screens.
+        */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr,auto] sm:items-center">
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                {t('contractAddress')}
+              </p>
+              <div className="flex items-center gap-2">
+                <code className="font-mono text-xs text-foreground break-all">
+                  {sofAddress || t('addressNotConfigured')}
+                </code>
+                {sofAddress ? (
+                  <>
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      onClick={handleCopy}
+                      aria-label={t('copyAddress')}
+                      className="shrink-0"
                     >
-                      <ExternalLink className="h-4 w-4" />
-                    </a>
-                  </Button>
-                )}
-              </>
-            ) : null}
+                      {copied ? (
+                        <Check className="h-4 w-4" />
+                      ) : (
+                        <Copy className="h-4 w-4" />
+                      )}
+                    </Button>
+                    {explorerUrl && (
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        asChild
+                        className="shrink-0"
+                      >
+                        <a
+                          href={explorerUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={t('viewOnExplorer')}
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      </Button>
+                    )}
+                  </>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  {t('symbol')}
+                </p>
+                <p className="text-foreground">$SOF</p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  {t('decimals')}
+                </p>
+                <p className="text-foreground tabular-nums">18</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="sm:pl-2">
+            <AddToMetamaskButton />
           </div>
         </div>
-
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <div>
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">
-              {t('symbol')}
-            </p>
-            <p className="text-foreground">$SOF</p>
-          </div>
-          <div>
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">
-              {t('decimals')}
-            </p>
-            <p className="text-foreground tabular-nums">18</p>
-          </div>
-        </div>
-
-        <AddToMetamaskButton />
       </CardContent>
     </Card>
   );
