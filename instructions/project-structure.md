@@ -19,9 +19,9 @@ sof-beta/
 ├── instructions/                   # Living documentation
 │   ├── project-requirements.md     # Vision, architecture, tech stack
 │   ├── project-structure.md        # This file
-│   ├── project-tasks.md            # Active task tracking
 │   ├── frontend-guidelines.md      # UI/UX conventions
-│   └── backend-guidelines.md       # API/service conventions
+│   ├── backend-guidelines.md       # API/service conventions
+│   └── archive/                    # Retired docs (project-tasks.md superseded by TaskList)
 ├── packages/
 │   ├── frontend/                   # @sof/frontend — React/Vite (Vercel)
 │   ├── backend/                    # @sof/backend — Fastify API (Railway)

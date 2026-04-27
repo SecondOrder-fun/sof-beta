@@ -22,7 +22,7 @@ Version lives in each package's `package.json`. Never hardcode version numbers e
 
 **Every fix and feature must:**
 1. Bump the version in the relevant `package.json` per semver (patch for fixes, minor for features)
-2. Update `instructions/project-tasks.md` — mark completed tasks done, add new tasks when discovered
+2. Track work in the running TaskList — `TaskCreate` for new tasks, `TaskUpdate` to mark done. The legacy `instructions/project-tasks.md` markdown was archived to `instructions/archive/project-tasks-2026-04-27.md` as of 0.26.0; do not resurrect it.
 
 ## Branch Naming
 
@@ -99,7 +99,7 @@ Update when relevant:
 - `instructions/project-requirements.md` — when product scope or architecture evolves
 - `instructions/frontend-guidelines.md` — when UI patterns or conventions change
 - `instructions/backend-guidelines.md` — when API patterns or conventions change
-- `instructions/project-tasks.md` — mark tasks done, add new tasks
+- TaskList (canonical) — track active work via `TaskCreate` / `TaskUpdate`. Legacy `instructions/project-tasks.md` archived under `instructions/archive/`.
 
 ## Common Commands
 
