@@ -23,6 +23,9 @@ import {DeploySOFSmartAccount} from "./13_DeploySOFSmartAccount.s.sol";
 import {ConfigureRoles} from "./14_ConfigureRoles.s.sol";
 import {DeployPaymaster} from "./15_DeployPaymaster.s.sol";
 import {DeployRolloverEscrow} from "./16_DeployRolloverEscrow.s.sol";
+import {DeployUSDCMock} from "./17_DeployUSDCMock.s.sol";
+import {DeploySOFExchange} from "./18_DeploySOFExchange.s.sol";
+import {DeploySOFAirdrop} from "./19_DeploySOFAirdrop.s.sol";
 import {RafflePrizeDistributor} from "../../src/core/RafflePrizeDistributor.sol";
 import {RolloverEscrow} from "../../src/core/RolloverEscrow.sol";
 import {SeasonFactory} from "../../src/core/SeasonFactory.sol";
@@ -97,6 +100,15 @@ contract DeployAll is Script {
         console2.log("=== 16: RolloverEscrow ===");
         addrs = new DeployRolloverEscrow().run(addrs);
 
+        console2.log("=== 17: USDCMock (local only) ===");
+        addrs = new DeployUSDCMock().run(addrs);
+
+        console2.log("=== 18: SOFExchange ===");
+        addrs = new DeploySOFExchange().run(addrs);
+
+        console2.log("=== 19: SOFAirdrop ===");
+        addrs = new DeploySOFAirdrop().run(addrs);
+
         console2.log("=== 16b: Wire RolloverEscrow roles ===");
         {
             RolloverEscrow rolloverEscrow = RolloverEscrow(addrs.rolloverEscrow);
@@ -153,11 +165,12 @@ contract DeployAll is Script {
         else if (block.chainid == 8453) networkName = "base-mainnet";
         else networkName = "unknown";
 
-        // Read existing file to preserve non-managed keys (e.g. SOFBondingCurve,
-        // SeasonGating, SOFExchange, SOFAirdrop, USDC, VRFCoordinator).
-        // These are deployed outside DeployAll and hand-maintained in the JSON.
-        string[6] memory preserveKeys = ["SOFBondingCurve", "SeasonGating", "SOFExchange", "SOFAirdrop", "USDC", "VRFCoordinator"];
-        string[6] memory preserveVals;
+        // Read existing file to preserve non-managed keys.
+        // Note: SOFExchange / SOFAirdrop / USDC moved into the managed set in
+        // 0.25.0 (deploy steps 17-19). SOFBondingCurve / SeasonGating /
+        // VRFCoordinator are still hand-maintained for non-local deploys.
+        string[3] memory preserveKeys = ["SOFBondingCurve", "SeasonGating", "VRFCoordinator"];
+        string[3] memory preserveVals;
 
         try vm.readFile(deploymentPath) returns (string memory existingJson) {
             for (uint256 i = 0; i < preserveKeys.length; i++) {
@@ -207,11 +220,18 @@ contract DeployAll is Script {
             '    "SOFFaucet": "', vm.toString(addrs.faucet), '",\n',
             '    "SOFSmartAccount": "', vm.toString(addrs.sofSmartAccount), '",\n',
             '    "Paymaster": "', vm.toString(addrs.paymasterAddress), '",\n',
-            '    "RolloverEscrow": "', vm.toString(addrs.rolloverEscrow), '"',
+            '    "RolloverEscrow": "', vm.toString(addrs.rolloverEscrow), '",\n'
+        );
+        string memory part4 = string.concat(
+            // Newly managed addresses (0.25.0). USDC may be address(0) on
+            // non-local until HelperConfig grows a per-network USDC field.
+            '    "SOFExchange": "', vm.toString(addrs.sofExchange), '",\n',
+            '    "SOFAirdrop": "', vm.toString(addrs.sofAirdrop), '",\n',
+            '    "USDC": "', vm.toString(addrs.usdc), '"',
             preservedSection,
             '\n  }\n}'
         );
-        string memory json = string.concat(part1, part2, part3);
+        string memory json = string.concat(part1, part2, part3, part4);
 
         vm.writeFile(deploymentPath, json);
         console2.log("Deployment JSON written to:", deploymentPath);

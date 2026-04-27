@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAccount } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
@@ -43,7 +43,15 @@ const SwapWidget = () => {
   const { t } = useTranslation('swap');
   const { address, isConnected } = useAccount();
   const contracts = getContractAddresses(getStoredNetworkKey());
-  const tokens = buildTokenList(contracts);
+  // Memoize on the underlying address strings rather than the object
+  // identity — getContractAddresses returns a fresh object every render,
+  // so without this the quote effect re-fires every render and the 400ms
+  // debounce becomes a 400ms strobe.
+  const tokens = useMemo(
+    () => buildTokenList(contracts),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [contracts.USDC, contracts.SOF],
+  );
 
   const provider = useSwapProvider();
   const exchangeAddress = provider?.exchangeAddress ?? '';
@@ -183,6 +191,26 @@ const SwapWidget = () => {
         maximumFractionDigits: 4,
       })
     : '—';
+
+  // Swap is unavailable when the SOFExchange contract isn't deployed on the
+  // active network (currently the case on LOCAL — tracked as a follow-up).
+  // Return a degraded card instead of letting every keystroke fire a doomed
+  // getQuote call against `address: undefined` and strobe "Swap failed".
+  if (!exchangeAddress) {
+    return (
+      <Card className="w-full max-w-md mx-auto">
+        <CardHeader>
+          <CardTitle className="text-foreground">{t('title')}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            {t('swapUnavailable',
+              'Swap is unavailable on this network — claim from the airdrop on the left, or try a different network.')}
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="w-full max-w-md mx-auto">
