@@ -1,16 +1,11 @@
 import jwt from "jsonwebtoken";
 import process from "node:process";
 
+// JWT_SECRET / JWT_EXPIRES_IN presence is enforced at boot by
+// assertRequiredEnv() in server.js — eager throws here would just defeat
+// the consolidated error message.
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN;
-
-if (!JWT_SECRET) {
-  throw new Error("JWT_SECRET env var is required");
-}
-
-if (!JWT_EXPIRES_IN) {
-  throw new Error("JWT_EXPIRES_IN env var is required");
-}
 
 export class AuthService {
   static async generateToken(user) {

@@ -49,4 +49,4 @@ if [ $ATTEMPTS -ge $MAX_ATTEMPTS ]; then
 fi
 
 # Start Fastify
-exec node packages/backend/fastify/server.js
+exec node packages/backend/fastify/boot.js

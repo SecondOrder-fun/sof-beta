@@ -1,12 +1,12 @@
 {
   "name": "@sof/backend",
-  "version": "0.17.1",
+  "version": "0.18.0",
   "private": true,
   "type": "module",
   "description": "SecondOrder.fun Backend API Server",
   "scripts": {
-    "dev": "source ../../scripts/load-env.sh && node -r dotenv/config fastify/server.js",
-    "start": "node -r dotenv/config fastify/server.js",
+    "dev": "source ../../scripts/load-env.sh && node -r dotenv/config fastify/boot.js",
+    "start": "node -r dotenv/config fastify/boot.js",
     "build": "echo 'No build step'",
     "test": "vitest run",
     "test:watch": "vitest",

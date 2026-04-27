@@ -394,7 +394,7 @@ for log in d.get('logs', []):
   CORS_ORIGINS="http://localhost:5174,http://127.0.0.1:5174" \
   SIWF_ALLOWED_DOMAINS="localhost,127.0.0.1" \
   PORT=3000 \
-  node fastify/server.js > "$PID_DIR/backend.log" 2>&1 &
+  node fastify/boot.js > "$PID_DIR/backend.log" 2>&1 &
   echo $! > "$PID_DIR/backend.pid"
   cd "$ROOT_DIR"
 

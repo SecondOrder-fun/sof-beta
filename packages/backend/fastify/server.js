@@ -18,6 +18,11 @@ import { RaffleABI as raffleAbi, SOFBondingCurveABI as sofBondingCurveAbi, InfoF
 import { getChainByKey } from "../src/config/chain.js";
 import { authenticateFastify } from "../shared/auth.js";
 
+// NOTE: env validation happens BEFORE this module loads, in fastify/boot.js.
+// Putting the assert here would fire too late — ESM hoists transitive imports
+// (e.g. viemClient → chain) which throw on missing RPC_URL before any
+// top-level code runs.
+
 // Create Fastify instance
 // 1 MiB request body cap — well above any real payload (signatures batch,
 // admin forms) but blocks accidental or hostile large bodies before handlers run.
