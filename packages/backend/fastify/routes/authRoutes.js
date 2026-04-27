@@ -12,6 +12,7 @@ import { AuthService } from "../../shared/auth.js";
 import { getUserAccess, ACCESS_LEVEL_NAMES } from "../../shared/accessService.js";
 import { resolveFidToWallet } from "../../shared/fidResolverService.js";
 import { addToAllowlist } from "../../shared/allowlistService.js";
+import { invalidateUserAccessCache } from "../../shared/accessCache.js";
 import { usernameService } from "../../shared/usernameService.js";
 
 const NONCE_TTL_SECONDS = 300; // 5 minutes
@@ -136,6 +137,12 @@ export default async function authRoutes(fastify) {
 
       if (!allowlistResult.success) {
         fastify.log.warn({ fid, error: allowlistResult.error }, "Allowlist upsert failed");
+      } else {
+        // Bust any stale "no access" entry now that this user is in the allowlist.
+        await invalidateUserAccessCache(
+          { fid, wallet: walletAddress },
+          fastify.log,
+        );
       }
 
       // Sync Farcaster username

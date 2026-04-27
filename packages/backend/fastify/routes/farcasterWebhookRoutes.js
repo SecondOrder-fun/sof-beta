@@ -9,6 +9,7 @@
  */
 
 import { db, hasSupabase } from "../../shared/supabaseClient.js";
+import { invalidateUserAccessCache } from "../../shared/accessCache.js";
 import {
   addToAllowlist,
   removeFromAllowlist,
@@ -240,6 +241,8 @@ async function farcasterWebhookRoutes(fastify) {
           try {
             const allowlistResult = await addToAllowlist(fid, "webhook");
             if (allowlistResult.success) {
+              // Bust the stale PUBLIC entry now that this user is allowlisted.
+              await invalidateUserAccessCache({ fid }, fastify.log);
               fastify.log.info(
                 { fid, wallet: allowlistResult.entry?.wallet_address },
                 "[Farcaster Webhook] User added to allowlist",
@@ -270,6 +273,10 @@ async function farcasterWebhookRoutes(fastify) {
           try {
             const removeResult = await removeFromAllowlist(fid);
             if (removeResult.success) {
+              // Bust any cached "allowlisted" entry now that this user is
+              // soft-deleted (is_active=false) — without this, admin guards
+              // see them as allowlisted for up to 60s after removal.
+              await invalidateUserAccessCache({ fid }, fastify.log);
               fastify.log.info(
                 { fid },
                 "[Farcaster Webhook] User removed from allowlist",
