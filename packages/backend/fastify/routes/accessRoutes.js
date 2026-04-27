@@ -13,6 +13,7 @@ import {
   ACCESS_LEVELS,
   ACCESS_LEVEL_NAMES,
 } from "../../shared/accessService.js";
+import { invalidateUserAccessCache } from "../../shared/accessCache.js";
 import { createRequireAdmin } from "../../shared/adminGuard.js";
 
 export default async function accessRoutes(fastify) {
@@ -168,6 +169,13 @@ export default async function accessRoutes(fastify) {
             error: result.error || "Failed to set access level",
           });
         }
+
+        // Bust the access cache so the change reflects on the next admin
+        // request instead of after the 60s TTL expires.
+        await invalidateUserAccessCache(
+          { fid: fid ? Number(fid) : undefined, wallet },
+          fastify.log,
+        );
 
         return {
           success: true,

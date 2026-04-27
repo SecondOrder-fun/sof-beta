@@ -20,6 +20,7 @@ import {
 } from "../../shared/fidResolverService.js";
 import { db, hasSupabase } from "../../shared/supabaseClient.js";
 import { createRequireAdmin } from "../../shared/adminGuard.js";
+import { invalidateUserAccessCache } from "../../shared/accessCache.js";
 
 /**
  * Register allowlist routes
@@ -214,6 +215,13 @@ export default async function allowlistRoutes(fastify) {
         return reply.code(400).send({ error: result.error });
       }
 
+      // Bust the access cache so the new allowlist row is visible to the
+      // next admin/check request without waiting for the 60s TTL.
+      await invalidateUserAccessCache(
+        typeof identifier === "object" ? identifier : { fid: identifier },
+        fastify.log,
+      );
+
       return reply.send({
         success: true,
         entry: result.entry,
@@ -258,6 +266,13 @@ export default async function allowlistRoutes(fastify) {
         if (!result.success) {
           return reply.code(400).send({ error: result.error });
         }
+
+        // Bust the access cache so the admin's revocation reflects on the
+        // next admin-guarded request instead of after the 60s TTL.
+        await invalidateUserAccessCache(
+          typeof identifier === "object" ? identifier : { fid: identifier },
+          fastify.log,
+        );
 
         return reply.send({ success: true });
       } catch (error) {
@@ -385,6 +400,10 @@ export default async function allowlistRoutes(fastify) {
                 skipped++;
               } else {
                 added++;
+                // Bust this fid's cached access; new entries flip from
+                // PUBLIC → ALLOWLIST so the next access check should not
+                // see the stale rejection.
+                await invalidateUserAccessCache({ fid }, fastify.log);
               }
             } else {
               failed++;
