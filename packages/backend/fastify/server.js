@@ -17,6 +17,7 @@ import { historicalOddsService } from "../shared/historicalOddsService.js";
 import { RaffleABI as raffleAbi, SOFBondingCurveABI as sofBondingCurveAbi, InfoFiMarketFactoryABI as infoFiMarketFactoryAbi, SimpleFPMMABI as simpleFpmmAbi } from '@sof/contracts';
 import { getChainByKey } from "../src/config/chain.js";
 import { authenticateFastify } from "../shared/auth.js";
+import { resolveCorsOrigin } from "../shared/parseCorsOrigins.js";
 
 // NOTE: env validation happens BEFORE this module loads, in fastify/boot.js.
 // Putting the assert here would fire too late — ESM hoists transitive imports
@@ -45,37 +46,13 @@ if (hasSupabase) {
 }
 
 // Register plugins
-const corsOriginsEnv = process.env.CORS_ORIGINS;
-let corsOrigin;
-
-if (corsOriginsEnv && corsOriginsEnv.trim().length > 0) {
-  // Comma-separated list from env.
-  // Entries wrapped in / are treated as RegExp patterns, e.g.:
-  //   CORS_ORIGINS="https://secondorder.fun,/\.vercel\.app$/"
-  corsOrigin = corsOriginsEnv
-    .split(",")
-    .map((v) => {
-      const trimmed = v.trim();
-      if (!trimmed) return null;
-
-      // Regex entry: /pattern/
-      if (trimmed.startsWith("/") && trimmed.endsWith("/") && trimmed.length > 2) {
-        return new RegExp(trimmed.slice(1, -1));
-      }
-
-      // Plain string: normalize trailing slash
-      return trimmed.endsWith("/") ? trimmed.slice(0, -1) : trimmed;
-    })
-    .filter(Boolean);
-} else {
-  if (process.env.NODE_ENV === "production") {
-    throw new Error(
-      "CORS_ORIGINS is required in production. Set a comma-separated allowlist of origins.",
-    );
-  }
-
-  corsOrigin = true;
-}
+//
+// CORS origins are parsed via shared/parseCorsOrigins.js so bad regex
+// patterns surface a clear, all-at-once error instead of `new RegExp()`
+// crashing mid-initialization.
+const corsOrigin = resolveCorsOrigin(process.env.CORS_ORIGINS, {
+  isProduction: process.env.NODE_ENV === "production",
+});
 
 await app.register(cors, {
   origin: corsOrigin,
