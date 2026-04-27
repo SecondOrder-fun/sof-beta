@@ -389,6 +389,7 @@ for log in d.get('logs', []):
   SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY" \
   BACKEND_WALLET_PRIVATE_KEY=$DEPLOYER_KEY \
   BACKEND_WALLET_ADDRESS=$DEPLOYER_ADDR \
+  PAYMASTER_RPC_URL=$RPC \
   JWT_SECRET=local-dev-jwt-secret-must-be-at-least-32-chars \
   JWT_EXPIRES_IN=7d \
   CORS_ORIGINS="http://localhost:5174,http://127.0.0.1:5174" \

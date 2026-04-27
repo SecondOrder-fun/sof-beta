@@ -107,7 +107,12 @@ function buildManifest(env) {
     },
     {
       key: "PAYMASTER_RPC_URL",
-      required: requireOnNonLocal,
+      // Always required: PaymasterService.initialize() throws on first
+      // airdrop-relay / market-creation call without it. Even on LOCAL,
+      // this points at Anvil's RPC (the backend wallet pays its own gas);
+      // on TESTNET/MAINNET it points at the Pimlico bundler that
+      // sponsors the gas via ERC-4337.
+      required: true,
       validate: (v) => (isUrl(v) ? null : "must be a valid URL"),
     },
     {

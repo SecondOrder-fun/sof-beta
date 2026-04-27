@@ -16,6 +16,7 @@ const AddTokenToMetamaskButton = ({
   variant = "outline",
   disabled = false,
   onResult,
+  className = "",
 }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState(null);
@@ -93,7 +94,7 @@ const AddTokenToMetamaskButton = ({
         disabled={isLoading || !address || disabled}
         variant={variant || "outline"}
         size={size || "default"}
-        className={fullWidth ? "w-full pl-2 pr-3" : "pl-2 pr-3"}
+        className={`${fullWidth ? "w-full pl-2 pr-3" : "pl-2 pr-3"} ${className}`}
       >
         <Wallet className="mr-2 h-4 w-4" />
         {isLoading
@@ -128,12 +129,13 @@ AddTokenToMetamaskButton.propTypes = {
   symbol: PropTypes.string.isRequired,
   decimals: PropTypes.number,
   image: PropTypes.string,
-  label: PropTypes.string,
+  label: PropTypes.node,
   fullWidth: PropTypes.bool,
   size: PropTypes.string,
   variant: PropTypes.string,
   disabled: PropTypes.bool,
   onResult: PropTypes.func,
+  className: PropTypes.string,
 };
 
 export default AddTokenToMetamaskButton;

@@ -271,11 +271,19 @@ export function useAirdrop() {
     const prevLastClaimTs = lastClaimTs;
 
     try {
-      const authHeaders = farcasterAuth?.getAuthHeaders?.() ?? {};
+      // Sign-message wallet-ownership proof (matches the basic-claim flow
+      // server-side). Backend recovers the signer and rejects if the
+      // address doesn't match — no JWT required.
+      if (!walletClient) {
+        throw new Error("Wallet not connected");
+      }
+      const message = `Claim daily SOF airdrop for ${address}`;
+      const signature = await walletClient.signMessage({ message });
+
       const res = await fetch(`${API_BASE}/airdrop/claim`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({ address, type: "daily" }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address, type: "daily", signature }),
       });
 
       if (!res.ok) {
@@ -293,7 +301,7 @@ export function useAirdrop() {
         error: err.message || "Daily claim failed",
       });
     }
-  }, [address, airdropAddress, canClaimDaily, farcasterAuth, verifyDailyClaim, lastClaimTs]);
+  }, [address, airdropAddress, canClaimDaily, walletClient, verifyDailyClaim, lastClaimTs]);
 
   const resetDailyState = useCallback(() => {
     setClaimDailyState({ isPending: false, isSuccess: false, isError: false, error: null });
