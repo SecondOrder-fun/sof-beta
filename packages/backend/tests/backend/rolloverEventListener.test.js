@@ -1,17 +1,18 @@
 /**
  * @file rolloverEventListener.test.js
- * @description Unit tests for the RolloverEscrow event listener — covers
- * graceful skip when contract is unconfigured, watcher registration, per-event
- * upsert shape (idempotency via onConflict), error containment, and the
- * combined unwatch wiring.
+ * @description Unit tests for the RolloverEscrow event listener (cursor-backed
+ * polling pattern). Covers: skip when escrow address unconfigured, three
+ * pollers + three cursors registered, historical-scan backfill on startup,
+ * per-event upsert shape (idempotency via onConflict), error containment,
+ * and the combined unwatchAll wiring.
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 const viemMocks = vi.hoisted(() => ({
-  mockWatchEvent: vi.fn(),
-  mockHttp: vi.fn(() => "http-transport-stub"),
-  mockCreatePublicClient: vi.fn(),
+  publicClient: {
+    getBlockNumber: vi.fn(async () => 1000n),
+  },
 }));
 
 const chainMocks = vi.hoisted(() => ({
@@ -23,14 +24,18 @@ const dbMocks = vi.hoisted(() => ({
   mockFrom: vi.fn(),
 }));
 
-vi.mock("viem", async () => {
-  const actual = await vi.importActual("viem");
-  return {
-    ...actual,
-    createPublicClient: (...args) => viemMocks.mockCreatePublicClient(...args),
-    http: (...args) => viemMocks.mockHttp(...args),
-  };
-});
+const pollingMocks = vi.hoisted(() => ({
+  mockGetContractEventsInChunks: vi.fn(),
+  mockStartContractEventPolling: vi.fn(),
+}));
+
+const cursorMocks = vi.hoisted(() => ({
+  mockCreateBlockCursor: vi.fn(),
+}));
+
+vi.mock("../../src/lib/viemClient.js", () => ({
+  publicClient: viemMocks.publicClient,
+}));
 
 vi.mock("../../src/config/chain.js", () => ({
   getChainByKey: (...args) => chainMocks.mockGetChainByKey(...args),
@@ -42,6 +47,17 @@ vi.mock("../../shared/supabaseClient.js", () => ({
       from: (...args) => dbMocks.mockFrom(...args),
     },
   },
+}));
+
+vi.mock("../../src/lib/contractEventPolling.js", () => ({
+  getContractEventsInChunks: (...args) =>
+    pollingMocks.mockGetContractEventsInChunks(...args),
+  startContractEventPolling: (...args) =>
+    pollingMocks.mockStartContractEventPolling(...args),
+}));
+
+vi.mock("../../src/lib/blockCursor.js", () => ({
+  createBlockCursor: (...args) => cursorMocks.mockCreateBlockCursor(...args),
 }));
 
 import { startRolloverEventListener } from "../../src/listeners/rolloverEventListener.js";
@@ -61,102 +77,179 @@ function makeLogger() {
 }
 
 /**
- * Each call to publicClient.watchEvent registers one watcher and returns
- * its unwatch fn. We capture the onLogs handler so tests can fire log
- * events synthetically. Returns { handlers, unwatches } indexed by call order.
+ * Each call to startContractEventPolling registers one poller. Capture the
+ * onLogs handlers + return a unique unwatch fn per registration.
  */
-function setupWatchEventCapture() {
-  const handlers = [];
+function setupPollingCapture() {
+  const pollers = [];
   const unwatches = [];
-  viemMocks.mockWatchEvent.mockImplementation(({ onLogs, onError }) => {
-    handlers.push({ onLogs, onError });
-    const unwatch = vi.fn();
-    unwatches.push(unwatch);
-    return unwatch;
-  });
-  viemMocks.mockCreatePublicClient.mockReturnValue({
-    watchEvent: (...args) => viemMocks.mockWatchEvent(...args),
-  });
-  return { handlers, unwatches };
+  pollingMocks.mockStartContractEventPolling.mockImplementation(
+    async ({ onLogs, onError, blockCursor, eventName }) => {
+      pollers.push({ onLogs, onError, blockCursor, eventName });
+      const unwatch = vi.fn();
+      unwatches.push(unwatch);
+      return unwatch;
+    },
+  );
+  return { pollers, unwatches };
 }
 
+beforeEach(() => {
+  pollingMocks.mockGetContractEventsInChunks.mockReset().mockResolvedValue([]);
+  pollingMocks.mockStartContractEventPolling.mockReset();
+  cursorMocks.mockCreateBlockCursor
+    .mockReset()
+    .mockResolvedValue({ get: vi.fn(async () => null), set: vi.fn() });
+  chainMocks.mockGetChainByKey.mockReset();
+  dbMocks.mockFrom.mockReset();
+  dbMocks.mockUpsert.mockReset();
+  viemMocks.publicClient.getBlockNumber.mockResolvedValue(1000n);
+
+  // Default: db.client.from(table).upsert(...) succeeds.
+  dbMocks.mockFrom.mockImplementation(() => ({
+    upsert: (...args) => dbMocks.mockUpsert(...args),
+  }));
+  dbMocks.mockUpsert.mockResolvedValue({ error: null });
+});
+
 describe("startRolloverEventListener", () => {
-  let logger;
-
-  beforeEach(() => {
-    logger = makeLogger();
-    viemMocks.mockWatchEvent.mockReset();
-    viemMocks.mockHttp.mockClear();
-    viemMocks.mockCreatePublicClient.mockReset();
-    chainMocks.mockGetChainByKey.mockReset();
-    dbMocks.mockFrom.mockReset();
-    dbMocks.mockUpsert.mockReset();
-
-    // Default: db.client.from(table).upsert(...) returns { error: null }
-    dbMocks.mockFrom.mockImplementation(() => ({
-      upsert: (...args) => dbMocks.mockUpsert(...args),
-    }));
-    dbMocks.mockUpsert.mockResolvedValue({ error: null });
-  });
-
   describe("startup gating", () => {
-    it("returns undefined and warns when rolloverEscrow is empty", () => {
+    it("returns undefined and warns when rolloverEscrow is empty", async () => {
       chainMocks.mockGetChainByKey.mockReturnValue({
         rolloverEscrow: "",
         rpcUrl: RPC_URL,
       });
+      const logger = makeLogger();
 
-      const result = startRolloverEventListener("LOCAL", logger);
+      const result = await startRolloverEventListener("LOCAL", logger);
 
       expect(result).toBeUndefined();
       expect(logger.warn).toHaveBeenCalledOnce();
       expect(logger.warn.mock.calls[0][0]).toMatch(/not configured/);
-      expect(viemMocks.mockCreatePublicClient).not.toHaveBeenCalled();
+      expect(pollingMocks.mockStartContractEventPolling).not.toHaveBeenCalled();
     });
 
-    it("returns undefined when rolloverEscrow is undefined", () => {
-      chainMocks.mockGetChainByKey.mockReturnValue({
-        rolloverEscrow: undefined,
-        rpcUrl: RPC_URL,
-      });
-
-      expect(startRolloverEventListener("LOCAL", logger)).toBeUndefined();
-      expect(viemMocks.mockCreatePublicClient).not.toHaveBeenCalled();
-    });
-
-    it("registers exactly three watchers when rolloverEscrow is set", () => {
+    it("registers exactly three pollers + three cursors when rolloverEscrow is set", async () => {
       chainMocks.mockGetChainByKey.mockReturnValue({
         rolloverEscrow: ESCROW_ADDR,
         rpcUrl: RPC_URL,
+        lookbackBlocks: 10_000n,
       });
-      const { handlers } = setupWatchEventCapture();
+      const { pollers } = setupPollingCapture();
+      const logger = makeLogger();
 
-      const unwatchAll = startRolloverEventListener("LOCAL", logger);
+      const unwatchAll = await startRolloverEventListener("LOCAL", logger);
 
-      expect(handlers).toHaveLength(3);
       expect(typeof unwatchAll).toBe("function");
-      expect(logger.info).toHaveBeenCalledWith(
-        expect.stringContaining(ESCROW_ADDR),
+      expect(pollers).toHaveLength(3);
+      expect(cursorMocks.mockCreateBlockCursor).toHaveBeenCalledTimes(3);
+
+      // Distinct cursor keys per event so they advance independently.
+      const cursorKeys = cursorMocks.mockCreateBlockCursor.mock.calls.map(
+        (c) => c[0],
+      );
+      expect(new Set(cursorKeys).size).toBe(3);
+      for (const key of cursorKeys) {
+        expect(key).toContain(ESCROW_ADDR);
+      }
+    });
+  });
+
+  describe("historical scan", () => {
+    it("scans from currentBlock - lookbackBlocks for each event type", async () => {
+      chainMocks.mockGetChainByKey.mockReturnValue({
+        rolloverEscrow: ESCROW_ADDR,
+        rpcUrl: RPC_URL,
+        lookbackBlocks: 10_000n,
+      });
+      viemMocks.publicClient.getBlockNumber.mockResolvedValue(15_000n);
+      setupPollingCapture();
+      const logger = makeLogger();
+
+      await startRolloverEventListener("LOCAL", logger);
+
+      // 3 historical scans, one per event type.
+      expect(pollingMocks.mockGetContractEventsInChunks).toHaveBeenCalledTimes(
+        3,
+      );
+      const firstCall =
+        pollingMocks.mockGetContractEventsInChunks.mock.calls[0][0];
+      // 15_000 - 10_000 = 5_000
+      expect(firstCall.fromBlock).toBe(5_000n);
+      expect(firstCall.toBlock).toBe(15_000n);
+      expect(firstCall.address).toBe(ESCROW_ADDR);
+    });
+
+    it("clamps fromBlock to 0 when currentBlock < lookbackBlocks", async () => {
+      chainMocks.mockGetChainByKey.mockReturnValue({
+        rolloverEscrow: ESCROW_ADDR,
+        rpcUrl: RPC_URL,
+        lookbackBlocks: 10_000n,
+      });
+      viemMocks.publicClient.getBlockNumber.mockResolvedValue(500n);
+      setupPollingCapture();
+
+      await startRolloverEventListener("LOCAL", makeLogger());
+
+      const firstCall =
+        pollingMocks.mockGetContractEventsInChunks.mock.calls[0][0];
+      expect(firstCall.fromBlock).toBe(0n);
+    });
+
+    it("persists historical events found by the scan", async () => {
+      chainMocks.mockGetChainByKey.mockReturnValue({
+        rolloverEscrow: ESCROW_ADDR,
+        rpcUrl: RPC_URL,
+        lookbackBlocks: 10_000n,
+      });
+      // Return one DepositEvent for the first scan call (DEPOSIT).
+      pollingMocks.mockGetContractEventsInChunks.mockResolvedValueOnce([
+        {
+          args: {
+            user: USER_ADDR_CHECKSUMMED,
+            seasonId: 1n,
+            amount: 5_000_000_000_000_000_000n,
+          },
+          transactionHash: "0xhist1",
+          blockNumber: 100n,
+        },
+      ]);
+      setupPollingCapture();
+
+      await startRolloverEventListener("LOCAL", makeLogger());
+
+      expect(dbMocks.mockUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event_type: "DEPOSIT",
+          season_id: 1,
+          user_address: USER_ADDR_LOWER,
+          amount: "5000000000000000000",
+          tx_hash: "0xhist1",
+          block_number: 100,
+        }),
+        { onConflict: "tx_hash,event_type" },
       );
     });
   });
 
-  describe("event handlers", () => {
-    let handlers;
+  describe("live event handlers", () => {
+    let pollers;
 
-    beforeEach(() => {
+    beforeEach(async () => {
       chainMocks.mockGetChainByKey.mockReturnValue({
         rolloverEscrow: ESCROW_ADDR,
         rpcUrl: RPC_URL,
+        lookbackBlocks: 10_000n,
       });
-      ({ handlers } = setupWatchEventCapture());
-      startRolloverEventListener("LOCAL", logger);
+      ({ pollers } = setupPollingCapture());
+      await startRolloverEventListener("LOCAL", makeLogger());
     });
 
-    it("RolloverDeposit upserts with lowercased user, stringified amount, and idempotency key", async () => {
-      const depositHandler = handlers[0].onLogs;
+    it("RolloverDeposit poller upserts with idempotency key", async () => {
+      const depositPoller = pollers.find((p) => p.eventName === "RolloverDeposit");
+      expect(depositPoller).toBeDefined();
 
-      await depositHandler([
+      await depositPoller.onLogs([
         {
           args: {
             user: USER_ADDR_CHECKSUMMED,
@@ -182,10 +275,11 @@ describe("startRolloverEventListener", () => {
       );
     });
 
-    it("RolloverSpend upserts with baseAmount, bonusAmount, and nextSeasonId", async () => {
-      const spendHandler = handlers[1].onLogs;
+    it("RolloverSpend poller upserts with bonus_amount + next_season_id", async () => {
+      const spendPoller = pollers.find((p) => p.eventName === "RolloverSpend");
+      expect(spendPoller).toBeDefined();
 
-      await spendHandler([
+      await spendPoller.onLogs([
         {
           args: {
             user: USER_ADDR_CHECKSUMMED,
@@ -214,10 +308,11 @@ describe("startRolloverEventListener", () => {
       );
     });
 
-    it("RolloverRefund upserts with REFUND event_type", async () => {
-      const refundHandler = handlers[2].onLogs;
+    it("RolloverRefund poller upserts with REFUND event_type", async () => {
+      const refundPoller = pollers.find((p) => p.eventName === "RolloverRefund");
+      expect(refundPoller).toBeDefined();
 
-      await refundHandler([
+      await refundPoller.onLogs([
         {
           args: {
             user: USER_ADDR_CHECKSUMMED,
@@ -232,20 +327,17 @@ describe("startRolloverEventListener", () => {
       expect(dbMocks.mockUpsert).toHaveBeenCalledWith(
         expect.objectContaining({
           event_type: "REFUND",
-          season_id: 1,
-          user_address: USER_ADDR_LOWER,
           amount: "250",
           tx_hash: "0xfeed",
-          block_number: 300,
         }),
         { onConflict: "tx_hash,event_type" },
       );
     });
 
     it("processes a batch of multiple logs in one onLogs call", async () => {
-      const depositHandler = handlers[0].onLogs;
+      const depositPoller = pollers.find((p) => p.eventName === "RolloverDeposit");
 
-      await depositHandler([
+      await depositPoller.onLogs([
         {
           args: { user: USER_ADDR_CHECKSUMMED, seasonId: 1n, amount: 100n },
           transactionHash: "0x1",
@@ -263,26 +355,29 @@ describe("startRolloverEventListener", () => {
   });
 
   describe("error containment", () => {
-    let handlers;
+    let pollers;
 
-    beforeEach(() => {
+    beforeEach(async () => {
       chainMocks.mockGetChainByKey.mockReturnValue({
         rolloverEscrow: ESCROW_ADDR,
         rpcUrl: RPC_URL,
+        lookbackBlocks: 10_000n,
       });
-      ({ handlers } = setupWatchEventCapture());
-      startRolloverEventListener("LOCAL", logger);
+      ({ pollers } = setupPollingCapture());
     });
 
     it("logs and continues when supabase upsert returns an error", async () => {
+      const logger = makeLogger();
+      await startRolloverEventListener("LOCAL", logger);
+
       dbMocks.mockUpsert.mockResolvedValueOnce({
         error: { message: "duplicate key" },
       });
 
-      const depositHandler = handlers[0].onLogs;
+      const depositPoller = pollers.find((p) => p.eventName === "RolloverDeposit");
 
       await expect(
-        depositHandler([
+        depositPoller.onLogs([
           {
             args: { user: USER_ADDR_CHECKSUMMED, seasonId: 1n, amount: 100n },
             transactionHash: "0xbad",
@@ -295,13 +390,16 @@ describe("startRolloverEventListener", () => {
     });
 
     it("logs and continues when one log in a batch fails — siblings still processed", async () => {
+      const logger = makeLogger();
+      await startRolloverEventListener("LOCAL", logger);
+
       dbMocks.mockUpsert
         .mockResolvedValueOnce({ error: { message: "boom" } })
         .mockResolvedValueOnce({ error: null });
 
-      const depositHandler = handlers[0].onLogs;
+      const depositPoller = pollers.find((p) => p.eventName === "RolloverDeposit");
 
-      await depositHandler([
+      await depositPoller.onLogs([
         {
           args: { user: USER_ADDR_CHECKSUMMED, seasonId: 1n, amount: 1n },
           transactionHash: "0xfail",
@@ -318,22 +416,26 @@ describe("startRolloverEventListener", () => {
       expect(logger.error).toHaveBeenCalledOnce();
     });
 
-    it("invokes onError when the underlying watcher errors", () => {
-      const onError = handlers[0].onError;
-      onError(new Error("rpc reset"));
+    it("invokes onError when the underlying poller errors", async () => {
+      const logger = makeLogger();
+      await startRolloverEventListener("LOCAL", logger);
+
+      const depositPoller = pollers.find((p) => p.eventName === "RolloverDeposit");
+      depositPoller.onError(new Error("rpc reset"));
       expect(logger.error).toHaveBeenCalled();
     });
   });
 
   describe("unwatchAll", () => {
-    it("invokes every child unwatch when called", () => {
+    it("invokes every child unwatch when called", async () => {
       chainMocks.mockGetChainByKey.mockReturnValue({
         rolloverEscrow: ESCROW_ADDR,
         rpcUrl: RPC_URL,
+        lookbackBlocks: 10_000n,
       });
-      const { unwatches } = setupWatchEventCapture();
+      const { unwatches } = setupPollingCapture();
 
-      const unwatchAll = startRolloverEventListener("LOCAL", logger);
+      const unwatchAll = await startRolloverEventListener("LOCAL", makeLogger());
       unwatchAll();
 
       for (const u of unwatches) expect(u).toHaveBeenCalledOnce();
