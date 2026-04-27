@@ -3,7 +3,6 @@ import { Outlet } from "react-router-dom";
 
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
-import StickyFooter from "@/components/layout/StickyFooter";
 import { Toaster } from "@/components/ui/toaster";
 import UsernameDialog from "@/components/user/UsernameDialog";
 import LoginModal from "@/components/auth/LoginModal";
@@ -44,7 +43,7 @@ const App = () => {
 
   // Desktop layout
   return (
-    <div className="min-h-screen bg-background text-foreground pb-20">
+    <div className="min-h-screen bg-background text-foreground">
       <Header />
       <main className="container mx-auto px-4 py-8">
         <div>
@@ -52,7 +51,6 @@ const App = () => {
         </div>
       </main>
       <Footer />
-      <StickyFooter />
       <Toaster />
       {isMobileBrowser ? <MobileLoginSheet /> : <LoginModal />}
       <UsernameDialog open={showDialog} onOpenChange={setShowDialog} suggestedUsername={suggestedUsername} />

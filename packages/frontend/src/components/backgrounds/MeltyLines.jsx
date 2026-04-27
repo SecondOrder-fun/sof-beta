@@ -39,6 +39,46 @@ const TRAIL_LENGTH = 12;
 const TRAIL_ALPHA = 0.35;
 const DOT_ALPHA = 0.5;
 
+// 4x4 pixelated dot — blank corners give it a soft "circular" silhouette
+// at low resolution. Each cell is rendered as a `PIXEL_SIZE` × `PIXEL_SIZE`
+// square, so the full dot is 4*PIXEL_SIZE on a side. With PIXEL_SIZE = 3,
+// the dot is 12px — about 8× the original 1.5px attractor circle.
+const PIXEL_SIZE = 3;
+const TRAIL_WIDTH = 8; // ~6× the original 1.5 px stroke
+// 1 = filled, 0 = blank. Corners blank → rounded silhouette.
+const PIXEL_DOT_PATTERN = [
+  [0, 1, 1, 0],
+  [1, 1, 1, 1],
+  [1, 1, 1, 1],
+  [0, 1, 1, 0],
+];
+
+/**
+ * Render the 4x4 pixelated dot centered on (cx, cy). Each filled cell is
+ * a `PIXEL_SIZE`-px square, rasterized to the canvas grid so the look is
+ * crisp regardless of the underlying transform.
+ */
+function drawPixelDot(ctx, cx, cy, h, s, l, alpha) {
+  ctx.fillStyle = `hsla(${h}, ${s}%, ${l}%, ${alpha})`;
+  // Top-left of the dot in canvas coords; round to integer to keep
+  // edges sharp (avoids viewport-fractional anti-aliasing softening
+  // the pixel-art aesthetic).
+  const originX = Math.round(cx - PIXEL_SIZE * 2);
+  const originY = Math.round(cy - PIXEL_SIZE * 2);
+  for (let row = 0; row < 4; row++) {
+    for (let col = 0; col < 4; col++) {
+      if (PIXEL_DOT_PATTERN[row][col] === 1) {
+        ctx.fillRect(
+          originX + col * PIXEL_SIZE,
+          originY + row * PIXEL_SIZE,
+          PIXEL_SIZE,
+          PIXEL_SIZE,
+        );
+      }
+    }
+  }
+}
+
 function buildGrid() {
   const grid = [];
   let i = 0;
@@ -116,18 +156,28 @@ const MeltyLines = () => {
 
     const resize = () => {
       const dpr = window.devicePixelRatio || 1;
-      width = window.innerWidth;
-      height = window.innerHeight;
+      // Measure the canvas's actual rendered size (set by the
+      // `absolute inset-0` parent) rather than the window. Otherwise
+      // particles get centered to the viewport midpoint instead of the
+      // section midpoint, leaving them clipped at the bottom.
+      const rect = canvas.getBoundingClientRect();
+      width = rect.width || window.innerWidth;
+      height = rect.height || window.innerHeight;
       canvas.width = width * dpr;
       canvas.height = height * dpr;
-      canvas.style.width = width + "px";
-      canvas.style.height = height + "px";
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       xC = width / 2;
       yC = height / 2;
     };
     resize();
     window.addEventListener("resize", resize);
+    // Container can change size after mount (font load, layout shift).
+    // ResizeObserver re-measures so the canvas stays in lockstep.
+    let resizeObserver;
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(resize);
+      if (canvas.parentElement) resizeObserver.observe(canvas.parentElement);
+    }
 
     if (prefersReducedMotion) {
       const { grid, maxIndex } = buildGrid();
@@ -135,12 +185,12 @@ const MeltyLines = () => {
         const p = createParticle(grid, maxIndex);
         const xx = xC + p.x * ZOOM;
         const yy = yC + p.y * ZOOM;
-        ctx.beginPath();
-        ctx.arc(xx, yy, 1.5, 0, Math.PI * 2);
-        ctx.fillStyle = `hsla(${p.h}, ${p.s}%, ${p.l}%, 0.25)`;
-        ctx.fill();
+        drawPixelDot(ctx, xx, yy, p.h, p.s, p.l, 0.25);
       }
-      return () => window.removeEventListener("resize", resize);
+      return () => {
+        window.removeEventListener("resize", resize);
+        if (resizeObserver) resizeObserver.disconnect();
+      };
     }
 
     // ── Animated mode ──
@@ -235,19 +285,20 @@ const MeltyLines = () => {
           ctx.moveTo(from.x, from.y);
           ctx.lineTo(to.x, to.y);
           ctx.strokeStyle = `hsla(${p.h}, ${p.s}%, ${p.l}%, ${alpha})`;
-          ctx.lineWidth = 1.5;
+          // Square caps + bumped width to match the chunkier pixel-art
+          // dot. Round caps would soften the trail back to the old
+          // smooth-line look we're moving away from.
+          ctx.lineCap = "square";
+          ctx.lineWidth = TRAIL_WIDTH;
           ctx.stroke();
         }
 
-        // Attractor dot
+        // Attractor "dot" — 4x4 pixelated block with blank corners.
         const attrac = toCanvas(
           grid[p.attractor.gridSpotIndex].x,
           grid[p.attractor.gridSpotIndex].y,
         );
-        ctx.beginPath();
-        ctx.arc(attrac.x, attrac.y, 1.5, 0, Math.PI * 2);
-        ctx.fillStyle = `hsla(${p.h}, ${p.s}%, ${p.l}%, ${DOT_ALPHA})`;
-        ctx.fill();
+        drawPixelDot(ctx, attrac.x, attrac.y, p.h, p.s, p.l, DOT_ALPHA);
       }
 
       animRef.current = requestAnimationFrame(frame);
@@ -258,13 +309,19 @@ const MeltyLines = () => {
     return () => {
       cancelAnimationFrame(animRef.current);
       window.removeEventListener("resize", resize);
+      if (resizeObserver) resizeObserver.disconnect();
     };
   }, []);
 
   return (
     <canvas
       ref={canvasRef}
-      className="fixed inset-0 pointer-events-none"
+      // `absolute` so the canvas fills its nearest positioned ancestor only —
+      // keeps the particles inside the Home content area instead of bleeding
+      // across the global Header/Footer (which previously happened with
+      // `fixed inset-0`). Callers must wrap MeltyLines in a `relative`
+      // container with a definite height.
+      className="absolute inset-0 pointer-events-none"
       style={{ zIndex: 0 }}
       aria-hidden="true"
     />
