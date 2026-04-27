@@ -13,5 +13,6 @@
   "swapError": "Swap failed",
   "selectToken": "Select token",
   "enterAmount": "Enter amount",
-  "testnetNotice": "Você precisará de $ETH Base Sepolia para trocar por $SOF. Estes são tokens de testnet e não têm nenhum valor."
+  "testnetNotice": "Você precisará de $ETH Base Sepolia para trocar por $SOF. Estes são tokens de testnet e não têm nenhum valor.",
+  "swapUnavailable": "Swap is unavailable on this network — claim from the airdrop on the left, or try a different network."
 }

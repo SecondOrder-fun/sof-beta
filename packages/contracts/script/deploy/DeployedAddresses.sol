@@ -23,4 +23,7 @@ struct DeployedAddresses {
     address sofSmartAccount;
     address paymasterAddress;
     address rolloverEscrow;
+    address usdc;
+    address sofExchange;
+    address sofAirdrop;
 }
