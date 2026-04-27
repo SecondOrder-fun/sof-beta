@@ -110,6 +110,32 @@ await app.register(exampleRoutes, { prefix: "/api/example" });
 
 `authenticateFastify(app)` registers a global `onRequest` hook that parses `Authorization: Bearer <JWT>` headers and sets `request.user`. It does NOT reject unauthenticated requests — individual routes or preHandlers enforce auth.
 
+### Body Schema Validation
+
+Mutation routes should declare a JSON Schema for `body` (and where applicable `params` / `querystring`). Fastify validates against the schema before the handler runs and rejects malformed payloads with a structured 400. Reusable fragments live in `shared/schemas/index.js`:
+
+```js
+import { fidOrWalletSchema } from "../../shared/schemas/index.js";
+
+fastify.post(
+  "/add",
+  {
+    preHandler: [requireAdmin],
+    schema: { body: fidOrWalletSchema },
+  },
+  async (request, reply) => {
+    // request.body is shape-validated; handlers can drop the
+    // hand-rolled `if (!body.foo)` checks the schema covers.
+    const { fid, wallet } = request.body;
+    ...
+  },
+);
+```
+
+Tier-1 routes covered as of `@sof/backend@0.20.0`: `accessRoutes.set-access-level`, `allowlistRoutes.add` / `.remove`, `airdropRoutes.claim`, `delegationRoutes.delegate` / `.delegate-shortcut`, `gatingRoutes.signatures`. New mutation routes should follow the same pattern; reuse fragments from `shared/schemas/index.js` or add new ones there.
+
+Note: Fastify's default Ajv config strips unknown fields silently (`removeAdditional: 'all'`). Schemas declare `additionalProperties: false` for documentation, but the strip-vs-reject behavior is global; toggle the global Ajv config if strict input rejection ever becomes load-bearing.
+
 ### Admin Guard
 
 Protected routes use the `createRequireAdmin()` preHandler:

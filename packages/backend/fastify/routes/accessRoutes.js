@@ -14,6 +14,7 @@ import {
   ACCESS_LEVEL_NAMES,
 } from "../../shared/accessService.js";
 import { invalidateUserAccessCache } from "../../shared/accessCache.js";
+import { setAccessLevelBodySchema } from "../../shared/schemas/index.js";
 import { createRequireAdmin } from "../../shared/adminGuard.js";
 
 export default async function accessRoutes(fastify) {
@@ -136,27 +137,14 @@ export default async function accessRoutes(fastify) {
    */
   fastify.post(
     "/set-access-level",
-    { preHandler: requireAdmin },
+    {
+      preHandler: requireAdmin,
+      // Schema rejects: missing accessLevel, accessLevel out of [0,4],
+      // missing both fid and wallet, malformed wallet, additional fields.
+      schema: { body: setAccessLevelBodySchema },
+    },
     async (request, reply) => {
       const { fid, wallet, accessLevel } = request.body;
-
-      if (!fid && !wallet) {
-        return reply.code(400).send({
-          error: "Either fid or wallet is required",
-        });
-      }
-
-      if (accessLevel === undefined) {
-        return reply.code(400).send({
-          error: "accessLevel is required",
-        });
-      }
-
-      if (accessLevel < 0 || accessLevel > 4) {
-        return reply.code(400).send({
-          error: "accessLevel must be between 0 and 4",
-        });
-      }
 
       try {
         const result = await setUserAccessLevel(

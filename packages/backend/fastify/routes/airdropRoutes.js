@@ -12,6 +12,7 @@ import { recoverMessageAddress } from "viem";
 import { getDeployment } from '@sof/contracts/deployments';
 import { getChainByKey } from "../../src/config/chain.js";
 import { getPaymasterService } from "../../src/services/paymasterService.js";
+import { claimAirdropBodySchema } from "../../shared/schemas/index.js";
 
 // EIP-712 domain and type constants
 const DOMAIN_NAME = "SecondOrder.fun SOFAirdrop";
@@ -179,18 +180,12 @@ export default async function airdropRoutes(fastify) {
         timeWindow: "1 minute",
       },
     },
+    // Schema validates: address is 0x+40hex; type is one of
+    // initial|basic|daily; per-type required field (fid for initial,
+    // signature for basic/daily); rejects unknown fields.
+    schema: { body: claimAirdropBodySchema },
     handler: async (request, reply) => {
-      const { address, type, fid, signature } = request.body || {};
-
-      if (!address || typeof address !== "string") {
-        return reply.code(400).send({ error: "Missing address" });
-      }
-
-      if (!["initial", "basic", "daily"].includes(type)) {
-        return reply
-          .code(400)
-          .send({ error: 'Invalid type. Must be "initial", "basic", or "daily"' });
-      }
+      const { address, type, fid, signature } = request.body;
 
       const airdropAddress = getDeployment().SOFAirdrop;
       if (!airdropAddress) {

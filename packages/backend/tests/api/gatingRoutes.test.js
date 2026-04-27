@@ -59,14 +59,22 @@ describe("Gating Routes", () => {
   });
 
   describe("POST /api/gating/signatures/:seasonId", () => {
+    // Real-shape fixtures so the JSON Schema validator (40-hex address,
+    // 130-hex signature) accepts them. The actual values are dummy.
+    const ADDR_A = "0x1111111111111111111111111111111111111111";
+    const ADDR_A_LOWER = ADDR_A.toLowerCase();
+    const ADDR_B = "0x2222222222222222222222222222222222222222";
+    const SIG_A = `0x${"a".repeat(130)}`;
+    const SIG_B = `0x${"b".repeat(130)}`;
+
     it("should store batch of signatures", async () => {
       const res = await app.inject({
         method: "POST",
         url: "/api/gating/signatures/1",
         payload: {
           signatures: [
-            { address: "0xABC123", deadline: 1712345600, signature: "0xsig1" },
-            { address: "0xDEF456", deadline: 1712345600, signature: "0xsig2" },
+            { address: ADDR_A, deadline: 1712345600, signature: SIG_A },
+            { address: ADDR_B, deadline: 1712345600, signature: SIG_B },
           ],
         },
       });
@@ -80,18 +88,20 @@ describe("Gating Routes", () => {
     });
 
     it("should lowercase addresses before storing", async () => {
+      // Mixed-case address — schema accepts hex either way, handler lowercases.
+      const mixed = "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa";
       await app.inject({
         method: "POST",
         url: "/api/gating/signatures/1",
         payload: {
           signatures: [
-            { address: "0xABC123", deadline: 1712345600, signature: "0xsig1" },
+            { address: mixed, deadline: 1712345600, signature: SIG_A },
           ],
         },
       });
 
       expect(mockClient.upsert).toHaveBeenCalledWith(
-        expect.objectContaining({ participant_address: "0xabc123" }),
+        expect.objectContaining({ participant_address: mixed.toLowerCase() }),
         expect.any(Object),
       );
     });
@@ -113,16 +123,17 @@ describe("Gating Routes", () => {
         payload: {},
       });
 
+      // Fastify JSON Schema 400 — `body must have required property 'signatures'`
       expect(res.statusCode).toBe(400);
       const body = JSON.parse(res.payload);
-      expect(body.error).toContain("signatures array required");
+      expect(body.message).toMatch(/signatures/);
     });
 
     it("should reject more than 200 signatures", async () => {
       const sigs = Array.from({ length: 201 }, (_, i) => ({
         address: `0x${i.toString(16).padStart(40, "0")}`,
         deadline: 1712345600,
-        signature: "0xsig",
+        signature: SIG_A,
       }));
 
       const res = await app.inject({
@@ -133,7 +144,8 @@ describe("Gating Routes", () => {
 
       expect(res.statusCode).toBe(400);
       const body = JSON.parse(res.payload);
-      expect(body.error).toContain("200");
+      // Schema says `maxItems: 200` — Fastify error mentions the constraint.
+      expect(body.message).toMatch(/200|fewer|maxItems/i);
     });
 
     it("should return 500 when upsert fails", async () => {
@@ -149,7 +161,7 @@ describe("Gating Routes", () => {
         url: "/api/gating/signatures/1",
         payload: {
           signatures: [
-            { address: "0xABC", deadline: 1712345600, signature: "0xsig" },
+            { address: ADDR_A_LOWER, deadline: 1712345600, signature: SIG_A },
           ],
         },
       });

@@ -15,6 +15,10 @@ import {
 } from "../../shared/farcasterNotificationService.js";
 import { historicalOddsService } from "../../shared/historicalOddsService.js";
 import { createRequireAdmin } from "../../shared/adminGuard.js";
+import {
+  createMarketBodySchema,
+  sendNotificationBodySchema,
+} from "../../shared/schemas/index.js";
 
 const erc20BalanceOfAbi = parseAbi([
   "function balanceOf(address) view returns (uint256)",
@@ -218,30 +222,18 @@ export default async function adminRoutes(fastify) {
    * Uses the backend CDP smart account via PaymasterService to call
    * InfoFiMarketFactory.onPositionUpdate gaslessly.
    */
-  fastify.post("/create-market", { preHandler: requireAdmin }, async (request, reply) => {
+  fastify.post(
+    "/create-market",
+    {
+      preHandler: requireAdmin,
+      // Schema rejects missing/non-positive seasonId, missing/malformed
+      // playerAddress, and unknown extras.
+      schema: { body: createMarketBodySchema },
+    },
+    async (request, reply) => {
     try {
-      const { seasonId, playerAddress } = request.body || {};
-
-      if (seasonId === undefined || seasonId === null) {
-        return reply.code(400).send({ error: "seasonId is required" });
-      }
-
-      if (!playerAddress || typeof playerAddress !== "string") {
-        return reply.code(400).send({ error: "playerAddress is required" });
-      }
-
-      if (!playerAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
-        return reply
-          .code(400)
-          .send({ error: "Invalid Ethereum address format" });
-      }
-
-      const seasonIdNum = Number(seasonId);
-      if (!Number.isFinite(seasonIdNum) || seasonIdNum <= 0) {
-        return reply
-          .code(400)
-          .send({ error: "seasonId must be a positive number" });
-      }
+      const { seasonId, playerAddress } = request.body;
+      const seasonIdNum = seasonId;
 
       const chain = getChainByKey(NETWORK);
       const raffleAddress = chain.raffle;
@@ -497,38 +489,30 @@ export default async function adminRoutes(fastify) {
    * Body: { fid?: number, title: string, body: string, targetUrl?: string }
    * If fid is provided, sends to that user only. Otherwise broadcasts to all.
    */
-  fastify.post("/send-notification", { preHandler: requireAdmin }, async (request, reply) => {
+  fastify.post(
+    "/send-notification",
+    {
+      preHandler: requireAdmin,
+      // Schema rejects missing title/body, malformed fid, body lengths
+      // outside [1, 2000], targetUrl that isn't a URI.
+      schema: { body: sendNotificationBodySchema },
+    },
+    async (request, reply) => {
     try {
-      const { fid, title, body, targetUrl } = request.body || {};
-
-      if (!title || typeof title !== "string") {
-        return reply.code(400).send({ error: "title is required" });
-      }
-
-      if (!body || typeof body !== "string") {
-        return reply.code(400).send({ error: "body is required" });
-      }
+      const { fid, title, body, targetUrl } = request.body;
 
       const notificationTargetUrl = targetUrl || "https://secondorder.fun";
 
       let result;
 
       if (fid !== undefined && fid !== null) {
-        // Send to specific user
-        const fidNum = Number(fid);
-        if (!Number.isFinite(fidNum) || fidNum <= 0) {
-          return reply
-            .code(400)
-            .send({ error: "fid must be a positive number" });
-        }
-
         fastify.log.info(
-          { fid: fidNum, title },
+          { fid, title },
           "[Admin] Sending notification to user"
         );
 
         result = await sendNotificationToUser({
-          fid: fidNum,
+          fid,
           title,
           body,
           targetUrl: notificationTargetUrl,
