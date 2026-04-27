@@ -142,9 +142,11 @@ describe("POST /delegate", () => {
       payload: { userAddress: MOCK_USER_ADDRESS },
     });
 
+    // Fastify's JSON Schema validator returns the standard error shape
+    // { statusCode, error: "Bad Request", message: "body must have required property 'authorization'" }
     expect(res.statusCode).toBe(400);
     const body = JSON.parse(res.body);
-    expect(body.error).toMatch(/Missing authorization/);
+    expect(body.message).toMatch(/authorization/);
   });
 
   it("returns 400 when userAddress is missing", async () => {
@@ -156,7 +158,7 @@ describe("POST /delegate", () => {
 
     expect(res.statusCode).toBe(400);
     const body = JSON.parse(res.body);
-    expect(body.error).toMatch(/Missing authorization/);
+    expect(body.message).toMatch(/userAddress/);
   });
 
   it("returns 400 when authorization target doesn't match SOFSmartAccount", async () => {

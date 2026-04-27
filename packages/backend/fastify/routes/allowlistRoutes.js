@@ -21,6 +21,7 @@ import {
 import { db, hasSupabase } from "../../shared/supabaseClient.js";
 import { createRequireAdmin } from "../../shared/adminGuard.js";
 import { invalidateUserAccessCache } from "../../shared/accessCache.js";
+import { fidOrWalletSchema } from "../../shared/schemas/index.js";
 
 /**
  * Register allowlist routes
@@ -183,31 +184,19 @@ export default async function allowlistRoutes(fastify) {
    * Manually add a user to the allowlist (admin)
    * Body: { fid?: number, wallet?: string }
    */
-  fastify.post("/add", { preHandler: requireAdmin }, async (request, reply) => {
-    const { fid, wallet } = request.body || {};
-
-    if (!fid && !wallet) {
-      return reply.code(400).send({ error: "Either fid or wallet is required" });
-    }
+  fastify.post(
+    "/add",
+    {
+      preHandler: requireAdmin,
+      // Schema enforces fid (positive int) or wallet (0x + 40 hex), at
+      // least one required; rejects extras.
+      schema: { body: fidOrWalletSchema },
+    },
+    async (request, reply) => {
+    const { fid, wallet } = request.body;
 
     try {
-      let identifier;
-      if (fid) {
-        const fidNum = Number(fid);
-        if (!Number.isFinite(fidNum) || fidNum <= 0) {
-          return reply
-            .code(400)
-            .send({ error: "fid must be a positive number" });
-        }
-        identifier = fidNum;
-      } else {
-        if (!wallet.match(/^0x[a-fA-F0-9]{40}$/)) {
-          return reply
-            .code(400)
-            .send({ error: "Invalid wallet address format" });
-        }
-        identifier = { wallet };
-      }
+      const identifier = fid ? Number(fid) : { wallet };
 
       const result = await addToAllowlist(identifier, "manual", true); // bypass time gate
 
@@ -232,7 +221,8 @@ export default async function allowlistRoutes(fastify) {
       fastify.log.error({ error }, "Failed to add to allowlist");
       return reply.code(500).send({ error: "Failed to add to allowlist" });
     }
-  });
+    },
+  );
 
   /**
    * POST /api/allowlist/remove
@@ -241,25 +231,15 @@ export default async function allowlistRoutes(fastify) {
    */
   fastify.post(
     "/remove",
-    { preHandler: requireAdmin },
+    {
+      preHandler: requireAdmin,
+      schema: { body: fidOrWalletSchema },
+    },
     async (request, reply) => {
-      const { fid, wallet } = request.body || {};
-
-      if (!fid && !wallet) {
-        return reply.code(400).send({ error: "Either fid or wallet is required" });
-      }
+      const { fid, wallet } = request.body;
 
       try {
-        let identifier;
-        if (fid) {
-          const fidNum = Number(fid);
-          if (!Number.isFinite(fidNum) || fidNum <= 0) {
-            return reply.code(400).send({ error: "fid must be a positive number" });
-          }
-          identifier = fidNum;
-        } else {
-          identifier = { wallet };
-        }
+        const identifier = fid ? Number(fid) : { wallet };
 
         const result = await removeFromAllowlist(identifier);
 

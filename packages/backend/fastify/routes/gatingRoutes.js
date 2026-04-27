@@ -1,24 +1,29 @@
 import { db } from "../../shared/supabaseClient.js";
 import { createRequireAdmin } from "../../shared/adminGuard.js";
-
-const MAX_SIGNATURES = 200;
+import {
+  gatingSignaturesBodySchema,
+  seasonIdParamsSchema,
+} from "../../shared/schemas/index.js";
 
 export default async function gatingRoutes(fastify) {
   const requireAdmin = createRequireAdmin();
 
   // Bulk upload signed allowlist entries (admin only)
-  fastify.post("/signatures/:seasonId", { preHandler: [requireAdmin] }, async (request, reply) => {
+  fastify.post(
+    "/signatures/:seasonId",
+    {
+      preHandler: [requireAdmin],
+      // Schema covers seasonId coercion (string→int via Ajv coerceTypes,
+      // Fastify default for params), the {signatures} array shape (1..200
+      // items) and per-row {address, deadline, signature, gateIndex?}.
+      schema: {
+        params: seasonIdParamsSchema,
+        body: gatingSignaturesBodySchema,
+      },
+    },
+    async (request, reply) => {
     const { seasonId } = request.params;
     const { signatures } = request.body;
-
-    if (!Array.isArray(signatures) || signatures.length === 0) {
-      return reply.status(400).send({ error: "signatures array required" });
-    }
-    if (signatures.length > MAX_SIGNATURES) {
-      return reply.status(400).send({
-        error: `Maximum ${MAX_SIGNATURES} signatures per batch`,
-      });
-    }
 
     try {
       for (const sig of signatures) {
@@ -44,7 +49,8 @@ export default async function gatingRoutes(fastify) {
       fastify.log.error(error, "Failed to store gating signatures");
       return reply.status(500).send({ error: error.message });
     }
-  });
+    },
+  );
 
   // Fetch individual signature for a user
   fastify.get("/signature/:seasonId/:address", async (request, reply) => {

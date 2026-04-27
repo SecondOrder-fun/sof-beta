@@ -8,6 +8,10 @@ import { baseSepolia, base } from 'viem/chains';
 import { AuthService } from '../../shared/auth.js';
 import { getChainByKey } from '../../src/config/chain.js';
 import { redisClient } from '../../shared/redisClient.js';
+import {
+  delegateBodySchema,
+  delegateShortcutBodySchema,
+} from '../../shared/schemas/index.js';
 
 const anvilChain = defineChain({
   id: 31337,
@@ -70,6 +74,10 @@ export default async function delegationRoutes(fastify) {
         timeWindow: '1 minute',
       },
     },
+    // Schema validates {userAddress, authorization} shape; the handler still
+    // re-parses authorization and verifies the on-chain signature/chainId
+    // semantics below.
+    schema: { body: delegateBodySchema },
     handler: async (request, reply) => {
       // 1. Authenticate
       const user = await AuthService.authenticateRequest(request);
@@ -77,16 +85,7 @@ export default async function delegationRoutes(fastify) {
         return reply.code(401).send({ error: 'Unauthorized' });
       }
 
-      // 2. Parse and validate input
-      const { authorization, userAddress } = request.body || {};
-      if (!authorization || !userAddress) {
-        return reply.code(400).send({ error: 'Missing authorization or userAddress' });
-      }
-
-      // Validate userAddress format at system boundary
-      if (typeof userAddress !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(userAddress)) {
-        return reply.code(400).send({ error: 'Invalid userAddress format' });
-      }
+      const { authorization, userAddress } = request.body;
 
       const authTarget = (authorization.address || '').toLowerCase();
       if (authTarget !== sofSmartAccount.toLowerCase()) {
@@ -173,11 +172,9 @@ export default async function delegationRoutes(fastify) {
   // would be in production.
   if (networkUpper === 'LOCAL') {
     fastify.post('/delegate-shortcut', {
+      schema: { body: delegateShortcutBodySchema },
       handler: async (request, reply) => {
-        const { userAddress } = request.body || {};
-        if (typeof userAddress !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(userAddress)) {
-          return reply.code(400).send({ error: 'Invalid userAddress format' });
-        }
+        const { userAddress } = request.body;
 
         const designator = `0xef0100${sofSmartAccount.slice(2).toLowerCase()}`;
 
