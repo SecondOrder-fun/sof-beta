@@ -178,10 +178,29 @@ const SwapWidget = () => {
   const inputToken = tokens.find((t) => t.address === tokenIn);
   const outputToken = tokens.find((t) => t.address === tokenOut);
 
+  const formattedBalance = isConnected
+    ? Number(sofBalance ?? 0).toLocaleString(undefined, {
+        maximumFractionDigits: 4,
+      })
+    : '—';
+
   return (
     <Card className="w-full max-w-md mx-auto">
       <CardHeader>
         <CardTitle className="text-foreground">{t('title')}</CardTitle>
+        <div className="mt-2 flex items-baseline justify-between gap-3 rounded-md border px-3 py-2">
+          <span className="text-xs uppercase tracking-wide text-muted-foreground">
+            {t('balanceHeader', 'Your $SOF balance:')}
+          </span>
+          <span className="flex items-baseline gap-1.5">
+            <span className="text-base font-semibold tabular-nums text-foreground">
+              {formattedBalance}
+            </span>
+            <span className="text-sm font-medium text-muted-foreground">
+              $SOF
+            </span>
+          </span>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Pay row */}

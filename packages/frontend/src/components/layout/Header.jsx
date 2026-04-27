@@ -129,11 +129,8 @@ const Header = () => {
             <NavLink to="/portfolio" className={navLinkClass}>
               {t("portfolio")}
             </NavLink>
-            <NavLink to="/swap" className={navLinkClass}>
+            <NavLink to="/get-sof" className={navLinkClass}>
               {t("getSOF")}
-            </NavLink>
-            <NavLink to="/faucet" className={navLinkClass}>
-              {t("betaFaucets")}
             </NavLink>
           </nav>
         </div>

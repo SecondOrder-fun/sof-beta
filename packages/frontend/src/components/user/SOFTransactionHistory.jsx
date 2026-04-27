@@ -20,6 +20,7 @@ import {
   CoinsIcon,
   FilterIcon,
   ExternalLinkIcon,
+  GiftIcon,
 } from "lucide-react";
 import { useSOFTransactions } from "@/hooks/useSOFTransactions";
 import { getStoredNetworkKey } from "@/lib/wagmi";
@@ -293,6 +294,8 @@ function TransactionRow({ tx, network, compact = false }) {
       case "PRIZE_CLAIM_GRAND":
       case "PRIZE_CLAIM_CONSOLATION":
         return <TrophyIcon className="h-4 w-4 text-yellow-600" />;
+      case "AIRDROP":
+        return <GiftIcon className="h-4 w-4 text-primary" />;
       case "FEE_COLLECTED":
         return <CoinsIcon className="h-4 w-4 text-purple-600" />;
       default:
@@ -317,6 +320,7 @@ function TransactionRow({ tx, network, compact = false }) {
         label: t("consolation"),
         variant: "secondary",
       },
+      AIRDROP: { label: t("airdrop"), variant: "default" },
       FEE_COLLECTED: { label: t("fees"), variant: "outline" },
       ROLLOVER_BUY: { label: t("raffle:rolloverBuy", { defaultValue: "Rollover" }), variant: "default" },
     };

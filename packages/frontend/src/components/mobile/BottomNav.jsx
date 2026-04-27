@@ -43,10 +43,10 @@ export const BottomNav = ({ className = "" }) => {
       path: "/leaderboard",
     },
     {
-      id: "swap",
+      id: "get-sof",
       label: t("navigation:getSOF"),
       icon: ArrowLeftRight,
-      path: "/swap",
+      path: "/get-sof",
     },
   ];
 
@@ -59,7 +59,7 @@ export const BottomNav = ({ className = "" }) => {
     if (path.startsWith("/portfolio")) return "portfolio";
     if (path.startsWith("/leaderboard") || path.startsWith("/users"))
       return "ranking";
-    if (path.startsWith("/swap")) return "swap";
+    if (path.startsWith("/get-sof")) return "get-sof";
     return "raffles";
   };
 

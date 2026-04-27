@@ -74,13 +74,12 @@ import MarketsIndex, {
 } from "./routes/MarketsIndex";
 import UsersIndex from "./routes/UsersIndex";
 import UserProfile from "./routes/UserProfile";
-import FaucetPage from "./routes/FaucetPage";
+import GetSof from "./routes/GetSof";
 import CreateSeasonPage from "./routes/CreateSeasonPage";
 import LocalizationAdmin from "./routes/LocalizationAdmin";
 import InfoFiMarketDetail from "./pages/InfoFiMarketDetail";
 // Dev-only: UI Gym component showcase (tree-shaken in production)
 import UIGym from "./routes/UIGym";
-import Swap from "./routes/Swap";
 
 // Import access control components
 import { ProtectedRoute } from "./components/access";
@@ -168,12 +167,8 @@ const router = createBrowserRouter([
         element: <AccountPage />,
       },
       {
-        path: "faucet",
-        element: <FaucetPage />,
-      },
-      {
-        path: "swap",
-        element: <Swap />,
+        path: "get-sof",
+        element: <GetSof />,
       },
       // Dev-only: UI Gym component showcase
       ...(import.meta.env.DEV
