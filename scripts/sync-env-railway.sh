@@ -5,7 +5,10 @@
 #   scripts/sync-env-railway.sh --network testnet [--dry-run]
 #
 # Reads:
-#   - .env.platform (root) for RAILWAY_API_TOKEN, RAILWAY_PROJECT_ID, RAILWAY_SERVICE_ID
+#   - .env.platform (root) for RAILWAY_PROJECT_ID, RAILWAY_SERVICE_ID, and
+#     ONE of RAILWAY_API_TOKEN (account/workspace, Bearer) or RAILWAY_TOKEN
+#     (project, Project-Access-Token). Project tokens are required for
+#     mutations like environmentCreate.
 #   - .env.shared (root) for shared non-secret vars
 #   - packages/backend/env/.env.{network} for backend-specific vars
 #
@@ -56,9 +59,25 @@ set -a
 source "$PLATFORM_FILE"
 set +a
 
-if [ -z "${RAILWAY_API_TOKEN:-}" ] || [ -z "${RAILWAY_PROJECT_ID:-}" ] || [ -z "${RAILWAY_SERVICE_ID:-}" ]; then
-  echo "[railway] ERROR: Missing RAILWAY_API_TOKEN, RAILWAY_PROJECT_ID, or RAILWAY_SERVICE_ID in .env.platform"
+if [ -z "${RAILWAY_PROJECT_ID:-}" ] || [ -z "${RAILWAY_SERVICE_ID:-}" ]; then
+  echo "[railway] ERROR: Missing RAILWAY_PROJECT_ID or RAILWAY_SERVICE_ID in .env.platform"
   exit 1
+fi
+if [ -z "${RAILWAY_API_TOKEN:-}" ] && [ -z "${RAILWAY_TOKEN:-}" ]; then
+  echo "[railway] ERROR: Need RAILWAY_API_TOKEN (account/workspace) or RAILWAY_TOKEN (project) in .env.platform"
+  exit 1
+fi
+
+# Pick the right auth header based on which token type is set. Project
+# tokens require Project-Access-Token (NOT Authorization: Bearer); account
+# and workspace tokens use Bearer. Source:
+# https://docs.railway.com/integrations/api/graphql-overview
+if [ -n "${RAILWAY_TOKEN:-}" ]; then
+  RAILWAY_AUTH_HEADER="Project-Access-Token: $RAILWAY_TOKEN"
+  RAILWAY_TOKEN_TYPE="project"
+else
+  RAILWAY_AUTH_HEADER="Authorization: Bearer $RAILWAY_API_TOKEN"
+  RAILWAY_TOKEN_TYPE="account/workspace"
 fi
 
 # ── Validate token + locate production environment ─────────────────
@@ -77,7 +96,7 @@ PROJECT_PAYLOAD=$(jq -n \
   '{query:$q,variables:{id:$id}}')
 
 PROJECT_RESPONSE=$(curl -s -X POST https://backboard.railway.com/graphql/v2 \
-  -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
+  -H "$RAILWAY_AUTH_HEADER" \
   -H "Content-Type: application/json" \
   -d "$PROJECT_PAYLOAD")
 
@@ -130,7 +149,7 @@ done < "$PKG_ENV_FILE"
 # ── Fetch current Railway vars ──────────────────────────────────────
 echo "[railway] Fetching current env vars..."
 CURRENT_VARS=$(curl -sf -X POST https://backboard.railway.com/graphql/v2 \
-  -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
+  -H "$RAILWAY_AUTH_HEADER" \
   -H "Content-Type: application/json" \
   -d "{\"query\": \"query { variables(projectId: \\\"$RAILWAY_PROJECT_ID\\\", environmentId: \\\"$ENV_ID\\\", serviceId: \\\"$RAILWAY_SERVICE_ID\\\") }\"}")
 
@@ -208,7 +227,7 @@ if [ "$DRY_RUN" != true ] && [ "$((ADDED + CHANGED))" -gt 0 ]; then
     '{query: $query, variables: {input: {projectId: $pid, environmentId: $eid, serviceId: $sid, variables: $vars, skipDeploys: true}}}')
 
   RESULT=$(curl -s -X POST https://backboard.railway.com/graphql/v2 \
-    -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
+    -H "$RAILWAY_AUTH_HEADER" \
     -H "Content-Type: application/json" \
     -d "$PAYLOAD")
 
