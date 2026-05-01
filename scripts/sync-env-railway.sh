@@ -12,9 +12,12 @@
 # Behavior:
 #   - Validates Railway token by hitting the API (supports both Account
 #     and Workspace tokens — both use Authorization: Bearer)
-#   - Uses Railway GraphQL variableUpsert mutation (native upsert)
+#   - Pushes all changed vars in ONE variableCollectionUpsert call with
+#     skipDeploys=true (avoids the per-var-redeploy storm that triggers
+#     Railway's deploy rate limit; user triggers a single redeploy after)
 #   - Logs every action with diff output (values redacted)
 #   - --dry-run shows what would change without touching anything
+#   - Exits non-zero if the push failed
 
 set -euo pipefail
 
@@ -133,10 +136,24 @@ while IFS=$'\t' read -r key value; do
   CURRENT_VALUES["$key"]="$value"
 done < <(echo "$CURRENT_VARS" | jq -r '.data.variables | to_entries[] | [.key, .value] | @tsv' 2>/dev/null || true)
 
-# ── Diff and push ───────────────────────────────────────────────────
+# ── Diff (and build the batch payload of changed vars) ─────────────
+# IMPORTANT: We DO NOT use the per-variable `variableUpsert` mutation
+# in a loop. Each per-variable upsert triggers a service redeploy,
+# and Railway rate-limits redeploys. Pushing 20+ vars hit the limit
+# partway through — with most vars silently failing.
+#
+# Use `variableCollectionUpsert` instead: ONE round-trip pushes all
+# changed vars, and `skipDeploys: true` suppresses the redeploy
+# entirely so we can trigger exactly one manual redeploy at the end.
+#
+# Schema source: https://docs.railway.com/integrations/api/manage-variables
 ADDED=0
 CHANGED=0
 UNCHANGED=0
+# Build the variables map for variableCollectionUpsert as a JSON object
+# {"KEY":"value","KEY2":"value2"}. Skip unchanged keys to keep the
+# payload tight and the diff display honest.
+BATCH_VARS_JSON='{}'
 
 echo ""
 echo "[railway] ── Changes ──"
@@ -161,19 +178,31 @@ for key in $(echo "${!ENV_VARS[@]}" | tr ' ' '\n' | sort); do
     : $((ADDED++))
   fi
 
-  if [ "$DRY_RUN" = true ]; then
-    continue
-  fi
+  # Append to the batch JSON map. `jq` handles escaping correctly even
+  # for values containing quotes, newlines, etc.
+  BATCH_VARS_JSON=$(jq -n \
+    --argjson current "$BATCH_VARS_JSON" \
+    --arg name "$key" \
+    --arg val "$value" \
+    '$current + {($name): $val}')
+done
 
-  # Railway has native upsert via variableUpsert mutation
+echo ""
+echo "[railway] Summary: $ADDED added, $CHANGED changed, $UNCHANGED unchanged"
+
+# ── Push (one batched call) ─────────────────────────────────────────
+PUSH_FAILED=false
+if [ "$DRY_RUN" != true ] && [ "$((ADDED + CHANGED))" -gt 0 ]; then
+  echo ""
+  echo "[railway] Pushing $((ADDED + CHANGED)) var(s) via variableCollectionUpsert (skipDeploys=true)..."
+
   PAYLOAD=$(jq -n \
-    --arg query 'mutation($input:VariableUpsertInput!){variableUpsert(input:$input)}' \
+    --arg query 'mutation($input:VariableCollectionUpsertInput!){variableCollectionUpsert(input:$input)}' \
     --arg pid "$RAILWAY_PROJECT_ID" \
     --arg eid "$ENV_ID" \
     --arg sid "$RAILWAY_SERVICE_ID" \
-    --arg name "$key" \
-    --arg val "$value" \
-    '{query: $query, variables: {input: {projectId: $pid, environmentId: $eid, serviceId: $sid, name: $name, value: $val}}}')
+    --argjson vars "$BATCH_VARS_JSON" \
+    '{query: $query, variables: {input: {projectId: $pid, environmentId: $eid, serviceId: $sid, variables: $vars, skipDeploys: true}}}')
 
   RESULT=$(curl -s -X POST https://backboard.railway.com/graphql/v2 \
     -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
@@ -181,17 +210,24 @@ for key in $(echo "${!ENV_VARS[@]}" | tr ' ' '\n' | sort); do
     -d "$PAYLOAD")
 
   if echo "$RESULT" | jq -e '.errors' > /dev/null 2>&1; then
-    echo "    ^ ERROR: $(echo "$RESULT" | jq -r '.errors[0].message')"
+    echo "[railway] ERROR: variableCollectionUpsert failed:"
+    echo "$RESULT" | jq -r '.errors[].message' | sed 's/^/  /'
+    PUSH_FAILED=true
+  else
+    echo "[railway] OK — variables persisted. Trigger a redeploy in the Railway dashboard"
+    echo "[railway] (or push a commit) to pick up the new env."
   fi
-done
-
-echo ""
-echo "[railway] Summary: $ADDED added, $CHANGED changed, $UNCHANGED unchanged"
+fi
 
 if [ "$DRY_RUN" = true ]; then
   echo ""
   echo "[railway] DRY RUN — no changes applied"
   exit 0
+fi
+
+if [ "$PUSH_FAILED" = true ]; then
+  echo "[railway] Done — with errors. See above."
+  exit 1
 fi
 
 echo "[railway] Done."
