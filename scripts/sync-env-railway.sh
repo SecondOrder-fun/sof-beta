@@ -10,7 +10,8 @@
 #   - packages/backend/env/.env.{network} for backend-specific vars
 #
 # Behavior:
-#   - Validates Railway token by hitting the API
+#   - Validates Railway token by hitting the API (supports both Account
+#     and Workspace tokens — both use Authorization: Bearer)
 #   - Uses Railway GraphQL variableUpsert mutation (native upsert)
 #   - Logs every action with diff output (values redacted)
 #   - --dry-run shows what would change without touching anything
@@ -54,40 +55,43 @@ if [ -z "${RAILWAY_API_TOKEN:-}" ] || [ -z "${RAILWAY_PROJECT_ID:-}" ] || [ -z "
   exit 1
 fi
 
-# ── Validate token ──────────────────────────────────────────────────
-echo -n "[railway] Authenticating... "
-AUTH_RESPONSE=$(curl -sf -X POST https://backboard.railway.com/graphql/v2 \
+# ── Validate token + locate production environment ─────────────────
+# Use `project(id:)` rather than `me { name }`. The latter only works
+# with Account tokens; this query works with both Account and Workspace
+# tokens (Workspace is the more security-scoped option) and validates
+# RAILWAY_PROJECT_ID at the same time. Single round-trip also returns
+# the environments list so we don't need a follow-up query.
+#
+# Schema source: https://docs.railway.com/integrations/api/manage-projects
+# Token-type behaviour: https://docs.railway.com/reference/public-api
+echo -n "[railway] Authenticating + finding production environment... "
+PROJECT_PAYLOAD=$(jq -n \
+  --arg q 'query($id:String!){project(id:$id){id name environments{edges{node{id name}}}}}' \
+  --arg id "$RAILWAY_PROJECT_ID" \
+  '{query:$q,variables:{id:$id}}')
+
+PROJECT_RESPONSE=$(curl -s -X POST https://backboard.railway.com/graphql/v2 \
   -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"query": "query { me { name } }"}' 2>/dev/null || echo "FAIL")
+  -d "$PROJECT_PAYLOAD")
 
-if echo "$AUTH_RESPONSE" | jq -e '.data.me.name' > /dev/null 2>&1; then
-  USER_NAME=$(echo "$AUTH_RESPONSE" | jq -r '.data.me.name')
-  echo "OK (user: $USER_NAME)"
-else
+if ! echo "$PROJECT_RESPONSE" | jq -e '.data.project.name' > /dev/null 2>&1; then
   echo "FAILED"
-  echo "[railway] ERROR: Token validation failed. Check RAILWAY_API_TOKEN."
+  echo "[railway] ERROR: Could not access project $RAILWAY_PROJECT_ID"
+  echo "[railway] Check RAILWAY_API_TOKEN (Account or Workspace) and RAILWAY_PROJECT_ID."
+  echo "[railway] Response: $PROJECT_RESPONSE"
   exit 1
 fi
 
-# ── Determine Railway environment ID ────────────────────────────────
-# For testnet, use the default (production) environment.
-# For mainnet, we may need a separate environment in the future.
-echo -n "[railway] Finding environment... "
-ENVS=$(curl -sf -X POST https://backboard.railway.com/graphql/v2 \
-  -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "{\"query\": \"query { environments(projectId: \\\"$RAILWAY_PROJECT_ID\\\") { edges { node { id name } } } }\"}")
-
-# Use production environment
-ENV_ID=$(echo "$ENVS" | jq -r '.data.environments.edges[] | select(.node.name == "production") | .node.id')
+PROJECT_NAME=$(echo "$PROJECT_RESPONSE" | jq -r '.data.project.name')
+ENV_ID=$(echo "$PROJECT_RESPONSE" | jq -r '.data.project.environments.edges[] | select(.node.name == "production") | .node.id')
 
 if [ -z "$ENV_ID" ] || [ "$ENV_ID" = "null" ]; then
   echo "FAILED"
-  echo "[railway] ERROR: Could not find production environment"
+  echo "[railway] ERROR: Could not find 'production' environment in project '$PROJECT_NAME'"
   exit 1
 fi
-echo "OK (production: $ENV_ID)"
+echo "OK (project: $PROJECT_NAME, env: production)"
 
 # ── Collect env vars to push ────────────────────────────────────────
 declare -A ENV_VARS
