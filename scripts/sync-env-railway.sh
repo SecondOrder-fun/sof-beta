@@ -29,6 +29,9 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --network) NETWORK="$2"; shift 2 ;;
     --dry-run) DRY_RUN=true; shift ;;
+    # Vercel-only flag forwarded by deploy-env.sh — silently accept and
+    # ignore so the orchestrator can pass it to both children.
+    --vercel-target) shift 2 ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
   esac
 done

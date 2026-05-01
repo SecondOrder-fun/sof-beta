@@ -3,6 +3,7 @@
 #
 # Usage:
 #   scripts/sync-env-vercel.sh --network testnet [--dry-run]
+#   scripts/sync-env-vercel.sh --network testnet --vercel-target preview,production
 #
 # Reads:
 #   - .env.platform (root) for VERCEL_TOKEN, VERCEL_PROJECT_ID, VERCEL_TEAM_ID
@@ -11,9 +12,14 @@
 #
 # Behavior:
 #   - Validates Vercel token by hitting the API
-#   - Maps network to Vercel target: testnet→preview, mainnet→production
-#   - Uses Vercel API v10 upsert=true to avoid duplicates
-#   - Logs every action with diff output (values redacted)
+#   - Default target mapping: testnet→preview, mainnet→production
+#   - --vercel-target overrides; accepts comma-separated list (e.g.,
+#     preview,production) for the transitional state where on-chain is
+#     still testnet but the public URL ("production") needs them too.
+#   - Each var is pushed with target = [<all intended targets>] in one
+#     batch call via /v10/projects/.../env?upsert=true.
+#   - Diff treats a var as "unchanged" only when value matches AND every
+#     intended target is already covered by the existing Vercel row.
 #   - --dry-run shows what would change without touching anything
 
 set -euo pipefail
@@ -21,17 +27,19 @@ set -euo pipefail
 # ── Parse arguments ──────────────────────────────────────────────────
 NETWORK=""
 DRY_RUN=false
+VERCEL_TARGETS_RAW=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --network) NETWORK="$2"; shift 2 ;;
     --dry-run) DRY_RUN=true; shift ;;
+    --vercel-target) VERCEL_TARGETS_RAW="$2"; shift 2 ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
   esac
 done
 
 if [ -z "$NETWORK" ]; then
-  echo "Usage: scripts/sync-env-vercel.sh --network <testnet|mainnet> [--dry-run]"
+  echo "Usage: scripts/sync-env-vercel.sh --network <testnet|mainnet> [--vercel-target <preview|production|both>] [--dry-run]"
   exit 1
 fi
 
@@ -68,14 +76,33 @@ if [ "$AUTH_RESPONSE" != "200" ]; then
 fi
 echo "OK"
 
-# ── Map network to Vercel target ────────────────────────────────────
-case "$NETWORK" in
-  testnet) VERCEL_TARGET="preview" ;;
-  mainnet) VERCEL_TARGET="production" ;;
-  *) echo "[vercel] ERROR: Unknown network: $NETWORK (expected testnet|mainnet)"; exit 1 ;;
-esac
+# ── Resolve Vercel targets (single value or multi-target list) ──────
+# Default mapping mirrors the eventual split: testnet→preview-only,
+# mainnet→production-only. Override with --vercel-target preview,production
+# during the transition state where on-chain is still testnet but the
+# public URL ("production") needs the same vars.
+if [ -n "$VERCEL_TARGETS_RAW" ]; then
+  IFS=',' read -ra VERCEL_TARGETS_ARR <<< "$VERCEL_TARGETS_RAW"
+else
+  case "$NETWORK" in
+    testnet) VERCEL_TARGETS_ARR=("preview") ;;
+    mainnet) VERCEL_TARGETS_ARR=("production") ;;
+    *) echo "[vercel] ERROR: Unknown network: $NETWORK (expected testnet|mainnet)"; exit 1 ;;
+  esac
+fi
 
-echo "[vercel] Target: $VERCEL_TARGET (network=$NETWORK)"
+# Validate each target value
+for t in "${VERCEL_TARGETS_ARR[@]}"; do
+  case "$t" in
+    preview|production|development) ;;
+    *) echo "[vercel] ERROR: Invalid target '$t' (must be preview|production|development)"; exit 1 ;;
+  esac
+done
+
+# Pre-build the JSON array for the upsert payload, e.g. ["preview","production"]
+TARGETS_JSON=$(printf '%s\n' "${VERCEL_TARGETS_ARR[@]}" | jq -R . | jq -sc .)
+
+echo "[vercel] Targets: ${VERCEL_TARGETS_ARR[*]} (network=$NETWORK)"
 
 # ── Collect env vars to push ────────────────────────────────────────
 declare -A ENV_VARS
@@ -111,12 +138,25 @@ CURRENT_VARS=$(curl -s \
   "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}/env?teamId=${VERCEL_TEAM_ID}" \
   -H "Authorization: Bearer $VERCEL_TOKEN")
 
+# Build maps of (key → value) and (key → space-separated target list).
+# A var is "fully covered" only if its current target list contains
+# EVERY one of our intended targets. Anything short of that is an
+# expansion (push needed).
 declare -A CURRENT_VALUES
-while IFS=$'\t' read -r key value target; do
-  if echo "$target" | grep -q "$VERCEL_TARGET"; then
-    CURRENT_VALUES["$key"]="$value"
-  fi
-done < <(echo "$CURRENT_VARS" | jq -r '.envs[] | [.key, .value, (.target | join(","))] | @tsv' 2>/dev/null || true)
+declare -A CURRENT_TARGETS
+while IFS=$'\t' read -r key value targets; do
+  CURRENT_VALUES["$key"]="$value"
+  CURRENT_TARGETS["$key"]="$targets"
+done < <(echo "$CURRENT_VARS" | jq -r '.envs[] | [.key, .value, (.target | join(" "))] | @tsv' 2>/dev/null || true)
+
+target_in_list() {
+  local needle="$1"
+  shift
+  for hay in "$@"; do
+    [ "$hay" = "$needle" ] && return 0
+  done
+  return 1
+}
 
 # ── Diff and push ───────────────────────────────────────────────────
 ADDED=0
@@ -135,16 +175,32 @@ for key in $(echo "${!ENV_VARS[@]}" | tr ' ' '\n' | sort); do
   value="${ENV_VARS[$key]}"
 
   if [ -n "${CURRENT_VALUES[$key]+x}" ]; then
-    if [ "${CURRENT_VALUES[$key]}" = "$value" ]; then
+    current_value="${CURRENT_VALUES[$key]}"
+    # shellcheck disable=SC2206
+    current_targets_arr=(${CURRENT_TARGETS[$key]})
+
+    # Are all our intended targets already on this row?
+    all_covered=true
+    for want in "${VERCEL_TARGETS_ARR[@]}"; do
+      if ! target_in_list "$want" "${current_targets_arr[@]}"; then
+        all_covered=false
+        break
+      fi
+    done
+
+    if [ "$current_value" = "$value" ] && [ "$all_covered" = true ]; then
       echo "  $key: unchanged"
       # Use `: $((...))` not `((var++))`: under `set -e`, post-increment
       # returns the pre-value (0 on first call), and bash treats a 0
       # arithmetic result as failure, killing the script silently.
       : $((UNCHANGED++))
       continue
-    else
+    elif [ "$current_value" != "$value" ]; then
       echo "  $key: CHANGED (value redacted)"
       : $((CHANGED++))
+    else
+      echo "  $key: target expansion → ${VERCEL_TARGETS_ARR[*]}"
+      : $((ADDED++))
     fi
   else
     echo "  $key: ADDED (value redacted)"
@@ -152,7 +208,7 @@ for key in $(echo "${!ENV_VARS[@]}" | tr ' ' '\n' | sort); do
   fi
 
   if [ "$FIRST" = true ]; then FIRST=false; else JSON_ARRAY+=","; fi
-  JSON_ARRAY+="{\"key\":\"${key}\",\"value\":\"${value}\",\"type\":\"plain\",\"target\":[\"${VERCEL_TARGET}\"]}"
+  JSON_ARRAY+="{\"key\":\"${key}\",\"value\":\"${value}\",\"type\":\"plain\",\"target\":${TARGETS_JSON}}"
 done
 
 # Check for removals (vars in Vercel but not in our env file)
