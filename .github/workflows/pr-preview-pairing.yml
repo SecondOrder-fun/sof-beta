@@ -1,0 +1,316 @@
+# PR Preview Pairing
+#
+# Pairs Vercel's auto-generated Preview deployment with a Railway PR
+# environment so each PR gets a paired backend.
+#
+# Mix of CLI + REST API per the docs (where each is non-interactive):
+#
+#   Railway:
+#     - `railway environment new <name> --duplicate production` — CLI
+#       creates the env and copies services + variables from production.
+#       Source: https://docs.railway.com/cli/environment
+#     - List envs / get service domain — REST API; the CLI's list and
+#       domain commands require interactive selection or only create
+#       domains.
+#       Source: https://docs.railway.com/integrations/api/manage-environments
+#                https://docs.railway.com/integrations/api/manage-domains
+#     - `railway environment delete <name> --yes` — non-interactive CLI.
+#
+#   Vercel:
+#     - `vercel env add KEY preview <branch> --value <v>` — CLI, branch-
+#       scoped Preview var. Source: https://vercel.com/docs/cli/env
+#     - `vercel env rm KEY preview <branch> --yes` — CLI cleanup.
+#     - `vercel redeploy <url>` — CLI redeploy, picks up new env vars
+#       (env-var changes don't apply to in-flight builds —
+#        https://vercel.com/docs/environment-variables/managing-environment-variables).
+#     - List deployments — REST API; CLI list doesn't filter by branch
+#       cleanly without metadata that we don't have.
+#
+#   GitHub:
+#     - `gh pr comment` — CLI, posts the paired URLs on the PR.
+#
+# Required GitHub Actions secrets:
+#   At least ONE of:
+#     RAILWAY_TOKEN         project token from Project Settings → Tokens
+#     RAILWAY_API_TOKEN     account/workspace token from /account/tokens
+#   Plus all of:
+#     RAILWAY_PROJECT_ID
+#     RAILWAY_SERVICE_ID
+#     VERCEL_TOKEN
+#     VERCEL_PROJECT_ID
+#     VERCEL_TEAM_ID
+
+name: PR Preview Pairing
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: pr-preview-pairing-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pair-or-cleanup:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    env:
+      # Both Railway token env vars are forwarded; the CLI / API uses
+      # whichever is set. Project token uses Project-Access-Token header
+      # internally; account/workspace token uses Authorization Bearer.
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+      RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+      ENV_NAME: pr-${{ github.event.pull_request.number }}
+      RAILWAY_GRAPHQL: https://backboard.railway.com/graphql/v2
+    steps:
+      - name: Verify required secrets
+        run: |
+          missing=()
+          [ -z "$RAILWAY_PROJECT_ID" ] && missing+=(RAILWAY_PROJECT_ID)
+          [ -z "$RAILWAY_SERVICE_ID" ] && missing+=(RAILWAY_SERVICE_ID)
+          [ -z "$VERCEL_TOKEN" ]       && missing+=(VERCEL_TOKEN)
+          [ -z "$VERCEL_PROJECT_ID" ]  && missing+=(VERCEL_PROJECT_ID)
+          [ -z "$VERCEL_TEAM_ID" ]     && missing+=(VERCEL_TEAM_ID)
+          if [ -z "$RAILWAY_TOKEN" ] && [ -z "$RAILWAY_API_TOKEN" ]; then
+            missing+=("RAILWAY_TOKEN or RAILWAY_API_TOKEN")
+          fi
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::Missing required secrets: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Install Railway CLI
+        run: |
+          curl -fsSL https://railway.com/install.sh | sh
+          echo "$HOME/.railway/bin" >> "$GITHUB_PATH"
+
+      - name: Compute Railway auth header for API calls
+        id: railway-auth
+        run: |
+          # Project tokens require Project-Access-Token header.
+          # Account/Workspace tokens use Authorization: Bearer.
+          # Source: https://docs.railway.com/integrations/api/graphql-overview
+          if [ -n "$RAILWAY_TOKEN" ]; then
+            echo "header=Project-Access-Token: $RAILWAY_TOKEN" >> "$GITHUB_OUTPUT"
+          else
+            echo "header=Authorization: Bearer $RAILWAY_API_TOKEN" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ─────────────────────────────────────────────────────────────────
+      # PR opened / synchronize / reopened: provision PR env + pair URLs
+      # ─────────────────────────────────────────────────────────────────
+
+      - name: Look up Railway PR environment via API
+        if: github.event.action != 'closed'
+        id: railway-env-lookup
+        env:
+          AUTH_HEADER: ${{ steps.railway-auth.outputs.header }}
+        run: |
+          payload=$(jq -n \
+            --arg q 'query($pid:String!){environments(projectId:$pid){edges{node{id name}}}}' \
+            --arg pid "$RAILWAY_PROJECT_ID" \
+            '{query:$q,variables:{pid:$pid}}')
+          resp=$(curl -sf -X POST "$RAILWAY_GRAPHQL" \
+            -H "$AUTH_HEADER" -H "Content-Type: application/json" \
+            -d "$payload")
+          if echo "$resp" | jq -e '.errors' >/dev/null 2>&1; then
+            echo "::error::Railway environments query failed:"
+            echo "$resp" | jq -r '.errors[].message' | sed 's/^/  /'
+            exit 1
+          fi
+          existing=$(echo "$resp" | jq -r --arg n "$ENV_NAME" '
+            [.data.environments.edges[] | select(.node.name == $n)] | first | .node.id // empty')
+          echo "existing_env_id=$existing" >> "$GITHUB_OUTPUT"
+          if [ -n "$existing" ]; then
+            echo "Found existing env $ENV_NAME ($existing); will reuse"
+          else
+            echo "No existing env named $ENV_NAME; will create"
+          fi
+
+      - name: Create Railway PR environment (duplicating production) via API
+        if: github.event.action != 'closed' && steps.railway-env-lookup.outputs.existing_env_id == ''
+        env:
+          AUTH_HEADER: ${{ steps.railway-auth.outputs.header }}
+        run: |
+          # Use the GraphQL `environmentCreate` mutation directly. The
+          # CLI needs project context (linked file or project token)
+          # which CI doesn't have cleanly with an account token. The API
+          # takes projectId explicitly. `sourceEnvironmentId` makes the
+          # new env duplicate the source env (services + non-Sealed
+          # variables).
+          # Source: https://docs.railway.com/integrations/api/manage-environments
+
+          # First get production's id.
+          prod_payload=$(jq -n \
+            --arg q 'query($pid:String!){environments(projectId:$pid){edges{node{id name}}}}' \
+            --arg pid "$RAILWAY_PROJECT_ID" \
+            '{query:$q,variables:{pid:$pid}}')
+          prod_resp=$(curl -sf -X POST "$RAILWAY_GRAPHQL" \
+            -H "$AUTH_HEADER" -H "Content-Type: application/json" \
+            -d "$prod_payload")
+          prod_id=$(echo "$prod_resp" | jq -r '
+            [.data.environments.edges[] | select(.node.name == "production")] | first | .node.id // empty')
+          if [ -z "$prod_id" ]; then
+            echo "::error::Could not find production environment to duplicate"
+            echo "$prod_resp"
+            exit 1
+          fi
+          echo "production env id: $prod_id"
+
+          # Create the PR env, duplicating production.
+          create_payload=$(jq -n \
+            --arg q 'mutation($input:EnvironmentCreateInput!){environmentCreate(input:$input){id name}}' \
+            --arg pid "$RAILWAY_PROJECT_ID" \
+            --arg name "$ENV_NAME" \
+            --arg src "$prod_id" \
+            '{query:$q,variables:{input:{projectId:$pid,name:$name,sourceEnvironmentId:$src,ephemeral:true}}}')
+          create_resp=$(curl -s -X POST "$RAILWAY_GRAPHQL" \
+            -H "$AUTH_HEADER" -H "Content-Type: application/json" \
+            -d "$create_payload")
+          if echo "$create_resp" | jq -e '.errors' >/dev/null 2>&1; then
+            echo "::error::environmentCreate failed:"
+            echo "$create_resp" | jq -r '.errors[].message' | sed 's/^/  /'
+            exit 1
+          fi
+          new_id=$(echo "$create_resp" | jq -r '.data.environmentCreate.id')
+          echo "Created env $ENV_NAME ($new_id) duplicated from production"
+
+      - name: Resolve PR environment ID
+        if: github.event.action != 'closed'
+        id: railway-env
+        env:
+          AUTH_HEADER: ${{ steps.railway-auth.outputs.header }}
+        run: |
+          payload=$(jq -n \
+            --arg q 'query($pid:String!){environments(projectId:$pid){edges{node{id name}}}}' \
+            --arg pid "$RAILWAY_PROJECT_ID" \
+            '{query:$q,variables:{pid:$pid}}')
+          resp=$(curl -sf -X POST "$RAILWAY_GRAPHQL" \
+            -H "$AUTH_HEADER" -H "Content-Type: application/json" \
+            -d "$payload")
+          env_id=$(echo "$resp" | jq -r --arg n "$ENV_NAME" '
+            [.data.environments.edges[] | select(.node.name == $n)] | first | .node.id // empty')
+          if [ -z "$env_id" ]; then
+            echo "::error::Env $ENV_NAME still not present after creation"
+            exit 1
+          fi
+          echo "env_id=$env_id" >> "$GITHUB_OUTPUT"
+          echo "PR env id: $env_id"
+
+      - name: Wait for Railway service domain in PR env
+        if: github.event.action != 'closed'
+        id: railway-domain
+        env:
+          AUTH_HEADER: ${{ steps.railway-auth.outputs.header }}
+          ENV_ID: ${{ steps.railway-env.outputs.env_id }}
+        run: |
+          payload=$(jq -n \
+            --arg q 'query($pid:String!,$eid:String!,$sid:String!){domains(projectId:$pid,environmentId:$eid,serviceId:$sid){serviceDomains{domain}}}' \
+            --arg pid "$RAILWAY_PROJECT_ID" \
+            --arg eid "$ENV_ID" \
+            --arg sid "$RAILWAY_SERVICE_ID" \
+            '{query:$q,variables:{pid:$pid,eid:$eid,sid:$sid}}')
+          domain=""
+          for i in $(seq 1 60); do
+            resp=$(curl -sf -X POST "$RAILWAY_GRAPHQL" \
+              -H "$AUTH_HEADER" -H "Content-Type: application/json" \
+              -d "$payload" || echo '{}')
+            domain=$(echo "$resp" | jq -r '.data.domains.serviceDomains[0].domain // empty')
+            if [ -n "$domain" ]; then
+              break
+            fi
+            echo "Attempt $i/60 — waiting for Railway domain..."
+            sleep 10
+          done
+          if [ -z "${domain:-}" ]; then
+            echo "::error::Timed out (10 min) waiting for Railway service domain in $ENV_NAME"
+            exit 1
+          fi
+          echo "domain=$domain" >> "$GITHUB_OUTPUT"
+          echo "Railway domain: $domain"
+
+      - name: Push branch-scoped Vercel env vars (CLI)
+        if: github.event.action != 'closed'
+        env:
+          DOMAIN: ${{ steps.railway-domain.outputs.domain }}
+        run: |
+          # `vercel env add KEY preview <branch> --value <v>` — verified
+          # against https://vercel.com/docs/cli/env
+          # Use --force to overwrite if it already exists from a prior run.
+          push_var() {
+            local key="$1" value="$2"
+            # `vercel env rm` first to make `add` idempotent across re-runs;
+            # ignore failures (key may not exist yet).
+            npx -y vercel@latest env rm "$key" preview "$PR_BRANCH" \
+              --token "$VERCEL_TOKEN" --scope "$VERCEL_TEAM_ID" --yes 2>/dev/null || true
+            npx -y vercel@latest env add "$key" preview "$PR_BRANCH" \
+              --token "$VERCEL_TOKEN" --scope "$VERCEL_TEAM_ID" \
+              <<< "$value"
+          }
+          push_var VITE_API_BASE_URL  "https://${DOMAIN}/api"
+          push_var VITE_BACKEND_WS_URL "wss://${DOMAIN}"
+
+      - name: Redeploy Vercel preview to apply new env vars
+        if: github.event.action != 'closed'
+        run: |
+          # Find the latest Preview deployment for this branch via REST
+          # (CLI list lacks a direct branch filter).
+          deployments=$(curl -sf \
+            "https://api.vercel.com/v6/deployments?projectId=${VERCEL_PROJECT_ID}&target=preview&limit=20&teamId=${VERCEL_TEAM_ID}" \
+            -H "Authorization: Bearer $VERCEL_TOKEN")
+          deploy_url=$(echo "$deployments" | jq -r --arg b "$PR_BRANCH" '
+            [.deployments[] | select(.meta.githubCommitRef == $b)] | first | .url // empty')
+          if [ -z "$deploy_url" ]; then
+            echo "::warning::No existing preview deployment for $PR_BRANCH yet. Subsequent commits will build with the branch-scoped env vars."
+            exit 0
+          fi
+          echo "Redeploying https://${deploy_url}"
+          npx -y vercel@latest redeploy "https://${deploy_url}" \
+            --token "$VERCEL_TOKEN" --scope "$VERCEL_TEAM_ID"
+
+      - name: Comment paired URLs on the PR
+        if: github.event.action != 'closed'
+        env:
+          DOMAIN: ${{ steps.railway-domain.outputs.domain }}
+        run: |
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "**PR previews paired**
+
+          - 🚂 Backend: https://${DOMAIN}/api
+          - 🔼 Frontend: see the Vercel preview URL above
+
+          Backend env duplicated from production. Both will be torn down on PR close."
+
+      # ─────────────────────────────────────────────────────────────────
+      # PR closed: tear down PR env + branch-scoped Vercel vars
+      # ─────────────────────────────────────────────────────────────────
+
+      - name: Delete Railway PR environment (CLI)
+        if: github.event.action == 'closed'
+        run: |
+          # `railway environment delete <name> --yes` — verified at
+          # https://docs.railway.com/cli/environment
+          railway environment delete "$ENV_NAME" \
+            --project "$RAILWAY_PROJECT_ID" --yes 2>&1 || \
+          railway environment delete "$ENV_NAME" --yes 2>&1 || \
+            echo "::warning::Failed to delete Railway env $ENV_NAME (may not exist)"
+
+      - name: Delete branch-scoped Vercel env vars (CLI)
+        if: github.event.action == 'closed'
+        run: |
+          for key in VITE_API_BASE_URL VITE_BACKEND_WS_URL; do
+            npx -y vercel@latest env rm "$key" preview "$PR_BRANCH" \
+              --token "$VERCEL_TOKEN" --scope "$VERCEL_TEAM_ID" --yes 2>&1 || \
+              echo "::warning::Failed to remove $key on $PR_BRANCH (may not exist)"
+          done
