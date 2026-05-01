@@ -137,15 +137,18 @@ for key in $(echo "${!ENV_VARS[@]}" | tr ' ' '\n' | sort); do
   if [ -n "${CURRENT_VALUES[$key]+x}" ]; then
     if [ "${CURRENT_VALUES[$key]}" = "$value" ]; then
       echo "  $key: unchanged"
-      ((UNCHANGED++))
+      # Use `: $((...))` not `((var++))`: under `set -e`, post-increment
+      # returns the pre-value (0 on first call), and bash treats a 0
+      # arithmetic result as failure, killing the script silently.
+      : $((UNCHANGED++))
       continue
     else
       echo "  $key: CHANGED (value redacted)"
-      ((CHANGED++))
+      : $((CHANGED++))
     fi
   else
     echo "  $key: ADDED (value redacted)"
-    ((ADDED++))
+    : $((ADDED++))
   fi
 
   if [ "$FIRST" = true ]; then FIRST=false; else JSON_ARRAY+=","; fi
@@ -156,7 +159,7 @@ done
 for key in $(echo "${!CURRENT_VALUES[@]}" | tr ' ' '\n' | sort); do
   if [ -z "${ENV_VARS[$key]+x}" ]; then
     echo "  $key: in Vercel but NOT in env file (not removed — manual cleanup needed)"
-    ((REMOVED++))
+    : $((REMOVED++))
   fi
 done
 
