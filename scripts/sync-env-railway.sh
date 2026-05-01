@@ -147,15 +147,18 @@ for key in $(echo "${!ENV_VARS[@]}" | tr ' ' '\n' | sort); do
   if [ -n "${CURRENT_VALUES[$key]+x}" ]; then
     if [ "${CURRENT_VALUES[$key]}" = "$value" ]; then
       echo "  $key: unchanged"
-      ((UNCHANGED++))
+      # Use `: $((...))` not `((var++))`: under `set -e`, post-increment
+      # returns the pre-value (0 on first call), and bash treats a 0
+      # arithmetic result as failure, killing the script silently.
+      : $((UNCHANGED++))
       continue
     else
       echo "  $key: CHANGED (value redacted)"
-      ((CHANGED++))
+      : $((CHANGED++))
     fi
   else
     echo "  $key: ADDED (value redacted)"
-    ((ADDED++))
+    : $((ADDED++))
   fi
 
   if [ "$DRY_RUN" = true ]; then
