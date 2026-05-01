@@ -24,11 +24,17 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "$NETWORK" ]; then
-  echo "Usage: scripts/deploy-env.sh --network <testnet|mainnet> [--dry-run]"
+  echo "Usage: scripts/deploy-env.sh --network <testnet|mainnet> [--vercel-target preview,production] [--dry-run]"
   echo ""
   echo "Options:"
-  echo "  --network    Target network (testnet|mainnet)"
-  echo "  --dry-run    Show what would change without applying"
+  echo "  --network         Target network (testnet|mainnet)"
+  echo "  --vercel-target   Override default Vercel scope mapping. Comma-separated"
+  echo "                    list of preview|production|development. Default:"
+  echo "                    testnet→preview, mainnet→production. Use"
+  echo "                    'preview,production' during the transitional state"
+  echo "                    where on-chain is still testnet but the public URL"
+  echo "                    needs the same vars. Vercel-only; Railway ignores."
+  echo "  --dry-run         Show what would change without applying"
   exit 1
 fi
 
