@@ -68,6 +68,11 @@ jobs:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+      # Vercel CLI requires VERCEL_ORG_ID paired with VERCEL_PROJECT_ID
+      # when both are set as env vars. `--scope <team-id>` on the CLI
+      # does NOT satisfy the pairing requirement. Same value as TEAM_ID;
+      # Vercel renamed orgs → teams but the env var kept the old name.
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_TEAM_ID }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
       PR_BRANCH: ${{ github.event.pull_request.head.ref }}
