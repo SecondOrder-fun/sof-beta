@@ -183,20 +183,41 @@ jobs:
         env:
           DOMAIN: ${{ steps.railway-domain.outputs.domain }}
         run: |
-          # `vercel env add KEY preview <branch>` creates a branch-scoped row
-          # that overrides the generic preview value on that branch only.
-          # Source: https://vercel.com/docs/cli/env
-          # rm-then-add makes re-runs idempotent (vercel env add fails on
-          # existing keys).
-          push_var() {
-            local key="$1" value="$2"
-            npx -y vercel@latest env rm "$key" preview "$PR_BRANCH" \
-              --token "$VERCEL_TOKEN" --scope "$VERCEL_TEAM_ID" --yes 2>/dev/null || true
-            npx -y vercel@latest env add "$key" preview "$PR_BRANCH" \
-              --token "$VERCEL_TOKEN" --scope "$VERCEL_TEAM_ID" <<< "$value"
-          }
-          push_var VITE_API_BASE_URL  "https://${DOMAIN}/api"
-          push_var VITE_BACKEND_WS_URL "wss://${DOMAIN}"
+          # Use Vercel REST API with upsert=true rather than the CLI.
+          # `vercel env add KEY preview <branch>` reads value from stdin
+          # but ALSO emits an interactive "VITE_ vars are public to anyone
+          # visiting your site" warning that consumes the stdin'd value
+          # as the confirmation answer — leaving the env var stored with
+          # an empty value while the CLI itself exits 0. The REST API
+          # has no prompt and is atomic.
+          # Source: https://vercel.com/docs/rest-api/reference/endpoints/projects/create-one-or-more-environment-variables
+          # Branch-scoping: target=["preview"] + gitBranch="<branch>" creates
+          # a row that overrides the generic preview value on that branch.
+          payload=$(jq -n \
+            --arg api_url "https://${DOMAIN}/api" \
+            --arg ws_url  "wss://${DOMAIN}" \
+            --arg branch  "$PR_BRANCH" \
+            '[
+              {key:"VITE_API_BASE_URL",   value:$api_url, type:"plain", target:["preview"], gitBranch:$branch},
+              {key:"VITE_BACKEND_WS_URL", value:$ws_url,  type:"plain", target:["preview"], gitBranch:$branch}
+            ]')
+
+          resp=$(curl -s -w '\n%{http_code}' -X POST \
+            "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env?upsert=true&teamId=${VERCEL_TEAM_ID}" \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$payload")
+
+          code=$(echo "$resp" | tail -1)
+          body=$(echo "$resp" | sed '$d')
+
+          if [ "$code" -ge 200 ] && [ "$code" -lt 300 ]; then
+            echo "OK — branch-scoped Vercel vars upserted for $PR_BRANCH"
+          else
+            echo "::error::Vercel env upsert failed (HTTP $code)"
+            echo "$body" | jq . 2>/dev/null || echo "$body"
+            exit 1
+          fi
 
       - name: Redeploy Vercel preview to apply new env vars
         if: github.event.action != 'closed' && steps.railway-domain.outputs.skip != 'true'
