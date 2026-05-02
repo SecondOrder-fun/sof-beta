@@ -458,13 +458,15 @@ COMMENT ON COLUMN allowlist_entries.wallet_address IS 'Primary Ethereum wallet a
 COMMENT ON COLUMN allowlist_entries.source       IS 'How user was added: webhook (app add), manual (admin), import (bulk)';
 COMMENT ON COLUMN allowlist_entries.access_level IS 'Access tier: 0=public, 1=connected, 2=allowlist, 3=beta, 4=admin';
 
--- Seed local admins. allowlistService looks up wallets via .eq(wallet_address,
--- lower(input)), so rows MUST be stored lowercase. UPSERT (not DO NOTHING) so a
--- stale row with wrong access_level gets corrected on every db reset.
-INSERT INTO allowlist_entries (wallet_address, source, access_level, is_active)
-VALUES ('0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266', 'manual', 4, true)
-ON CONFLICT ((lower(wallet_address::text))) WHERE wallet_address IS NOT NULL
-DO UPDATE SET access_level = EXCLUDED.access_level, is_active = true, source = 'manual';
+-- Seed deployer-wallet admin (always, every environment).
+-- allowlistService looks up wallets via .eq(wallet_address, lower(input)),
+-- so rows MUST be stored lowercase. UPSERT (not DO NOTHING) so a stale row
+-- with wrong access_level gets corrected on every db reset.
+--
+-- Local-only admin (Anvil Account[0]) is seeded by supabase/seed.sql, which:
+--   - supabase CLI auto-runs on `supabase db reset` (local dev)
+--   - docker-compose mounts as 02-seed.sql for the local postgres container
+--   - is NOT applied to remote testnet/mainnet (deploy script uses init.sql only)
 INSERT INTO allowlist_entries (wallet_address, source, access_level, is_active)
 VALUES ('0x1ed4ac856d7a072c3a336c0971a47db86a808ff4', 'manual', 4, true)
 ON CONFLICT ((lower(wallet_address::text))) WHERE wallet_address IS NOT NULL
@@ -788,7 +790,11 @@ $$ LANGUAGE plpgsql;
 -- 23. VIEW: user_market_positions
 -- ==========================================================================
 -- Aggregated InfoFi positions per user + market + outcome for efficient reads.
-CREATE OR REPLACE VIEW user_market_positions AS
+-- security_invoker=true makes the view respect the RLS of infofi_positions
+-- when read by anon/authenticated, silencing Supabase's "unrestricted" warning.
+-- Service role still bypasses RLS.
+CREATE OR REPLACE VIEW user_market_positions
+WITH (security_invoker = true) AS
 SELECT
     user_address,
     market_id,
@@ -810,3 +816,10 @@ GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO service_role;
 -- Read-only for authenticated and anon (RLS enforces row-level access)
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO authenticated;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon;
+
+-- Lock down materialized views: matviews don't support security_invoker
+-- (they're stored snapshots, always run with owner perms), so RLS on the
+-- underlying tables is bypassed. Backend reads via service_role and is
+-- unaffected; revoke from anon/authenticated to silence Supabase's
+-- "unrestricted" warning.
+REVOKE SELECT ON user_raffle_positions FROM anon, authenticated;
