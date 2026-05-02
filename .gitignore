@@ -10,6 +10,7 @@ out/
 .env
 .env.local
 .env.platform
+.env.shared
 packages/*/env/.env.local
 packages/*/env/.env.testnet
 packages/*/env/.env.mainnet
