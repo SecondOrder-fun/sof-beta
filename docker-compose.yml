@@ -54,6 +54,10 @@ services:
       POSTGRES_DB: sof_local
     volumes:
       - ./docker/supabase/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      # 02-seed.sql adds local-only admins (Anvil Account[0]). Mounted from
+      # supabase/seed.sql so the supabase CLI and docker-compose share the
+      # same source. Postgres runs entrypoint .sql files in alphabetical order.
+      - ./supabase/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 2s
