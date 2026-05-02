@@ -53,6 +53,3 @@ npm run lint           # ESLint (zero warnings enforced)
 npm run reset:local-db    # Reset local Supabase
 npm run scan:historical   # Backfill missed events
 ```
-
-<!-- pr-preview pairing test marker (PR #69 / v2 workflow). Safe to revert. -->
-
