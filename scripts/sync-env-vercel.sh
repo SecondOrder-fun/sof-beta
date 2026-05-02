@@ -142,12 +142,22 @@ CURRENT_VARS=$(curl -s \
 # A var is "fully covered" only if its current target list contains
 # EVERY one of our intended targets. Anything short of that is an
 # expansion (push needed).
+#
+# Uses ASCII SOH (\x01) as the field delimiter rather than \t. Bash
+# `read` with IFS-of-whitespace (tab is whitespace) collapses runs of
+# consecutive separators, so an empty .value field gets eaten and the
+# `targets` field's content lands in $value — which makes the diff
+# report a false CHANGED for any Vercel var stored with an empty value
+# (the common case for VITE_WS_URL when no WS endpoint is configured).
+# A non-whitespace delimiter sidesteps that quirk.
 declare -A CURRENT_VALUES
 declare -A CURRENT_TARGETS
-while IFS=$'\t' read -r key value targets; do
+DELIM=$'\x01'
+while IFS="$DELIM" read -r key value targets; do
   CURRENT_VALUES["$key"]="$value"
   CURRENT_TARGETS["$key"]="$targets"
-done < <(echo "$CURRENT_VARS" | jq -r '.envs[] | [.key, .value, (.target | join(" "))] | @tsv' 2>/dev/null || true)
+done < <(echo "$CURRENT_VARS" | jq -r --arg d "$DELIM" \
+  '.envs[] | "\(.key)\($d)\(.value)\($d)\(.target | join(" "))"' 2>/dev/null || true)
 
 target_in_list() {
   local needle="$1"
