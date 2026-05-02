@@ -10,11 +10,13 @@
 # Provider responsibilities:
 #
 #   Railway: with prDeploys=true on the project (Project Settings → "PR
-#     Environments"), Railway auto-creates a `pr-N` environment when a PR
-#     opens, deploys the PR branch into it, and deletes it on PR close.
-#     With focusedPrEnvironments=true, only services whose watchPatterns
-#     match the PR's changed files actually get deployed — so a frontend-
-#     only PR will NOT spin up a backend preview, which is correct.
+#     Environments"), Railway auto-creates an env named `<repo>-pr-<N>` when
+#     a PR opens, deploys the PR branch into it, and deletes it on PR close.
+#     With focusedPrEnvironments=true, Railway only deploys services whose
+#     watchPatterns match the PR's changed files — so a frontend-only PR
+#     gets the env created with provisioned domains, but no actual deploy
+#     (latestDeployment is null on the service instance). That is correct;
+#     this workflow detects it and skips pairing for that PR.
 #     Source: https://docs.railway.com/reference/environments#pr-environments
 #
 #   Vercel: the Git integration auto-creates a Preview deployment for each
@@ -22,15 +24,19 @@
 #     that branch only.
 #     Source: https://vercel.com/docs/projects/environment-variables#preview-environment-variables
 #
-#   This workflow: poll for Railway's auto-created `pr-N` env + its service
-#     domain, then push branch-scoped Vercel env vars pointing at it, then
-#     redeploy the existing Vercel preview so it picks up those vars (env-
-#     var changes do not retroactively apply to in-flight builds).
+#   This workflow: wait for Railway's auto-created `<repo>-pr-<N>` env to
+#     exist, its backend service to have a SUCCESS deployment, and a service
+#     domain to be provisioned. Then push branch-scoped Vercel env vars
+#     pointing at that domain, redeploy the existing Vercel preview so it
+#     picks up those vars (env-var changes do not retroactively apply to
+#     in-flight builds), and comment paired URLs on the PR.
 #
 # Required GitHub Actions secrets:
-#   RAILWAY_TOKEN         project token from Project Settings → Tokens
-#                         (sufficient for read queries; no environmentCreate
-#                          or environmentDelete needed)
+#   RAILWAY_API_TOKEN     account or workspace token from /account/tokens
+#                         (project tokens cannot read PR/ephemeral envs —
+#                          Not Authorized on environment / serviceInstance /
+#                          domains queries even though the env shows up in
+#                          the project-level listing)
 #   RAILWAY_PROJECT_ID
 #   RAILWAY_SERVICE_ID    backend service id
 #   VERCEL_TOKEN
@@ -56,7 +62,7 @@ jobs:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     env:
-      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
       RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
       RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -65,13 +71,13 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
       PR_BRANCH: ${{ github.event.pull_request.head.ref }}
-      ENV_NAME: pr-${{ github.event.pull_request.number }}
+      ENV_SUFFIX: pr-${{ github.event.pull_request.number }}
       RAILWAY_GRAPHQL: https://backboard.railway.com/graphql/v2
     steps:
       - name: Verify required secrets
         run: |
           missing=()
-          [ -z "$RAILWAY_TOKEN" ]      && missing+=(RAILWAY_TOKEN)
+          [ -z "$RAILWAY_API_TOKEN" ]  && missing+=(RAILWAY_API_TOKEN)
           [ -z "$RAILWAY_PROJECT_ID" ] && missing+=(RAILWAY_PROJECT_ID)
           [ -z "$RAILWAY_SERVICE_ID" ] && missing+=(RAILWAY_SERVICE_ID)
           [ -z "$VERCEL_TOKEN" ]       && missing+=(VERCEL_TOKEN)
@@ -86,50 +92,80 @@ jobs:
       # PR opened / synchronize / reopened: pair Vercel preview to Railway PR env
       # ─────────────────────────────────────────────────────────────────
 
-      - name: Wait for Railway PR env + service domain
+      - name: Wait for Railway PR env + deployed backend service
         if: github.event.action != 'closed'
         id: railway-domain
         run: |
-          # Railway auto-creates the env (prDeploys=true). With
-          # focusedPrEnvironments=true it only deploys services whose
-          # watchPatterns match changed files — so a PR that touches only
-          # the frontend won't get a backend env, and we exit gracefully
-          # in that case (Vercel preview falls back to its generic preview
-          # env vars, which already point at production).
+          # We need three things in place before pairing:
+          #   (1) The PR env exists (Railway auto-creates it on PR open)
+          #   (2) The backend service in that env has a SUCCESS deployment
+          #       (focusedPrEnvironments may skip it for frontend-only PRs)
+          #   (3) A service domain is provisioned (Railway pre-provisions
+          #       domains when env is created, even before any deploy)
+          # If (2) doesn't happen within the timeout, we skip pairing — the
+          # Vercel preview falls back to its generic preview env vars,
+          # which already point at production. That's the correct outcome
+          # for a frontend-only PR.
           domain=""
+          deploy_status=""
           env_id=""
           for i in $(seq 1 30); do
+            # Find env by name suffix (Railway names them <repo>-pr-<N>)
             envs=$(curl -sf -X POST "$RAILWAY_GRAPHQL" \
-              -H "Project-Access-Token: $RAILWAY_TOKEN" \
+              -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
               -H "Content-Type: application/json" \
               -d "$(jq -n \
                 --arg q 'query($pid:String!){project(id:$pid){environments{edges{node{id name}}}}}' \
                 --arg pid "$RAILWAY_PROJECT_ID" \
                 '{query:$q,variables:{pid:$pid}}')" || echo '{}')
-            env_id=$(echo "$envs" | jq -r --arg n "$ENV_NAME" \
-              '[.data.project.environments.edges[] | select(.node.name == $n)] | first | .node.id // empty')
+            env_id=$(echo "$envs" | jq -r --arg s "$ENV_SUFFIX" \
+              '[.data.project.environments.edges[] | select(.node.name | endswith($s))] | first | .node.id // empty')
+
             if [ -n "$env_id" ]; then
-              dresp=$(curl -sf -X POST "$RAILWAY_GRAPHQL" \
-                -H "Project-Access-Token: $RAILWAY_TOKEN" \
+              # Check the backend service's latest deployment status
+              inst=$(curl -sf -X POST "$RAILWAY_GRAPHQL" \
+                -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
                 -H "Content-Type: application/json" \
                 -d "$(jq -n \
-                  --arg q 'query($pid:String!,$eid:String!,$sid:String!){domains(projectId:$pid,environmentId:$eid,serviceId:$sid){serviceDomains{domain}}}' \
-                  --arg pid "$RAILWAY_PROJECT_ID" \
+                  --arg q 'query($eid:String!,$sid:String!){serviceInstance(environmentId:$eid,serviceId:$sid){latestDeployment{status}}}' \
                   --arg eid "$env_id" \
                   --arg sid "$RAILWAY_SERVICE_ID" \
-                  '{query:$q,variables:{pid:$pid,eid:$eid,sid:$sid}}')" || echo '{}')
-              domain=$(echo "$dresp" | jq -r '.data.domains.serviceDomains[0].domain // empty')
-              if [ -n "$domain" ]; then
-                break
+                  '{query:$q,variables:{eid:$eid,sid:$sid}}')" || echo '{}')
+              deploy_status=$(echo "$inst" | jq -r '.data.serviceInstance.latestDeployment.status // "NONE"')
+
+              if [ "$deploy_status" = "SUCCESS" ]; then
+                # Get the service domain
+                dresp=$(curl -sf -X POST "$RAILWAY_GRAPHQL" \
+                  -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
+                  -H "Content-Type: application/json" \
+                  -d "$(jq -n \
+                    --arg q 'query($pid:String!,$eid:String!,$sid:String!){domains(projectId:$pid,environmentId:$eid,serviceId:$sid){serviceDomains{domain}}}' \
+                    --arg pid "$RAILWAY_PROJECT_ID" \
+                    --arg eid "$env_id" \
+                    --arg sid "$RAILWAY_SERVICE_ID" \
+                    '{query:$q,variables:{pid:$pid,eid:$eid,sid:$sid}}')" || echo '{}')
+                domain=$(echo "$dresp" | jq -r '.data.domains.serviceDomains[0].domain // empty')
+                if [ -n "$domain" ]; then
+                  break
+                fi
+              fi
+
+              if [ "$deploy_status" = "FAILED" ] || [ "$deploy_status" = "CRASHED" ]; then
+                echo "::error::Railway backend deploy in $ENV_SUFFIX env reached terminal-failure status: $deploy_status"
+                echo "::error::Skipping Vercel pairing — frontend preview would point at a broken backend."
+                echo "skip=true" >> "$GITHUB_OUTPUT"
+                exit 0
               fi
             fi
-            echo "Attempt $i/30 — waiting for $ENV_NAME (env_id=${env_id:-none}, domain=${domain:-none})..."
+
+            echo "Attempt $i/30 — env_id=${env_id:-none}, deploy_status=${deploy_status:-none}, domain=${domain:-none}"
             sleep 10
           done
+
           if [ -z "$domain" ]; then
-            echo "::warning::Railway $ENV_NAME env or its service domain not found after 5 min."
-            echo "::warning::Likely a frontend-only PR (focusedPrEnvironments skipped backend)."
-            echo "::warning::Vercel preview will use generic preview env vars; no pairing needed."
+            echo "::warning::Backend service in $ENV_SUFFIX env did not reach SUCCESS+domain within 5 min."
+            echo "::warning::Likely a frontend-only PR (focusedPrEnvironments skipped backend deploy)."
+            echo "::warning::Vercel preview will use generic preview env vars; no pairing performed."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
