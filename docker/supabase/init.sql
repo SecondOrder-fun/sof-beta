@@ -790,7 +790,11 @@ $$ LANGUAGE plpgsql;
 -- 23. VIEW: user_market_positions
 -- ==========================================================================
 -- Aggregated InfoFi positions per user + market + outcome for efficient reads.
-CREATE OR REPLACE VIEW user_market_positions AS
+-- security_invoker=true makes the view respect the RLS of infofi_positions
+-- when read by anon/authenticated, silencing Supabase's "unrestricted" warning.
+-- Service role still bypasses RLS.
+CREATE OR REPLACE VIEW user_market_positions
+WITH (security_invoker = true) AS
 SELECT
     user_address,
     market_id,
@@ -812,3 +816,10 @@ GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO service_role;
 -- Read-only for authenticated and anon (RLS enforces row-level access)
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO authenticated;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon;
+
+-- Lock down materialized views: matviews don't support security_invoker
+-- (they're stored snapshots, always run with owner perms), so RLS on the
+-- underlying tables is bypassed. Backend reads via service_role and is
+-- unaffected; revoke from anon/authenticated to silence Supabase's
+-- "unrestricted" warning.
+REVOKE SELECT ON user_raffle_positions FROM anon, authenticated;
