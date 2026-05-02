@@ -31,21 +31,19 @@ class RedisClient {
    * Resolve Redis URL based on environment
    */
   getRedisUrl() {
+    // Prefer REDIS_URL when set — single-Redis-per-deploy is the common
+    // case (one Railway env = one Redis instance). REDIS_ENV-prefixed
+    // variants are only consulted as a fallback for setups that pack
+    // multiple Redis URLs into one env file.
+    if (process.env.REDIS_URL) {
+      return process.env.REDIS_URL;
+    }
+
     const env = process.env.REDIS_ENV || process.env.NODE_ENV || "local";
-
-    if (env === "prod") {
-      return process.env.REDIS_URL_PROD;
-    }
-
-    if (env === "staging") {
-      return process.env.REDIS_URL_STAGING;
-    }
-
-    if (env === "dev") {
-      return process.env.REDIS_URL_DEV;
-    }
-
-    return process.env.REDIS_URL;
+    if (env === "prod")    return process.env.REDIS_URL_PROD;
+    if (env === "staging") return process.env.REDIS_URL_STAGING;
+    if (env === "dev")     return process.env.REDIS_URL_DEV;
+    return undefined;
   }
 
   /**
