@@ -13,6 +13,44 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 
+/**
+ * Walk a viem error's cause chain to find the most-actionable revert reason.
+ * viem wraps ContractFunctionRevertedError inside ContractFunctionExecutionError
+ * inside the wagmi mutation error, so the headline `shortMessage` is usually a
+ * generic "The contract function 'X' reverted" with the real reason ~2 layers
+ * down. Returns { headline, reason, contractContext, fullMessage }.
+ */
+function extractErrorDetails(err) {
+  if (!err) return null;
+  const headline = err.shortMessage || err.message || "Transaction failed";
+  let reason = null;
+  let contractContext = null;
+  // Walk up to 6 levels of .cause looking for the revert details
+  let cur = err;
+  for (let i = 0; i < 6 && cur; i++) {
+    // viem ContractFunctionRevertedError exposes the decoded custom error
+    // via cur.data: { errorName, args }
+    if (cur.data?.errorName && !reason) {
+      const args = Array.isArray(cur.data.args) && cur.data.args.length
+        ? `(${cur.data.args.map(String).join(", ")})`
+        : "()";
+      reason = `${cur.data.errorName}${args}`;
+    }
+    // metaMessages on a ContractFunctionExecutionError carry the
+    // "Contract Call: address / function / args" context block
+    if (Array.isArray(cur.metaMessages) && cur.metaMessages.length && !contractContext) {
+      contractContext = cur.metaMessages.join("\n");
+    }
+    // If we still don't have a reason, the deepest shortMessage is
+    // usually more descriptive than the outer wrapper
+    if (!reason && cur !== err && cur.shortMessage && cur.shortMessage !== headline) {
+      reason = cur.shortMessage;
+    }
+    cur = cur.cause;
+  }
+  return { headline, reason, contractContext, fullMessage: err.message || "" };
+}
+
 const TransactionModal = ({ mutation, title = "Transaction Status" }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [dismissed, setDismissed] = useState(false);
@@ -119,10 +157,12 @@ const TransactionModal = ({ mutation, title = "Transaction Status" }) => {
       };
     }
     if (mutation?.isError) {
+      const details = extractErrorDetails(mutation?.error);
       return {
         icon: <XCircle className="h-8 w-8 text-destructive" />,
-        text: mutation?.error?.shortMessage || mutation?.error?.message || "Transaction failed",
+        text: details?.headline || "Transaction failed",
         color: "text-destructive",
+        details,
       };
     }
     return null;
@@ -161,6 +201,34 @@ const TransactionModal = ({ mutation, title = "Transaction Status" }) => {
               <p className={`text-center font-medium ${status.color}`}>
                 {status.text}
               </p>
+              {status.details?.reason && (
+                <div className="w-full rounded border border-destructive/40 bg-destructive/5 p-3">
+                  <p className="text-xs text-muted-foreground mb-1">Revert reason:</p>
+                  <p className="text-sm font-mono break-all text-destructive">
+                    {status.details.reason}
+                  </p>
+                </div>
+              )}
+              {status.details?.contractContext && (
+                <details className="w-full rounded border bg-muted/30 p-3">
+                  <summary className="text-xs text-muted-foreground cursor-pointer">
+                    Contract call details
+                  </summary>
+                  <pre className="text-xs font-mono whitespace-pre-wrap break-all mt-2">
+                    {status.details.contractContext}
+                  </pre>
+                </details>
+              )}
+              {status.details?.fullMessage && (
+                <details className="w-full rounded border bg-muted/30 p-3">
+                  <summary className="text-xs text-muted-foreground cursor-pointer">
+                    Full error
+                  </summary>
+                  <pre className="text-xs font-mono whitespace-pre-wrap break-all mt-2">
+                    {status.details.fullMessage}
+                  </pre>
+                </details>
+              )}
             </>
           )}
 
