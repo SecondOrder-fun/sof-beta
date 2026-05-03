@@ -62,7 +62,21 @@ export function getChainConfig(networkKey) {
     },
   };
 
-  const httpTransports = rpcUrls.map((url) => http(url));
+  // batch: true tells viem to coalesce RPC calls issued in the same microtask
+  // into a single HTTP POST — without this, every readContract / multicall /
+  // useReadContract becomes its own request and burns through Tenderly free
+  // tier rate limits within seconds of mounting a busy page.
+  //
+  // retryCount/retryDelay tame viem's default retry behavior, which turns a
+  // single 429 into four rapid-fire bursts (default retryCount=3 with
+  // exponential backoff, all of which 429 again under sustained load).
+  const httpTransports = rpcUrls.map((url) =>
+    http(url, {
+      batch: true,
+      retryCount: 1,
+      retryDelay: 1500,
+    }),
+  );
 
   const transport =
     httpTransports.length > 1

@@ -103,6 +103,14 @@ export function buildPublicClient(networkKey) {
   const httpTransports = urlsToUse
     .map((url) =>
       http(url, {
+        // batch: true coalesces RPC calls issued in the same microtask into
+        // a single HTTP POST. Without it every readContract / multicall is
+        // its own request and a busy page exhausts Tenderly rate limits in
+        // seconds. retryCount caps viem's default-3 retries that turn one
+        // 429 into four rapid-fire bursts.
+        batch: true,
+        retryCount: 1,
+        retryDelay: 1500,
         onFetchResponse(response) {
           if (response.status === 403 || response.status === 429) {
             markRpcBad(url, Date.now());
