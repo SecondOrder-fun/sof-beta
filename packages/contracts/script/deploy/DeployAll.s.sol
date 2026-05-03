@@ -233,8 +233,25 @@ contract DeployAll is Script {
         );
         string memory json = string.concat(part1, part2, part3, part4);
 
-        vm.writeFile(deploymentPath, json);
-        console2.log("Deployment JSON written to:", deploymentPath);
+        // NOTE: Disabled. Use scripts/extract-deployment-addresses.js instead —
+        // run it after every `forge script ... --broadcast` (or --resume) to
+        // regenerate deployments/<network>.json from the broadcast log.
+        //
+        // Why: this in-script writer reads addresses from the in-memory `addrs`
+        // struct, which gets corrupted when --resume is used to recover from
+        // a partial broadcast. The struct ends up mixing real addresses (for
+        // newly-broadcast slots) with simulator-predicted addresses (for
+        // already-broadcast slots), and on the 2026-05-02 redeploy the slots
+        // ended up shifted such that "Raffle" pointed at InfoFiPriceOracle's
+        // address. The broadcast log doesn't have this problem because each
+        // entry is forge's authoritative record of the actual deployed address.
+        //
+        // Keeping the JSON-building code above for reference, but the file
+        // write is gone — single source of truth via the JS extractor.
+        // vm.writeFile(deploymentPath, json);
+        json; // silence unused-local-warning
+        console2.log("Skipping in-script JSON write.");
+        console2.log("Run: node scripts/extract-deployment-addresses.js --network <network>");
         console2.log("=== DeployAll complete ===");
     }
 }

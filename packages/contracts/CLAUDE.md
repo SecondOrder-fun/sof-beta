@@ -86,6 +86,9 @@ forge script script/deploy/DeployAll.s.sol:DeployAll \
   --verifier-url 'https://api.etherscan.io/v2/api?chainid=84532' \
   --etherscan-api-key "$ETHERSCAN_API_KEY"
 
+# REQUIRED post-step: regenerate deployments/testnet.json from broadcast log
+node ../../scripts/extract-deployment-addresses.js --network testnet
+
 # Individual contract (e.g., just the smart account)
 PRIVATE_KEY="0x..." forge script script/deploy/13_DeploySOFSmartAccount.s.sol:DeploySOFSmartAccount \
   --rpc-url http://127.0.0.1:8545 --broadcast --force

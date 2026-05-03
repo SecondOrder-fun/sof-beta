@@ -146,6 +146,13 @@ forge script script/deploy/DeployAll.s.sol:DeployAll \
   --verifier etherscan \
   --verifier-url 'https://api.etherscan.io/v2/api?chainid=84532' \
   --etherscan-api-key "$ETHERSCAN_API_KEY"
+
+# REQUIRED post-deploy step: regenerate deployments/testnet.json from the
+# broadcast log (the Solidity script's in-memory address tracking is unreliable
+# on --resume; the broadcast log is the authoritative source).
+cd ../..
+node scripts/extract-deployment-addresses.js --network testnet
+
 # If broadcast lands but verification flakes (or you skip --verify), resume verify only:
 #   forge script ... --broadcast --resume --private-key "$PRIVATE_KEY" --verify ...
 
