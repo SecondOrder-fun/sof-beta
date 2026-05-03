@@ -189,8 +189,14 @@ const TransactionModal = ({ mutation, title = "Transaction Status" }) => {
               <span className="sr-only">Close</span>
             </Button>
           </DialogTitle>
-          <DialogDescription>
-            Track your transaction progress below.
+          <DialogDescription className="sr-only">
+            {/*
+              Visible status comes from the icon + text block below; this
+              line exists for screen readers only. Keeping a static label
+              instead of duplicating the live status keeps assistive
+              announcements stable as the mutation transitions.
+            */}
+            {title}
           </DialogDescription>
         </DialogHeader>
 

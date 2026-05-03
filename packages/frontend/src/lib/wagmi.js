@@ -10,6 +10,20 @@ import { getDefaultNetworkKey, getNetworkByKey } from "@/config/networks";
 // coupling. If wagmi is already set up elsewhere, you can import createConfig
 // and pass the chain object from here.
 
+// Public RPC hosts that don't set CORS headers for browser origins. Including
+// any of these in our wagmi transports leaks browser-visible CORS errors when
+// wagmi/viem falls back to them (e.g. when the configured VITE_RPC_URL is
+// rate-limited or transiently failing). Tenderly is canonical per CLAUDE.md.
+const BLOCKED_RPC_HOSTS = ["sepolia.base.org"];
+
+function allowRpcUrl(url) {
+  if (!url) return false;
+  for (const host of BLOCKED_RPC_HOSTS) {
+    if (url.includes(host)) return false;
+  }
+  return true;
+}
+
 /**
  * Build a viem transport and chain descriptor for Wagmi.
  * @param {string} [networkKey]
@@ -18,7 +32,9 @@ export function getChainConfig(networkKey) {
   const key = (networkKey || getDefaultNetworkKey()).toUpperCase();
   const cfg = getNetworkByKey(key);
 
-  const rpcUrls = [cfg.rpcUrl, ...(cfg.rpcFallbackUrls || [])].filter(Boolean);
+  const rpcUrls = [cfg.rpcUrl, ...(cfg.rpcFallbackUrls || [])]
+    .filter(Boolean)
+    .filter(allowRpcUrl);
   if (rpcUrls.length === 0) {
     throw new Error(`No RPC URL configured for network ${key}`);
   }

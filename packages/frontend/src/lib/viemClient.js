@@ -8,14 +8,19 @@ const DEMOTION_WINDOW_MS = 5 * 60 * 1000;
 const RESET_INTERVAL_MS = 10 * 60 * 1000;
 const badRpcUrls = new Map();
 let lastResetAt = Date.now();
-const SEPOLIA_BASE_HOST = "sepolia.base.org";
+// sepolia.base.org is the public Base Sepolia RPC. It does NOT serve the
+// Access-Control-Allow-Origin header for browser requests, so any URL that
+// reaches this host from the frontend produces a CORS error in the console.
+// Per CLAUDE.md, Tenderly is the canonical RPC. Block sepolia.base.org
+// unconditionally — if it was set as VITE_RPC_URL or a fallback by mistake,
+// removing it here surfaces the misconfiguration as "no RPC URL configured"
+// instead of a confusing CORS error mid-flight.
+const BLOCKED_RPC_HOSTS = ["sepolia.base.org"];
 
 function allowRpcUrl(url) {
   if (!url) return false;
-  if (url.includes(SEPOLIA_BASE_HOST)) {
-    return (import.meta.env.VITE_RPC_URL || "").includes(
-      SEPOLIA_BASE_HOST,
-    );
+  for (const host of BLOCKED_RPC_HOSTS) {
+    if (url.includes(host)) return false;
   }
   return true;
 }
