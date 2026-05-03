@@ -106,7 +106,11 @@ const DelegationGate = () => {
   const { address, connector, isConnected } = useAccount();
   const chainId = useChainId();
   const { data: walletClient } = useWalletClient();
-  const { data: capabilities } = useCapabilities({ account: address });
+  const {
+    data: capabilities,
+    isPending: capabilitiesPending,
+    fetchStatus: capabilitiesFetchStatus,
+  } = useCapabilities({ account: address });
   const { isDelegated, isSOFDelegate, isLoading } = useDelegationStatus();
   const [showModal, setShowModal] = useState(false);
   // Track which address we already evaluated rather than a boolean flag.
@@ -119,6 +123,15 @@ const DelegationGate = () => {
   useEffect(() => {
     if (!isConnected || !address || !walletClient || isLoading) return;
     if (checkedAddress?.toLowerCase() === address.toLowerCase()) return;
+
+    // Wait for the capabilities query to resolve before deciding. The hook
+    // is async — without this guard the effect runs once with capabilities
+    // === undefined, opens the modal, and `setCheckedAddress(address)` below
+    // locks the gate so the second pass (with real data) never re-evaluates.
+    // `fetchStatus === "idle"` covers the case where there's nothing to fetch
+    // (e.g. no connector); we don't want to block the gate forever in that
+    // case, so we accept either resolved or idle.
+    if (capabilitiesPending && capabilitiesFetchStatus !== "idle") return;
 
     // Skip Coinbase Wallet (already smart)
     if (connector?.id === "coinbaseWalletSDK") {
@@ -138,8 +151,14 @@ const DelegationGate = () => {
     // used to fall through the old id-based guard, opening DelegationModal,
     // which then called viem's signAuthorization and threw "Account type
     // 'json-rpc' is not supported".)
+    //
+    // viem's getCapabilities unwraps single-chain results to a flat object
+    // when called without an explicit `chainIds` array (chunk-GNEEZKUW.js
+    // line 17645: `return Object.values(parsed)[0]`). wagmi's useCapabilities
+    // passes `chainId` (singular) and so receives the flat shape — read
+    // `capabilities.atomic.status` directly, NOT `capabilities[chainId].atomic`.
     const isLocalChain = chainId === 31337;
-    const supportsAtomicBatching = !!capabilities?.[chainId]?.atomic?.status;
+    const supportsAtomicBatching = !!capabilities?.atomic?.status;
     if (!isLocalChain && supportsAtomicBatching) {
       setCheckedAddress(address);
       return;
@@ -169,7 +188,7 @@ const DelegationGate = () => {
     // Show delegation modal
     setShowModal(true);
     setCheckedAddress(address);
-  }, [address, chainId, isConnected, walletClient, isLoading, checkedAddress, connector, capabilities, isDelegated, isSOFDelegate]);
+  }, [address, chainId, isConnected, walletClient, isLoading, checkedAddress, connector, capabilities, capabilitiesPending, capabilitiesFetchStatus, isDelegated, isSOFDelegate]);
 
   // Reset when wallet disconnects so the next connect re-evaluates.
   useEffect(() => {
