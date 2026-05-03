@@ -73,9 +73,21 @@ Modular numbered scripts in `script/deploy/`:
 PRIVATE_KEY="0xac09..." forge script script/deploy/DeployAll.s.sol:DeployAll \
   --rpc-url http://127.0.0.1:8545 --broadcast --force
 
-# Testnet (Base Sepolia)
-source env/.env.testnet && forge script script/deploy/DeployAll.s.sol:DeployAll \
-  --rpc-url https://sepolia.base.org --broadcast --verify --force
+# Testnet (Base Sepolia) — see comments in root CLAUDE.md for why each flag.
+# Short version: Tenderly RPC (sepolia.base.org is flaky), --slow (delegated
+# EOA safety), V2 verifier (V1 API deprecated), 0x-prefix PRIVATE_KEY.
+set -a; source env/.env.testnet; set +a
+[[ "$PRIVATE_KEY" != 0x* ]] && export PRIVATE_KEY="0x$PRIVATE_KEY"
+forge script script/deploy/DeployAll.s.sol:DeployAll \
+  --rpc-url https://base-sepolia.gateway.tenderly.co \
+  --broadcast --slow --force \
+  --verify \
+  --verifier etherscan \
+  --verifier-url 'https://api.etherscan.io/v2/api?chainid=84532' \
+  --etherscan-api-key "$ETHERSCAN_API_KEY"
+
+# REQUIRED post-step: regenerate deployments/testnet.json from broadcast log
+node ../../scripts/extract-deployment-addresses.js --network testnet
 
 # Individual contract (e.g., just the smart account)
 PRIVATE_KEY="0x..." forge script script/deploy/13_DeploySOFSmartAccount.s.sol:DeploySOFSmartAccount \

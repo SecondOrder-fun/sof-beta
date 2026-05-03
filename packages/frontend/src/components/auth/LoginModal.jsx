@@ -74,10 +74,20 @@ const LoginModal = () => {
     setView("options");
   };
 
-  // Filter out Farcaster mini-app connector from wallet list
-  const walletConnectors = connectors.filter(
-    (c) => c.id !== "farcasterFrame" && c.type !== "farcasterFrame",
-  );
+  // Filter Farcaster (handled by the dedicated SIWF button above) and dedupe
+  // by connector id. RainbowKit's connectorsForWallets emits one wagmi
+  // connector per wallet definition, but several definitions back onto the
+  // same WalletConnect transport — so without dedupe we render 2-3 indistinct
+  // "WalletConnect" rows with no icons, which the user can't tell apart.
+  const walletConnectors = (() => {
+    const seen = new Set();
+    return connectors.filter((c) => {
+      if (c.id === "farcasterFrame" || c.type === "farcasterFrame") return false;
+      if (seen.has(c.id)) return false;
+      seen.add(c.id);
+      return true;
+    });
+  })();
 
   return (
     <Dialog open={isLoginModalOpen} onOpenChange={handleOpenChange}>

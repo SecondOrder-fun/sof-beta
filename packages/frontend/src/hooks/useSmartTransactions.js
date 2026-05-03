@@ -96,17 +96,16 @@ export function useSmartTransactions() {
   });
 
   const chainCaps = useMemo(() => {
-    let atomicStatus = null;
-    let hasPaymaster = false;
-
-    if (capabilities && chainId) {
-      const caps = capabilities[chainId];
-      atomicStatus = caps?.atomic?.status || null;
-      hasPaymaster = !!caps?.paymasterService?.supported;
-    }
-
-    const hasBatch = !!(capabilities && chainId && capabilities[chainId]?.atomic?.status);
-
+    // wagmi v2's useCapabilities (called here without `chainId`) returns the
+    // full multi-chain result keyed by DECIMAL chain id — viem core rebuilds
+    // the response via `capabilities[Number(chainId2)] = ...` and only
+    // unwraps to a flat object when chainId is passed. So we look up the
+    // current chain's caps via `capabilities[chainId]` (chainId is a number
+    // from useChainId).
+    const caps = capabilities && chainId ? capabilities[chainId] : null;
+    const atomicStatus = caps?.atomic?.status || null;
+    const hasPaymaster = !!caps?.paymasterService?.supported;
+    const hasBatch = !!atomicStatus;
     return { hasBatch, hasPaymaster, atomicStatus };
   }, [capabilities, chainId]);
 

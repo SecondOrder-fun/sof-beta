@@ -127,9 +127,34 @@ PRIVATE_KEY="0xac09..." forge script script/deploy/DeployAll.s.sol:DeployAll \
   --rpc-url http://127.0.0.1:8545 --broadcast --force
 
 # Contract deployment (testnet — Base Sepolia)
+# Notes:
+#   - Use the Tenderly gateway, not sepolia.base.org — the public RPC throws
+#     transient Cloudflare 502s during forge's bulk simulation phase.
+#   - --slow is required if the deployer EOA has an EIP-7702 delegation
+#     (cast code returns 0xef0100<delegate>); delegated accounts reject
+#     gapped-nonce txs from forge's batched submission.
+#   - Etherscan V1 API was deprecated; use the V2 endpoint with chainid query.
+#   - .env.testnet stores PRIVATE_KEY as bare 64-hex; forge's vm.envUint needs
+#     the 0x prefix, so the wrapper prepends it.
 cd packages/contracts
-source env/.env.testnet && forge script script/deploy/DeployAll.s.sol:DeployAll \
-  --rpc-url https://sepolia.base.org --broadcast --verify --force
+set -a; source env/.env.testnet; set +a
+[[ "$PRIVATE_KEY" != 0x* ]] && export PRIVATE_KEY="0x$PRIVATE_KEY"
+forge script script/deploy/DeployAll.s.sol:DeployAll \
+  --rpc-url https://base-sepolia.gateway.tenderly.co \
+  --broadcast --slow --force \
+  --verify \
+  --verifier etherscan \
+  --verifier-url 'https://api.etherscan.io/v2/api?chainid=84532' \
+  --etherscan-api-key "$ETHERSCAN_API_KEY"
+
+# REQUIRED post-deploy step: regenerate deployments/testnet.json from the
+# broadcast log (the Solidity script's in-memory address tracking is unreliable
+# on --resume; the broadcast log is the authoritative source).
+cd ../..
+node scripts/extract-deployment-addresses.js --network testnet
+
+# If broadcast lands but verification flakes (or you skip --verify), resume verify only:
+#   forge script ... --broadcast --resume --private-key "$PRIVATE_KEY" --verify ...
 
 # Deploy env vars (always dry-run first)
 ./scripts/deploy-env.sh --network testnet --dry-run

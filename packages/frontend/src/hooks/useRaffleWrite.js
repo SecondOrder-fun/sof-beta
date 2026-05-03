@@ -73,9 +73,16 @@ function useContractWriteWithFeedback(mutationOptions) {
           });
         }
       } catch (simErr) {
-        // Bubble a decoded, friendly error
-        const msg = buildFriendlyMessage(config.abi, simErr, 'Simulation failed');
-        throw new Error(msg);
+        // Preserve the original viem error so downstream renderers can walk
+        // .cause / .data.errorName / .metaMessages — wrapping in `new Error`
+        // would destroy that structure and leave the modal showing only the
+        // viem request-preview ("Request Arguments: from: 0x..."). Override
+        // shortMessage with the decoded friendly headline so the modal
+        // headline is useful.
+        if (simErr && typeof simErr === 'object') {
+          simErr.shortMessage = buildFriendlyMessage(config.abi, simErr, 'Simulation failed');
+        }
+        throw simErr;
       }
 
       try {
@@ -88,8 +95,10 @@ function useContractWriteWithFeedback(mutationOptions) {
           }),
         }], { sofAmount: 0n });
       } catch (writeErr) {
-        const msg = buildFriendlyMessage(config.abi, writeErr, 'Write failed');
-        throw new Error(msg);
+        if (writeErr && typeof writeErr === 'object') {
+          writeErr.shortMessage = buildFriendlyMessage(config.abi, writeErr, 'Write failed');
+        }
+        throw writeErr;
       }
     },
     onError: (error, variables, context) => {

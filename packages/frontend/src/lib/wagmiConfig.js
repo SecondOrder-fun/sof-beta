@@ -11,7 +11,6 @@ import {
   injectedWallet,
   metaMaskWallet,
   rabbyWallet,
-  rainbowWallet,
   walletConnectWallet,
 } from "@rainbow-me/rainbowkit/wallets";
 import { getChainConfig, getStoredNetworkKey } from "@/lib/wagmi";
@@ -35,13 +34,15 @@ const rainbowWalletConnectors = walletProjectId
       [
         {
           groupName: "Recommended",
-          // injectedWallet is the catch-all for any EIP-1193 provider that
-          // isn't an explicitly-listed wallet — keeps the door open for
-          // wallets we haven't dedicated a connector to yet.
+          // rainbowWallet was removed: it has no browser extension and only
+          // produces a generic "WalletConnect"-backed connector (same id as
+          // walletConnectWallet), which rendered as a duplicate row with no
+          // distinguishing icon.
+          // injectedWallet stays as the catch-all for EIP-1193 providers we
+          // don't have a dedicated entry for (Brave, Trust extension, etc.).
           wallets: [
             coinbaseWallet,
             metaMaskWallet,
-            rainbowWallet,
             rabbyWallet,
             walletConnectWallet,
             injectedWallet,

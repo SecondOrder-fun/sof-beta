@@ -8,6 +8,7 @@ vi.mock("wagmi", () => {
     WagmiProvider: ({ children }) => children,
     createConfig: vi.fn(() => ({ mocked: true })),
     useAccount: vi.fn(() => ({ isConnected: false })),
+    useCapabilities: vi.fn(() => ({ data: undefined })),
     useChainId: vi.fn(() => 84532),
     useConnect: vi.fn(() => ({ connect: vi.fn(), connectors: [] })),
     useSwitchChain: vi.fn(() => ({ switchChain: vi.fn() })),
