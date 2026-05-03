@@ -73,9 +73,19 @@ const MobileLoginSheet = () => {
     setView("options");
   };
 
-  const walletConnectors = connectors.filter(
-    (c) => c.id !== "farcasterFrame" && c.type !== "farcasterFrame",
-  );
+  // Filter Farcaster (handled by the dedicated SIWF button) and dedupe by id.
+  // RainbowKit emits multiple WalletConnect-backed connectors (rainbowWallet,
+  // walletConnectWallet, etc.) all with id="walletConnect" — without dedupe
+  // they render as 2-3 indistinct "WalletConnect" rows with no icons.
+  const walletConnectors = (() => {
+    const seen = new Set();
+    return connectors.filter((c) => {
+      if (c.id === "farcasterFrame" || c.type === "farcasterFrame") return false;
+      if (seen.has(c.id)) return false;
+      seen.add(c.id);
+      return true;
+    });
+  })();
 
   return (
     <Sheet open={isLoginModalOpen} onOpenChange={handleOpenChange}>

@@ -4,6 +4,7 @@ import PropTypes from "prop-types";
 import {
   WagmiProvider,
   useAccount,
+  useCapabilities,
   useChainId,
   useConnect,
   useSwitchChain,
@@ -105,6 +106,7 @@ const DelegationGate = () => {
   const { address, connector, isConnected } = useAccount();
   const chainId = useChainId();
   const { data: walletClient } = useWalletClient();
+  const { data: capabilities } = useCapabilities({ account: address });
   const { isDelegated, isSOFDelegate, isLoading } = useDelegationStatus();
   const [showModal, setShowModal] = useState(false);
   // Track which address we already evaluated rather than a boolean flag.
@@ -124,15 +126,21 @@ const DelegationGate = () => {
       return;
     }
 
-    // On testnet/mainnet MetaMask handles EIP-7702 internally via wallet_sendCalls
-    // (atomicRequired triggers a built-in upgrade prompt). On local Anvil
-    // (chain 31337) MetaMask has no native AA flow, so we drive the 7702
-    // authorization ourselves through the DelegationModal + backend relay.
+    // On testnet/mainnet, any wallet that advertises ERC-5792 atomic batching
+    // for the current chain handles EIP-7702 itself via wallet_sendCalls
+    // (atomicRequired triggers the wallet's built-in upgrade prompt). On
+    // local Anvil (chain 31337) no real wallet exposes this, so we drive
+    // the 7702 authorization ourselves through DelegationModal + backend.
+    //
+    // Capabilities is the right signal here, not the connector id: MetaMask
+    // shows up under multiple connector ids depending on EIP-6963 / SDK
+    // routing ("io.metamask", "metaMaskSDK", or "injected" — the third one
+    // used to fall through the old id-based guard, opening DelegationModal,
+    // which then called viem's signAuthorization and threw "Account type
+    // 'json-rpc' is not supported".)
     const isLocalChain = chainId === 31337;
-    if (
-      !isLocalChain &&
-      (connector?.id === "metaMaskSDK" || connector?.id === "io.metamask")
-    ) {
+    const supportsAtomicBatching = !!capabilities?.[chainId]?.atomic?.status;
+    if (!isLocalChain && supportsAtomicBatching) {
       setCheckedAddress(address);
       return;
     }
@@ -161,7 +169,7 @@ const DelegationGate = () => {
     // Show delegation modal
     setShowModal(true);
     setCheckedAddress(address);
-  }, [address, chainId, isConnected, walletClient, isLoading, checkedAddress, connector, isDelegated, isSOFDelegate]);
+  }, [address, chainId, isConnected, walletClient, isLoading, checkedAddress, connector, capabilities, isDelegated, isSOFDelegate]);
 
   // Reset when wallet disconnects so the next connect re-evaluates.
   useEffect(() => {
