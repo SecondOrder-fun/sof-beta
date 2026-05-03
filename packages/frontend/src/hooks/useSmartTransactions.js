@@ -27,21 +27,57 @@ const BATCH_CONFIRM_TIMEOUT_MS = 120_000;
  *
  * If the result already looks like a hash (path A userOpHash, or a wallet
  * that returns the hash directly), it passes through unchanged.
+ *
+ * IMPORTANT: every failure mode must throw. Returning `null`/`undefined`
+ * silently leaves the caller's mutation in `isSuccess` state with
+ * `data === undefined`, which means TransactionModal sees no hash, no
+ * confirmation, no error — it just sits open with no status. The previous
+ * implementation had three branches that returned silently; all are now
+ * explicit throws so the error path drives the modal.
  */
 async function normalizeBatchResult(result) {
   if (typeof result === 'string') return result;
-  if (!result || typeof result !== 'object') return result;
+  if (!result || typeof result !== 'object') {
+    // eslint-disable-next-line no-console
+    console.warn('[normalizeBatchResult] empty/non-object result', { result });
+    throw new Error(
+      'Wallet returned no batch identifier. Try again, or confirm the transaction in your wallet.',
+    );
+  }
 
   const batchId = result.id ?? result;
-  if (typeof batchId !== 'string') return result;
+  if (typeof batchId !== 'string') {
+    // eslint-disable-next-line no-console
+    console.warn('[normalizeBatchResult] non-string batch id', {
+      result,
+      batchIdType: typeof batchId,
+    });
+    throw new Error(
+      'Wallet returned a malformed batch response. The transaction may have been submitted — check your wallet activity.',
+    );
+  }
 
-  const { receipts } = await waitForCallsStatus(wagmiConfig, {
+  const status = await waitForCallsStatus(wagmiConfig, {
     id: batchId,
     timeout: BATCH_CONFIRM_TIMEOUT_MS,
     throwOnFailure: true,
   });
 
-  return receipts?.[0]?.transactionHash ?? null;
+  const txHash = status?.receipts?.[0]?.transactionHash;
+  if (!txHash) {
+    // eslint-disable-next-line no-console
+    console.warn('[normalizeBatchResult] no tx hash in batch receipts', {
+      batchId,
+      statusKeys: status ? Object.keys(status) : null,
+      statusCode: status?.statusCode,
+      receiptCount: status?.receipts?.length ?? 0,
+    });
+    throw new Error(
+      `Batch ${batchId.slice(0, 10)}… landed but no transaction hash was returned by the wallet. Check the explorer with this batch id.`,
+    );
+  }
+
+  return txHash;
 }
 
 /**
