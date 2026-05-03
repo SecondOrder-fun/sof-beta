@@ -12,16 +12,14 @@ import { getDefaultNetworkKey, getNetworkByKey } from "@/config/networks";
 
 // Public RPC hosts that don't set CORS headers for browser origins. Including
 // any of these in our wagmi transports leaks browser-visible CORS errors when
-// wagmi/viem falls back to them (e.g. when the configured VITE_RPC_URL is
-// rate-limited or transiently failing). Tenderly is canonical per CLAUDE.md.
-const BLOCKED_RPC_HOSTS = ["sepolia.base.org"];
+// wagmi/viem falls back to them. Tenderly is canonical per CLAUDE.md, but we
+// can't crash the app if the env was misconfigured — fall back to the raw
+// list with a warning so the bundle still bootstraps.
+const PROBLEMATIC_RPC_HOSTS = ["sepolia.base.org"];
 
-function allowRpcUrl(url) {
+function isProblematicRpcUrl(url) {
   if (!url) return false;
-  for (const host of BLOCKED_RPC_HOSTS) {
-    if (url.includes(host)) return false;
-  }
-  return true;
+  return PROBLEMATIC_RPC_HOSTS.some((host) => url.includes(host));
 }
 
 /**
@@ -32,11 +30,25 @@ export function getChainConfig(networkKey) {
   const key = (networkKey || getDefaultNetworkKey()).toUpperCase();
   const cfg = getNetworkByKey(key);
 
-  const rpcUrls = [cfg.rpcUrl, ...(cfg.rpcFallbackUrls || [])]
-    .filter(Boolean)
-    .filter(allowRpcUrl);
-  if (rpcUrls.length === 0) {
+  const rawRpcUrls = [cfg.rpcUrl, ...(cfg.rpcFallbackUrls || [])].filter(Boolean);
+  if (rawRpcUrls.length === 0) {
     throw new Error(`No RPC URL configured for network ${key}`);
+  }
+  const filteredRpcUrls = rawRpcUrls.filter((url) => !isProblematicRpcUrl(url));
+  let rpcUrls;
+  if (filteredRpcUrls.length > 0) {
+    rpcUrls = filteredRpcUrls;
+  } else {
+    // All configured URLs are on the problematic list. Crashing here would
+    // brick app boot — instead use the raw list and surface the
+    // misconfiguration so it gets noticed and fixed in the deploy env.
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[getChainConfig] All configured RPC URLs for ${key} are on the problematic-host list (${PROBLEMATIC_RPC_HOSTS.join(", ")}). ` +
+        `Update VITE_RPC_URL to a CORS-friendly endpoint (e.g. Tenderly). ` +
+        `Falling back to the raw URL — expect CORS errors.`,
+    );
+    rpcUrls = rawRpcUrls;
   }
 
   // Minimal chain object compatible with Wagmi custom chains
