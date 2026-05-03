@@ -96,18 +96,18 @@ export function useSmartTransactions() {
   });
 
   const chainCaps = useMemo(() => {
-    // viem's getCapabilities unwraps single-chain results to a flat object
-    // when called without an explicit `chainIds` array (the wagmi
-    // useCapabilities hook only passes `chainId` singular). So `capabilities`
-    // is `{ atomic, paymasterService, ... }` already scoped to the current
-    // chain, NOT `{ [chainId]: { atomic, ... } }`. Reading capabilities[chainId]
-    // here always returned undefined, leaving hasBatch silently false — the
-    // bug was hidden because the executeBatch call path doesn't gate on it.
-    const atomicStatus = capabilities?.atomic?.status || null;
-    const hasPaymaster = !!capabilities?.paymasterService?.supported;
+    // wagmi v2's useCapabilities (called here without `chainId`) returns the
+    // full multi-chain result keyed by DECIMAL chain id — viem core rebuilds
+    // the response via `capabilities[Number(chainId2)] = ...` and only
+    // unwraps to a flat object when chainId is passed. So we look up the
+    // current chain's caps via `capabilities[chainId]` (chainId is a number
+    // from useChainId).
+    const caps = capabilities && chainId ? capabilities[chainId] : null;
+    const atomicStatus = caps?.atomic?.status || null;
+    const hasPaymaster = !!caps?.paymasterService?.supported;
     const hasBatch = !!atomicStatus;
     return { hasBatch, hasPaymaster, atomicStatus };
-  }, [capabilities]);
+  }, [capabilities, chainId]);
 
   /**
    * Build the SOF fee transfer call that gets prepended to every sponsored batch.

@@ -145,20 +145,21 @@ const DelegationGate = () => {
     // local Anvil (chain 31337) no real wallet exposes this, so we drive
     // the 7702 authorization ourselves through DelegationModal + backend.
     //
-    // Capabilities is the right signal here, not the connector id: MetaMask
-    // shows up under multiple connector ids depending on EIP-6963 / SDK
-    // routing ("io.metamask", "metaMaskSDK", or "injected" — the third one
-    // used to fall through the old id-based guard, opening DelegationModal,
-    // which then called viem's signAuthorization and threw "Account type
-    // 'json-rpc' is not supported".)
+    // Capabilities is the right signal, not the connector id: MetaMask shows
+    // up under multiple connector ids depending on EIP-6963 / SDK routing
+    // ("io.metamask", "metaMaskSDK", or plain "injected"); the old id-based
+    // guard missed "injected" and let MetaMask fall through to viem's
+    // signAuthorization (which throws "Account type 'json-rpc' is not
+    // supported" on json-rpc accounts).
     //
-    // viem's getCapabilities unwraps single-chain results to a flat object
-    // when called without an explicit `chainIds` array (chunk-GNEEZKUW.js
-    // line 17645: `return Object.values(parsed)[0]`). wagmi's useCapabilities
-    // passes `chainId` (singular) and so receives the flat shape — read
-    // `capabilities.atomic.status` directly, NOT `capabilities[chainId].atomic`.
+    // wagmi v2's useCapabilities, when called without `chainId`, returns the
+    // full result keyed by decimal chain id (viem core
+    // node_modules/viem/_esm/actions/wallet/getCapabilities.js — `return
+    // typeof chainId === "number" ? capabilities[chainId] : capabilities;`,
+    // and the rebuild loop uses `Number(chainId2)`). So the access is
+    // `capabilities[chainId]?.atomic?.status` with chainId from useChainId().
     const isLocalChain = chainId === 31337;
-    const supportsAtomicBatching = !!capabilities?.atomic?.status;
+    const supportsAtomicBatching = !!capabilities?.[chainId]?.atomic?.status;
     if (!isLocalChain && supportsAtomicBatching) {
       setCheckedAddress(address);
       return;
