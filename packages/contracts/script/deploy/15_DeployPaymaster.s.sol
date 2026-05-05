@@ -40,11 +40,11 @@ contract DeployPaymaster is Script {
         //   (entryPoint, factory, raffle, initialAllowlist).
         // TODO(Task 2.2): wire the SOFSmartAccountFactory address (not yet in
         // DeployedAddresses) and a real allowlist from the deployments struct.
-        // For now we pass the raffle from the struct, address(0) for factory
-        // (placeholder until Task 2.1 adds the factory deploy step), and an
-        // empty initial allowlist — Task 2.2 owns the proper wiring. The
-        // deploy chain will produce a non-functional paymaster until then,
-        // but builds + tests pass and Task 2.2 swaps in the real values.
+        // For now we pass `address(0)` for factory as a placeholder; the
+        // paymaster constructor reverts ZeroAddress on this — that's the
+        // intended loud-fail until Task 2.2 plumbs the real factory address
+        // through. forge build + tests stay green; an actual deploy run
+        // (DeployAll on local/testnet) will revert here, which is correct.
         address[] memory initialAllowlist = new address[](0);
         SOFPaymaster paymaster = new SOFPaymaster(
             ENTRY_POINT_V08,

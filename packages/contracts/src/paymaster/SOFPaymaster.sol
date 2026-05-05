@@ -29,6 +29,7 @@ contract SOFPaymaster is IPaymaster, AccessControl {
     error TargetNotAllowed(address target);
     error UnsupportedExecuteMode(bytes32 mode);
     error InvalidCallData();
+    error ZeroAddress();
 
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
 
@@ -53,6 +54,9 @@ contract SOFPaymaster is IPaymaster, AccessControl {
         address _raffle,
         address[] memory initialAllowlist
     ) {
+        if (_entryPoint == address(0) || _factory == address(0) || _raffle == address(0)) {
+            revert ZeroAddress();
+        }
         entryPoint = _entryPoint;
         factory = SOFSmartAccountFactory(_factory);
         raffle = IRaffleCurveRegistry(_raffle);
@@ -98,13 +102,16 @@ contract SOFPaymaster is IPaymaster, AccessControl {
     }
 
     /// @inheritdoc IPaymaster
-    /// @dev No-op. We only assert the caller is the EntryPoint per ERC-4337 §6.
+    /// @dev No-op today. NOT marked `view` so a future task can add per-user
+    ///      accounting (rate-limit / max-spend) without a breaking interface
+    ///      change — the natural place to mutate counters is here, after the
+    ///      EntryPoint reports the actual gas cost.
     function postOp(
         PostOpMode,
         bytes calldata,
         uint256,
         uint256
-    ) external view {
+    ) external {
         if (msg.sender != entryPoint) revert NotEntryPoint();
     }
 
@@ -142,5 +149,7 @@ contract SOFPaymaster is IPaymaster, AccessControl {
         revert TargetNotAllowed(target);
     }
 
-    receive() external payable {}
+    // No `receive()` — paymasters are funded via `EntryPoint.depositTo`, not
+    // direct transfer. Refusing direct ETH avoids trapping value in the
+    // paymaster (no withdraw fn here on purpose).
 }
