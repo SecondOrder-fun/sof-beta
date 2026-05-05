@@ -43,20 +43,18 @@ Standard ERC-4337 v0.8 account with a single `address public immutable owner` se
 
 ```solidity
 contract SOFSmartAccountFactory {
-    SOFSmartAccount public immutable accountImplementation;
+    error SOFSmartAccountFactoryInvalidOwner();
     event AccountCreated(address indexed owner, address indexed account);
 
-    constructor() {
-        accountImplementation = new SOFSmartAccount();
-    }
-
-    function getAddress(address owner) external view returns (address);
+    function getAddress(address owner) public view returns (address);
     function createAccount(address owner) external returns (SOFSmartAccount);
 }
 ```
 
+- No constructor args. The `SOFSmartAccount` constructor takes only `(address signerAddr)`; `Account`'s `entryPoint()` is hard-coded by OZ to the canonical v0.8 EntryPoint.
 - Salt = `keccak256(abi.encodePacked(owner))`.
-- `createAccount` is idempotent: returns existing instance if already deployed; otherwise deploys with `new SOFSmartAccount{salt: salt}(owner)` and emits `AccountCreated`.
+- Each call to `createAccount` deploys a full `SOFSmartAccount` via `new SOFSmartAccount{salt: salt}(owner)` (full bytecode, not a minimal proxy). On testnet/Sepolia gas is irrelevant; on mainnet first-touch UserOps will pay materially more for paymaster-sponsored deployment than a clones-style factory would. Switching to `Clones.cloneDeterministic` is a documented v2 optimization (see §9).
+- `createAccount` is idempotent: returns existing instance if already deployed; otherwise deploys + emits `AccountCreated`. Reverts on `owner == address(0)` for fail-fast semantics.
 - Bundler invokes `createAccount` lazily via the `initCode` field of the user's first UserOp.
 
 ### 3.3 SOFPaymaster.sol *(re-target)*
@@ -314,6 +312,7 @@ Delete `delegationRoutes.js`, the `/api/wallet` mount in `server.js`, the 7702-r
 - **Mainnet airdrop strategy** — Sepolia auto-fund is free, mainnet needs throttling, allowlisting, per-user caps. Separate decision when mainnet date is set.
 - **Multi-account per EOA** — current salt scheme is `keccak256(eoa)` (one SMA per EOA). If users request multiple raffle accounts from one EOA, salt becomes `keccak256(eoa, accountIndex)` and UI adds an account-switcher. Not v1.
 - **Smart account upgradability** — immutable in v1. If a future need arises (bug fix, feature), a new factory is deployed; existing users keep the old SMA forever. Acceptable trade-off given Safe and Coinbase Smart Wallet both ship immutable.
+- **Clones-style factory for cheaper first-touch deployment** — v1 deploys full `SOFSmartAccount` bytecode per user via CREATE2 (~1.1M gas). On mainnet this is meaningful sponsorship cost on every user's first UserOp. Switching to `Clones.cloneDeterministic` (EIP-1167 minimal proxies, ~50-100k gas) requires making `SOFSmartAccount` initializable rather than constructor-immutable. Worth doing before mainnet to reduce paymaster spend, but not required for testnet validation.
 - **Reintroducing merkle-drop airdrop** — `SOFAirdrop.sol` deleted in v1. If a partner promo or allowlist-based drop is needed later, reintroduce as a separate contract.
 
 ## 10. What "done" looks like
