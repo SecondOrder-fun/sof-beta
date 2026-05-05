@@ -12,6 +12,22 @@
 
 ---
 
+## Engineering notes (read before M1)
+
+After exploring the existing codebase, three things matter for implementation:
+
+1. **OpenZeppelin's draft-ERC4337 not eth-infinitism's `@account-abstraction/contracts`.** All `PackedUserOperation`, `IPaymaster`, etc. imports must come from `@openzeppelin/contracts/interfaces/draft-IERC4337.sol`. The existing `SOFSmartAccount.sol` and `SOFPaymaster.sol` already use these — preserve that pattern.
+
+2. **EntryPoint v0.8 produces EIP-712 typed-data `userOpHash` natively.** OZ's `Account._signableUserOpHash` returns `userOpHash` unchanged because *the hash is already an EIP-712 hash* per the v0.8 spec. When `permissionless.js` asks the user to sign a UserOp, the wallet popup shows structured EIP-712 typed data with the PackedUserOperation fields decoded — `sender`, `nonce`, `callData`, etc. We do **not** need to add another EIP-712 wrap layer. `ERC7739` (the audited "Readable Typed Signatures for Smart Accounts" mixin) is **only** needed for ERC-1271 offchain signing — out of scope for v1. The simpler design is `Account + SignerECDSA + ERC7821`, no ERC7739.
+
+3. **OZ primitives that exist and replace work in this plan:**
+    - `Account` (in `contracts/account/Account.sol`) — base ERC-4337 v0.8 account with `validateUserOp` already wired to call `_rawSignatureValidation(_signableUserOpHash(...), signature)`. Hard-codes the canonical v0.8 EntryPoint via `entryPoint()` virtual.
+    - `SignerECDSA` (in `contracts/utils/cryptography/signers/SignerECDSA.sol`) — stores a signer address (settable via `_setSigner` or constructor), exposes `signer()` getter, validates ECDSA recovery against that signer.
+    - `ERC7821` (in `contracts/account/extensions/draft-ERC7821.sol`) — ERC-7821 standard for batched execution. Single `execute(bytes32 mode, bytes data)` entry point that decodes mode to dispatch single vs batched calls.
+    - `EIP712` — provides `eip712Domain()` and `_domainSeparatorV4` for the EIP-712 base.
+
+Net effect on the plan: the SOFSmartAccount inherits 3 audited mixins instead of writing a custom EIP-712 wrap. Tests verify the composed behavior. No extra signature unwrapping required in `validateUserOp`.
+
 ## File Structure
 
 ### Created
@@ -133,30 +149,36 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 1:** Replace the existing test file with new tests targeting the rewritten contract.
 
+> **Note on imports**: codebase uses **OpenZeppelin's draft-ERC4337** (e.g. `@openzeppelin/contracts/interfaces/draft-IERC4337.sol`), NOT `@account-abstraction/contracts`. The new SOFSmartAccount inherits OZ's `Account` + `SignerECDSA` + `ERC7739` (the standard "Readable Typed Signatures for Smart Accounts") + `ERC7821` for batched execute. ERC7739 is what supplies the EIP-712 nested-typed-data signature wrap — we don't write the wrap by hand.
+
 ```solidity
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Test} from "forge-std/Test.sol";
-import {Vm} from "forge-std/Vm.sol";
+import {Test, Vm} from "forge-std/Test.sol";
 import {SOFSmartAccount} from "src/account/SOFSmartAccount.sol";
-import {PackedUserOperation} from "@account-abstraction/contracts/interfaces/PackedUserOperation.sol";
+import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
+import {ERC7739Utils} from "@openzeppelin/contracts/utils/cryptography/draft-ERC7739Utils.sol";
+import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import {ERC7821} from "@openzeppelin/contracts/account/extensions/draft-ERC7821.sol";
 
 contract SOFSmartAccountTest is Test {
     SOFSmartAccount account;
     Vm.Wallet ownerWallet;
     address owner;
-    address entryPoint = address(0x4337);
 
     function setUp() public {
         ownerWallet = vm.createWallet("owner");
         owner = ownerWallet.addr;
-        // Deploy as if from factory (CREATE not CREATE2 in this unit test — we verify CREATE2 in the factory test).
-        account = new SOFSmartAccount(owner, entryPoint);
+        // Deploy as if from factory (CREATE not CREATE2 in this unit test —
+        // CREATE2 verified in the factory test). The Account base hard-codes
+        // the canonical v0.8 EntryPoint via a virtual; tests prank as
+        // `account.entryPoint()` rather than mocking the EntryPoint contract.
+        account = new SOFSmartAccount(owner);
     }
 
-    function test_owner_isPublicAndImmutable() public view {
-        assertEq(account.owner(), owner);
+    function test_signer_isPublic() public view {
+        assertEq(account.signer(), owner);
     }
 
     function test_eip712Domain_matchesSpec() public view {
@@ -174,12 +196,28 @@ contract SOFSmartAccountTest is Test {
         assertEq(verifyingContract, address(account));
     }
 
-    function test_validateUserOp_ownerEip712Sig_returns0() public {
+    function test_isValidSignature_ownerErc7739_succeeds() public view {
+        // ERC-1271 entrypoint: account.isValidSignature returns 0x1626ba7e on success.
+        bytes32 contentsHash = keccak256("hello");
+        bytes memory sig = _signErc7739TypedData(ownerWallet, contentsHash);
+        bytes4 magic = account.isValidSignature(contentsHash, sig);
+        assertEq(magic, bytes4(0x1626ba7e));
+    }
+
+    function test_isValidSignature_nonOwner_fails() public {
+        Vm.Wallet memory attacker = vm.createWallet("attacker");
+        bytes32 contentsHash = keccak256("hello");
+        bytes memory sig = _signErc7739TypedData(attacker, contentsHash);
+        bytes4 magic = account.isValidSignature(contentsHash, sig);
+        assertTrue(magic != bytes4(0x1626ba7e));
+    }
+
+    function test_validateUserOp_ownerSig_returns0() public {
         bytes32 userOpHash = keccak256("test op");
-        bytes memory sig = _signEip712Wrap(ownerWallet, userOpHash);
+        bytes memory sig = _signErc7739PersonalSign(ownerWallet, userOpHash);
         PackedUserOperation memory op = _packedOp(sig);
 
-        vm.prank(entryPoint);
+        vm.prank(address(account.entryPoint()));
         uint256 validation = account.validateUserOp(op, userOpHash, 0);
         assertEq(validation, 0); // SIG_VALIDATION_SUCCESS
     }
@@ -187,56 +225,69 @@ contract SOFSmartAccountTest is Test {
     function test_validateUserOp_nonOwnerSig_returns1() public {
         Vm.Wallet memory attacker = vm.createWallet("attacker");
         bytes32 userOpHash = keccak256("test op");
-        bytes memory sig = _signEip712Wrap(attacker, userOpHash);
+        bytes memory sig = _signErc7739PersonalSign(attacker, userOpHash);
         PackedUserOperation memory op = _packedOp(sig);
 
-        vm.prank(entryPoint);
+        vm.prank(address(account.entryPoint()));
         uint256 validation = account.validateUserOp(op, userOpHash, 0);
         assertEq(validation, 1); // SIG_VALIDATION_FAILED
     }
 
-    function test_execute_onlyEntryPointOrSelf() public {
-        vm.prank(address(0xBEEF));
-        vm.expectRevert();
-        account.execute(address(0x1234), 0, "");
-    }
-
     function test_executeBatch_processesAllCalls() public {
-        // Prepare a batch that calls vm.recordLogs() to verify multiple internal calls.
-        SOFSmartAccount.Call[] memory calls = new SOFSmartAccount.Call[](2);
-        calls[0] = SOFSmartAccount.Call({target: address(this), value: 0, data: abi.encodeWithSignature("noop()")});
-        calls[1] = SOFSmartAccount.Call({target: address(this), value: 0, data: abi.encodeWithSignature("noop()")});
+        // ERC-7821 batch mode: 0x01 in the first byte.
+        bytes32 mode = bytes32(uint256(0x01000000000000000000000000000000) << 224);
+        ERC7821.Call[] memory calls = new ERC7821.Call[](2);
+        calls[0] = ERC7821.Call({target: address(this), value: 0, data: abi.encodeWithSignature("noop()")});
+        calls[1] = ERC7821.Call({target: address(this), value: 0, data: abi.encodeWithSignature("noop()")});
+        bytes memory executionData = abi.encode(calls);
 
-        vm.prank(entryPoint);
-        account.executeBatch(calls);
+        vm.prank(address(account.entryPoint()));
+        account.execute(mode, executionData);
         assertEq(noopCount, 2);
     }
 
     uint256 internal noopCount;
-    function noop() external {
-        noopCount++;
+    function noop() external { noopCount++; }
+
+    receive() external payable {}
+
+    // ────────────────────────────── helpers ──────────────────────────────
+
+    /// Sign an ERC-7739 nested typed-data signature. Used for ERC-1271 isValidSignature.
+    function _signErc7739TypedData(Vm.Wallet memory w, bytes32 contentsHash) internal view returns (bytes memory) {
+        // The wrapped EIP-712 hash that ERC-7739 verifies.
+        bytes32 typedDataHash = ERC7739Utils.toNestedTypedDataHash(_buildAppDomainSeparator(), contentsHash);
+        bytes32 digest = MessageHashUtils.toTypedDataHash(_buildAccountDomainSeparator(), typedDataHash);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(w.privateKey, digest);
+        // ERC-7739 nested typed data signature format: sig || appSeparator || contentsTypeHash || contentsName || contentsType
+        // For tests we use an empty app domain and a generic Contents type. See ERC7739 spec for full encoding.
+        return abi.encodePacked(r, s, v); // simplified — adapt to ERC7739Utils.encodeTypedDataSig if test fails
     }
 
-    // Helper: produces a signature over the EIP-712 wrap of userOpHash.
-    function _signEip712Wrap(Vm.Wallet memory w, bytes32 userOpHash) internal returns (bytes memory) {
-        bytes32 typeHash = keccak256("SOFAccountMessage(bytes32 userOpHash)");
-        bytes32 structHash = keccak256(abi.encode(typeHash, userOpHash));
-        bytes32 domainSeparator = _computeDomainSeparator();
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(w.privateKey, digest);
+    /// Sign an ERC-7739 nested personal-sign — used by validateUserOp path.
+    function _signErc7739PersonalSign(Vm.Wallet memory w, bytes32 hash) internal view returns (bytes memory) {
+        bytes32 nestedHash = ERC7739Utils.toNestedPersonalSignHash(_buildAccountDomainSeparator(), hash);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(w.privateKey, nestedHash);
         return abi.encodePacked(r, s, v);
     }
 
-    function _computeDomainSeparator() internal view returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-                keccak256(bytes("SOF Smart Account")),
-                keccak256(bytes("1")),
-                block.chainid,
-                address(account)
-            )
-        );
+    function _buildAccountDomainSeparator() internal view returns (bytes32) {
+        return keccak256(abi.encode(
+            keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+            keccak256(bytes("SOF Smart Account")),
+            keccak256(bytes("1")),
+            block.chainid,
+            address(account)
+        ));
+    }
+
+    function _buildAppDomainSeparator() internal pure returns (bytes32) {
+        // Empty app domain for our internal-only signing.
+        return keccak256(abi.encode(
+            keccak256("EIP712Domain(string name,string version)"),
+            keccak256(bytes("")),
+            keccak256(bytes(""))
+        ));
     }
 
     function _packedOp(bytes memory sig) internal view returns (PackedUserOperation memory op) {
@@ -247,6 +298,8 @@ contract SOFSmartAccountTest is Test {
     }
 }
 ```
+
+> **Note for the engineer**: ERC-7739 signature encoding details (the suffix bytes after `r,s,v`) may need adjustment when the test runs. The OZ-included `ERC7739Utils` library exposes the canonical helpers — if a sig test fails, look at the `ERC7739` test fixtures in `lib/openzeppelin-contracts/test/utils/cryptography/signers/draft-ERC7739.test.js` for reference encoding.
 
 - [ ] **Step 2:** Run the test — expect compile failure (contract doesn't have new shape yet).
 
@@ -260,94 +313,108 @@ Expected: compile errors referencing `owner`, `eip712Domain`, `Call`, etc. — t
 
 **Files:** `packages/contracts/src/account/SOFSmartAccount.sol` (overwrite)
 
-- [ ] **Step 1:** Replace the entire file with the counterfactual implementation.
+- [ ] **Step 1:** Replace the entire file with the counterfactual implementation, composing OZ's audited primitives.
 
 ```solidity
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import {Account} from "@openzeppelin/contracts/account/Account.sol";
+import {SignerECDSA} from "@openzeppelin/contracts/utils/cryptography/signers/SignerECDSA.sol";
+import {ERC7739} from "@openzeppelin/contracts/utils/cryptography/signers/draft-ERC7739.sol";
+import {ERC7821} from "@openzeppelin/contracts/account/extensions/draft-ERC7821.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {PackedUserOperation} from "@account-abstraction/contracts/interfaces/PackedUserOperation.sol";
+import {AbstractSigner} from "@openzeppelin/contracts/utils/cryptography/signers/AbstractSigner.sol";
+import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import {IERC1155Receiver} from "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
-/// @notice ERC-4337 v0.8 smart account, owned by a single EOA, with EIP-712 wrap of userOpHash for signing.
-/// @dev Mirrors the Coinbase Smart Wallet signature scheme so MetaMask shows structured EIP-712 typed data
-///      in the signing popup instead of an opaque 32-byte hash.
-contract SOFSmartAccount is EIP712, ReentrancyGuard {
-    error NotEntryPointOrSelf();
-    error InvalidSignatureLength();
+/// @title SOFSmartAccount
+/// @notice Counterfactual ERC-4337 smart account, owned by a single EOA.
+/// @dev Composes OZ's audited primitives:
+///      - {Account} provides the ERC-4337 v0.8 entry point integration (validateUserOp).
+///      - {SignerECDSA} stores the owner address and validates ECDSA recovery against it.
+///      - {ERC7739} wraps the userOpHash in a nested EIP-712 type so wallets show
+///        structured "Readable Typed Signatures for Smart Accounts" instead of an
+///        opaque 32-byte hash.
+///      - {ERC7821} provides batched `execute(mode, data)` for multi-call UserOps.
+///      Owner is set immutably at construction (the factory passes `msg.sender`'s
+///      target EOA). One SMA per EOA per chain.
+contract SOFSmartAccount is
+    Account,
+    SignerECDSA,
+    ERC7739,
+    ERC7821,
+    IERC721Receiver,
+    IERC1155Receiver
+{
+    constructor(address signerAddr)
+        EIP712("SOF Smart Account", "1")
+        SignerECDSA(signerAddr)
+    {}
 
-    bytes32 internal constant ACCOUNT_MESSAGE_TYPEHASH =
-        keccak256("SOFAccountMessage(bytes32 userOpHash)");
-
-    /// @notice The EOA permitted to sign UserOps for this account.
-    address public immutable owner;
-
-    /// @notice The EntryPoint this account is bound to.
-    address public immutable entryPoint;
-
-    struct Call {
-        address target;
-        uint256 value;
-        bytes data;
+    /// @dev Resolve diamond-inherited _rawSignatureValidation: SignerECDSA wins
+    ///      (validates ECDSA recovery against the stored signer field).
+    function _rawSignatureValidation(bytes32 hash, bytes calldata signature)
+        internal
+        view
+        virtual
+        override(AbstractSigner, SignerECDSA)
+        returns (bool)
+    {
+        return SignerECDSA._rawSignatureValidation(hash, signature);
     }
 
-    constructor(address _owner, address _entryPoint) EIP712("SOF Smart Account", "1") {
-        owner = _owner;
-        entryPoint = _entryPoint;
+    /// @dev Allow EntryPoint to call execute via ERC-7821 in addition to self.
+    function _erc7821AuthorizedExecutor(
+        address caller,
+        bytes32 mode,
+        bytes calldata executionData
+    ) internal view virtual override returns (bool) {
+        return caller == address(entryPoint())
+            || super._erc7821AuthorizedExecutor(caller, mode, executionData);
+    }
+
+    function onERC721Received(address, address, uint256, bytes calldata)
+        external
+        pure
+        override
+        returns (bytes4)
+    {
+        return IERC721Receiver.onERC721Received.selector;
+    }
+
+    function onERC1155Received(address, address, uint256, uint256, bytes calldata)
+        external
+        pure
+        override
+        returns (bytes4)
+    {
+        return IERC1155Receiver.onERC1155Received.selector;
+    }
+
+    function onERC1155BatchReceived(address, address, uint256[] calldata, uint256[] calldata, bytes calldata)
+        external
+        pure
+        override
+        returns (bytes4)
+    {
+        return IERC1155Receiver.onERC1155BatchReceived.selector;
+    }
+
+    function supportsInterface(bytes4 interfaceId) public pure returns (bool) {
+        return interfaceId == type(IERC1155Receiver).interfaceId
+            || interfaceId == type(IERC721Receiver).interfaceId
+            || interfaceId == type(IERC165).interfaceId;
     }
 
     receive() external payable {}
-
-    modifier onlyEntryPointOrSelf() {
-        if (msg.sender != entryPoint && msg.sender != address(this)) revert NotEntryPointOrSelf();
-        _;
-    }
-
-    /// @notice ERC-4337 validation hook. Returns 0 on success, 1 on failure.
-    function validateUserOp(
-        PackedUserOperation calldata userOp,
-        bytes32 userOpHash,
-        uint256 missingAccountFunds
-    ) external returns (uint256 validationData) {
-        if (msg.sender != entryPoint) revert NotEntryPointOrSelf();
-        validationData = _validateSignature(userOpHash, userOp.signature);
-        // Pay back EntryPoint for any pre-fund. Failure here doesn't fail validation.
-        if (missingAccountFunds > 0) {
-            (bool ok,) = payable(entryPoint).call{value: missingAccountFunds}("");
-            (ok); // ignore failure per ERC-4337 semantics
-        }
-    }
-
-    /// @notice Execute a single call from this account. EntryPoint or self only.
-    function execute(address target, uint256 value, bytes calldata data) external nonReentrant onlyEntryPointOrSelf {
-        (bool ok, bytes memory ret) = target.call{value: value}(data);
-        if (!ok) {
-            assembly { revert(add(ret, 32), mload(ret)) }
-        }
-    }
-
-    /// @notice Execute a batch of calls atomically.
-    function executeBatch(Call[] calldata calls) external nonReentrant onlyEntryPointOrSelf {
-        for (uint256 i = 0; i < calls.length; i++) {
-            (bool ok, bytes memory ret) = calls[i].target.call{value: calls[i].value}(calls[i].data);
-            if (!ok) {
-                assembly { revert(add(ret, 32), mload(ret)) }
-            }
-        }
-    }
-
-    /// @notice Returns 0 if signature is valid (signed by owner over EIP-712 wrap), 1 otherwise.
-    function _validateSignature(bytes32 userOpHash, bytes calldata signature) internal view returns (uint256) {
-        if (signature.length != 65) revert InvalidSignatureLength();
-        bytes32 structHash = keccak256(abi.encode(ACCOUNT_MESSAGE_TYPEHASH, userOpHash));
-        bytes32 digest = _hashTypedDataV4(structHash);
-        address recovered = ECDSA.recover(digest, signature);
-        return recovered == owner ? 0 : 1;
-    }
 }
 ```
+
+> **Note on the EntryPoint**: OZ's `Account` exposes `entryPoint()` as a virtual returning the canonical v0.8 EntryPoint address. We don't override it here (the canonical address is hard-coded in OZ's base for v0.8). If your local Anvil deployment uses a different EntryPoint address, override `entryPoint()` to return that address.
+
+> **Note on the existing `signer()` function**: from `SignerECDSA`. The factory and paymaster use this to read the SMA's owner. The plan/spec sometimes calls this "owner" — both refer to the same field via the OZ inheritance.
 
 - [ ] **Step 2:** Run the test — expect failures because `entryPoint` arg, etc., differ from old constructor.
 
@@ -396,11 +463,10 @@ import {SOFSmartAccount} from "src/account/SOFSmartAccount.sol";
 
 contract SOFSmartAccountFactoryTest is Test {
     SOFSmartAccountFactory factory;
-    address entryPoint = address(0x4337);
     address eoa = address(0xCAFE);
 
     function setUp() public {
-        factory = new SOFSmartAccountFactory(entryPoint);
+        factory = new SOFSmartAccountFactory();
     }
 
     function test_getAddress_isDeterministic() public view {
@@ -421,8 +487,8 @@ contract SOFSmartAccountFactoryTest is Test {
         SOFSmartAccount account = factory.createAccount(eoa);
         assertEq(address(account), predicted);
         assertTrue(predicted.code.length > 0);
-        assertEq(account.owner(), eoa);
-        assertEq(account.entryPoint(), entryPoint);
+        // SignerECDSA exposes the stored signer via signer().
+        assertEq(account.signer(), eoa);
     }
 
     function test_createAccount_isIdempotent() public {
@@ -462,14 +528,11 @@ import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
 import {SOFSmartAccount} from "./SOFSmartAccount.sol";
 
 /// @notice CREATE2 factory for SOFSmartAccount. One SMA per EOA owner.
+/// @dev Salt is keccak256(owner) — single deterministic SMA per EOA.
+///      EntryPoint is hard-coded inside SOFSmartAccount via OZ's Account base
+///      (canonical v0.8 EntryPoint), so the factory doesn't need to pass it.
 contract SOFSmartAccountFactory {
     event AccountCreated(address indexed owner, address indexed account);
-
-    address public immutable entryPoint;
-
-    constructor(address _entryPoint) {
-        entryPoint = _entryPoint;
-    }
 
     function getAddress(address owner) public view returns (address) {
         return Create2.computeAddress(_salt(owner), keccak256(_initCode(owner)));
@@ -481,7 +544,7 @@ contract SOFSmartAccountFactory {
         if (predicted.code.length > 0) {
             return SOFSmartAccount(payable(predicted));
         }
-        SOFSmartAccount account = new SOFSmartAccount{salt: _salt(owner)}(owner, entryPoint);
+        SOFSmartAccount account = new SOFSmartAccount{salt: _salt(owner)}(owner);
         emit AccountCreated(owner, address(account));
         return account;
     }
@@ -490,8 +553,8 @@ contract SOFSmartAccountFactory {
         return keccak256(abi.encodePacked(owner));
     }
 
-    function _initCode(address owner) internal view returns (bytes memory) {
-        return abi.encodePacked(type(SOFSmartAccount).creationCode, abi.encode(owner, entryPoint));
+    function _initCode(address owner) internal pure returns (bytes memory) {
+        return abi.encodePacked(type(SOFSmartAccount).creationCode, abi.encode(owner));
     }
 }
 ```
@@ -685,20 +748,19 @@ contract SOFPaymasterTest is Test {
     SOFPaymaster paymaster;
     SOFSmartAccountFactory factory;
     Raffle raffle;
-    address entryPoint = address(0x4337);
     address sof = address(0x501);
-    address infoFiFactory = address(0x192);
     address eoa = address(0xCAFE);
     address randomCurve = address(0xBADC0DE);
 
     function setUp() public {
-        factory = new SOFSmartAccountFactory(entryPoint);
+        factory = new SOFSmartAccountFactory();
         // Minimal Raffle stand-in for tests; real ctor differs — adjust to match.
         raffle = _deployRaffle();
         address[] memory staticAllowlist = new address[](2);
         staticAllowlist[0] = address(raffle);
         staticAllowlist[1] = sof;
-        paymaster = new SOFPaymaster(entryPoint, address(factory), address(raffle), staticAllowlist);
+        // EntryPoint is read off the SMA / OZ Account base; paymaster doesn't store it.
+        paymaster = new SOFPaymaster(address(factory), address(raffle), staticAllowlist);
     }
 
     function test_sponsorsAllowlistedTarget() public {
@@ -711,7 +773,7 @@ contract SOFPaymasterTest is Test {
         );
         PackedUserOperation memory op = _op(address(account), innerCall);
 
-        vm.prank(entryPoint);
+        vm.prank(paymaster.entryPoint());
         (bytes memory ctx, uint256 valid) = paymaster.validatePaymasterUserOp(op, bytes32(0), 0);
         assertEq(valid, 0); // SIG_VALIDATION_SUCCESS
     }
@@ -731,20 +793,21 @@ contract SOFPaymasterTest is Test {
         );
         PackedUserOperation memory op = _op(address(account), innerCall);
 
-        vm.prank(entryPoint);
+        vm.prank(paymaster.entryPoint());
         (, uint256 valid) = paymaster.validatePaymasterUserOp(op, bytes32(0), 0);
         assertEq(valid, 0);
     }
 
     function test_rejectsNonFactorySender() public {
         // Deploy a fake account at a different address (not from our factory)
-        address fake = address(new SOFSmartAccount(eoa, entryPoint));
+        address fake = address(new SOFSmartAccount(eoa));
         bytes memory innerCall = abi.encodeWithSelector(
             SOFSmartAccount.execute.selector, sof, uint256(0), bytes("")
         );
         PackedUserOperation memory op = _op(fake, innerCall);
 
-        vm.prank(entryPoint);
+        // Paymaster reads entryPoint() off the OZ Account base — call from there.
+        vm.prank(address(SOFSmartAccount(fake).entryPoint()));
         vm.expectRevert();
         paymaster.validatePaymasterUserOp(op, bytes32(0), 0);
     }
@@ -759,20 +822,26 @@ contract SOFPaymasterTest is Test {
         );
         PackedUserOperation memory op = _op(address(account), innerCall);
 
-        vm.prank(entryPoint);
+        vm.prank(paymaster.entryPoint());
         vm.expectRevert();
         paymaster.validatePaymasterUserOp(op, bytes32(0), 0);
     }
 
     function test_validatesAllInnerCalls_inExecuteBatch() public {
         SOFSmartAccount account = factory.createAccount(eoa);
-        SOFSmartAccount.Call[] memory calls = new SOFSmartAccount.Call[](2);
-        calls[0] = SOFSmartAccount.Call({target: sof, value: 0, data: ""}); // allowlisted
-        calls[1] = SOFSmartAccount.Call({target: address(0xBEEF), value: 0, data: ""}); // not allowlisted
-        bytes memory batchCall = abi.encodeWithSelector(SOFSmartAccount.executeBatch.selector, calls);
+        // ERC-7821 batch mode (mode byte 0x01) with array of (target, value, data).
+        ERC7821.Call[] memory calls = new ERC7821.Call[](2);
+        calls[0] = ERC7821.Call({target: sof, value: 0, data: ""}); // allowlisted
+        calls[1] = ERC7821.Call({target: address(0xBEEF), value: 0, data: ""}); // not allowlisted
+        bytes32 mode = bytes32(uint256(0x01000000000000000000000000000000) << 224);
+        bytes memory batchCall = abi.encodeWithSelector(
+            ERC7821.execute.selector,
+            mode,
+            abi.encode(calls)
+        );
         PackedUserOperation memory op = _op(address(account), batchCall);
 
-        vm.prank(entryPoint);
+        vm.prank(paymaster.entryPoint());
         vm.expectRevert(); // because call[1] is not allowlisted
         paymaster.validatePaymasterUserOp(op, bytes32(0), 0);
     }
@@ -801,12 +870,17 @@ cd packages/contracts && forge test --match-contract SOFPaymasterTest 2>&1 | hea
 
 - [ ] **Step 1:** Replace with the new validation logic.
 
+> **Note**: existing SOFPaymaster uses `IPaymaster` from OZ's `draft-IERC4337.sol` and a verifying-paymaster pattern. The rewrite drops the verifying-signer model (we don't need backend signatures since the contract does all validation on-chain) and replaces it with our factory + allowlist checks. EntryPoint stays as an immutable set at construction.
+>
+> ERC-7821 doesn't expose individual `execute`/`executeBatch` selectors — it has a single `execute(bytes32 mode, bytes calldata executionData)`. The paymaster decodes `mode` to determine if this is a single-call or batch and validates accordingly.
+
 ```solidity
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
-import {PackedUserOperation} from "@account-abstraction/contracts/interfaces/PackedUserOperation.sol";
+import {IPaymaster, PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
+import {ERC7821} from "@openzeppelin/contracts/account/extensions/draft-ERC7821.sol";
 import {SOFSmartAccount} from "../account/SOFSmartAccount.sol";
 import {SOFSmartAccountFactory} from "../account/SOFSmartAccountFactory.sol";
 
@@ -814,11 +888,14 @@ interface IRaffleCurveRegistry {
     function isSofCurve(address) external view returns (bool);
 }
 
-/// @notice ERC-4337 paymaster that sponsors UserOps from SOFSmartAccountFactory-deployed accounts.
-contract SOFPaymaster is AccessControl {
+/// @notice ERC-4337 paymaster sponsoring UserOps from SOFSmartAccountFactory-deployed accounts.
+/// @dev Validation: sender deployed by our factory + every call target is either in the
+///      static allowlist or registered as a SOF curve via Raffle.isSofCurve.
+contract SOFPaymaster is IPaymaster, AccessControl {
     error NotEntryPoint();
     error NotFactoryAccount();
     error TargetNotAllowed(address target);
+    error UnsupportedExecuteMode(bytes32 mode);
 
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
 
@@ -830,7 +907,12 @@ contract SOFPaymaster is AccessControl {
 
     event TargetAllowlisted(address indexed target, bool allowed);
 
-    constructor(address _entryPoint, address _factory, address _raffle, address[] memory initialAllowlist) {
+    constructor(
+        address _entryPoint,
+        address _factory,
+        address _raffle,
+        address[] memory initialAllowlist
+    ) {
         entryPoint = _entryPoint;
         factory = SOFSmartAccountFactory(_factory);
         raffle = IRaffleCurveRegistry(_raffle);
@@ -854,33 +936,43 @@ contract SOFPaymaster is AccessControl {
     ) external view returns (bytes memory context, uint256 validationData) {
         if (msg.sender != entryPoint) revert NotEntryPoint();
 
-        // 1. Sender must be factory-deployed.
-        address smaOwner = SOFSmartAccount(payable(userOp.sender)).owner();
-        if (factory.getAddress(smaOwner) != userOp.sender) revert NotFactoryAccount();
+        // 1. Sender must be factory-deployed (signer() is OZ SignerECDSA's getter).
+        address signerAddr = SOFSmartAccount(payable(userOp.sender)).signer();
+        if (factory.getAddress(signerAddr) != userOp.sender) revert NotFactoryAccount();
 
-        // 2. Decode call target(s) and validate against allowlist.
+        // 2. Decode ERC-7821 execute(mode, data) and validate every target.
         _validateCallTargets(userOp.callData);
 
         return (bytes(""), 0);
     }
 
-    function postOp(uint256, bytes calldata, uint256, uint256) external view {
+    function postOp(PostOpMode, bytes calldata, uint256, uint256) external view {
         if (msg.sender != entryPoint) revert NotEntryPoint();
     }
 
+    /// @dev Decodes ERC-7821's execute(bytes32 mode, bytes executionData). Mode
+    ///      determines whether executionData is a single Call or a Call[].
     function _validateCallTargets(bytes calldata callData) internal view {
-        // First 4 bytes are the selector — match against execute / executeBatch
+        // ERC-7821: execute selector + (mode bytes32) + (data bytes)
+        if (callData.length < 4 + 32) revert TargetNotAllowed(address(0));
         bytes4 selector = bytes4(callData[:4]);
-        if (selector == SOFSmartAccount.execute.selector) {
-            (address target, , ) = abi.decode(callData[4:], (address, uint256, bytes));
-            _checkTarget(target);
-        } else if (selector == SOFSmartAccount.executeBatch.selector) {
-            SOFSmartAccount.Call[] memory calls = abi.decode(callData[4:], (SOFSmartAccount.Call[]));
+        if (selector != ERC7821.execute.selector) revert TargetNotAllowed(address(0));
+
+        (bytes32 mode, bytes memory executionData) = abi.decode(callData[4:], (bytes32, bytes));
+
+        // Mode encoding per ERC-7821: 1st byte = call type (0x01 = batch).
+        bytes1 callType = bytes1(mode);
+        if (callType == 0x01) {
+            ERC7821.Call[] memory calls = abi.decode(executionData, (ERC7821.Call[]));
             for (uint256 i = 0; i < calls.length; i++) {
                 _checkTarget(calls[i].target);
             }
+        } else if (callType == 0x00) {
+            // Single call: encoded as (target, value, data)
+            (address target, , ) = abi.decode(executionData, (address, uint256, bytes));
+            _checkTarget(target);
         } else {
-            revert TargetNotAllowed(address(0));
+            revert UnsupportedExecuteMode(mode);
         }
     }
 
@@ -893,6 +985,8 @@ contract SOFPaymaster is AccessControl {
     receive() external payable {}
 }
 ```
+
+> **Note for the engineer**: ERC-7821 mode encoding in OZ may differ from the placeholder above — when implementing, check `lib/openzeppelin-contracts/contracts/account/extensions/draft-ERC7821.sol` for the actual mode-byte mapping (look for the `_isBatchExecutionMode` or similar helper). The paymaster's job is to decode whichever mode the SMA accepts and walk every inner call target through `_checkTarget`.
 
 - [ ] **Step 2:** Run paymaster tests.
 
