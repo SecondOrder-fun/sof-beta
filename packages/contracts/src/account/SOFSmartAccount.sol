@@ -10,6 +10,9 @@ import {AbstractSigner} from "@openzeppelin/contracts/utils/cryptography/signers
 import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import {IERC1155Receiver} from "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
+
+error SOFSmartAccountInvalidSigner();
 
 /// @title SOFSmartAccount
 /// @notice Counterfactual ERC-4337 v0.8 smart account, owned by a single EOA.
@@ -46,19 +49,26 @@ contract SOFSmartAccount is
     constructor(address signerAddr)
         EIP712("SOF Smart Account", "1")
         SignerECDSA(signerAddr)
-    {}
+    {
+        // Defense in depth: SignerECDSA._setSigner doesn't check for zero,
+        // and a zero signer pairs with malformed-signature recovery to
+        // silently accept invalid sigs. Factory should validate too.
+        if (signerAddr == address(0)) revert SOFSmartAccountInvalidSigner();
+    }
 
     // ──────────────────────────────────────────────────────────────────
     // Diamond-inheritance resolution
     // ──────────────────────────────────────────────────────────────────
 
     /// @dev `_rawSignatureValidation` is virtual in {AbstractSigner} and
-    ///      overridden in both {SignerECDSA} (recovers ECDSA against the
-    ///      stored signer) and inherited via {ERC7739} (which calls
-    ///      `_rawSignatureValidation` on the wrapped digest). We bind the
-    ///      resolution to {SignerECDSA}'s recovery — calling
-    ///      `super._rawSignatureValidation` here would re-enter ERC7739 and
-    ///      recurse. The explicit call below short-circuits to ECDSA.
+    ///      overridden by {SignerECDSA} (recovers ECDSA against the stored
+    ///      signer). {ERC7739} *consumes* the hook — it does NOT override
+    ///      it; its `isValidSignature` calls `_rawSignatureValidation` on a
+    ///      nested-EIP-712-wrapped digest. We bind the override to
+    ///      {SignerECDSA} via the explicit `override(AbstractSigner,
+    ///      SignerECDSA)` declaration. The explicit call below is equivalent
+    ///      to `super._rawSignatureValidation` here (only one parent
+    ///      implements the function), and is written this way for clarity.
     function _rawSignatureValidation(bytes32 hash, bytes calldata signature)
         internal
         view
@@ -120,6 +130,7 @@ contract SOFSmartAccount is
     function supportsInterface(bytes4 interfaceId) public pure virtual returns (bool) {
         return interfaceId == type(IERC721Receiver).interfaceId
             || interfaceId == type(IERC1155Receiver).interfaceId
+            || interfaceId == type(IERC1271).interfaceId
             || interfaceId == type(IERC165).interfaceId;
     }
 
