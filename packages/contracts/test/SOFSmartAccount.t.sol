@@ -8,6 +8,7 @@ import {ERC7739Utils} from "@openzeppelin/contracts/utils/cryptography/draft-ERC
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
+import {Account} from "@openzeppelin/contracts/account/Account.sol";
 
 /// @title SOFSmartAccountTest
 /// @notice Unit tests for the rewritten counterfactual ERC-4337 v0.8 account.
@@ -143,7 +144,10 @@ contract SOFSmartAccountTest is Test {
         bytes memory sig = _signRaw(ownerWallet, userOpHash);
         PackedUserOperation memory op = _packedOp(sig);
 
-        vm.expectRevert();
+        // Tighter than bare expectRevert: assert the specific OZ error so a
+        // future regression that reverts for a different reason (OOG, wrong
+        // selector, etc.) doesn't silently pass.
+        vm.expectRevert(abi.encodeWithSelector(Account.AccountUnauthorized.selector, address(this)));
         account.validateUserOp(op, userOpHash, 0);
     }
 
@@ -167,7 +171,11 @@ contract SOFSmartAccountTest is Test {
         calls[0] = Execution({target: address(this), value: 0, callData: abi.encodeWithSignature("noop()")});
         bytes memory executionData = abi.encode(calls);
 
-        vm.expectRevert();
+        // ERC7821 also reverts via Account.AccountUnauthorized when the caller
+        // is neither the EntryPoint nor self. Asserting the exact error makes
+        // this test catch regressions that swap the modifier for a different
+        // revert path.
+        vm.expectRevert(abi.encodeWithSelector(Account.AccountUnauthorized.selector, address(0xBEEF)));
         vm.prank(address(0xBEEF));
         account.execute(ERC7821_BATCH_MODE, executionData);
     }
