@@ -54,6 +54,15 @@ contract ConfigureRoles is Script {
             console2.log("SeasonFactory on Raffle already set");
         }
 
+        // 4b. raffle.grantRole(SEASON_FACTORY_ROLE, seasonFactory)
+        // Required by Raffle.registerCurve, called from SeasonFactory.createSeasonContracts.
+        // Without this, the first createSeason() reverts on the registerCurve hook.
+        try raffle.grantRole(raffle.SEASON_FACTORY_ROLE(), address(seasonFactory)) {
+            console2.log("Granted SEASON_FACTORY_ROLE on Raffle to SeasonFactory");
+        } catch {
+            console2.log("SEASON_FACTORY_ROLE on Raffle for SeasonFactory already set");
+        }
+
         // 5. oracleAdapter.grantRole(RESOLVER_ROLE, infoFiFactory)
         try oracleAdapter.grantRole(oracleAdapter.RESOLVER_ROLE(), addrs.infoFiFactory) {
             console2.log("Granted RESOLVER_ROLE on OracleAdapter to InfoFiFactory");
