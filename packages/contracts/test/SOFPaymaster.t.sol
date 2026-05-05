@@ -40,9 +40,10 @@ contract SOFPaymasterTest is Test {
     ///      so we don't need a real EntryPoint contract here.
     address internal entryPoint = address(0xEEEE);
 
-    address internal eoa = address(0xCAFE);
-    address internal randomCurve = address(0xBADC0DE);
-    address internal nonAllowlistedTarget = address(0xBEEF);
+    address internal constant EOA_OWNER = address(0x0E0A);
+    address internal constant RANDOM_CURVE = address(0xBADC0DE);
+    address internal constant NON_ALLOWLISTED_TARGET = address(0xBEEF);
+    address internal constant VRF_COORDINATOR_PLACEHOLDER = address(0xC00D);
 
     function setUp() public {
         // Real SOFToken so allowlist entries are non-zero, real addresses.
@@ -51,7 +52,7 @@ contract SOFPaymasterTest is Test {
         // Real Raffle so we can exercise registerCurve / isSofCurve. The mock
         // VRF coordinator address is fine — the paymaster path doesn't touch
         // VRF. Pattern mirrors test/SeasonFactoryRollover.t.sol:28.
-        raffle = new Raffle(address(sof), address(0xCAFE), 0, bytes32(0));
+        raffle = new Raffle(address(sof), VRF_COORDINATOR_PLACEHOLDER, 0, bytes32(0));
 
         factory = new SOFSmartAccountFactory();
 
@@ -109,7 +110,7 @@ contract SOFPaymasterTest is Test {
     /// @notice Sender deployed via factory + only target is in static allowlist
     ///         → paymaster returns SIG_VALIDATION_SUCCESS (validationData == 0).
     function test_sponsorsAllowlistedTarget() public {
-        SOFSmartAccount account = factory.createAccount(eoa);
+        SOFSmartAccount account = factory.createAccount(EOA_OWNER);
 
         bytes memory callData = _singleCallBatch(address(sof));
         PackedUserOperation memory op = _userOp(address(account), callData);
@@ -128,12 +129,12 @@ contract SOFPaymasterTest is Test {
         // Test contract holds DEFAULT_ADMIN_ROLE on raffle (it deployed it),
         // so it can grant SEASON_FACTORY_ROLE to itself and call registerCurve.
         raffle.grantRole(raffle.SEASON_FACTORY_ROLE(), address(this));
-        raffle.registerCurve(randomCurve);
-        assertTrue(raffle.isSofCurve(randomCurve), "precondition: curve should be registered");
+        raffle.registerCurve(RANDOM_CURVE);
+        assertTrue(raffle.isSofCurve(RANDOM_CURVE), "precondition: curve should be registered");
 
-        SOFSmartAccount account = factory.createAccount(eoa);
+        SOFSmartAccount account = factory.createAccount(EOA_OWNER);
 
-        bytes memory callData = _singleCallBatch(randomCurve);
+        bytes memory callData = _singleCallBatch(RANDOM_CURVE);
         PackedUserOperation memory op = _userOp(address(account), callData);
 
         vm.prank(entryPoint);
@@ -147,11 +148,11 @@ contract SOFPaymasterTest is Test {
     ///         sender → paymaster reverts.
     function test_rejectsNonFactorySender() public {
         // Direct deploy of a SOFSmartAccount — its address is NOT the CREATE2
-        // address the factory would produce for `eoa`.
-        SOFSmartAccount fake = new SOFSmartAccount(eoa);
+        // address the factory would produce for `EOA_OWNER`.
+        SOFSmartAccount fake = new SOFSmartAccount(EOA_OWNER);
         // Sanity check: confirm addresses differ so the paymaster check is meaningful.
         assertTrue(
-            address(fake) != factory.getAddress(eoa),
+            address(fake) != factory.getAddress(EOA_OWNER),
             "precondition: directly-deployed account address must differ from factory's CREATE2 address"
         );
 
@@ -159,7 +160,10 @@ contract SOFPaymasterTest is Test {
         PackedUserOperation memory op = _userOp(address(fake), callData);
 
         vm.prank(entryPoint);
-        vm.expectRevert();
+        // Per plan Task 1.11 stub: paymaster reverts with NotFactoryAccount()
+        // when factory.getAddress(account.signer()) != sender. Typed expect so
+        // the test fails loudly if Task 1.11 reverts via some unrelated path.
+        vm.expectRevert(SOFPaymaster.NotFactoryAccount.selector);
         paymaster.validatePaymasterUserOp(op, bytes32(0), 0);
     }
 
@@ -167,14 +171,14 @@ contract SOFPaymasterTest is Test {
     ///         allowlist nor a registered curve → paymaster reverts with
     ///         `TargetNotAllowed(target)`.
     function test_rejectsNonAllowlistedTarget() public {
-        SOFSmartAccount account = factory.createAccount(eoa);
+        SOFSmartAccount account = factory.createAccount(EOA_OWNER);
 
-        bytes memory callData = _singleCallBatch(nonAllowlistedTarget);
+        bytes memory callData = _singleCallBatch(NON_ALLOWLISTED_TARGET);
         PackedUserOperation memory op = _userOp(address(account), callData);
 
         vm.prank(entryPoint);
         vm.expectRevert(
-            abi.encodeWithSignature("TargetNotAllowed(address)", nonAllowlistedTarget)
+            abi.encodeWithSignature("TargetNotAllowed(address)", NON_ALLOWLISTED_TARGET)
         );
         paymaster.validatePaymasterUserOp(op, bytes32(0), 0);
     }
@@ -184,18 +188,18 @@ contract SOFPaymasterTest is Test {
     ///         paymaster reverts. Specifically: call[0] is allowlisted, call[1]
     ///         is not → revert.
     function test_validatesAllInnerCalls_inExecuteBatch() public {
-        SOFSmartAccount account = factory.createAccount(eoa);
+        SOFSmartAccount account = factory.createAccount(EOA_OWNER);
 
         address[] memory targets = new address[](2);
         targets[0] = address(sof); // allowlisted
-        targets[1] = nonAllowlistedTarget; // NOT allowlisted, NOT a curve
+        targets[1] = NON_ALLOWLISTED_TARGET; // NOT allowlisted, NOT a curve
 
         bytes memory callData = _multiCallBatch(targets);
         PackedUserOperation memory op = _userOp(address(account), callData);
 
         vm.prank(entryPoint);
         vm.expectRevert(
-            abi.encodeWithSignature("TargetNotAllowed(address)", nonAllowlistedTarget)
+            abi.encodeWithSignature("TargetNotAllowed(address)", NON_ALLOWLISTED_TARGET)
         );
         paymaster.validatePaymasterUserOp(op, bytes32(0), 0);
     }
