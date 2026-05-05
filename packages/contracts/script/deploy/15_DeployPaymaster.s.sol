@@ -5,7 +5,6 @@ import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 import {DeployedAddresses} from "./DeployedAddresses.sol";
 import {SOFPaymaster} from "../../src/paymaster/SOFPaymaster.sol";
-import {IEntryPoint} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
 
 contract DeployPaymaster is Script {
     /// @dev Canonical EntryPoint v0.8 address — same on every chain via
@@ -36,14 +35,27 @@ contract DeployPaymaster is Script {
             console2.log("EntryPoint v0.8 verified at canonical (code length:", epCodeLen, ")");
         }
 
-        IEntryPoint entryPoint = IEntryPoint(ENTRY_POINT_V08);
-
         vm.startBroadcast(deployerKey);
-        // Constructor: (entryPoint, verifyingSigner, owner). On testnet/mainnet
-        // both default to the deployer; rotate via setSigner / Ownable transfer
-        // immediately after deploy if you want signer != owner. See
-        // docs/02-architecture/paymaster-signer-rotation.md.
-        SOFPaymaster paymaster = new SOFPaymaster(entryPoint, deployer, deployer);
+        // New constructor (gasless rewrite §3.3):
+        //   (entryPoint, factory, raffle, initialAllowlist).
+        // TODO(Task 2.2): wire the SOFSmartAccountFactory address (not yet in
+        // DeployedAddresses) and a real allowlist from the deployments struct.
+        // For now we pass the raffle from the struct, address(0) for factory
+        // (placeholder until Task 2.1 adds the factory deploy step), and an
+        // empty initial allowlist — Task 2.2 owns the proper wiring. The
+        // deploy chain will produce a non-functional paymaster until then,
+        // but builds + tests pass and Task 2.2 swaps in the real values.
+        address[] memory initialAllowlist = new address[](0);
+        SOFPaymaster paymaster = new SOFPaymaster(
+            ENTRY_POINT_V08,
+            address(0),
+            addrs.raffle,
+            initialAllowlist
+        );
+        // Silence unused-var warning until Task 2.2 reintroduces deployer
+        // role assignment (Ownable was dropped in favour of AccessControl;
+        // grants stay implicit since msg.sender is already DEFAULT_ADMIN).
+        deployer;
         vm.stopBroadcast();
 
         addrs.paymasterAddress = address(paymaster);
