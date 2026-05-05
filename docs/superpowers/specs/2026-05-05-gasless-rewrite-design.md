@@ -61,7 +61,7 @@ contract SOFSmartAccountFactory {
 
 Sponsors UserOps from accounts deployed by `SOFSmartAccountFactory`, calling allowlisted contracts. Validation logic in `validatePaymasterUserOp`:
 
-1. Read `address smaOwner = SOFSmartAccount(userOp.sender).owner()` (uses the public getter from §3.1). Compute `address expected = factory.getAddress(smaOwner)`. Reject unless `userOp.sender == expected` — proves the SMA was deployed by our factory.
+1. Read `address smaOwner = SOFSmartAccount(userOp.sender).signer()` (the public getter exposed by `SignerECDSA` per §3.1 — semantically the SMA's EOA owner). Compute `address expected = factory.getAddress(smaOwner)`. Reject unless `userOp.sender == expected` — proves the SMA was deployed by our factory.
 2. Decode the UserOp's first call target. Approve if either:
    - Target ∈ static allowlist `{Raffle, SOFToken, InfoFiFactory, InfoFiSettlement, InfoFiFPMM, RaffleOracleAdapter, RolloverEscrow, SOFExchange}`, OR
    - `IRaffle(raffle).isSofCurve(target) == true`.
