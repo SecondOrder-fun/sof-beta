@@ -316,6 +316,10 @@ contract MockERC20 {
 // SEASON_CREATOR_ROLE / BONDING_CURVE_ROLE — only the SeasonFactory may
 // register a deployed bonding curve so the SOFPaymaster can validate it.
 contract RaffleSofCurveRegistryTest is Test {
+    /// @dev Mirrors the event Task 1.8 will declare on Raffle. Test-local
+    ///      declaration suffices for vm.expectEmit's selector lookup.
+    event SofCurveRegistered(address indexed curve);
+
     Raffle public raffle;
     MockERC20 public sof;
     address public seasonFactory = address(0xF0F0);
@@ -348,9 +352,30 @@ contract RaffleSofCurveRegistryTest is Test {
 
     function test_registerCurve_marksAsSofCurve() public {
         address curve = address(0xC0);
+
+        // Pin both the storage flip AND the event emission. Off-chain
+        // consumers (paymaster proxies, indexers) subscribe to
+        // SofCurveRegistered to track curve liveness; if the impl drops
+        // the emit, no other test catches it.
+        vm.expectEmit(true, false, false, true, address(raffle));
+        emit SofCurveRegistered(curve);
+
         vm.prank(seasonFactory);
         raffle.registerCurve(curve);
         assertTrue(raffle.isSofCurve(curve));
+    }
+
+    function test_registerCurve_tracksMultipleCurvesIndependently() public {
+        address curveA = address(0xC0);
+        address curveB = address(0xC1);
+
+        vm.startPrank(seasonFactory);
+        raffle.registerCurve(curveA);
+        raffle.registerCurve(curveB);
+        vm.stopPrank();
+
+        assertTrue(raffle.isSofCurve(curveA));
+        assertTrue(raffle.isSofCurve(curveB));
     }
 
     function test_isSofCurve_returnsFalseForUnregistered() public view {
