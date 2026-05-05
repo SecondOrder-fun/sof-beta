@@ -121,6 +121,7 @@ contract RaffleVRFTest is Test {
         // Wire SeasonFactory required by Raffle.createSeason
         SeasonFactory factory = new SeasonFactory(address(raffle));
         raffle.setSeasonFactory(address(factory));
+        raffle.grantRole(raffle.SEASON_FACTORY_ROLE(), address(factory));
 
         // Set up prize distributor
         RafflePrizeDistributor distributor = new RafflePrizeDistributor(address(this));

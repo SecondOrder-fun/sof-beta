@@ -129,6 +129,7 @@ contract CriticalCoverageGapsTest is Test {
 
         factory = new SeasonFactory(address(raffle));
         raffle.setSeasonFactory(address(factory));
+        raffle.grantRole(raffle.SEASON_FACTORY_ROLE(), address(factory));
 
         distributor = new RafflePrizeDistributor(admin);
         distributor.grantRole(distributor.RAFFLE_ROLE(), address(raffle));

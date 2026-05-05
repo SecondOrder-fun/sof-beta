@@ -77,6 +77,7 @@ contract RaffleConsolationChunkedTest is Test {
         raffle = new RaffleHarness(address(sof), address(0xC0DE), 0, bytes32(0));
         factory = new SeasonFactory(address(raffle));
         raffle.setSeasonFactory(address(factory));
+        raffle.grantRole(raffle.SEASON_FACTORY_ROLE(), address(factory));
         distributor = new RafflePrizeDistributor(address(this));
         distributor.grantRole(distributor.RAFFLE_ROLE(), address(raffle));
         raffle.setPrizeDistributor(address(distributor));

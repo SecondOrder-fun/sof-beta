@@ -89,6 +89,7 @@ contract RaffleFinalizeSeasonTest is Test {
 
         factory = new SeasonFactory(address(raffle));
         raffle.setSeasonFactory(address(factory));
+        raffle.grantRole(raffle.SEASON_FACTORY_ROLE(), address(factory));
 
         distributor = new RafflePrizeDistributor(address(this));
         distributor.grantRole(distributor.RAFFLE_ROLE(), address(raffle));

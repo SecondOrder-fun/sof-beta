@@ -13,4 +13,8 @@ interface IRaffle {
     function setPositionTrackerForSeason(uint256 seasonId, address tracker) external;
 
     function getVrfRequestForSeason(uint256 seasonId) external view returns (uint256);
+
+    function registerCurve(address curve) external;
+
+    function isSofCurve(address curve) external view returns (bool);
 }
