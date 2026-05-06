@@ -86,6 +86,11 @@ function useContractWriteWithFeedback(mutationOptions) {
       }
 
       try {
+        // Admin writes (createSeason, startSeason, requestSeasonEnd,
+        // requestSeasonEndEarly) flow through Path A like any other user.
+        // The deploy script (14_ConfigureRoles) grants the same on-chain
+        // roles to each admin's deterministic SMA so msg.sender == SMA
+        // satisfies AccessControl.
         return await executeBatch([{
           to: config.address,
           data: encodeFunctionData({
@@ -95,12 +100,6 @@ function useContractWriteWithFeedback(mutationOptions) {
           }),
         }], {
           sofAmount: 0n,
-          // Admin/raffle writes (createSeason, startSeason, requestSeasonEnd...)
-          // need msg.sender to be the role-holder EOA. The Path A
-          // counterfactual-SMA flow would set msg.sender = SMA which doesn't
-          // hold any roles → UnauthorizedCaller. Admins don't need sponsored
-          // gas anyway, so bypass Path A and use the wallet's direct send.
-          bypassSponsorship: true,
         });
       } catch (writeErr) {
         if (writeErr && typeof writeErr === 'object') {

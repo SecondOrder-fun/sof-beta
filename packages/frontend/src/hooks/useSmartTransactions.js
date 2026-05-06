@@ -152,6 +152,12 @@ export function useSmartTransactions() {
    * @param {Array<{to: string, data: string, value?: bigint}>} calls - Raw calls to batch
    * @param {object} options - Additional options for sendCalls
    * @param {bigint} [options.sofAmount] - SOF amount for fee calculation (required when paymaster is active)
+   * @param {boolean} [options.bypassSponsorship] - **Use sparingly.** Forces the
+   *   per-call EOA-direct send path (skips Path A counterfactual SMA + UserOp).
+   *   Only needed when the target contract specifically checks an EOA signature
+   *   *and* the EOA's SMA cannot satisfy that check (i.e. role grants on the SMA
+   *   are infeasible). Default `false` — admin writes route through Path A now
+   *   that 14_ConfigureRoles grants admin roles to admin SMAs.
    */
   const executeBatch = useCallback(async (calls, options = {}) => {
     const { sofAmount, bypassSponsorship, ...sendOptions } = options;
@@ -169,9 +175,12 @@ export function useSmartTransactions() {
     // paymaster URL is unset for the target chain), we fall through to the
     // per-call sendTransaction guard at the bottom of this branch.
     //
-    // `bypassSponsorship` opts a call out of Path A entirely — admin writes
-    // (createSeason, etc.) need msg.sender == role-holder EOA, not SMA, or
-    // AccessControl reverts UnauthorizedCaller.
+    // `bypassSponsorship` opts a call out of Path A entirely. Reserved for
+    // edge cases where the contract specifically checks an EOA signature and
+    // the EOA's SMA cannot hold the matching role (e.g. one-off ownership
+    // proofs or migrations from contracts whose role admins can't be reached).
+    // Admin writes no longer use this — 14_ConfigureRoles grants admin roles
+    // to admin SMAs, so they route through Path A like every other user.
     if (!bypassSponsorship && walletType === 'desktop-eoa' && !isCoinbaseWallet) {
       // Hard requirements for Path A. Loud failure beats silent EOA fallback.
       if (!walletClient) throw new Error('Wallet client not ready');
@@ -211,9 +220,9 @@ export function useSmartTransactions() {
       return receipt.receipt.transactionHash;
     }
 
-    // ─── Per-call fallback (admin bypass OR non-desktop-eoa, non-Coinbase) ───
+    // ─── Per-call fallback (escape hatch OR non-desktop-eoa, non-Coinbase) ───
     // Reached when:
-    //   - bypassSponsorship: true (admin writes that need msg.sender = EOA), OR
+    //   - bypassSponsorship: true (rare; see comment above), OR
     //   - walletType is not 'desktop-eoa' AND not Coinbase (e.g. unknown injected
     //     wallet that doesn't advertise atomic batching).
     // Never reached for desktop-eoa users — that path either succeeds via
