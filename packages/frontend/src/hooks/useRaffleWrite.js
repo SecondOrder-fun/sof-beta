@@ -93,7 +93,15 @@ function useContractWriteWithFeedback(mutationOptions) {
             functionName: config.functionName,
             args: config.args,
           }),
-        }], { sofAmount: 0n });
+        }], {
+          sofAmount: 0n,
+          // Admin/raffle writes (createSeason, startSeason, requestSeasonEnd...)
+          // need msg.sender to be the role-holder EOA. The Path A
+          // counterfactual-SMA flow would set msg.sender = SMA which doesn't
+          // hold any roles → UnauthorizedCaller. Admins don't need sponsored
+          // gas anyway, so bypass Path A and use the wallet's direct send.
+          bypassSponsorship: true,
+        });
       } catch (writeErr) {
         if (writeErr && typeof writeErr === 'object') {
           writeErr.shortMessage = buildFriendlyMessage(config.abi, writeErr, 'Write failed');

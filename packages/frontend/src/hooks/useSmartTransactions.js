@@ -154,7 +154,7 @@ export function useSmartTransactions() {
    * @param {bigint} [options.sofAmount] - SOF amount for fee calculation (required when paymaster is active)
    */
   const executeBatch = useCallback(async (calls, options = {}) => {
-    const { sofAmount, ...sendOptions } = options;
+    const { sofAmount, bypassSponsorship, ...sendOptions } = options;
 
     const isCoinbaseWallet = connector?.id === 'coinbaseWalletSDK';
     const hasAtomic = chainCaps.atomicStatus === 'ready' || chainCaps.atomicStatus === 'supported';
@@ -168,41 +168,59 @@ export function useSmartTransactions() {
     // The factory address is per-network — when it isn't deployed (or the
     // paymaster URL is unset for the target chain), we fall through to the
     // per-call sendTransaction guard at the bottom of this branch.
-    if (walletType === 'desktop-eoa' && !isCoinbaseWallet && walletClient && publicClient) {
+    //
+    // `bypassSponsorship` opts a call out of Path A entirely — admin writes
+    // (createSeason, etc.) need msg.sender == role-holder EOA, not SMA, or
+    // AccessControl reverts UnauthorizedCaller.
+    if (!bypassSponsorship && walletType === 'desktop-eoa' && !isCoinbaseWallet) {
+      // Hard requirements for Path A. Loud failure beats silent EOA fallback.
+      if (!walletClient) throw new Error('Wallet client not ready');
+      if (!publicClient) throw new Error('Public client not ready');
+
       const contracts = getContractAddresses(getStoredNetworkKey());
       const factoryAddr = contracts.SOF_SMART_ACCOUNT_FACTORY;
-      const isLocalChain = chainId === 31337;
-      // M4: only the local stack is wired end-to-end. Testnet/mainnet
-      // paymaster URLs land in M5+ once the Pimlico session/proxy is ready.
-      const paymasterUrl = isLocalChain && apiBase ? `${apiBase}/paymaster/local` : null;
-
-      if (factoryAddr && /^0x[0-9a-fA-F]{40}$/.test(factoryAddr) && paymasterUrl) {
-        const account = await toSofSmartAccount({
-          client: publicClient,
-          owner: walletClient,
-          factory: factoryAddr,
-          entryPoint: { address: ENTRY_POINT_V08, version: '0.8' },
-        });
-
-        const bundlerClient = createBundlerClient({
-          account,
-          client: publicClient,
-          // The local backend route proxies bundler RPC + paymaster RPC on
-          // the same URL; one transport covers both.
-          transport: http(paymasterUrl),
-          paymaster: { transport: http(paymasterUrl) },
-        });
-
-        const userOpHash = await bundlerClient.sendUserOperation({ calls });
-        const receipt = await bundlerClient.waitForUserOperationReceipt({ hash: userOpHash });
-        return receipt.receipt.transactionHash;
+      if (!factoryAddr || !/^0x[0-9a-fA-F]{40}$/.test(factoryAddr)) {
+        throw new Error('SOFSmartAccountFactory address missing — sponsored writes unavailable on this network');
       }
-      // fall through to the per-call guard below
+
+      const isLocalChain = chainId === 31337;
+      const paymasterUrl = isLocalChain && apiBase ? `${apiBase}/paymaster/local` : null;
+      if (!paymasterUrl) {
+        throw new Error('Paymaster URL not configured — set VITE_API_BASE_URL and the local bundler must be running');
+      }
+
+      const account = await toSofSmartAccount({
+        client: publicClient,
+        owner: walletClient,
+        factory: factoryAddr,
+        entryPoint: { address: ENTRY_POINT_V08, version: '0.8' },
+      });
+
+      const bundlerClient = createBundlerClient({
+        account,
+        client: publicClient,
+        // Local backend serves bundler RPC + paymaster RPC on the same URL.
+        // `paymaster: true` tells viem to call pm_getPaymasterStubData /
+        // pm_getPaymasterData against the bundler endpoint itself.
+        transport: http(paymasterUrl),
+        paymaster: true,
+      });
+
+      const userOpHash = await bundlerClient.sendUserOperation({ calls });
+      const receipt = await bundlerClient.waitForUserOperationReceipt({ hash: userOpHash });
+      return receipt.receipt.transactionHash;
     }
 
-    // ─── Interim per-call fallback: wallet without atomic batching AND
-    //     either not a desktop-eoa or factory/paymaster unavailable. ───
-    if (!isCoinbaseWallet && !hasAtomic) {
+    // ─── Per-call fallback (admin bypass OR non-desktop-eoa, non-Coinbase) ───
+    // Reached when:
+    //   - bypassSponsorship: true (admin writes that need msg.sender = EOA), OR
+    //   - walletType is not 'desktop-eoa' AND not Coinbase (e.g. unknown injected
+    //     wallet that doesn't advertise atomic batching).
+    // Never reached for desktop-eoa users — that path either succeeds via
+    // Path A or throws above. Silent EOA-direct send for desktop-eoa would
+    // bypass the whole SMA architecture (read SMA, spend EOA) and is exactly
+    // the bug we're guarding against.
+    if (bypassSponsorship || (!isCoinbaseWallet && !hasAtomic)) {
       if (!walletClient) {
         throw new Error('Wallet client not ready');
       }

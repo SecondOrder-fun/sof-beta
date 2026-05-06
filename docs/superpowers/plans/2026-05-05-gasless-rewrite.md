@@ -2497,6 +2497,71 @@ git push origin feat/gasless-rewrite
 
 **M5 PASS CRITERIA:** Flow A end-to-end: smart_accounts row created, airdrop confirmed, buy UserOp lands, EOA ETH unchanged. Evidence captured.
 
+### Task 5.8 — Admin writes also flow through SMA (drop bypassSponsorship)
+
+**Why:** During M4 wiring, admin writes (createSeason / startSeason / requestSeasonEnd / requestSeasonEndEarly in `useRaffleWrite.js`) were forced through a `bypassSponsorship: true` escape hatch because `Raffle`'s AccessControl checks `msg.sender == role-holder`, and Path A makes `msg.sender = SMA` which doesn't hold any role → `UnauthorizedCaller`. The escape hatch was correct for unblocking M4 evidence, but the steady-state UX should be: **admins also get gasless writes**. A secondary EOA holding admin shouldn't have to fund itself with ETH.
+
+**Approach:** grant the same on-chain roles to the admin's deterministic SMA (computed via `factory.getAddress(adminEOA)`) at deploy time. Once both the EOA and its SMA hold the role, `bypassSponsorship` can be removed and admin writes route through Path A like any other user.
+
+- [ ] **Step 1:** In `packages/contracts/script/deploy/14_ConfigureRoles.s.sol`, after the existing role grants, derive each admin EOA's predicted SMA via `SOFSmartAccountFactory(addrs.sofSmartAccountFactory).getAddress(adminEOA)` and grant the same roles (`DEFAULT_ADMIN_ROLE`, `SEASON_CREATOR_ROLE`, etc. — match whatever the EOA holds). Skip silently if the SMA computation reverts (e.g. factory not yet deployed when running on a partial chain). Pattern mirrors the existing per-wallet grant loop.
+
+- [ ] **Step 2:** Update `scripts/local-dev.sh` Step 5 (the role-grant loop) to derive each admin's SMA and grant roles to it as well. Same grant pattern as Step 1 but in bash via `cast call factory getAddress` → `cast send raffle grantRole`.
+
+- [ ] **Step 3:** Sweep frontend admin-write hooks for `bypassSponsorship: true` and remove it. Known sites:
+  - `packages/frontend/src/hooks/useRaffleWrite.js` — createSeason, startSeason, requestSeasonEnd, requestSeasonEndEarly
+  - `packages/frontend/src/hooks/useRaffleAdmin.js` — verify it routes through useRaffleWrite (no separate fix needed if so)
+  - `packages/frontend/src/hooks/useFaucet*.js` — admin-only faucet writes if any
+  - `packages/frontend/src/components/admin/**` — any direct `executeBatch` calls outside the hooks above
+  Run: `grep -rn "bypassSponsorship" packages/frontend/src` → final state should match the test/mock files only.
+
+- [ ] **Step 4:** If `useSmartTransactions` still has the `bypassSponsorship` parameter wired but no callsite uses it, decide whether to keep it (forward-compat for one-off admin writes that genuinely need EOA msg.sender) or delete. Prefer keeping it — there'll be edge cases (signature ownership, contract migrations) where it's the right tool. Document the conditions for using it in the surrounding NatSpec.
+
+- [ ] **Step 5:** Local-Anvil verification.
+  1. Restart full stack: `./scripts/local-dev.sh restart`.
+  2. Connect MetaMask as deployer (Anvil #0).
+  3. Click Create Season. Expect: ERC-4337 EIP-712 popup (NOT a plain transaction signing), userOp lands, season created. Confirm via `cast call raffle currentSeasonId`.
+  4. Click Start Season. Same expectation.
+  5. Verify deployer's ETH balance is unchanged from before the two admin writes — paymaster sponsored both.
+
+- [ ] **Step 6:** Commit + push.
+
+```bash
+git push origin feat/gasless-rewrite
+```
+
+### Task 5.9 — Portfolio Transactions tab shows EOA + SMA history
+
+**Why:** The user's transaction history is split across two on-chain identities — sponsored gameplay flows go through the SMA, but admin writes (createSeason / startSeason / per-call bypass paths) still come from the EOA, and the EOA also signs the initial SOF transfer that funds the SMA. Showing only one address misses ~half the user's actual activity. Each on-screen row should source its address from `useRaffleAccount`, then query both `eoa` and `sma` and merge.
+
+**Scope:** Portfolio's three transaction tabs — **SOF** (ERC-20 transfers in/out), **Raffle** (buy/sell/claim/season events), **InfoFi** (FPMM positions, settlements, claims). All three currently key off a single user-address; each must accept a `[eoa, sma]` pair, run its existing query for both, merge by block-number/log-index, and de-dup if any tx happens to reference both addresses (unusual but possible for self-funding sweeps).
+
+- [ ] **Step 1:** Locate the Portfolio Transactions consumers.
+  - `packages/frontend/src/components/profile/ProfileContent.jsx` (desktop) and `packages/frontend/src/components/mobile/MobilePortfolio.jsx` (mobile) host the three sub-tabs and pass an `address` prop down.
+  - Each tab is a hook + table: `useSofTransactions`, `useRaffleTransactions`, `useInfoFiTransactions` (verify exact names in `packages/frontend/src/hooks/`).
+
+- [ ] **Step 2:** Update each transaction hook to accept `addresses: string[]` (typed, deduped, lower-cased) instead of a single `address`. Internally, run the existing read for each address in parallel (Promise.all), merge results, sort by `(blockNumber desc, logIndex desc)`, drop any duplicate `transactionHash` + log-index pairs. Cache key is the sorted-addresses list, not a single address — otherwise wagmi/react-query will dedupe across users incorrectly.
+
+- [ ] **Step 3:** Update Portfolio callsites to pass both:
+  ```jsx
+  const { eoa, sma } = useRaffleAccount();
+  const addresses = [eoa, sma].filter(Boolean);
+  // pass `addresses` instead of `address` to each tab's hook
+  ```
+
+- [ ] **Step 4:** UI: render an "from EOA" / "from SMA" tag next to each row so the user can tell which identity originated the tx. Use `shortAddress` in the dim secondary line. Tag color should follow the existing semantic system (no hex colors, no `text-white`).
+
+- [ ] **Step 5:** Tests for each merged hook — mock the two address queries returning known rows, assert dedup + ordering. Prevents regressions where a sponsored tx that touches both EOA and SMA gets double-counted.
+
+- [ ] **Step 6:** Commit + push.
+
+```bash
+git push origin feat/gasless-rewrite
+```
+
+**Notes:**
+- This pattern is reusable for M5.4's airdrop history (sweep tx hashes can come either from the relayer's perspective at the EOA, or from the user's perspective at the SMA — both views should show in the user's portfolio).
+- Other-user profile pages (UserProfile route) need the same treatment for share-target consistency, but that's out of M5 scope; flag for M6 polish.
+
 ---
 
 ## M6 — Sell + claim flows on local Anvil

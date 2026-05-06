@@ -9,14 +9,15 @@
 #   ./scripts/local-dev.sh restart  # Stop + start
 #
 # What it does:
-#   1. Starts infrastructure (Anvil, Redis, Postgres) via docker-compose
-#   2. Waits for contract deployment
-#   3. Starts Supabase local (API layer the backend needs)
-#   4. Seeds admin wallets in Supabase DB
+#   1. Starts chain + cache (Anvil + Redis) via docker-compose
+#   2. Injects EntryPoint v0.8 + runs forge DeployAll
+#   3. Starts Supabase local (single source of truth for the DB layer —
+#      same role the managed Supabase project plays on testnet/prod)
+#   4. Seeds admin wallets in Supabase
 #   5. Grants on-chain roles to dev wallets
 #   6. Approves RolloverEscrow for treasury SOF spending
 #   7. Funds dev wallets with SOF
-#   8. Starts backend (local node process, not Docker)
+#   8. Starts backend as a host node process (same shape as Railway in prod)
 #   9. Starts frontend dev server
 #
 # Prerequisites:
@@ -165,8 +166,8 @@ do_start() {
   # at the canonical address before the forge deploy script runs. The paymaster
   # deploy step checks for code at 0x4337...f108 and falls back to StubEntryPoint
   # only if empty, so we need to inject before deploy-contracts starts.
-  log "Step 1/9: Starting Anvil + data services..."
-  docker compose up -d anvil redis postgres 2>&1 | grep -v "^$" || true
+  log "Step 1/9: Starting Anvil + Redis..."
+  docker compose up -d anvil redis 2>&1 | grep -v "^$" || true
 
   log "  Waiting for Anvil to be healthy..."
   local i=0
@@ -186,8 +187,8 @@ do_start() {
     exit 1
   fi
 
-  log "  Starting contract deployment + backend..."
-  docker compose up -d deploy-contracts backend 2>&1 | grep -v "^$" || true
+  log "  Starting contract deployment..."
+  docker compose up -d deploy-contracts 2>&1 | grep -v "^$" || true
 
   # ------ Step 2: Wait for contract deployment ------
   log "Step 2/9: Waiting for contract deployment..."
@@ -227,11 +228,17 @@ do_start() {
   # script (it would call into "code-less" canonical address from the
   # simulator's perspective and abort). We fund it from cast, which talks to
   # the real chain that has the real EntryPoint code at 0x4337....
+  #
+  # Canonical pattern: EntryPoint.depositTo(paymaster) {value: X}. The new
+  # SOFPaymaster (gasless rewrite) has no `receive()` — direct ETH transfers
+  # to the paymaster would be trapped, so the only funded path is via the
+  # EntryPoint's deposit ledger.
   local paymaster
   paymaster=$(get_deployment Paymaster) || true
   if [ -n "$paymaster" ] && [ "$paymaster" != "null" ]; then
     log "Step 2a/9: Funding SOFPaymaster EntryPoint deposit (100 ETH)..."
-    if cast send "$paymaster" "deposit()" \
+    if cast send 0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108 \
+        "depositTo(address)" "$paymaster" \
         --value 100ether \
         --private-key "$DEPLOYER_KEY" \
         --rpc-url "$RPC" >/dev/null 2>&1; then
@@ -361,21 +368,44 @@ for log in d.get('logs', []):
   fi
 
   # ------ Step 7: Fund dev wallets ------
-  log "Step 7/9: Funding dev wallets with SOF..."
-  local sof
+  # CRITICAL: post-M3 the SMA is the on-chain identity for gameplay state
+  # (balances, positions, allowances). The dapp reads `balanceOf(sma)` and
+  # writes execute as msg.sender = SMA. Funding the EOA here would leave
+  # the SMA at 0 SOF and the buy/sell button perpetually disabled.
+  #
+  # Per-EOA SMA = factory.getAddress(eoa). On a fresh Anvil instance the
+  # factory's CREATE2-derived addresses change with every redeploy because
+  # the factory's embedded SOFSmartAccount creationCode can vary across
+  # `forge build --force` runs even with bytecode_hash="none". So we derive
+  # the SMA fresh from the just-deployed factory rather than hardcoding.
+  log "Step 7/9: Funding dev SMAs with SOF..."
+  local sof factory
   sof=$(get_deployment SOFToken)
+  factory=$(get_deployment SOFSmartAccountFactory)
+  if [ -z "$factory" ] || [ "$factory" = "null" ]; then
+    err "  SOFSmartAccountFactory not in deployments — cannot derive SMAs"
+    err "  Bump the contracts package or re-run a clean deploy."
+    return 1
+  fi
   for entry in "${FUND_WALLETS[@]}"; do
     local wallet="${entry%%:*}"
     local amount="${entry##*:}"
-    cast send "$sof" "transfer(address,uint256)" "$wallet" "$(cast --to-wei "$amount")" \
+    local sma
+    sma=$(cast call "$factory" "getAddress(address)(address)" "$wallet" --rpc-url "$RPC" 2>/dev/null)
+    if [ -z "$sma" ] || [ "$sma" = "0x0000000000000000000000000000000000000000" ]; then
+      warn "  Could not derive SMA for $wallet — skipping"
+      continue
+    fi
+    cast send "$sof" "transfer(address,uint256)" "$sma" "$(cast --to-wei "$amount")" \
       --private-key "$DEPLOYER_KEY" --rpc-url "$RPC" > /dev/null 2>&1 || true
   done
-  ok "  ${#FUND_WALLETS[@]} wallet(s) funded"
+  ok "  ${#FUND_WALLETS[@]} SMA(s) funded"
 
   # ------ Step 8: Start backend ------
   log "Step 8/9: Starting backend..."
-  # Stop Docker backend container (it can't work — no node_modules)
-  docker stop sof-beta-backend-1 > /dev/null 2>&1 || true
+  # Backend runs as a host node process (same shape as Railway in prod). The
+  # docker-compose `backend` service was removed — it never worked anyway
+  # (no node_modules in node:22-alpine) and ran with empty SUPABASE_URL.
 
   # Kill any existing backend on port 3000
   lsof -ti:3000 2>/dev/null | xargs kill -9 2>/dev/null || true

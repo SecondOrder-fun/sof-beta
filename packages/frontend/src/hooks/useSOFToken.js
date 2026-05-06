@@ -18,25 +18,34 @@ export function useSOFToken() {
   const { isConnected } = useAccount();
   // Reads against the smart account; writes still originate from the
   // connected wallet via executeBatch.
-  const { sma: address } = useRaffleAccount();
+  const { sma: address, isReady: accountReady } = useRaffleAccount();
   const publicClient = usePublicClient();
   const { executeBatch } = useSmartTransactions();
   const queryClient = useQueryClient();
   const netKey = getStoredNetworkKey();
   const contracts = getContractAddresses(netKey);
-  
+
   const [error, setError] = useState('');
-  
-  // Query for SOF balance
-  const { 
+
+  // Query for SOF balance.
+  // Important: the balance query is disabled until the RaffleAccountProvider
+  // resolves the user's SMA address. While disabled, react-query reports
+  // `isLoading: false` (it's not loading, it's *not started*) — which
+  // collapses with "balance is 0" in downstream consumers and gates the buy
+  // button to disabled. We expose a separate `isLoading` below that returns
+  // true until the SMA is known AND the balance query has run, so consumers
+  // can tell pending from zero.
+  const balanceEnabled = Boolean(address && isConnected && contracts.SOF && accountReady);
+  const {
     data: balance = '0',
-    isLoading: isLoadingBalance,
+    isFetching: isFetchingBalance,
+    isSuccess: balanceFetched,
     refetch: refetchBalance
   } = useQuery({
     queryKey: ['sofBalance', address, contracts.SOF],
     queryFn: async () => {
       if (!address || !isConnected || !contracts.SOF) return '0';
-      
+
       try {
         const balance = await publicClient.readContract({
           address: contracts.SOF,
@@ -44,15 +53,20 @@ export function useSOFToken() {
           functionName: 'balanceOf',
           args: [address],
         });
-        
+
         return formatUnits(balance, 18);
       } catch {
         return '0';
       }
     },
-    enabled: Boolean(address && isConnected && contracts.SOF),
+    enabled: balanceEnabled,
     staleTime: 15000, // 15 seconds
   });
+  // True until both the account provider resolves AND the balance query runs.
+  // Consumers (e.g. useBalanceValidation in the buy/sell widget) MUST gate
+  // their `hasZeroBalance` checks on this — otherwise the button shows
+  // "insufficient balance" while the SMA query is still pending.
+  const balancePending = !accountReady || (balanceEnabled && !balanceFetched);
   
   // Query for token details
   const {
@@ -195,8 +209,12 @@ export function useSOFToken() {
   return {
     balance,
     tokenDetails,
-    isLoading: isLoadingBalance || isLoadingDetails || 
+    // `isLoading` collapses balance-fetching, account-resolution, details, and
+    // mutation states. Consumers that care specifically about "is the SMA
+    // balance read settled?" should use `balancePending`.
+    isLoading: balancePending || isFetchingBalance || isLoadingDetails ||
                transferMutation.isPending || approveMutation.isPending,
+    balancePending,
     error,
     transfer: transferMutation.mutate,
     approve: approveMutation.mutate,
