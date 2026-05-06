@@ -9,12 +9,14 @@ import MobileCreatorTab from "./MobileCreatorTab";
 import MobileBalancesTab from "./MobileBalancesTab";
 import MobileClaimsTab from "./MobileClaimsTab";
 import { useProfileData } from "@/hooks/useProfileData";
+import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 
 /**
  * MobilePortfolio - Mobile-optimized portfolio page with tab navigation
  */
 const MobilePortfolio = () => {
-  const { address, isConnected } = useAccount();
+  const { isConnected } = useAccount();
+  const { sma: address } = useRaffleAccount();
   const { t } = useTranslation(["account", "common"]);
 
   const { sofBalanceQuery, seasonBalancesQuery } = useProfileData(address);

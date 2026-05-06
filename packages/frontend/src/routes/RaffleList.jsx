@@ -24,6 +24,7 @@ import { useSeasonGating, GateType } from "@/hooks/useSeasonGating";
 import PasswordGateModal from "@/components/gating/PasswordGateModal";
 import SignatureGateModal from "@/components/gating/SignatureGateModal";
 import { useProfileData } from "@/hooks/useProfileData";
+import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 
 const ActiveSeasonCard = ({ season, renderBadge, winnerSummary }) => {
   const navigate = useNavigate();
@@ -208,6 +209,7 @@ const RaffleList = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { address, isConnected } = useAccount();
+  const { sma } = useRaffleAccount();
   const { chainId } = useAccount();
   const chains = useChains();
   const { openLoginModal } = useLoginModal();
@@ -218,7 +220,8 @@ const RaffleList = () => {
   const [showMineOnly, setShowMineOnly] = useState(
     searchParams.get("filter") === "mine",
   );
-  const { seasonBalancesQuery } = useProfileData(address);
+  // Profile/balance reads resolve at the user's smart account, not the EOA.
+  const { seasonBalancesQuery } = useProfileData(sma);
   const ownedSeasonIds = useMemo(() => {
     const ids = new Set();
     if (seasonBalancesQuery.data) {
@@ -345,7 +348,7 @@ const RaffleList = () => {
                 address: bondingCurveAddress,
                 abi: SOFBondingCurveAbi,
                 functionName: "playerTickets",
-                args: [address],
+                args: [sma],
               }),
               positionClient.readContract({
                 address: bondingCurveAddress,
