@@ -16,8 +16,21 @@ import { useRaffleAccount } from "@/hooks/useRaffleAccount";
  */
 const MobilePortfolio = () => {
   const { isConnected } = useAccount();
-  const { sma: address } = useRaffleAccount();
+  const { eoa, sma } = useRaffleAccount();
+  const address = sma;
   const { t } = useTranslation(["account", "common"]);
+
+  // Merged address list for transaction-history surfaces (plan 5.11).
+  const transactionAddresses = useMemo(
+    () => [eoa, sma].filter(Boolean).map((a) => a.toLowerCase()),
+    [eoa, sma]
+  );
+  const originLabels = useMemo(() => {
+    const labels = {};
+    if (eoa) labels[eoa.toLowerCase()] = "EOA";
+    if (sma) labels[sma.toLowerCase()] = "SMA";
+    return labels;
+  }, [eoa, sma]);
 
   const { sofBalanceQuery, seasonBalancesQuery } = useProfileData(address);
 
@@ -73,6 +86,8 @@ const MobilePortfolio = () => {
             <TabsContent value="balances" className="mt-0">
               <MobileBalancesTab
                 address={address}
+                addresses={transactionAddresses}
+                originLabels={originLabels}
                 sofBalance={sofBalance}
                 rafflePositions={rafflePositions}
                 isLoadingRafflePositions={seasonBalancesQuery.isLoading}

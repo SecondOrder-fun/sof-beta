@@ -17,6 +17,13 @@ import {
   AccordionTrigger,
   AccordionContent,
 } from "@/components/ui/accordion";
+import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Select,
   SelectContent,
@@ -25,10 +32,25 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-const InfoFiPositionsTab = ({ address }) => {
-  const { t } = useTranslation(["account"]);
+const InfoFiPositionsTab = ({ address, addresses, originLabels }) => {
+  const { t } = useTranslation(["account", "portfolio"]);
   const netKey = getStoredNetworkKey();
   const contracts = getContractAddresses(netKey);
+
+  // Normalize input — single address or addresses array. Sorted lower-case
+  // for cache-key stability (so `[eoa, sma]` and `[sma, eoa]` collide).
+  const queryAddresses = useMemo(() => {
+    const raw = addresses?.length ? addresses : address ? [address] : [];
+    return Array.from(
+      new Set(raw.filter(Boolean).map((a) => a.toLowerCase()))
+    ).sort();
+  }, [address, addresses]);
+
+  const showOriginColumn =
+    Array.isArray(addresses) &&
+    addresses.length > 1 &&
+    originLabels &&
+    Object.keys(originLabels).length > 0;
   const seasonsQry = useAllSeasons();
   const seasonsArr = useMemo(
     () => {
@@ -60,23 +82,52 @@ const InfoFiPositionsTab = ({ address }) => {
     [seasonsArr, selectedSeasonId]
   );
 
-  // Fetch trade history from database
+  // Fetch trade history — fan out across each address, tag with origin,
+  // dedupe by `(tx_hash, log_index)` so a tx that touches both EOA + SMA
+  // counts once. Sort by block desc, then log desc for deterministic order.
   const tradesQuery = useQuery({
-    queryKey: ["infofiTrades", address],
-    enabled: !!address,
+    queryKey: ["infofiTrades", queryAddresses],
+    enabled: queryAddresses.length > 0,
     queryFn: async () => {
-      const url = `${
-        import.meta.env.VITE_API_BASE_URL
-      }/infofi/positions/${address}`;
+      const perAddress = await Promise.all(
+        queryAddresses.map(async (addr) => {
+          const url = `${
+            import.meta.env.VITE_API_BASE_URL
+          }/infofi/positions/${addr}`;
+          const response = await fetch(url);
+          if (!response.ok) {
+            throw new Error("Failed to fetch trade history");
+          }
+          const data = await response.json();
+          return (data.positions || []).map((row) => ({
+            ...row,
+            origin: addr,
+          }));
+        })
+      );
 
-      const response = await fetch(url);
-
-      if (!response.ok) {
-        throw new Error("Failed to fetch trade history");
+      const merged = perAddress.flat();
+      const seen = new Set();
+      const deduped = [];
+      for (const row of merged) {
+        const hash = (row.tx_hash || row.hash || "").toLowerCase();
+        const li = row.log_index ?? row.logIndex ?? "";
+        const key = `${hash}:${li}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        deduped.push(row);
       }
 
-      const data = await response.json();
-      return data.positions || [];
+      deduped.sort((a, b) => {
+        const aBn = Number(a.block_number ?? a.blockNumber ?? 0);
+        const bBn = Number(b.block_number ?? b.blockNumber ?? 0);
+        if (bBn !== aBn) return bBn - aBn;
+        const aLi = Number(a.log_index ?? a.logIndex ?? 0);
+        const bLi = Number(b.log_index ?? b.logIndex ?? 0);
+        return bLi - aLi;
+      });
+
+      return deduped;
     },
     staleTime: 5_000,
     refetchInterval: 10_000,
@@ -85,11 +136,11 @@ const InfoFiPositionsTab = ({ address }) => {
   const positionsQuery = useQuery({
     queryKey: [
       "infofiPositionsOnchainActive",
-      address,
+      queryAddresses,
       selectedSeason?.id,
       netKey,
     ],
-    enabled: !!address && !!selectedSeason,
+    enabled: queryAddresses.length > 0 && !!selectedSeason,
     queryFn: async () => {
       const seasonId = selectedSeason.id;
 
@@ -111,7 +162,6 @@ const InfoFiPositionsTab = ({ address }) => {
         return { positions: [], marketIds: [] };
       }
 
-      // Collect all market IDs for this season (for trade filtering)
       const marketIds = markets.map((m) => m.id);
       const positions = [];
 
@@ -123,38 +173,41 @@ const InfoFiPositionsTab = ({ address }) => {
             !fpmmAddress ||
             fpmmAddress === "0x0000000000000000000000000000000000000000"
           ) {
-            continue; // Skip if no FPMM exists
+            continue;
           }
 
-          // eslint-disable-next-line no-await-in-loop
-          const yes = await readBet({
-            marketId: m.id,
-            account: address,
-            prediction: true,
-            networkKey: netKey,
-            fpmmAddress,
-          });
-          // eslint-disable-next-line no-await-in-loop
-          const no = await readBet({
-            marketId: m.id,
-            account: address,
-            prediction: false,
-            networkKey: netKey,
-            fpmmAddress,
-          });
-
-          const yesAmt = yes?.amount ?? 0n;
-          const noAmt = no?.amount ?? 0n;
-
-          if (yesAmt > 0n || noAmt > 0n) {
-            positions.push({
+          for (const addr of queryAddresses) {
+            // eslint-disable-next-line no-await-in-loop
+            const yes = await readBet({
               marketId: m.id,
-              marketName: m.question || m.market_type || "Market",
-              player: m.player_address,
+              account: addr,
+              prediction: true,
+              networkKey: netKey,
               fpmmAddress,
-              yesAmount: yesAmt,
-              noAmount: noAmt,
             });
+            // eslint-disable-next-line no-await-in-loop
+            const no = await readBet({
+              marketId: m.id,
+              account: addr,
+              prediction: false,
+              networkKey: netKey,
+              fpmmAddress,
+            });
+
+            const yesAmt = yes?.amount ?? 0n;
+            const noAmt = no?.amount ?? 0n;
+
+            if (yesAmt > 0n || noAmt > 0n) {
+              positions.push({
+                marketId: m.id,
+                marketName: m.question || m.market_type || "Market",
+                player: m.player_address,
+                fpmmAddress,
+                yesAmount: yesAmt,
+                noAmount: noAmt,
+                origin: addr,
+              });
+            }
           }
         } catch {
           // Skip markets that fail to read
@@ -250,13 +303,65 @@ const InfoFiPositionsTab = ({ address }) => {
                   <Accordion type="multiple" className="space-y-2">
                     {Object.entries(tradesByMarket).map(
                       ([marketId, marketTrades]) => {
-                        const pos = (positionsQuery.data?.positions || []).find(
-                          (p) => p.marketId === parseInt(marketId)
+                        // When merged across EOA + SMA, multiple positions
+                        // can exist per market — sum Yes/No across them.
+                        const marketPositions = (
+                          positionsQuery.data?.positions || []
+                        ).filter((p) => p.marketId === parseInt(marketId));
+                        const hasOnchainPos = marketPositions.length > 0;
+
+                        const yesAmtSum = marketPositions.reduce(
+                          (s, p) => s + (p.yesAmount ?? 0n),
+                          0n
+                        );
+                        const noAmtSum = marketPositions.reduce(
+                          (s, p) => s + (p.noAmount ?? 0n),
+                          0n
                         );
 
+                        // Pick a representative position for display metadata
+                        const pos = marketPositions[0] || null;
+
                         // Calculate Yes/No totals from trades when no on-chain position
-                        const yesTotal = pos ? null : marketTrades.filter(t => t.outcome === "YES").reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
-                        const noTotal = pos ? null : marketTrades.filter(t => t.outcome === "NO").reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+                        const yesTotal = hasOnchainPos
+                          ? null
+                          : marketTrades
+                              .filter((t) => t.outcome === "YES")
+                              .reduce(
+                                (sum, t) => sum + parseFloat(t.amount || 0),
+                                0
+                              );
+                        const noTotal = hasOnchainPos
+                          ? null
+                          : marketTrades
+                              .filter((t) => t.outcome === "NO")
+                              .reduce(
+                                (sum, t) => sum + parseFloat(t.amount || 0),
+                                0
+                              );
+
+                        // Distinct origins across this market's positions +
+                        // trades, deduped, render as badges.
+                        const originsForMarket = showOriginColumn
+                          ? Array.from(
+                              new Set(
+                                [
+                                  ...marketPositions
+                                    .map((p) => p.origin?.toLowerCase())
+                                    .filter(Boolean),
+                                  ...marketTrades
+                                    .map((tr) =>
+                                      (
+                                        tr.origin ||
+                                        tr.user_address ||
+                                        ""
+                                      ).toLowerCase()
+                                    )
+                                    .filter(Boolean),
+                                ]
+                              )
+                            )
+                          : [];
 
                         return (
                           <AccordionItem
@@ -264,17 +369,57 @@ const InfoFiPositionsTab = ({ address }) => {
                             value={`market-${marketId}`}
                           >
                             <AccordionTrigger className="px-3 py-2 text-left">
-                              <div className="flex items-center justify-between w-full">
-                                <span className="font-medium text-foreground">
-                                  #{marketId} - {pos?.marketName || "Market"}
-                                </span>
+                              <div className="flex items-center justify-between w-full gap-2">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="font-medium text-foreground truncate">
+                                    #{marketId} - {pos?.marketName || "Market"}
+                                  </span>
+                                  {originsForMarket.map((origin) => {
+                                    const label =
+                                      originLabels?.[origin] || null;
+                                    if (!label) return null;
+                                    return (
+                                      <TooltipProvider key={origin}>
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Badge
+                                              variant={
+                                                label === "SMA"
+                                                  ? "default"
+                                                  : "outline"
+                                              }
+                                              className="text-[10px] px-1.5 py-0 leading-tight cursor-default"
+                                            >
+                                              {label}
+                                            </Badge>
+                                          </TooltipTrigger>
+                                          <TooltipContent side="top">
+                                            <span className="font-mono text-xs">
+                                              {origin}
+                                            </span>
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      </TooltipProvider>
+                                    );
+                                  })}
+                                </div>
                                 <div className="text-right shrink-0 flex items-center gap-2">
                                   <span className="font-bold text-green-600">
-                                    {pos ? Number(formatUnits(pos.yesAmount ?? 0n, 18)).toFixed(0) : (yesTotal ?? 0).toFixed(0)}
+                                    {hasOnchainPos
+                                      ? Number(
+                                          formatUnits(yesAmtSum, 18)
+                                        ).toFixed(0)
+                                      : (yesTotal ?? 0).toFixed(0)}
                                   </span>
-                                  <span className="text-muted-foreground">/</span>
+                                  <span className="text-muted-foreground">
+                                    /
+                                  </span>
                                   <span className="font-bold text-red-600">
-                                    {pos ? Number(formatUnits(pos.noAmount ?? 0n, 18)).toFixed(0) : (noTotal ?? 0).toFixed(0)}
+                                    {hasOnchainPos
+                                      ? Number(
+                                          formatUnits(noAmtSum, 18)
+                                        ).toFixed(0)
+                                      : (noTotal ?? 0).toFixed(0)}
                                   </span>
                                 </div>
                               </div>
@@ -338,6 +483,8 @@ const InfoFiPositionsTab = ({ address }) => {
 
 InfoFiPositionsTab.propTypes = {
   address: PropTypes.string,
+  addresses: PropTypes.arrayOf(PropTypes.string),
+  originLabels: PropTypes.objectOf(PropTypes.string),
 };
 
 export default InfoFiPositionsTab;
