@@ -1,5 +1,5 @@
 import { useMemo, useCallback, useContext, useRef } from 'react';
-import { useAccount, useChainId, useCapabilities, useSendCalls, useCallsStatus } from 'wagmi';
+import { useAccount, useChainId, useCapabilities, useSendCalls, useCallsStatus, usePublicClient, useWalletClient } from 'wagmi';
 import { waitForCallsStatus } from '@wagmi/core';
 import { encodeFunctionData } from 'viem';
 import { ERC20Abi } from '@/utils/abis';
@@ -72,6 +72,8 @@ export function useSmartTransactions() {
   const chainId = useChainId();
   const { data: capabilities } = useCapabilities({ account: address });
   const { sendCallsAsync, data: batchId } = useSendCalls();
+  const publicClient = usePublicClient();
+  const { data: walletClient } = useWalletClient();
   // Use any available JWT — Farcaster (MiniApp), SIWE wallet auth (desktop browser).
   // Both are issued by the same backend AuthService and accepted by the session endpoint.
   const farcasterAuth = useContext(FarcasterContext);
@@ -147,15 +149,39 @@ export function useSmartTransactions() {
     // TODO(M4): Desktop-EOA branch via permissionless.js + toSofSmartAccount.
     // Counterfactual SMA replaces the old EIP-7702 delegation flow; the new
     // Path A will build a UserOp from the user's SMA, sign with their EOA,
-    // and submit through the bundler+paymaster. Until M4 lands, desktop-EOA
-    // wallets fall through to the ERC-5792 batch path below (Coinbase / any
-    // wallet that advertises atomic batching) so the app stays functional.
+    // and submit through the bundler+paymaster.
+
+    // ─── Interim fallback: wallet without atomic batching (e.g. MetaMask on
+    //     local Anvil chain 31337) — wagmi's useSendCalls forwards to
+    //     wallet_sendCalls which MetaMask only supports on a fixed allowlist
+    //     of chains, and on others throws an unhelpful viem error. Until M4
+    //     replaces this path with a real ERC-4337 UserOp, send each call
+    //     sequentially via the wallet client. No sponsorship, no batching —
+    //     same UX the user had before this rewrite started. ───
+    const isCoinbaseWallet = connector?.id === 'coinbaseWalletSDK';
+    const hasAtomic = chainCaps.atomicStatus === 'ready' || chainCaps.atomicStatus === 'supported';
+    if (!isCoinbaseWallet && !hasAtomic) {
+      if (!walletClient) {
+        throw new Error('Wallet client not ready');
+      }
+      let lastHash = null;
+      for (const call of calls) {
+        lastHash = await walletClient.sendTransaction({
+          account: address,
+          to: call.to,
+          data: call.data,
+          value: call.value ?? 0n,
+        });
+        if (publicClient) {
+          await publicClient.waitForTransactionReceipt({ hash: lastHash });
+        }
+      }
+      return lastHash;
+    }
 
     // ─── Path B: Coinbase Wallet → ERC-5792 + CDP paymaster (unchanged) ───
     const batchCapabilities = {};
     let finalCalls = calls;
-
-    const isCoinbaseWallet = connector?.id === 'coinbaseWalletSDK';
 
     if (isCoinbaseWallet && apiBase) {
       batchCapabilities.paymasterService = {
@@ -211,7 +237,7 @@ export function useSmartTransactions() {
     // before returning so callers can feed the value to useWaitForTransactionReceipt
     // and render it in the UI.
     return await normalizeBatchResult(sendResult);
-  }, [address, apiBase, backendJwt, connector, sendCallsAsync, buildFeeCall]);
+  }, [address, apiBase, backendJwt, connector, sendCallsAsync, buildFeeCall, chainCaps.atomicStatus, walletClient, publicClient]);
 
   return {
     ...chainCaps,
