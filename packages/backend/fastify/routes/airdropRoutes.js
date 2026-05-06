@@ -1,380 +1,101 @@
 /**
- * Airdrop Attestation Routes
+ * Airdrop Routes — direct ERC-20 transfer to a user's SMA.
  *
- * POST /api/airdrop/attestation — generate an EIP-712 FarcasterAttestation signature
- *   for the authenticated user so they can claim their SOF airdrop on-chain.
+ * Per gasless-rewrite spec §5.3, the legacy `SOFAirdrop` merkle drop and
+ * its EIP-712 attestation flow are gone. The new model: backend wallet
+ * does a plain SOF.transfer(sma, amount), gated by SOF_AIRDROP_AMOUNT_PER_USER.
+ *
+ * The primary trigger is the SIWE auth flow (smartAccountService kicks the
+ * relayer for new users). This route exists for:
+ *   - admin/manual top-ups during local dev
+ *   - replays after a previous failed transfer (smart_accounts row without
+ *     funded_at)
+ *
+ * Auth: requires admin (is_admin in JWT, set by ADMIN_EOAS env). Anyone
+ * else hits a 403 — we don't want random callers draining the relayer.
  */
 
-import process from "node:process";
-import crypto from "node:crypto";
-import { privateKeyToAccount } from "viem/accounts";
-import { recoverMessageAddress } from "viem";
-import { getDeployment } from '@sof/contracts/deployments';
-import { getChainByKey } from "../../src/config/chain.js";
-import { getPaymasterService } from "../../src/services/paymasterService.js";
-import { claimAirdropBodySchema } from "../../shared/schemas/index.js";
-
-// EIP-712 domain and type constants
-const DOMAIN_NAME = "SecondOrder.fun SOFAirdrop";
-const DOMAIN_VERSION = "1";
-const NETWORK = (process.env.NETWORK || "LOCAL").toUpperCase();
-const CHAIN_ID = getChainByKey(NETWORK).id;
-
-const EIP712_TYPES = {
-  FarcasterAttestation: [
-    { name: "wallet", type: "address" },
-    { name: "fid", type: "uint256" },
-    { name: "deadline", type: "uint256" },
-  ],
-};
-
-// Attestation validity window (1 hour in seconds)
-const ATTESTATION_TTL_SECONDS = 3600;
-
-// Replay protection for basic claim signatures (in-memory with size limit)
-const MAX_USED_SIGNATURES = 10000;
-const usedBasicSignatures = new Set();
+import { isAddress } from "viem";
+import { getAirdropService } from "../../shared/services/airdropService.js";
+import { smartAccountsDb } from "../../shared/services/smartAccountsDb.js";
 
 /**
- * Lazily resolve the backend signer account.
- * Deferred so that env vars are guaranteed to be loaded before first use.
- */
-let _signerAccount;
-function getSignerAccount() {
-  if (_signerAccount) return _signerAccount;
-
-  const rawKey =
-    process.env.BACKEND_WALLET_PRIVATE_KEY || process.env.PRIVATE_KEY;
-
-  if (!rawKey) {
-    throw new Error(
-      "Backend wallet private key not configured. " +
-        "Set BACKEND_WALLET_PRIVATE_KEY or PRIVATE_KEY in environment.",
-    );
-  }
-
-  const normalizedKey = rawKey.startsWith("0x") ? rawKey : `0x${rawKey}`;
-  _signerAccount = privateKeyToAccount(normalizedKey);
-  return _signerAccount;
-}
-
-/**
- * Hash a signature for replay protection using SHA-256.
- * @param {string} signature - Hex signature string
- * @returns {string} Hex hash
- */
-function hashSignature(signature) {
-  return crypto.createHash("sha256").update(signature).digest("hex");
-}
-
-/**
- * Register airdrop routes
  * @param {import('fastify').FastifyInstance} fastify
  */
 export default async function airdropRoutes(fastify) {
   /**
-   * POST /api/airdrop/attestation
+   * POST /api/airdrop/transfer-to-sma
+   * Body: { sma: "0x..." }
    *
-   * Requires authentication (Bearer JWT with fid and wallet_address).
-   * Returns an EIP-712 signature that the user submits on-chain to claim their airdrop.
+   * Submits SOF.transfer(sma, SOF_AIRDROP_AMOUNT_PER_USER) from
+   * BACKEND_WALLET_PRIVATE_KEY's wallet, waits for inclusion, and stamps
+   * smart_accounts.funded_at on success.
    */
-  fastify.post("/attestation", async (request, reply) => {
-    // ── Resolve identity ────────────────────────────────────────────────
-    // Priority: JWT user > request body (MiniApp context sends fid + address directly)
-    const user = request.user;
-    const wallet = user?.wallet_address || request.body?.address;
-    const fid = user?.fid || request.body?.fid;
-
-    if (!wallet) {
-      return reply.code(400).send({
-        error:
-          "No wallet address provided. " +
-          "Please sign in with a wallet-linked Farcaster account.",
-      });
-    }
-
-    if (!fid) {
-      return reply.code(400).send({
-        error:
-          "No Farcaster FID provided. " +
-          "Please sign in via Farcaster to claim the airdrop.",
-      });
-    }
-
-    // ── Resolve airdrop contract address ───────────────────────────────
-    const verifyingContract = getDeployment().SOFAirdrop;
-
-    if (!verifyingContract) {
-      fastify.log.error(
-        "SOFAirdrop address not found in testnet deployment -- cannot produce attestation",
-      );
-      return reply.code(503).send({
-        error: "Airdrop contract not configured. Please try again later.",
-      });
-    }
-
-    // ── Build EIP-712 message ──────────────────────────────────────────
-    const deadline = BigInt(Math.floor(Date.now() / 1000) + ATTESTATION_TTL_SECONDS);
-
-    const domain = {
-      name: DOMAIN_NAME,
-      version: DOMAIN_VERSION,
-      chainId: CHAIN_ID,
-      verifyingContract,
-    };
-
-    const message = {
-      wallet,
-      fid: BigInt(fid),
-      deadline,
-    };
-
-    // ── Sign ───────────────────────────────────────────────────────────
-    let signature;
-    try {
-      const account = getSignerAccount();
-
-      signature = await account.signTypedData({
-        domain,
-        types: EIP712_TYPES,
-        primaryType: "FarcasterAttestation",
-        message,
-      });
-    } catch (err) {
-      fastify.log.error({ err }, "EIP-712 signing failed");
-      return reply.code(500).send({ error: "Failed to generate attestation signature" });
-    }
-
-    // ── Decompose signature into v, r, s ───────────────────────────────
-    // viem returns a 65-byte hex string: r (32 bytes) + s (32 bytes) + v (1 byte)
-    const r = `0x${signature.slice(2, 66)}`;
-    const s = `0x${signature.slice(66, 130)}`;
-    const v = parseInt(signature.slice(130, 132), 16);
-
-    return reply.send({
-      fid: Number(fid),
-      deadline: Number(deadline),
-      v,
-      r,
-      s,
-    });
-  });
-
-  /**
-   * POST /api/airdrop/claim
-   *
-   * Relay airdrop claims via backend wallet (gasless for users).
-   *
-   * Request body:
-   *   { address: string, type: "initial"|"basic"|"daily", fid?: number, signature?: string }
-   *
-   * Auth strategy:
-   *   - "initial": JWT with fid (Farcaster user)
-   *   - "basic": personal_sign signature proving wallet ownership (no JWT needed)
-   *   - "daily": JWT with wallet_address matching address
-   */
-  fastify.post("/claim", {
-    config: {
-      rateLimit: {
-        max: 5,
-        timeWindow: "1 minute",
+  fastify.post(
+    "/transfer-to-sma",
+    {
+      config: {
+        rateLimit: {
+          max: 10,
+          timeWindow: "1 minute",
+        },
       },
     },
-    // Schema validates: address is 0x+40hex; type is one of
-    // initial|basic|daily; per-type required field (fid for initial,
-    // signature for basic/daily); rejects unknown fields.
-    schema: { body: claimAirdropBodySchema },
-    handler: async (request, reply) => {
-      const { address, type, fid, signature } = request.body;
+    async (request, reply) => {
+      const isAdmin = Boolean(request.user?.is_admin);
+      if (!isAdmin) {
+        return reply.code(403).send({ error: "Admin only" });
+      }
 
-      const airdropAddress = getDeployment().SOFAirdrop;
-      if (!airdropAddress) {
+      const { sma } = request.body || {};
+      if (!sma || !isAddress(sma)) {
         return reply
-          .code(503)
-          .send({ error: "Airdrop contract not configured" });
+          .code(400)
+          .send({ error: "Body must include a valid 0x SMA address" });
       }
 
-      // ── Auth: validate identity per type ──────────────────────────────
+      const smaLc = sma.toLowerCase();
 
-      if (type === "initial") {
-        const user = request.user;
-        const userFid = user?.fid || fid;
-        if (!userFid) {
-          return reply
-            .code(401)
-            .send({ error: "Farcaster authentication required for initial claim" });
-        }
-
-        // Generate attestation internally (same logic as /attestation)
-        const verifyingContract = airdropAddress;
-        const deadline = BigInt(
-          Math.floor(Date.now() / 1000) + ATTESTATION_TTL_SECONDS,
-        );
-
-        const domain = {
-          name: DOMAIN_NAME,
-          version: DOMAIN_VERSION,
-          chainId: CHAIN_ID,
-          verifyingContract,
-        };
-
-        const message = {
-          wallet: address,
-          fid: BigInt(userFid),
-          deadline,
-        };
-
-        let attestSig;
-        try {
-          const account = getSignerAccount();
-          attestSig = await account.signTypedData({
-            domain,
-            types: EIP712_TYPES,
-            primaryType: "FarcasterAttestation",
-            message,
+      try {
+        const txHash = await getAirdropService(fastify.log).transferToSma(smaLc);
+        if (!txHash) {
+          return reply.send({
+            status: "skipped",
+            reason:
+              "SOF_AIRDROP_AMOUNT_PER_USER unset, or SMA already funded",
           });
-        } catch (err) {
-          fastify.log.error({ err }, "Attestation signing failed");
-          return reply
-            .code(500)
-            .send({ error: "Failed to generate attestation" });
         }
-
-        const r = `0x${attestSig.slice(2, 66)}`;
-        const s = `0x${attestSig.slice(66, 130)}`;
-        const v = parseInt(attestSig.slice(130, 132), 16);
-
-        const paymasterService = getPaymasterService(fastify.log);
-        if (!paymasterService.initialized) {
-          await paymasterService.initialize();
-        }
-
-        const result = await paymasterService.claimAirdrop(
-          {
-            functionName: "claimInitialFor",
-            args: [address, BigInt(userFid), deadline, v, r, s],
-            airdropAddress,
-          },
-          fastify.log,
-        );
-
-        if (!result.success) {
-          return reply.code(500).send({ error: result.error });
-        }
-
-        return reply.send({ success: true, hash: result.hash });
-      }
-
-      if (type === "basic") {
-        if (!signature) {
-          return reply
-            .code(400)
-            .send({ error: "Signature required for basic claim" });
-        }
-
-        // Replay protection: reject already-used signatures
-        const sigHash = hashSignature(signature);
-        if (usedBasicSignatures.has(sigHash)) {
-          return reply.code(409).send({ error: "Signature already used" });
-        }
-
-        // Verify wallet ownership via personal_sign
-        const expectedMessage = `Claim SOF airdrop for ${address}`;
-        let recoveredAddress;
-        try {
-          recoveredAddress = await recoverMessageAddress({
-            message: expectedMessage,
-            signature,
-          });
-        } catch (err) {
-          return reply.code(400).send({ error: "Invalid signature" });
-        }
-
-        if (recoveredAddress.toLowerCase() !== address.toLowerCase()) {
-          return reply.code(401).send({ error: "Signature does not match address" });
-        }
-
-        // Mark signature as used (with size limit to prevent unbounded memory growth)
-        if (usedBasicSignatures.size >= MAX_USED_SIGNATURES) {
-          // Evict oldest entries (Set iterates in insertion order)
-          const iterator = usedBasicSignatures.values();
-          const halfToRemove = Math.floor(MAX_USED_SIGNATURES / 2);
-          for (let i = 0; i < halfToRemove; i++) {
-            usedBasicSignatures.delete(iterator.next().value);
-          }
-        }
-        usedBasicSignatures.add(sigHash);
-
-        const paymasterService = getPaymasterService(fastify.log);
-        if (!paymasterService.initialized) {
-          await paymasterService.initialize();
-        }
-
-        const result = await paymasterService.claimAirdrop(
-          {
-            functionName: "claimInitialBasicFor",
-            args: [address],
-            airdropAddress,
-          },
-          fastify.log,
-        );
-
-        if (!result.success) {
-          return reply.code(500).send({ error: result.error });
-        }
-
-        return reply.send({ success: true, hash: result.hash });
-      }
-
-      if (type === "daily") {
-        // Wallet-ownership proof via personal_sign — symmetric with basic
-        // claim. No replay protection needed: SOFAirdrop.claimDailyFor
-        // enforces a per-user cooldown on-chain, and the relay always
-        // credits `address`'s own wallet, so a replayed signature can only
-        // ever benefit the original signer (no exfiltration vector).
-        if (!signature) {
-          return reply
-            .code(400)
-            .send({ error: "Signature required for daily claim" });
-        }
-
-        const expectedMessage = `Claim daily SOF airdrop for ${address}`;
-        let recoveredAddress;
-        try {
-          recoveredAddress = await recoverMessageAddress({
-            message: expectedMessage,
-            signature,
-          });
-        } catch {
-          return reply.code(400).send({ error: "Invalid signature" });
-        }
-
-        if (recoveredAddress.toLowerCase() !== address.toLowerCase()) {
-          return reply
-            .code(401)
-            .send({ error: "Signature does not match address" });
-        }
-
-        const paymasterService = getPaymasterService(fastify.log);
-        if (!paymasterService.initialized) {
-          await paymasterService.initialize();
-        }
-
-        const result = await paymasterService.claimAirdrop(
-          {
-            functionName: "claimDailyFor",
-            args: [address],
-            airdropAddress,
-          },
-          fastify.log,
-        );
-
-        if (!result.success) {
-          return reply.code(500).send({ error: result.error });
-        }
-
-        return reply.send({ success: true, hash: result.hash });
+        return reply.send({ status: "submitted", txHash });
+      } catch (err) {
+        fastify.log.error({ err, sma: smaLc }, "transfer-to-sma failed");
+        return reply.code(500).send({ error: err.message });
       }
     },
+  );
+
+  /**
+   * GET /api/airdrop/status?eoa=0x...
+   * Read-only diagnostic — returns the smart_accounts row for an EOA.
+   * Useful for the frontend's first-connect banner state.
+   */
+  fastify.get("/status", async (request, reply) => {
+    const eoa = request.query?.eoa;
+    if (!eoa || !isAddress(eoa)) {
+      return reply
+        .code(400)
+        .send({ error: "Query param `eoa` (0x address) is required" });
+    }
+    const row = await smartAccountsDb.getSmartAccountByEoa(eoa.toLowerCase());
+    if (!row) {
+      return reply.send({ found: false });
+    }
+    return reply.send({
+      found: true,
+      eoa: row.eoa,
+      sma: row.sma,
+      deployedAt: row.deployed_at,
+      fundedAt: row.funded_at,
+      lastActiveAt: row.last_active_at,
+    });
   });
 }

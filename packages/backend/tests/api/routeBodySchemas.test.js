@@ -258,12 +258,66 @@ describe("schema: POST /api/allowlist/remove", () => {
 });
 
 // ── airdrop /claim ────────────────────────────────────────────────────────
-describe("schema: POST /api/airdrop/claim", () => {
-  // The handler's behavior beyond schema is exercised in integration manually;
-  // we only need to confirm the schema accepts/rejects shapes correctly. To
-  // avoid the handler making real chain/relay calls on the accept path, we
-  // mount only the claim route's schema validation by injecting a 503 short-
-  // circuit through the missing SOFAirdrop env.
+describe("schema: POST /api/airdrop/transfer-to-sma", () => {
+  // Per gasless-rewrite spec §5.3 the legacy /claim endpoint and its
+  // SOFAirdrop merkle/attestation flow are deleted. The new airdrop route
+  // is admin-only and just kicks an ERC-20 transfer to the user's SMA.
+  let app;
+  beforeAll(async () => {
+    const mod = await import("../../fastify/routes/airdropRoutes.js");
+    app = fastify({ logger: false });
+    // Stub auth so request.user.is_admin is true for these schema-only tests.
+    app.decorateRequest("user", null);
+    app.addHook("preHandler", async (req) => {
+      req.user = { is_admin: true };
+    });
+    await app.register(mod.default, { prefix: "/api/airdrop" });
+    await app.ready();
+  });
+  afterAll(async () => { await app.close(); });
+
+  it("rejects missing sma", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/airdrop/transfer-to-sma",
+      payload: {},
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects malformed sma", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/airdrop/transfer-to-sma",
+      payload: { sma: "not-an-address" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("returns 403 for non-admin callers", async () => {
+    // Re-build app with a non-admin user so the admin check fires.
+    const mod = await import("../../fastify/routes/airdropRoutes.js");
+    const subApp = fastify({ logger: false });
+    subApp.decorateRequest("user", null);
+    subApp.addHook("preHandler", async (req) => {
+      req.user = { is_admin: false };
+    });
+    await subApp.register(mod.default, { prefix: "/api/airdrop" });
+    await subApp.ready();
+    try {
+      const res = await subApp.inject({
+        method: "POST",
+        url: "/api/airdrop/transfer-to-sma",
+        payload: { sma: VALID_ADDR },
+      });
+      expect(res.statusCode).toBe(403);
+    } finally {
+      await subApp.close();
+    }
+  });
+});
+
+describe("schema: GET /api/airdrop/status", () => {
   let app;
   beforeAll(async () => {
     const mod = await import("../../fastify/routes/airdropRoutes.js");
@@ -273,88 +327,20 @@ describe("schema: POST /api/airdrop/claim", () => {
   });
   afterAll(async () => { await app.close(); });
 
-  it("rejects missing address", async () => {
+  it("rejects missing eoa query param", async () => {
     const res = await app.inject({
-      method: "POST",
-      url: "/api/airdrop/claim",
-      payload: { type: "basic", signature: VALID_SIG },
-    });
-    expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.payload).message).toMatch(/address/);
-  });
-
-  it("rejects unknown type", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/airdrop/claim",
-      payload: { address: VALID_ADDR, type: "weekly", signature: VALID_SIG },
+      method: "GET",
+      url: "/api/airdrop/status",
     });
     expect(res.statusCode).toBe(400);
   });
 
-  it("rejects type=initial without fid", async () => {
+  it("rejects malformed eoa", async () => {
     const res = await app.inject({
-      method: "POST",
-      url: "/api/airdrop/claim",
-      payload: { address: VALID_ADDR, type: "initial" },
+      method: "GET",
+      url: "/api/airdrop/status?eoa=not-an-address",
     });
     expect(res.statusCode).toBe(400);
-  });
-
-  it("rejects type=basic without signature", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/airdrop/claim",
-      payload: { address: VALID_ADDR, type: "basic" },
-    });
-    expect(res.statusCode).toBe(400);
-  });
-
-  it("rejects type=daily without signature", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/airdrop/claim",
-      payload: { address: VALID_ADDR, type: "daily" },
-    });
-    expect(res.statusCode).toBe(400);
-  });
-
-  it("rejects malformed signature length", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/airdrop/claim",
-      payload: { address: VALID_ADDR, type: "basic", signature: "0xshort" },
-    });
-    expect(res.statusCode).toBe(400);
-  });
-
-  it("accepts well-shaped basic payload (handler may still reject downstream)", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/airdrop/claim",
-      payload: { address: VALID_ADDR, type: "basic", signature: VALID_SIG },
-    });
-    expect(res.statusCode).not.toBe(400);
-  });
-
-  it("accepts well-shaped initial payload", async () => {
-    // Closes the gap reviewer flagged: the initial accept path was
-    // implicitly covered by the basic test, never exercised on its own.
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/airdrop/claim",
-      payload: { address: VALID_ADDR, type: "initial", fid: 12345 },
-    });
-    expect(res.statusCode).not.toBe(400);
-  });
-
-  it("accepts well-shaped daily payload", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/airdrop/claim",
-      payload: { address: VALID_ADDR, type: "daily", signature: VALID_SIG },
-    });
-    expect(res.statusCode).not.toBe(400);
   });
 });
 
