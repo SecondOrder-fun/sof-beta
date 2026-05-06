@@ -28,5 +28,6 @@
   "browseRaffles": "Browse Raffles",
   "myRaffles": "My Raffles",
   "createRaffle": "Create Raffle",
-  "getSOF": "Get SOF"
+  "getSOF": "Get SOF",
+  "ownedBy": "owned by"
 }
