@@ -18,13 +18,23 @@ const ETH_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 /**
  * Build the token list from contract addresses.
+ *
+ * ETH is the zero-address sentinel. We only include USDC/SOF when their
+ * addresses are non-zero AND distinct from ETH — otherwise the Select dropdown
+ * renders multiple SelectItems with key="0x000…000" (e.g. on local where USDC
+ * isn't deployed and resolves to address(0)) and React warns about duplicate
+ * keys. ERC-20 tokens at address(0) aren't real anyway, so treating that as
+ * "not deployed" is correct.
  */
 function buildTokenList(contracts) {
-  return [
-    { address: ETH_ADDRESS, symbol: 'ETH', decimals: 18 },
-    { address: contracts.USDC, symbol: 'USDC', decimals: 6 },
-    { address: contracts.SOF, symbol: '$SOF', decimals: 18 },
-  ].filter((t) => t.address);
+  const items = [{ address: ETH_ADDRESS, symbol: 'ETH', decimals: 18 }];
+  if (contracts.USDC && contracts.USDC !== ETH_ADDRESS) {
+    items.push({ address: contracts.USDC, symbol: 'USDC', decimals: 6 });
+  }
+  if (contracts.SOF && contracts.SOF !== ETH_ADDRESS) {
+    items.push({ address: contracts.SOF, symbol: '$SOF', decimals: 18 });
+  }
+  return items;
 }
 
 /**
