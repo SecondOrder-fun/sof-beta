@@ -6,6 +6,7 @@
  */
 
 import crypto from "node:crypto";
+import process from "node:process";
 import { verifyMessage } from "viem";
 import { redisClient } from "../../shared/redisClient.js";
 import { AuthService } from "../../shared/auth.js";
@@ -14,6 +15,11 @@ import { resolveFidToWallet } from "../../shared/fidResolverService.js";
 import { addToAllowlist } from "../../shared/allowlistService.js";
 import { invalidateUserAccessCache } from "../../shared/accessCache.js";
 import { usernameService } from "../../shared/usernameService.js";
+import { ensureSmartAccount } from "../../shared/services/smartAccountService.js";
+import { smartAccountsDb } from "../../shared/services/smartAccountsDb.js";
+import { ensureAdminFlag } from "../../shared/services/adminEoaService.js";
+import { getAirdropService } from "../../shared/services/airdropService.js";
+import { publicClient } from "../../src/lib/viemClient.js";
 
 const NONCE_TTL_SECONDS = 300; // 5 minutes
 const SIGN_IN_MESSAGE_PREFIX = "Sign in to SecondOrder.fun\nNonce: ";
@@ -159,12 +165,48 @@ export default async function authRoutes(fastify) {
     const accessInfo = await getUserAccess({ fid, wallet: walletAddress });
     const role = ACCESS_LEVEL_NAMES[accessInfo.level] || "user";
 
+    // ── Smart account + admin flag (gasless rewrite §5.3) ──────────
+    // Resolve the user's deterministic SMA via the factory, persist
+    // the row, and (for new users) kick the airdrop relayer to fund it.
+    // ADMIN_EOAS-listed wallets get is_admin flipped to true here on
+    // first auth.
+    let sma = null;
+    let isAdmin = false;
+    if (walletAddress) {
+      try {
+        const sa = await ensureSmartAccount({
+          eoa: walletAddress,
+          db: smartAccountsDb,
+          chain: publicClient,
+          airdrop: getAirdropService(fastify.log),
+          network: (process.env.NETWORK || "LOCAL").toLowerCase(),
+        });
+        sma = sa.sma;
+      } catch (err) {
+        fastify.log.warn(
+          { err, walletAddress },
+          "ensureSmartAccount failed during auth — continuing without SMA",
+        );
+      }
+
+      try {
+        isAdmin = await ensureAdminFlag(walletAddress, fastify.log);
+      } catch (err) {
+        fastify.log.warn(
+          { err, walletAddress },
+          "ensureAdminFlag failed during auth — defaulting isAdmin=false",
+        );
+      }
+    }
+
     const tokenPayload = {
       id: accessInfo.entry?.id || walletAddress || `fid:${fid}`,
       wallet_address: walletAddress,
       role,
     };
     if (fid) tokenPayload.fid = fid;
+    if (sma) tokenPayload.sma = sma;
+    if (isAdmin) tokenPayload.is_admin = true;
 
     const token = await AuthService.generateToken(tokenPayload);
 
@@ -178,6 +220,8 @@ export default async function authRoutes(fastify) {
         pfpUrl: pfpUrl || null,
         accessLevel: accessInfo.level,
         role,
+        sma,
+        isAdmin,
       },
     });
   });
