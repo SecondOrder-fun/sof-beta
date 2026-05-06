@@ -1,0 +1,14 @@
+{
+  "firstConnect": {
+    "title": "Welcome — your raffle account is ready",
+    "body": "Your gameplay happens at your raffle account {{sma}}, owned by your wallet {{eoa}}. You won't pay gas for raffle actions.",
+    "dismiss": "Got it"
+  },
+  "sweep": {
+    "title": "Move your SOF to your raffle account",
+    "body": "You have {{amount}} SOF in your wallet. Move it to your raffle account to use it for gameplay. (You pay gas for this one-time transfer.)",
+    "confirmBtn": "Sweep to raffle account",
+    "confirming": "Confirming…",
+    "pending": "Waiting for wallet…"
+  }
+}

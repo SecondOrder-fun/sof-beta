@@ -7,6 +7,8 @@ import { Toaster } from "@/components/ui/toaster";
 import UsernameDialog from "@/components/user/UsernameDialog";
 import LoginModal from "@/components/auth/LoginModal";
 import MobileLoginSheet from "@/components/auth/MobileLoginSheet";
+import FirstConnectBanner from "@/components/auth/FirstConnectBanner";
+import SweepBanner from "@/components/auth/SweepBanner";
 import { useUsernameContext } from "@/context/UsernameContext";
 import { ContractAddressValidator } from "@/components/dev/ContractAddressValidator";
 import { usePlatform } from "@/hooks/usePlatform";
@@ -31,6 +33,8 @@ const App = () => {
         }}
       >
         <MobileHeader />
+        <FirstConnectBanner />
+        <SweepBanner />
         <main className="flex-1 overflow-y-auto pb-16">
           <Outlet />
         </main>
@@ -45,6 +49,8 @@ const App = () => {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Header />
+      <FirstConnectBanner />
+      <SweepBanner />
       <main className="container mx-auto px-4 py-8">
         <div>
           <Outlet />
