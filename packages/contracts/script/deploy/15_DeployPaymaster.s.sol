@@ -15,7 +15,6 @@ contract DeployPaymaster is Script {
 
     function run(DeployedAddresses memory addrs) public returns (DeployedAddresses memory) {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
-        address deployer = vm.addr(deployerKey);
 
         // On LOCAL the local stack runs scripts/setup-local-aa.js before this
         // script, which injects EntryPoint v0.8 via anvil_setCode. Forge's
@@ -35,27 +34,38 @@ contract DeployPaymaster is Script {
             console2.log("EntryPoint v0.8 verified at canonical (code length:", epCodeLen, ")");
         }
 
+        // Spec §3.3 static allowlist:
+        //   {Raffle, SOFToken, InfoFiFactory, InfoFiSettlement, InfoFiFPMM,
+        //    RaffleOracleAdapter, RolloverEscrow, SOFExchange}
+        //
+        // Per-season SOFBondingCurve targets are NOT in the static set; they
+        // are validated dynamically via IRaffleCurveRegistry(raffle).isSofCurve.
+        //
+        // RolloverEscrow (step 16) and SOFExchange (step 18) deploy AFTER this
+        // script in the DeployAll chain, so their addresses are still zero in
+        // `addrs` when we construct here. We initialize the allowlist with the
+        // 6 already-deployed targets and rely on DeployAll to call
+        // `paymaster.setAllowlisted(rolloverEscrow|sofExchange, true)` after
+        // those deploy. The deployer keeps DEFAULT_ADMIN_ROLE / ADMIN_ROLE
+        // from the constructor, so the post-deploy wiring is authorized.
+        address[] memory initialAllowlist = new address[](6);
+        initialAllowlist[0] = addrs.raffle;
+        initialAllowlist[1] = addrs.sofToken;
+        initialAllowlist[2] = addrs.infoFiFactory;
+        initialAllowlist[3] = addrs.infoFiSettlement;
+        initialAllowlist[4] = addrs.fpmmManager; // InfoFiFPMMV2 instance
+        initialAllowlist[5] = addrs.oracleAdapter;
+
         vm.startBroadcast(deployerKey);
-        // New constructor (gasless rewrite §3.3):
+        // Constructor (gasless rewrite §3.3):
         //   (entryPoint, factory, raffle, initialAllowlist).
-        // TODO(Task 2.2): wire the SOFSmartAccountFactory address (not yet in
-        // DeployedAddresses) and a real allowlist from the deployments struct.
-        // For now we pass `address(0)` for factory as a placeholder; the
-        // paymaster constructor reverts ZeroAddress on this — that's the
-        // intended loud-fail until Task 2.2 plumbs the real factory address
-        // through. forge build + tests stay green; an actual deploy run
-        // (DeployAll on local/testnet) will revert here, which is correct.
-        address[] memory initialAllowlist = new address[](0);
+        // Reverts ZeroAddress if any of (entryPoint, factory, raffle) are zero.
         SOFPaymaster paymaster = new SOFPaymaster(
             ENTRY_POINT_V08,
-            address(0),
+            addrs.sofSmartAccountFactory,
             addrs.raffle,
             initialAllowlist
         );
-        // Silence unused-var warning until Task 2.2 reintroduces deployer
-        // role assignment (Ownable was dropped in favour of AccessControl;
-        // grants stay implicit since msg.sender is already DEFAULT_ADMIN).
-        deployer;
         vm.stopBroadcast();
 
         addrs.paymasterAddress = address(paymaster);
@@ -78,4 +88,3 @@ contract DeployPaymaster is Script {
         return addrs;
     }
 }
-

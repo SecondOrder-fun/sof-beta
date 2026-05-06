@@ -28,6 +28,7 @@ import {DeploySOFExchange} from "./18_DeploySOFExchange.s.sol";
 import {RafflePrizeDistributor} from "../../src/core/RafflePrizeDistributor.sol";
 import {RolloverEscrow} from "../../src/core/RolloverEscrow.sol";
 import {SeasonFactory} from "../../src/core/SeasonFactory.sol";
+import {SOFPaymaster} from "../../src/paymaster/SOFPaymaster.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract DeployAll is Script {
@@ -104,6 +105,27 @@ contract DeployAll is Script {
 
         console2.log("=== 18: SOFExchange ===");
         addrs = new DeploySOFExchange().run(addrs);
+
+        // --- 18b: Late-bound paymaster allowlist entries ---
+        // RolloverEscrow (step 16) and SOFExchange (step 18) deploy AFTER the
+        // paymaster (step 15), so 15_DeployPaymaster.s.sol cannot include them
+        // in the constructor's initialAllowlist. Wire them in now via
+        // setAllowlisted (deployer holds ADMIN_ROLE from the paymaster ctor).
+        // This completes the spec §3.3 static allowlist of 8 targets.
+        console2.log("=== 18b: Wire late paymaster allowlist (RolloverEscrow, SOFExchange) ===");
+        {
+            SOFPaymaster paymaster = SOFPaymaster(addrs.paymasterAddress);
+            vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
+            if (addrs.rolloverEscrow != address(0)) {
+                paymaster.setAllowlisted(addrs.rolloverEscrow, true);
+                console2.log("Allowlisted RolloverEscrow on Paymaster");
+            }
+            if (addrs.sofExchange != address(0)) {
+                paymaster.setAllowlisted(addrs.sofExchange, true);
+                console2.log("Allowlisted SOFExchange on Paymaster");
+            }
+            vm.stopBroadcast();
+        }
 
         console2.log("=== 16b: Wire RolloverEscrow roles ===");
         {
