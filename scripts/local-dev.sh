@@ -335,15 +335,23 @@ for log in d.get('logs', []):
   ok "  ${#ADMIN_WALLETS[@]} admin wallet(s) seeded"
 
   # ------ Step 5: Grant on-chain roles ------
+  # Each admin EOA gets SEASON_CREATOR_ROLE + DEFAULT_ADMIN_ROLE on Raffle.
+  # Post-gasless-rewrite, sponsored admin writes set msg.sender = the EOA's SMA
+  # (factory.getAddress(eoa)), so the SMA also needs these roles or
+  # AccessControl reverts UnauthorizedCaller. The deploy script already grants
+  # the deployer's SMA in 14_ConfigureRoles; this loop covers the remaining
+  # admin wallets (Patrick + Anvil #3-#5) and their SMAs.
   log "Step 5/9: Granting on-chain roles..."
-  local raffle
+  local raffle factory_addr
   raffle=$(get_deployment Raffle)
+  factory_addr=$(get_deployment SOFSmartAccountFactory)
   local creator_role
   creator_role=$(cast keccak "SEASON_CREATOR_ROLE")
   local admin_role="0x0000000000000000000000000000000000000000000000000000000000000000"
 
   for wallet in "${ADMIN_WALLETS_CHECKSUMMED[@]}"; do
-    # Skip deployer — already has roles from deployment
+    # Skip deployer — already has roles from deployment (and its SMA was
+    # granted in 14_ConfigureRoles).
     if [ "$wallet" = "$DEPLOYER_ADDR" ]; then
       continue
     fi
@@ -352,8 +360,21 @@ for log in d.get('logs', []):
       --private-key "$DEPLOYER_KEY" --rpc-url "$RPC" > /dev/null 2>&1 || true
     cast send "$raffle" "grantRole(bytes32,address)" "$admin_role" "$wallet" \
       --private-key "$DEPLOYER_KEY" --rpc-url "$RPC" > /dev/null 2>&1 || true
+
+    # Mirror the same roles onto the wallet's deterministic SMA so
+    # sponsored admin UserOps from the SMA pass AccessControl.
+    if [ -n "$factory_addr" ] && [ "$factory_addr" != "null" ]; then
+      local wallet_sma
+      wallet_sma=$(cast call "$factory_addr" "getAddress(address)(address)" "$wallet" --rpc-url "$RPC" 2>/dev/null)
+      if [ -n "$wallet_sma" ] && [ "$wallet_sma" != "0x0000000000000000000000000000000000000000" ]; then
+        cast send "$raffle" "grantRole(bytes32,address)" "$creator_role" "$wallet_sma" \
+          --private-key "$DEPLOYER_KEY" --rpc-url "$RPC" > /dev/null 2>&1 || true
+        cast send "$raffle" "grantRole(bytes32,address)" "$admin_role" "$wallet_sma" \
+          --private-key "$DEPLOYER_KEY" --rpc-url "$RPC" > /dev/null 2>&1 || true
+      fi
+    fi
   done
-  ok "  Roles granted"
+  ok "  Roles granted (EOAs + SMAs)"
 
   # ------ Step 6: Treasury approval for RolloverEscrow ------
   log "Step 6/9: Treasury approval for RolloverEscrow..."
