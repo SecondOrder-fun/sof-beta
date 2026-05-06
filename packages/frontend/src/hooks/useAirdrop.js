@@ -5,8 +5,19 @@ import { useQueryClient } from "@tanstack/react-query";
 import { formatUnits } from "viem";
 import { getContractAddresses } from "@/config/contracts";
 import { getStoredNetworkKey } from "@/lib/wagmi";
-import { SOFAirdropAbi } from "@/utils/abis";
 import FarcasterContext from "@/context/farcasterContext";
+
+// SOFAirdrop contract was deleted in the gasless rewrite. The hook is kept
+// for component compatibility; without an address all reads remain disabled.
+// Minimal ABI fragment included so wagmi's useReadContract calls type-check.
+const SOFAirdropAbi = [
+  { type: "function", name: "hasClaimed", stateMutability: "view", inputs: [{ name: "user", type: "address" }], outputs: [{ type: "bool" }] },
+  { type: "function", name: "lastDailyClaim", stateMutability: "view", inputs: [{ name: "user", type: "address" }], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "cooldown", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "initialAmount", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "basicAmount", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "dailyAmount", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+];
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
