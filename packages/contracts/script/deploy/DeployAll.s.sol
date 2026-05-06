@@ -19,7 +19,7 @@ import {DeployInfoFiFactory} from "./09_DeployInfoFiFactory.s.sol";
 import {DeploySettlement} from "./10_DeploySettlement.s.sol";
 import {DeployDistributor} from "./11_DeployDistributor.s.sol";
 import {DeployFaucet} from "./12_DeployFaucet.s.sol";
-import {DeploySOFSmartAccount} from "./13_DeploySOFSmartAccount.s.sol";
+import {DeploySOFSmartAccountFactory} from "./13_DeploySOFSmartAccountFactory.s.sol";
 import {ConfigureRoles} from "./14_ConfigureRoles.s.sol";
 import {DeployPaymaster} from "./15_DeployPaymaster.s.sol";
 import {DeployRolloverEscrow} from "./16_DeployRolloverEscrow.s.sol";
@@ -87,8 +87,8 @@ contract DeployAll is Script {
         console2.log("=== 12: SOFFaucet ===");
         addrs = new DeployFaucet().run(addrs);
 
-        console2.log("=== 13: SOFSmartAccount ===");
-        addrs = new DeploySOFSmartAccount().run(addrs);
+        console2.log("=== 13: SOFSmartAccountFactory ===");
+        addrs = new DeploySOFSmartAccountFactory().run(addrs);
 
         console2.log("=== 14: ConfigureRoles ===");
         addrs = new ConfigureRoles().run(addrs);
@@ -215,7 +215,7 @@ contract DeployAll is Script {
             '    "InfoFiSettlement": "', vm.toString(addrs.infoFiSettlement), '",\n',
             '    "PrizeDistributor": "', vm.toString(addrs.prizeDistributor), '",\n',
             '    "SOFFaucet": "', vm.toString(addrs.faucet), '",\n',
-            '    "SOFSmartAccount": "', vm.toString(addrs.sofSmartAccount), '",\n',
+            '    "SOFSmartAccountFactory": "', vm.toString(addrs.sofSmartAccountFactory), '",\n',
             '    "Paymaster": "', vm.toString(addrs.paymasterAddress), '",\n',
             '    "RolloverEscrow": "', vm.toString(addrs.rolloverEscrow), '",\n'
         );

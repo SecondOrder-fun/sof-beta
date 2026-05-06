@@ -20,7 +20,7 @@ struct DeployedAddresses {
     address infoFiSettlement;
     address prizeDistributor;
     address faucet;
-    address sofSmartAccount;
+    address sofSmartAccountFactory;
     address paymasterAddress;
     address rolloverEscrow;
     address usdc;
