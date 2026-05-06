@@ -11,6 +11,7 @@ import {InfoFiFPMMV2} from "../../src/infofi/InfoFiFPMMV2.sol";
 import {InfoFiPriceOracle} from "../../src/infofi/InfoFiPriceOracle.sol";
 import {RafflePrizeDistributor} from "../../src/core/RafflePrizeDistributor.sol";
 import {RolloverEscrow} from "../../src/core/RolloverEscrow.sol";
+import {SOFSmartAccountFactory} from "../../src/account/SOFSmartAccountFactory.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 
@@ -116,6 +117,45 @@ contract ConfigureRoles is Script {
             console2.log("IMPORTANT: Treasury must approve InfoFiFactory for SOF spending");
             console2.log("  Run: sof.approve(", vm.toString(addrs.infoFiFactory), ", type(uint256).max)");
             console2.log("  From the treasury wallet:", vm.toString(treasury));
+        }
+
+        // 9b. Mirror deployer's admin roles onto its predicted SMA so that
+        // sponsored UserOps from `factory.getAddress(deployer)` can satisfy
+        // AccessControl checks on Raffle. Without this, admin writes
+        // (createSeason, startSeason, requestSeasonEnd, requestSeasonEndEarly)
+        // would have to fall back to `bypassSponsorship: true` because
+        // msg.sender == SMA wouldn't hold any role. The deployer EOA holds
+        // DEFAULT_ADMIN_ROLE / SEASON_CREATOR_ROLE / EMERGENCY_ROLE on Raffle
+        // and DEFAULT_ADMIN_ROLE on SeasonFactory (granted in their respective
+        // constructors). We mirror those exact roles onto its SMA.
+        if (addrs.sofSmartAccountFactory != address(0)) {
+            SOFSmartAccountFactory factory = SOFSmartAccountFactory(addrs.sofSmartAccountFactory);
+            try factory.getAddress(deployer) returns (address adminSma) {
+                try raffle.grantRole(raffle.DEFAULT_ADMIN_ROLE(), adminSma) {
+                    console2.log("Granted DEFAULT_ADMIN_ROLE on Raffle to admin SMA");
+                } catch {
+                    console2.log("DEFAULT_ADMIN_ROLE on Raffle for admin SMA already set");
+                }
+                try raffle.grantRole(raffle.SEASON_CREATOR_ROLE(), adminSma) {
+                    console2.log("Granted SEASON_CREATOR_ROLE on Raffle to admin SMA");
+                } catch {
+                    console2.log("SEASON_CREATOR_ROLE on Raffle for admin SMA already set");
+                }
+                try raffle.grantRole(raffle.EMERGENCY_ROLE(), adminSma) {
+                    console2.log("Granted EMERGENCY_ROLE on Raffle to admin SMA");
+                } catch {
+                    console2.log("EMERGENCY_ROLE on Raffle for admin SMA already set");
+                }
+                try seasonFactory.grantRole(seasonFactory.DEFAULT_ADMIN_ROLE(), adminSma) {
+                    console2.log("Granted DEFAULT_ADMIN_ROLE on SeasonFactory to admin SMA");
+                } catch {
+                    console2.log("DEFAULT_ADMIN_ROLE on SeasonFactory for admin SMA already set");
+                }
+            } catch {
+                console2.log("Could not derive admin SMA from factory; skipping SMA role grants");
+            }
+        } else {
+            console2.log("SOFSmartAccountFactory not deployed; skipping admin SMA role grants");
         }
 
         // 10. Wire RolloverEscrow
