@@ -8,11 +8,9 @@ vi.mock("wagmi", () => {
     WagmiProvider: ({ children }) => children,
     createConfig: vi.fn(() => ({ mocked: true })),
     useAccount: vi.fn(() => ({ isConnected: false })),
-    useCapabilities: vi.fn(() => ({ data: undefined })),
     useChainId: vi.fn(() => 84532),
     useConnect: vi.fn(() => ({ connect: vi.fn(), connectors: [] })),
     useSwitchChain: vi.fn(() => ({ switchChain: vi.fn() })),
-    useWalletClient: vi.fn(() => ({ data: null })),
   };
 });
 
@@ -42,14 +40,6 @@ vi.mock("@rainbow-me/rainbowkit/wallets", () => ({
   coinbaseWallet: {},
   metaMaskWallet: {},
   walletConnectWallet: {},
-}));
-
-vi.mock("@/hooks/useDelegationStatus", () => ({
-  useDelegationStatus: vi.fn(() => ({ isDelegated: false, isSOFDelegate: false, isLoading: false })),
-}));
-
-vi.mock("@/components/delegation/DelegationModal", () => ({
-  DelegationModal: () => null,
 }));
 
 describe("WagmiConfigProvider EnsureActiveChain", () => {
