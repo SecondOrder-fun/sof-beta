@@ -17,7 +17,8 @@ function makeOwner(address = "0x000000000000000000000000000000000000beef") {
 
 function makeClient({
   predictedSma = "0x000000000000000000000000000000000000c0de",
-  code = "0x",
+  // viem's getCode returns `undefined` for "0x" — match that convention.
+  code = undefined,
   chainId = 31337,
 } = {}) {
   return {
@@ -46,7 +47,7 @@ describe("toSofSmartAccount", () => {
   });
 
   it("getFactoryArgs returns factory + createAccount calldata for first-time deploy", async () => {
-    const client = makeClient({ code: "0x" });
+    const client = makeClient({ code: undefined });
     const owner = makeOwner();
 
     const account = await toSofSmartAccount({
