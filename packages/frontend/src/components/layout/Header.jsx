@@ -10,7 +10,6 @@ import { useLoginModal } from "@/hooks/useLoginModal";
 import { Button } from "@/components/ui/button";
 import { useUsername } from "@/hooks/useUsername";
 import { useRaffleAccount } from "@/hooks/useRaffleAccount";
-import { shortAddress } from "@/lib/format";
 import { useAllowlist } from "@/hooks/useAllowlist";
 import { ACCESS_LEVELS } from "@/config/accessLevels";
 import { useRouteAccess } from "@/hooks/useRouteAccess";
@@ -26,7 +25,9 @@ const Header = () => {
   const { t } = useTranslation("navigation");
   const { t: tAuth } = useTranslation("auth");
   const { address, isConnected } = useAccount();
-  const { eoa, sma, walletType, isReady } = useRaffleAccount();
+  // Header no longer renders raw addresses; the SMA is still consumed for
+  // the SettingsMenu's `address` prop (display + copy live there now).
+  const { sma } = useRaffleAccount();
   const { disconnect } = useDisconnect();
   const { openLoginModal } = useLoginModal();
   const { isBackendAuthenticated, backendUser, logout: farcasterLogout } = useFarcaster();
@@ -140,19 +141,6 @@ const Header = () => {
         <div className="flex items-center space-x-4">
           {isConnected ? (
             <>
-              {isReady && walletType === "desktop-eoa" && (
-                <div className="hidden sm:flex flex-col text-right leading-tight">
-                  <span className="font-mono text-sm">{shortAddress(sma)}</span>
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {t("ownedBy")} {shortAddress(eoa)}
-                  </span>
-                </div>
-              )}
-              {isReady && walletType !== "desktop-eoa" && (
-                <span className="hidden sm:inline font-mono text-sm">
-                  {shortAddress(sma)}
-                </span>
-              )}
               <SettingsMenu
                 address={sma || address}
                 username={username}
