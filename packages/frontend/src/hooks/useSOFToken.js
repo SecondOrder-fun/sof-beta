@@ -7,12 +7,18 @@ import { getContractAddresses } from '@/config/contracts';
 import { getStoredNetworkKey } from '@/lib/wagmi';
 import { ERC20Abi } from '@/utils/abis';
 import { useSmartTransactions } from '@/hooks/useSmartTransactions';
+import { useRaffleAccount } from '@/hooks/useRaffleAccount';
 
 /**
- * Hook for interacting with the SOF token contract
+ * Hook for interacting with the SOF token contract.
+ *
+ * Reads (balance, allowance) resolve at the SMA per spec §4.3.
  */
 export function useSOFToken() {
-  const { address, isConnected } = useAccount();
+  const { isConnected } = useAccount();
+  // Reads against the smart account; writes still originate from the
+  // connected wallet via executeBatch.
+  const { sma: address } = useRaffleAccount();
   const publicClient = usePublicClient();
   const { executeBatch } = useSmartTransactions();
   const queryClient = useQueryClient();

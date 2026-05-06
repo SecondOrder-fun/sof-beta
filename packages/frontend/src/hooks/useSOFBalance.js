@@ -1,7 +1,8 @@
 // src/hooks/useSOFBalance.js
-import { useAccount, useReadContract } from "wagmi";
+import { useReadContract } from "wagmi";
 import { getContractAddresses } from "@/config/contracts";
 import { getStoredNetworkKey } from "@/lib/wagmi";
+import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 
 const ERC20_BALANCE_ABI = [
   {
@@ -14,11 +15,15 @@ const ERC20_BALANCE_ABI = [
 ];
 
 /**
- * Hook to get the connected user's $SOF balance
+ * Hook to get the connected user's $SOF balance.
+ *
+ * Resolves at the user's smart account (spec §4.3) — gameplay balances
+ * live at the SMA, not the connected EOA.
+ *
  * @returns {{ balance: bigint, isLoading: boolean, refetch: function }}
  */
 export function useSOFBalance() {
-  const { address, isConnected } = useAccount();
+  const { sma: address, isReady } = useRaffleAccount();
   const sofAddress = getContractAddresses(getStoredNetworkKey()).SOF;
 
   const { data, isLoading, refetch } = useReadContract({
@@ -27,7 +32,7 @@ export function useSOFBalance() {
     functionName: "balanceOf",
     args: [address],
     query: {
-      enabled: isConnected && !!address && !!sofAddress,
+      enabled: isReady && !!address && !!sofAddress,
     },
   });
 

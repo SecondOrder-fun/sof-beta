@@ -48,6 +48,7 @@ import { getContractAddresses } from "@/config/contracts";
 import { ERC20Abi } from "@/utils/abis";
 import UsernameEditor from "@/components/account/UsernameEditor";
 import DailyClaimButton from "@/components/airdrop/DailyClaimButton";
+import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import PropTypes from "prop-types";
 
 /**
@@ -66,6 +67,11 @@ const SettingsMenu = ({ address, username, farcasterUser, onDisconnect }) => {
   const net = getNetworkByKey(netKey);
   const contracts = getContractAddresses(netKey);
 
+  // Balance reads resolve at the user's smart account, not the EOA
+  // (spec §4.3). The `address` prop above is retained for the displayed /
+  // copyable address that the user sees in the menu.
+  const { sma } = useRaffleAccount();
+
   // Create viem client for balance query
   const client = useMemo(() => {
     return createPublicClient({
@@ -79,16 +85,16 @@ const SettingsMenu = ({ address, username, farcasterUser, onDisconnect }) => {
     });
   }, [net.id, net.name, net.rpcUrl]);
 
-  // SOF balance query
+  // SOF balance query — keyed on SMA
   const sofBalanceQuery = useQuery({
-    queryKey: ["sofBalance", netKey, contracts.SOF, address],
-    enabled: !!client && !!contracts.SOF && !!address,
+    queryKey: ["sofBalance", netKey, contracts.SOF, sma],
+    enabled: !!client && !!contracts.SOF && !!sma,
     queryFn: async () => {
       const bal = await client.readContract({
         address: contracts.SOF,
         abi: ERC20Abi,
         functionName: "balanceOf",
-        args: [address],
+        args: [sma],
       });
       return bal;
     },
