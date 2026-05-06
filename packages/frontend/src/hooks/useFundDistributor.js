@@ -1,5 +1,5 @@
 // src/hooks/useFundDistributor.js
-import { useAccount, usePublicClient } from "wagmi";
+import { usePublicClient } from "wagmi";
 import { encodeFunctionData } from "viem";
 import { getContractAddresses } from "@/config/contracts";
 import { getStoredNetworkKey } from "@/lib/wagmi";
@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { RaffleAbi, RafflePrizeDistributorAbi } from "@/utils/abis";
 import { RAFFLE_ROLE, describeRole } from "@/utils/accessControl";
 import { useSmartTransactions } from "./useSmartTransactions";
+import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 
 /**
  * Hook for managing the raffle distribution process
@@ -20,7 +21,9 @@ const useFundDistributor = ({
 }) => {
   const netKey = getStoredNetworkKey();
   const publicClient = usePublicClient();
-  const { address } = useAccount();
+  // SMA-bound read per spec §4.3 — invalidate the admin's SMA balance key
+  // since admin writes flow through the SMA post-Task-5.8.
+  const { sma: address } = useRaffleAccount();
   const queryClient = useQueryClient();
   const contractAddresses = getContractAddresses(netKey);
   const { executeBatch } = useSmartTransactions();
