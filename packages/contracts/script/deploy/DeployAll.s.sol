@@ -25,7 +25,6 @@ import {DeployPaymaster} from "./15_DeployPaymaster.s.sol";
 import {DeployRolloverEscrow} from "./16_DeployRolloverEscrow.s.sol";
 import {DeployUSDCMock} from "./17_DeployUSDCMock.s.sol";
 import {DeploySOFExchange} from "./18_DeploySOFExchange.s.sol";
-import {DeploySOFAirdrop} from "./19_DeploySOFAirdrop.s.sol";
 import {RafflePrizeDistributor} from "../../src/core/RafflePrizeDistributor.sol";
 import {RolloverEscrow} from "../../src/core/RolloverEscrow.sol";
 import {SeasonFactory} from "../../src/core/SeasonFactory.sol";
@@ -106,9 +105,6 @@ contract DeployAll is Script {
         console2.log("=== 18: SOFExchange ===");
         addrs = new DeploySOFExchange().run(addrs);
 
-        console2.log("=== 19: SOFAirdrop ===");
-        addrs = new DeploySOFAirdrop().run(addrs);
-
         console2.log("=== 16b: Wire RolloverEscrow roles ===");
         {
             RolloverEscrow rolloverEscrow = RolloverEscrow(addrs.rolloverEscrow);
@@ -166,9 +162,10 @@ contract DeployAll is Script {
         else networkName = "unknown";
 
         // Read existing file to preserve non-managed keys.
-        // Note: SOFExchange / SOFAirdrop / USDC moved into the managed set in
-        // 0.25.0 (deploy steps 17-19). SOFBondingCurve / SeasonGating /
-        // VRFCoordinator are still hand-maintained for non-local deploys.
+        // Note: SOFExchange / USDC moved into the managed set in 0.25.0
+        // (deploy steps 17-18; SOFAirdrop step 19 was deleted in the gasless
+        // rewrite). SOFBondingCurve / SeasonGating / VRFCoordinator are still
+        // hand-maintained for non-local deploys.
         string[3] memory preserveKeys = ["SOFBondingCurve", "SeasonGating", "VRFCoordinator"];
         string[3] memory preserveVals;
 
@@ -226,7 +223,6 @@ contract DeployAll is Script {
             // Newly managed addresses (0.25.0). USDC may be address(0) on
             // non-local until HelperConfig grows a per-network USDC field.
             '    "SOFExchange": "', vm.toString(addrs.sofExchange), '",\n',
-            '    "SOFAirdrop": "', vm.toString(addrs.sofAirdrop), '",\n',
             '    "USDC": "', vm.toString(addrs.usdc), '"',
             preservedSection,
             '\n  }\n}'

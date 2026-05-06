@@ -25,5 +25,4 @@ struct DeployedAddresses {
     address rolloverEscrow;
     address usdc;
     address sofExchange;
-    address sofAirdrop;
 }
