@@ -1,12 +1,21 @@
 import { useMemo, useCallback, useContext, useRef } from 'react';
 import { useAccount, useChainId, useCapabilities, useSendCalls, useCallsStatus, usePublicClient, useWalletClient } from 'wagmi';
 import { waitForCallsStatus } from '@wagmi/core';
-import { encodeFunctionData } from 'viem';
+import { encodeFunctionData, http } from 'viem';
+import { createBundlerClient } from 'viem/account-abstraction';
 import { ERC20Abi } from '@/utils/abis';
 import { getContractAddresses } from '@/config/contracts';
 import { getStoredNetworkKey } from '@/lib/wagmi';
 import { config as wagmiConfig } from '@/lib/wagmiConfig';
 import FarcasterContext from '@/context/farcasterContext';
+import { toSofSmartAccount } from '@/lib/sofSmartAccount';
+import { useRaffleAccount } from '@/hooks/useRaffleAccount';
+
+/**
+ * Canonical EntryPoint v0.8 address — same on every chain.
+ * Matches the address the contracts package's deploy scripts use.
+ */
+const ENTRY_POINT_V08 = '0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108';
 
 // Upper bound for waiting on an ERC-5792 batch to land on chain after the
 // wallet prompt is accepted. Local Anvil confirms within seconds; 120s is
@@ -74,6 +83,7 @@ export function useSmartTransactions() {
   const { sendCallsAsync, data: batchId } = useSendCalls();
   const publicClient = usePublicClient();
   const { data: walletClient } = useWalletClient();
+  const { walletType } = useRaffleAccount();
   // Use any available JWT — Farcaster (MiniApp), SIWE wallet auth (desktop browser).
   // Both are issued by the same backend AuthService and accepted by the session endpoint.
   const farcasterAuth = useContext(FarcasterContext);
@@ -146,20 +156,52 @@ export function useSmartTransactions() {
   const executeBatch = useCallback(async (calls, options = {}) => {
     const { sofAmount, ...sendOptions } = options;
 
-    // TODO(M4): Desktop-EOA branch via permissionless.js + toSofSmartAccount.
-    // Counterfactual SMA replaces the old EIP-7702 delegation flow; the new
-    // Path A will build a UserOp from the user's SMA, sign with their EOA,
-    // and submit through the bundler+paymaster.
-
-    // ─── Interim fallback: wallet without atomic batching (e.g. MetaMask on
-    //     local Anvil chain 31337) — wagmi's useSendCalls forwards to
-    //     wallet_sendCalls which MetaMask only supports on a fixed allowlist
-    //     of chains, and on others throws an unhelpful viem error. Until M4
-    //     replaces this path with a real ERC-4337 UserOp, send each call
-    //     sequentially via the wallet client. No sponsorship, no batching —
-    //     same UX the user had before this rewrite started. ───
     const isCoinbaseWallet = connector?.id === 'coinbaseWalletSDK';
     const hasAtomic = chainCaps.atomicStatus === 'ready' || chainCaps.atomicStatus === 'supported';
+
+    // ─── Path A: desktop-EOA → counterfactual SMA + ERC-4337 UserOp ───
+    //
+    // Wallets without native atomic batching (e.g. MetaMask) drive a
+    // SOFSmartAccount via the local bundler+paymaster proxy. Owner EOA
+    // signs the EntryPoint v0.8 typed-data userOpHash; the bundler relays.
+    //
+    // The factory address is per-network — when it isn't deployed (or the
+    // paymaster URL is unset for the target chain), we fall through to the
+    // per-call sendTransaction guard at the bottom of this branch.
+    if (walletType === 'desktop-eoa' && !isCoinbaseWallet && walletClient && publicClient) {
+      const contracts = getContractAddresses(getStoredNetworkKey());
+      const factoryAddr = contracts.SOF_SMART_ACCOUNT_FACTORY;
+      const isLocalChain = chainId === 31337;
+      // M4: only the local stack is wired end-to-end. Testnet/mainnet
+      // paymaster URLs land in M5+ once the Pimlico session/proxy is ready.
+      const paymasterUrl = isLocalChain && apiBase ? `${apiBase}/paymaster/local` : null;
+
+      if (factoryAddr && /^0x[0-9a-fA-F]{40}$/.test(factoryAddr) && paymasterUrl) {
+        const account = await toSofSmartAccount({
+          client: publicClient,
+          owner: walletClient,
+          factory: factoryAddr,
+          entryPoint: { address: ENTRY_POINT_V08, version: '0.8' },
+        });
+
+        const bundlerClient = createBundlerClient({
+          account,
+          client: publicClient,
+          // The local backend route proxies bundler RPC + paymaster RPC on
+          // the same URL; one transport covers both.
+          transport: http(paymasterUrl),
+          paymaster: { transport: http(paymasterUrl) },
+        });
+
+        const userOpHash = await bundlerClient.sendUserOperation({ calls });
+        const receipt = await bundlerClient.waitForUserOperationReceipt({ hash: userOpHash });
+        return receipt.receipt.transactionHash;
+      }
+      // fall through to the per-call guard below
+    }
+
+    // ─── Interim per-call fallback: wallet without atomic batching AND
+    //     either not a desktop-eoa or factory/paymaster unavailable. ───
     if (!isCoinbaseWallet && !hasAtomic) {
       if (!walletClient) {
         throw new Error('Wallet client not ready');
@@ -237,7 +279,7 @@ export function useSmartTransactions() {
     // before returning so callers can feed the value to useWaitForTransactionReceipt
     // and render it in the UI.
     return await normalizeBatchResult(sendResult);
-  }, [address, apiBase, backendJwt, connector, sendCallsAsync, buildFeeCall, chainCaps.atomicStatus, walletClient, publicClient]);
+  }, [address, apiBase, backendJwt, chainId, connector, sendCallsAsync, buildFeeCall, chainCaps.atomicStatus, walletClient, publicClient, walletType]);
 
   return {
     ...chainCaps,
