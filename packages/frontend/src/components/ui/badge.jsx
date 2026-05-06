@@ -1,3 +1,4 @@
+import { forwardRef } from "react";
 import { cva } from "class-variance-authority";
 
 import { cn } from "@/lib/utils";
@@ -38,11 +39,16 @@ const badgeVariants = cva(
   }
 );
 
-function Badge({ className, variant, ...props }) {
+// forwardRef so Radix primitives (e.g. Tooltip's `asChild` Trigger) can attach
+// a ref to the underlying DOM node — needed by the Origin badge in the
+// portfolio transactions table.
+const Badge = forwardRef(function Badge({ className, variant, ...props }, ref) {
   return (
-    <div className={cn(badgeVariants({ variant }), className)} {...props} />
+    <div ref={ref} className={cn(badgeVariants({ variant }), className)} {...props} />
   );
-}
+});
+
+Badge.displayName = "Badge";
 
 Badge.propTypes = {
   className: PropTypes.string,
