@@ -52,11 +52,10 @@ const CONTRACT_NAME_MAP = {
   InfoFiSettlement: "InfoFiSettlement",
   RafflePrizeDistributor: "PrizeDistributor",
   SOFFaucet: "SOFFaucet",
-  SOFSmartAccount: "SOFSmartAccount",
+  SOFSmartAccountFactory: "SOFSmartAccountFactory",
   SOFPaymaster: "Paymaster",
   RolloverEscrow: "RolloverEscrow",
   SOFExchange: "SOFExchange",
-  SOFAirdrop: "SOFAirdrop",
 };
 
 // Static / non-DeployAll addresses to merge into the output. These are
@@ -104,9 +103,8 @@ const KEY_ORDER = [
   "RaffleOracleAdapter",
   "SeasonGating",
   "SOFExchange",
-  "SOFAirdrop",
   "USDC",
-  "SOFSmartAccount",
+  "SOFSmartAccountFactory",
   "Paymaster",
   "RolloverEscrow",
 ];

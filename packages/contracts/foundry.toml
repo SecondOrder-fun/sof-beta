@@ -10,8 +10,10 @@ optimizer = true
 optimizer_runs = 200
 bytecode_hash = "none"
 cbor_metadata = false
-# Exclude old Solidity 0.5.x libraries that are incompatible with our 0.8.20+ contracts
-exclude = ['lib/conditional-tokens-market-makers/**', 'lib/conditional-tokens-contracts/**']
+# Skip compilation of old Solidity 0.5.x libraries incompatible with our 0.8.20+ contracts.
+# (Renamed from `exclude` to `skip` — `exclude` was dropped from the profile schema
+# in newer foundry; it now warns "unknown config" instead of taking effect.)
+skip = ['lib/conditional-tokens-market-makers/**', 'lib/conditional-tokens-contracts/**']
 # Skip fork tests that require --fork-url (InfoFiFPMMForkTest)
 no_match_contract = "ForkTest"
 
