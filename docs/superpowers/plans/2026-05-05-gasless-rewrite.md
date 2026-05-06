@@ -2529,38 +2529,117 @@ git push origin feat/gasless-rewrite
 git push origin feat/gasless-rewrite
 ```
 
-### Task 5.9 — Portfolio Transactions tab shows EOA + SMA history
+### Task 5.9 — Complete the SMA read-side migration sweep
 
-**Why:** The user's transaction history is split across two on-chain identities — sponsored gameplay flows go through the SMA, but admin writes (createSeason / startSeason / per-call bypass paths) still come from the EOA, and the EOA also signs the initial SOF transfer that funds the SMA. Showing only one address misses ~half the user's actual activity. Each on-screen row should source its address from `useRaffleAccount`, then query both `eoa` and `sma` and merge.
+**Why:** M3 Task 3.5–3.7 migrated `useSOFToken`, the buy widget's balance check, and a handful of profile callsites to `useRaffleAccount().sma`. The post-M4 code review surfaced ~8 hooks and 2 routes still reading `useAccount().address` (EOA) for what the spec §4.3 table requires at the SMA. M3 declared partial completion and deferred the rest to M5; this task closes the gap so the dapp is internally consistent before we layer banners and listeners on top.
 
-**Scope:** Portfolio's three transaction tabs — **SOF** (ERC-20 transfers in/out), **Raffle** (buy/sell/claim/season events), **InfoFi** (FPMM positions, settlements, claims). All three currently key off a single user-address; each must accept a `[eoa, sma]` pair, run its existing query for both, merge by block-number/log-index, and de-dup if any tx happens to reference both addresses (unusual but possible for self-funding sweeps).
+**Scope:** every hook/component that displays the user's gameplay state (balance, ticket position, claims, sponsor stake, rollover, InfoFi position) must read at the SMA.
+
+- [ ] **Step 1:** Inventory the remaining read sites. Start from this list (validated by code review) and grep for any others:
+  ```bash
+  grep -rn "useAccount" packages/frontend/src/hooks packages/frontend/src/routes packages/frontend/src/components 2>/dev/null
+  ```
+  Known sites that still read EOA but should read SMA:
+  - `packages/frontend/src/routes/AccountPage.jsx` — passes `useAccount().address` to `ProfileContent`; should pass `useRaffleAccount().sma`.
+  - `packages/frontend/src/routes/UserProfile.jsx` — route param treated as direct lookup target; should derive `factory.getAddress(routeParam)` if the route param is an EOA, treat as SMA otherwise. Document the heuristic in a comment so future reviewers don't tweak it back.
+  - `packages/frontend/src/hooks/useRollover.js`
+  - `packages/frontend/src/hooks/useUserMarketPosition.js`
+  - `packages/frontend/src/hooks/useRafflePrizes.js`
+  - `packages/frontend/src/hooks/useSponsoredPrizes.js`
+  - `packages/frontend/src/hooks/useFundDistributor.js`
+  - `packages/frontend/src/hooks/useSponsorStaking.js`
+  - `packages/frontend/src/hooks/useInfoFiMarket.js`
+  - `packages/frontend/src/hooks/useRaffle.js` (only the user-position reads inside it; global reads stay as-is)
+
+- [ ] **Step 2:** For each site, swap `useAccount().address` → `useRaffleAccount().sma`. Keep `useAccount` for connection-state checks (`isConnected`, connector identity, chain-id) and for explicit EOA-bound features (username display, admin login signing, gating proofs). Add a one-line comment at each swap: `// SMA-bound read per spec §4.3`.
+
+- [ ] **Step 3:** Hooks that have unit tests get their mocks updated to the new shape. Hooks without tests get a small smoke test added (mock `useRaffleAccount` returning `{sma: '0xSMA', eoa: '0xEOA', isReady: true}` and assert the read is keyed to the SMA).
+
+- [ ] **Step 4:** Lint + build + tests.
+  ```bash
+  cd packages/frontend && npm run lint && npm run build && npx vitest run
+  ```
+
+- [ ] **Step 5:** Commit + push.
+
+### Task 5.10 — Move address display from Header to Settings menu
+
+**Why:** Showing two addresses (SMA primary + EOA dimmed) in the header is noisy and not actionable. The Settings menu already has a wallet/account section; addresses belong there with proper labels, copy buttons, and (eventually) explorer links.
+
+- [ ] **Step 1:** In `packages/frontend/src/components/layout/Header.jsx`, delete the SMA + EOA-dimmed address block introduced in M3 Task 3.8. The header keeps the connect/disconnect button, network indicator, and the username/avatar — but no raw addresses.
+
+- [ ] **Step 2:** In `packages/frontend/src/components/common/SettingsMenu.jsx` (the dropdown opened from the avatar/username), add a new section above existing items titled "Account" (i18n key `settings:account`):
+
+  ```jsx
+  const { eoa, sma, walletType, isReady } = useRaffleAccount();
+  // ...
+  {isReady && (
+    <div className="px-3 py-2 space-y-2 border-b border-border">
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-muted-foreground">{t("settings:account.smartAccount")}</span>
+        <span className="font-mono">{shortAddress(sma)}</span>
+        <CopyButton value={sma} />
+      </div>
+      {walletType === "desktop-eoa" && (
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>{t("settings:account.signer")}</span>
+          <span className="font-mono">{shortAddress(eoa)}</span>
+          <CopyButton value={eoa} />
+        </div>
+      )}
+    </div>
+  )}
+  ```
+
+  Use the existing `CopyButton` component (or whatever copy-to-clipboard helper the codebase already has). For Coinbase / Farcaster wallets, only the SMA line shows since EOA == SMA for those wallet types.
+
+- [ ] **Step 3:** Add i18n keys to `public/locales/en/settings.json`:
+  - `account.smartAccount` → "Smart Account"
+  - `account.signer` → "Signer (EOA)"
+  Other locales fall back to English; per-language translations land in M9 cleanup.
+
+- [ ] **Step 4:** Visual smoke: connect wallet → header is clean (no addresses) → open Settings menu → both addresses show with copy buttons.
+
+- [ ] **Step 5:** Commit + push.
+
+### Task 5.11 — Portfolio transactions: merged EOA + SMA history with origin column
+
+**Why:** The user's transaction history is split across two on-chain identities — sponsored gameplay flows go through the SMA, admin writes (and the initial fund-the-SMA transfer) come from the EOA. Showing only one address misses ~half the user's actual activity. A new **Origin** column (`EOA` / `SMA`) makes which identity initiated each tx unambiguous.
+
+**Scope:** Portfolio's three transaction tabs — **SOF** (ERC-20 transfers), **Raffle** (buy/sell/claim/season events), **InfoFi** (FPMM positions, settlements, claims). All three currently key off a single user-address; each must accept a `[eoa, sma]` pair and merge.
 
 - [ ] **Step 1:** Locate the Portfolio Transactions consumers.
-  - `packages/frontend/src/components/profile/ProfileContent.jsx` (desktop) and `packages/frontend/src/components/mobile/MobilePortfolio.jsx` (mobile) host the three sub-tabs and pass an `address` prop down.
+  - `packages/frontend/src/components/profile/ProfileContent.jsx` (desktop) and `packages/frontend/src/components/mobile/MobilePortfolio.jsx` (mobile) host the three sub-tabs.
   - Each tab is a hook + table: `useSofTransactions`, `useRaffleTransactions`, `useInfoFiTransactions` (verify exact names in `packages/frontend/src/hooks/`).
 
-- [ ] **Step 2:** Update each transaction hook to accept `addresses: string[]` (typed, deduped, lower-cased) instead of a single `address`. Internally, run the existing read for each address in parallel (Promise.all), merge results, sort by `(blockNumber desc, logIndex desc)`, drop any duplicate `transactionHash` + log-index pairs. Cache key is the sorted-addresses list, not a single address — otherwise wagmi/react-query will dedupe across users incorrectly.
+- [ ] **Step 2:** Update each transaction hook to accept `addresses: string[]` (deduped, lower-cased) instead of a single `address`. Internally, run the existing query for each address in parallel (`Promise.all`), tag each row with its source address (`origin: '0xEOA'` or `'0xSMA'`), merge, sort by `(blockNumber desc, logIndex desc)`, drop duplicate `(transactionHash, logIndex)` pairs. Cache key is the sorted-addresses list, not a single address — otherwise react-query will collide across users.
 
-- [ ] **Step 3:** Update Portfolio callsites to pass both:
+- [ ] **Step 3:** Update Portfolio callsites:
   ```jsx
   const { eoa, sma } = useRaffleAccount();
-  const addresses = [eoa, sma].filter(Boolean);
+  const addresses = useMemo(
+    () => [eoa, sma].filter(Boolean).map(a => a.toLowerCase()),
+    [eoa, sma]
+  );
   // pass `addresses` instead of `address` to each tab's hook
   ```
 
-- [ ] **Step 4:** UI: render an "from EOA" / "from SMA" tag next to each row so the user can tell which identity originated the tx. Use `shortAddress` in the dim secondary line. Tag color should follow the existing semantic system (no hex colors, no `text-white`).
+- [ ] **Step 4:** Add an **Origin** column to each transactions table:
+  - Header: i18n key `portfolio:transactions.origin` → "Origin"
+  - Cell: a small Badge component showing `EOA` (semantic neutral color) or `SMA` (semantic primary color). Tooltip on hover shows the full address. No hex colors, no `text-white` per CLAUDE.md theming rule.
+  - Mobile: stack the badge under the row's primary line so the table doesn't overflow.
 
-- [ ] **Step 5:** Tests for each merged hook — mock the two address queries returning known rows, assert dedup + ordering. Prevents regressions where a sponsored tx that touches both EOA and SMA gets double-counted.
+- [ ] **Step 5:** Tests for each merged hook — mock the two address queries returning known rows, assert: rows tagged with the right origin, dedup of duplicate tx hashes, sort stable across both sources. Prevents regressions where a tx touching both EOA and SMA double-counts.
 
-- [ ] **Step 6:** Commit + push.
+- [ ] **Step 6:** Lint + build + tests, then commit + push.
 
 ```bash
 git push origin feat/gasless-rewrite
 ```
 
 **Notes:**
-- This pattern is reusable for M5.4's airdrop history (sweep tx hashes can come either from the relayer's perspective at the EOA, or from the user's perspective at the SMA — both views should show in the user's portfolio).
-- Other-user profile pages (UserProfile route) need the same treatment for share-target consistency, but that's out of M5 scope; flag for M6 polish.
+- Reusable for M5.4 airdrop history (sweep tx hashes can come either from the relayer's perspective at the EOA, or from the user's perspective at the SMA).
+- Other-user profile pages (UserProfile route) automatically benefit if Task 5.9 derives that route's SMA from the route param. The Origin column on those pages will only ever show one source though, since the viewer doesn't know the target user's EOA.
 
 ---
 
