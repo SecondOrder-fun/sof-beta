@@ -7,8 +7,6 @@ import { getContractAddresses } from '@/config/contracts';
 import { getStoredNetworkKey } from '@/lib/wagmi';
 import { config as wagmiConfig } from '@/lib/wagmiConfig';
 import FarcasterContext from '@/context/farcasterContext';
-import { useDelegationStatus } from './useDelegationStatus';
-import { useDelegatedAccount } from './useDelegatedAccount';
 
 // Upper bound for waiting on an ERC-5792 batch to land on chain after the
 // wallet prompt is accepted. Local Anvil confirms within seconds; 120s is
@@ -82,8 +80,6 @@ export function useSmartTransactions() {
     ?? localStorage.getItem('sof:admin_jwt')
     ?? null;
   const sessionCacheRef = useRef({ token: null, expiresAt: 0 });
-  const { isSOFDelegate, isDelegated } = useDelegationStatus();
-  const delegatedAccount = useDelegatedAccount();
   const apiBase = import.meta.env.VITE_API_BASE_URL || '';
 
   const { data: callsStatus } = useCallsStatus({
@@ -148,88 +144,12 @@ export function useSmartTransactions() {
   const executeBatch = useCallback(async (calls, options = {}) => {
     const { sofAmount, ...sendOptions } = options;
 
-    // ─── Path A: Delegated EOA → ERC-4337 UserOp ───
-    // On local Anvil (chain 31337) we talk to our own bundler+paymaster
-    // endpoint (no session token — it's the dev server). On testnet/mainnet
-    // we use the session-gated Pimlico proxy.
-    const isLocalChain = chainId === 31337;
-    if (import.meta.env.DEV) {
-      // eslint-disable-next-line no-console
-      console.log("[executeBatch] gate", {
-        isSOFDelegate,
-        hasDelegatedAccount: !!delegatedAccount,
-        apiBase,
-        chainId,
-        isLocalChain,
-        hasBackendJwt: !!backendJwt,
-        pathAWillFire: !!(
-          isSOFDelegate && delegatedAccount && apiBase && (isLocalChain || backendJwt)
-        ),
-      });
-    }
-    if (isSOFDelegate && delegatedAccount && apiBase && (isLocalChain || backendJwt)) {
-      let finalCalls = calls;
-      if (sofAmount && sofAmount > 0n) {
-        const feeCall = buildFeeCall(sofAmount);
-        finalCalls = feeCall ? [feeCall, ...calls] : calls;
-      }
-
-      let paymasterUrl;
-      if (isLocalChain) {
-        paymasterUrl = `${apiBase}/paymaster/local`;
-      } else {
-        const now = Date.now();
-        let sessionToken;
-        if (sessionCacheRef.current.token && sessionCacheRef.current.expiresAt > now) {
-          sessionToken = sessionCacheRef.current.token;
-        } else {
-          sessionToken = await fetchPaymasterSession(apiBase, backendJwt);
-          if (sessionToken) {
-            sessionCacheRef.current = { token: sessionToken, expiresAt: now + 4 * 60 * 1000 };
-          }
-        }
-        if (!sessionToken) {
-          // Session unavailable — fall through to standard ERC-5792 path
-          paymasterUrl = null;
-        } else {
-          paymasterUrl = `${apiBase}/paymaster/pimlico?session=${sessionToken}`;
-        }
-      }
-
-      if (paymasterUrl) {
-        try {
-          const client = await delegatedAccount.create(paymasterUrl);
-
-          const userOpHash = await client.sendUserOperation({
-            calls: finalCalls,
-          });
-
-          const receipt = await client.waitForUserOperationReceipt({
-            hash: userOpHash,
-            timeout: 30_000,
-          });
-
-          // Callers feed the return value into `useWaitForTransactionReceipt`,
-          // which expects an actual on-chain tx hash. The userOpHash is an
-          // EIP-4337 identifier and isn't a tx hash — wagmi would poll it
-          // forever. Return the wrapping handleOps tx hash. permissionless's
-          // waitForUserOperationReceipt only resolves with a populated receipt,
-          // so this should never fall through; throw rather than hand back a
-          // userOpHash that the UI can't resolve.
-          const txHash = receipt?.receipt?.transactionHash;
-          if (!txHash) {
-            throw new Error("UserOp landed without a tx hash — bundler bug");
-          }
-          return txHash;
-        } catch (err) {
-          // Local backend down, bundler error, paymaster sig invalid — fall
-          // through to the ERC-5792 path so the UI doesn't hard-fail. The user
-          // pays gas, but the tx still goes through.
-          // eslint-disable-next-line no-console
-          console.warn("[executeBatch] sponsored path failed, falling back", err);
-        }
-      }
-    }
+    // TODO(M4): Desktop-EOA branch via permissionless.js + toSofSmartAccount.
+    // Counterfactual SMA replaces the old EIP-7702 delegation flow; the new
+    // Path A will build a UserOp from the user's SMA, sign with their EOA,
+    // and submit through the bundler+paymaster. Until M4 lands, desktop-EOA
+    // wallets fall through to the ERC-5792 batch path below (Coinbase / any
+    // wallet that advertises atomic batching) so the app stays functional.
 
     // ─── Path B: Coinbase Wallet → ERC-5792 + CDP paymaster (unchanged) ───
     const batchCapabilities = {};
@@ -291,7 +211,7 @@ export function useSmartTransactions() {
     // before returning so callers can feed the value to useWaitForTransactionReceipt
     // and render it in the UI.
     return await normalizeBatchResult(sendResult);
-  }, [address, apiBase, backendJwt, chainId, connector, sendCallsAsync, buildFeeCall, isSOFDelegate, delegatedAccount]);
+  }, [address, apiBase, backendJwt, connector, sendCallsAsync, buildFeeCall]);
 
   return {
     ...chainCaps,
@@ -300,7 +220,5 @@ export function useSmartTransactions() {
     callsStatus,
     sofFeeBps: SOF_FEE_BPS,
     needsSmartAccountUpgrade: chainCaps.atomicStatus === 'ready',
-    isDelegated: isSOFDelegate,
-    needsDelegation: !isSOFDelegate && !isDelegated && connector?.id !== 'coinbaseWalletSDK',
   };
 }

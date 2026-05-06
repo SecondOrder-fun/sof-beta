@@ -37,16 +37,12 @@ export function useBuySellTransactions(
   const { data: walletClient } = useWalletClient();
   const chainId = useChainId();
   const contracts = getContractAddresses(getStoredNetworkKey());
-  const { hasBatch, isDelegated, needsDelegation, executeBatch } = useSmartTransactions();
-  // Sponsored path is allowed when either:
-  //   - the EOA is 7702-delegated (Path A: sponsored UserOp via our bundler), OR
-  //   - the wallet advertises atomic ERC-5792 capability AND the EOA isn't
-  //     a non-CB EOA waiting on delegation.
-  // The second clause guards against wallets (e.g. Rabby) that *advertise*
-  // wallet_sendCalls but return a malformed response shape that crashes
-  // viem's parser. Those wallets MUST go through delegation first so we
-  // route via Path A and never touch wallet_sendCalls.
-  const canBatch = isDelegated || (hasBatch && !needsDelegation);
+  const { hasBatch, executeBatch } = useSmartTransactions();
+  // Sponsored path is allowed when the wallet advertises atomic ERC-5792
+  // capability (Coinbase / Farcaster / any wallet that opts in via
+  // wallet_getCapabilities). The desktop-EOA branch will route through
+  // permissionless.js + toSofSmartAccount in M4.
+  const canBatch = hasBatch;
 
   /**
    * Execute buy transaction
@@ -58,51 +54,6 @@ export function useBuySellTransactions(
    */
   const executeBuy = useCallback(
     async ({ tokenAmount, maxSofAmount, slippagePct, onComplete, rolloverSeasonId, rolloverAmount }) => {
-      // If the wallet needs to delegate before sponsorship can work AND it's
-      // not a delegated EOA already, surface the modal and bail. Without this
-      // guard, wallets that advertise wallet_sendCalls but ship a broken
-      // response shape (Rabby, some other forks) crash viem in Path B with
-      // "Cannot read properties of undefined (reading 'id')". The user has
-      // no way to recover from that error in the UI.
-      //
-      // useDelegationStatus polls on a 30s tick and listens for our
-      // `sof:delegation-changed` event, but React state updates are async —
-      // a user clicking Buy immediately after the modal closes can hit
-      // stale state. Fall back to an on-chain bytecode check before
-      // bailing.
-      if (needsDelegation && !isDelegated) {
-        let actuallyDelegated = false;
-        if (address) {
-          try {
-            const { getBytecode } = await import("@wagmi/core");
-            const { config } = await import("@/lib/wagmiConfig");
-            const code = await getBytecode(config, { address });
-            actuallyDelegated = !!(code && code.toLowerCase().startsWith("0xef0100"));
-          } catch {
-            /* fall through to bail */
-          }
-        }
-        if (!actuallyDelegated) {
-          try {
-            window.dispatchEvent(new Event("sof:request-delegation"));
-          } catch { /* SSR / unsupported */ }
-          onNotify?.({
-            type: "error",
-            message: t("transactions:delegateFirst", {
-              defaultValue: "Please complete the delegation step to enable gasless transactions.",
-            }),
-            hash: "",
-          });
-          return { success: false, error: "delegation_required" };
-        }
-        // Bytecode says delegated; let the React state catch up — wake the
-        // hook and let the buy proceed via permit/approve fallback this
-        // time. Next click will route through Path A.
-        try {
-          window.dispatchEvent(new Event("sof:delegation-changed"));
-        } catch { /* SSR */ }
-      }
-
       try {
         const cap = applyMaxSlippage(maxSofAmount, slippagePct);
 
@@ -330,7 +281,7 @@ export function useBuySellTransactions(
         return { success: false, error: message };
       }
     },
-    [approve, buyTokens, buyTokensWithPermit, client, walletClient, address, chainId, contracts, bondingCurveAddress, onNotify, onSuccess, refetchBalance, t, canBatch, executeBatch, needsDelegation, isDelegated]
+    [approve, buyTokens, buyTokensWithPermit, client, walletClient, address, chainId, contracts, bondingCurveAddress, onNotify, onSuccess, refetchBalance, t, canBatch, executeBatch]
   );
 
   /**
@@ -343,38 +294,6 @@ export function useBuySellTransactions(
    */
   const executeSell = useCallback(
     async ({ tokenAmount, minSofAmount, slippagePct, onComplete }) => {
-      // Same guard as executeBuy with on-chain fallback for the
-      // useDelegationStatus state-staleness race.
-      if (needsDelegation && !isDelegated) {
-        let actuallyDelegated = false;
-        if (address) {
-          try {
-            const { getBytecode } = await import("@wagmi/core");
-            const { config } = await import("@/lib/wagmiConfig");
-            const code = await getBytecode(config, { address });
-            actuallyDelegated = !!(code && code.toLowerCase().startsWith("0xef0100"));
-          } catch {
-            /* fall through to bail */
-          }
-        }
-        if (!actuallyDelegated) {
-          try {
-            window.dispatchEvent(new Event("sof:request-delegation"));
-          } catch { /* SSR / unsupported */ }
-          onNotify?.({
-            type: "error",
-            message: t("transactions:delegateFirst", {
-              defaultValue: "Please complete the delegation step to enable gasless transactions.",
-            }),
-            hash: "",
-          });
-          return { success: false, error: "delegation_required" };
-        }
-        try {
-          window.dispatchEvent(new Event("sof:delegation-changed"));
-        } catch { /* SSR */ }
-      }
-
       try {
         const floor = applyMinSlippage(minSofAmount, slippagePct);
 
@@ -519,7 +438,7 @@ export function useBuySellTransactions(
         return { success: false, error: message };
       }
     },
-    [sellTokens, client, bondingCurveAddress, onNotify, onSuccess, refetchBalance, t, canBatch, executeBatch, needsDelegation, isDelegated, address]
+    [sellTokens, client, bondingCurveAddress, onNotify, onSuccess, refetchBalance, t, canBatch, executeBatch]
   );
 
   return {
