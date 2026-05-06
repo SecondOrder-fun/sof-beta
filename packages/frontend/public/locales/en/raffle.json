@@ -71,7 +71,7 @@
   "noBondingCurveData": "No bonding curve data available.",
   "currentStep": "Current Step",
   "currentPrice": "Current Price (SOF)",
-  "lastPrice": "Last Price (SOF)",
+  "finalPrice": "Final Price (SOF)",
   "bondingCurveProgress": "Bonding Curve Progress",
   "supply": "Supply",
   "supplyTickets": "Supply (tickets)",

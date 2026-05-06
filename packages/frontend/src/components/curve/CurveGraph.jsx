@@ -89,6 +89,10 @@ const BondingCurvePanel = ({
   allBondSteps,
   compact = false,
   mini = false,
+  // When true, renders the price-cell label as "Final Price" (raffle has
+  // ended — the displayed step is the locked final tier). Default false
+  // keeps the existing "Current Price" label for active/pending raffles.
+  isCompleted = false,
 }) => {
   const { t } = useTranslation("raffle");
   const sofDecimals = useSofDecimals();
@@ -415,7 +419,9 @@ const BondingCurvePanel = ({
               </div>
             </div>
             <div className="p-2 border rounded">
-              <div className="text-primary">{t("currentPrice")}</div>
+              <div className="text-primary">
+                {isCompleted ? t("finalPrice", { defaultValue: "Final Price" }) : t("currentPrice")}
+              </div>
               <div className="font-mono text-lg">{formatSOF(currentPrice)}</div>
             </div>
           </div>
@@ -449,6 +455,7 @@ BondingCurvePanel.propTypes = {
   allBondSteps: PropTypes.array,
   compact: PropTypes.bool,
   mini: PropTypes.bool,
+  isCompleted: PropTypes.bool,
 };
 
 export default BondingCurvePanel;

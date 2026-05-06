@@ -151,6 +151,7 @@ const ActiveSeasonCard = ({ season, renderBadge, winnerSummary }) => {
               curveStep={curveStep}
               allBondSteps={allBondSteps}
               mini
+              isCompleted={isCompleted}
             />
           </div>
         </div>
@@ -164,7 +165,7 @@ const ActiveSeasonCard = ({ season, renderBadge, winnerSummary }) => {
               {isPreStart
                 ? t("startingPrice", { defaultValue: "Starting Price (SOF)" })
                 : isCompleted
-                  ? t("lastPrice", { defaultValue: "Last Price" })
+                  ? t("finalPrice", { defaultValue: "Final Price (SOF)" })
                   : t("currentPrice")}
             </div>
             <div className="font-mono text-base">{currentPriceLabel} SOF</div>
