@@ -8,6 +8,7 @@ import UsernameDialog from "@/components/user/UsernameDialog";
 import LoginModal from "@/components/auth/LoginModal";
 import MobileLoginSheet from "@/components/auth/MobileLoginSheet";
 import FirstConnectBanner from "@/components/auth/FirstConnectBanner";
+import SignInRetryBanner from "@/components/auth/SignInRetryBanner";
 import SweepBanner from "@/components/auth/SweepBanner";
 import { useUsernameContext } from "@/context/UsernameContext";
 import { ContractAddressValidator } from "@/components/dev/ContractAddressValidator";
@@ -34,6 +35,7 @@ const App = () => {
       >
         <MobileHeader />
         <FirstConnectBanner />
+        <SignInRetryBanner />
         <SweepBanner />
         <main className="flex-1 overflow-y-auto pb-16">
           <Outlet />
@@ -50,6 +52,7 @@ const App = () => {
     <div className="min-h-screen bg-background text-foreground">
       <Header />
       <FirstConnectBanner />
+      <SignInRetryBanner />
       <SweepBanner />
       <main className="container mx-auto px-4 py-8">
         <div>
