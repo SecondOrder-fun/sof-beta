@@ -204,6 +204,8 @@ const ProfileContent = ({ address, isOwnProfile }) => {
                                 key={row.seasonId}
                                 row={row}
                                 address={address}
+                                addresses={transactionAddresses}
+                                originLabels={originLabels}
                                 showViewLink={false}
                               />
                             ))}

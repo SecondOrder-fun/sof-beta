@@ -115,6 +115,16 @@ supabase_db_exec() {
   docker exec -i "$db_container" psql -U postgres -d postgres -c "$1" 2>&1
 }
 
+supabase_db_apply_file() {
+  local db_container
+  db_container=$(docker ps --filter "name=supabase_db" --format "{{.Names}}" 2>/dev/null | head -1)
+  if [ -z "$db_container" ]; then
+    err "Supabase DB container not found"
+    return 1
+  fi
+  docker exec -i "$db_container" psql -U postgres -d postgres < "$1" 2>&1
+}
+
 kill_pid_file() {
   local pidfile=$1
   if [ -f "$pidfile" ]; then
@@ -166,7 +176,7 @@ do_start() {
   # at the canonical address before the forge deploy script runs. The paymaster
   # deploy step checks for code at 0x4337...f108 and falls back to StubEntryPoint
   # only if empty, so we need to inject before deploy-contracts starts.
-  log "Step 1/9: Starting Anvil + Redis..."
+  log "Step 1/10: Starting Anvil + Redis..."
   docker compose up -d anvil redis 2>&1 | grep -v "^$" || true
 
   log "  Waiting for Anvil to be healthy..."
@@ -191,7 +201,7 @@ do_start() {
   docker compose up -d deploy-contracts 2>&1 | grep -v "^$" || true
 
   # ------ Step 2: Wait for contract deployment ------
-  log "Step 2/9: Waiting for contract deployment..."
+  log "Step 2/10: Waiting for contract deployment..."
   i=0
   # `-a` so we see exited containers; `docker ps` alone only shows running.
   while ! docker ps -a --format "{{.Names}} {{.Status}}" 2>/dev/null | grep -q "deploy-contracts.*Exited"; do
@@ -250,7 +260,7 @@ do_start() {
   local paymaster
   paymaster=$(get_deployment Paymaster) || true
   if [ -n "$paymaster" ] && [ "$paymaster" != "null" ]; then
-    log "Step 2a/9: Funding SOFPaymaster EntryPoint deposit (100 ETH)..."
+    log "Step 2a/10: Funding SOFPaymaster EntryPoint deposit (100 ETH)..."
     if cast send 0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108 \
         "depositTo(address)" "$paymaster" \
         --value 100ether \
@@ -270,7 +280,7 @@ do_start() {
   # fundSubscription's calldata, which then reverts with InvalidSubscription()
   # because the real-chain subId differs. Do it via cast instead — each call is
   # a single tx, return values come from the real chain.
-  log "Step 2b/9: Wiring VRF subscription..."
+  log "Step 2b/10: Wiring VRF subscription..."
   local vrf_coord raffle_addr
   raffle_addr=$(get_deployment Raffle)
   vrf_coord=$(cast call "$raffle_addr" "getCoordinatorAddress()(address)" --rpc-url "$RPC" 2>/dev/null) || true
@@ -317,7 +327,7 @@ for log in d.get('logs', []):
   fi
 
   # ------ Step 3: Start Supabase ------
-  log "Step 3/9: Starting Supabase local..."
+  log "Step 3/10: Starting Supabase local..."
   if ! command -v supabase &>/dev/null; then
     err "supabase CLI not installed. Run: brew install supabase/tap/supabase"
     exit 1
@@ -332,13 +342,42 @@ for log in d.get('logs', []):
     ok "  Supabase started"
   fi
 
-  # ------ Step 4: Seed admin wallets ------
+  # ------ Step 4: Apply migrations + reset stale state ------
+  # The `supabase` CLI manages its own migrations dir, but our schema
+  # extensions live in `packages/backend/migrations/*.sql` (DDL is
+  # idempotent via `IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS`).
+  # Apply them in order on every run so a freshly-cloned checkout or a
+  # `supabase db reset` doesn't leave the backend talking to a schema
+  # that's missing tables (e.g. `smart_accounts`, `is_admin` column).
+  # Also truncate `listener_block_cursors`: every run gives Anvil a fresh
+  # chain at block 0, but cursor rows from prior sessions point past the
+  # new chain head — the poller then silently skips events forever.
+  log "Step 4/10: Applying backend migrations + clearing stale cursors..."
+  local applied=0 failed=0
+  for migration in "$ROOT_DIR"/packages/backend/migrations/*.sql; do
+    [ -f "$migration" ] || continue
+    if supabase_db_apply_file "$migration" > /dev/null 2>&1; then
+      applied=$((applied + 1))
+    else
+      err "  Migration failed: $(basename "$migration")"
+      failed=$((failed + 1))
+    fi
+  done
+  if [ $failed -gt 0 ]; then
+    err "  $failed migration(s) failed — backend will likely crash"
+    exit 1
+  fi
+  supabase_db_exec "TRUNCATE TABLE listener_block_cursors;" > /dev/null 2>&1 || true
+  supabase_db_exec "NOTIFY pgrst, 'reload schema';" > /dev/null 2>&1 || true
+  ok "  $applied migration(s) applied; cursors cleared; PostgREST cache notified"
+
+  # ------ Step 5: Seed admin wallets ------
   # allowlistService looks up wallets with `.eq(wallet_address, wallet.toLowerCase())`
   # so rows must be stored lowercase even though EIP-55 checksummed addresses
   # come in as mixed case. UPSERT (not INSERT-WHERE-NOT-EXISTS) so a stale row
   # with wrong access_level gets corrected — caught us when `supabase db reset`
   # had wiped admin and a partial leftover row blocked the re-seed.
-  log "Step 4/9: Seeding admin wallets in Supabase DB..."
+  log "Step 5/10: Seeding admin wallets in Supabase DB..."
   for wallet in "${ADMIN_WALLETS[@]}"; do
     local wallet_lc
     wallet_lc=$(echo "$wallet" | tr '[:upper:]' '[:lower:]')
@@ -355,7 +394,7 @@ for log in d.get('logs', []):
   # AccessControl reverts UnauthorizedCaller. The deploy script already grants
   # the deployer's SMA in 14_ConfigureRoles; this loop covers the remaining
   # admin wallets (Patrick + Anvil #3-#5) and their SMAs.
-  log "Step 5/9: Granting on-chain roles..."
+  log "Step 6/10: Granting on-chain roles..."
   local raffle factory_addr
   raffle=$(get_deployment Raffle)
   factory_addr=$(get_deployment SOFSmartAccountFactory)
@@ -391,7 +430,7 @@ for log in d.get('logs', []):
   ok "  Roles granted (EOAs + SMAs)"
 
   # ------ Step 6: Treasury approval for RolloverEscrow ------
-  log "Step 6/9: Treasury approval for RolloverEscrow..."
+  log "Step 7/10: Treasury approval for RolloverEscrow..."
   if [ -n "$escrow" ]; then
     local sof
     sof=$(get_deployment SOFToken)
@@ -413,7 +452,7 @@ for log in d.get('logs', []):
   # the factory's embedded SOFSmartAccount creationCode can vary across
   # `forge build --force` runs even with bytecode_hash="none". So we derive
   # the SMA fresh from the just-deployed factory rather than hardcoding.
-  log "Step 7/9: Funding dev SMAs with SOF..."
+  log "Step 8/10: Funding dev SMAs with SOF..."
   local sof factory
   sof=$(get_deployment SOFToken)
   factory=$(get_deployment SOFSmartAccountFactory)
@@ -437,7 +476,7 @@ for log in d.get('logs', []):
   ok "  ${#FUND_WALLETS[@]} SMA(s) funded"
 
   # ------ Step 8: Start backend ------
-  log "Step 8/9: Starting backend..."
+  log "Step 9/10: Starting backend..."
   # Backend runs as a host node process (same shape as Railway in prod). The
   # docker-compose `backend` service was removed — it never worked anyway
   # (no node_modules in node:22-alpine) and ran with empty SUPABASE_URL.
@@ -468,7 +507,7 @@ for log in d.get('logs', []):
   ok "  Backend running on http://127.0.0.1:3000"
 
   # ------ Step 9: Start frontend ------
-  log "Step 9/9: Starting frontend..."
+  log "Step 10/10: Starting frontend..."
   lsof -ti:5174 2>/dev/null | xargs kill -9 2>/dev/null || true
   sleep 1
 
