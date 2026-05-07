@@ -1,7 +1,7 @@
 {
   "network": "anvil",
   "chainId": 31337,
-  "deployedAt": "2026-05-06T03:18:58.810Z",
+  "deployedAt": "2026-05-07T05:56:03.620Z",
   "contracts": {
     "SOFToken": "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512",
     "Raffle": "0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0",
@@ -18,10 +18,10 @@
     "SOFFaucet": "0xa51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0",
     "RaffleOracleAdapter": "0x0165878a594ca255338adfa4d48449f69242eb8f",
     "SeasonGating": "0x0000000000000000000000000000000000000000",
-    "SOFExchange": "0xe6e340d132b5f46d1e472debcd681b2abc16e57e",
+    "SOFExchange": "0xa82ff9afd8f496c3d6ac40e2a0f282e47488cfc9",
     "USDC": "0x0000000000000000000000000000000000000000",
     "SOFSmartAccountFactory": "0x9a676e781a523b5d0c0e43731313a708cb607508",
-    "Paymaster": "0x7a2088a1bfc9d81c55368ae168c2c02570cb814f",
-    "RolloverEscrow": "0x09635f643e140090a9a8dcd712ed6285858cebef"
+    "Paymaster": "0xe6e340d132b5f46d1e472debcd681b2abc16e57e",
+    "RolloverEscrow": "0xc3e53f4d16ae77db1c982e75a937b9f60fe63690"
   }
 }

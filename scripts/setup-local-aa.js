@@ -175,17 +175,18 @@ async function main() {
 
   // Find the actual `entryPoint` immutable value by diffing on-chain runtime
   // against the artifact's deployedBytecode. Solidity emits immutables as
-  // PUSH20 0x000…000 in the artifact and the constructor patches those same
-  // 20-byte windows during deploy. Wherever the on-chain bytes differ from
-  // the artifact's zero placeholder, that's the immutable value. The first
-  // such 20-byte run is the `entryPoint` immutable. Counting on the address
-  // bytes themselves is fragile (different deploy runs produce different X
-  // values, and `deployedAt` is the X for the EntryPoint, not for the
-  // SenderCreator's CREATE-derived parent — they happen to be the same
-  // because the SenderCreator constructor reads msg.sender = EntryPoint X,
-  // but linking to `deployedAt` directly couples this script to that
-  // assumption. Diffing against the artifact is robust to repeat runs and
-  // anvil state where multiple historical EntryPoint deploys exist).
+  // 32-byte zero placeholders in the artifact (PUSH32 + AND mask). At deploy
+  // time the constructor patches those 32-byte windows: an `address`
+  // immutable lands RIGHT-ALIGNED in the 32-byte slot — 12 leading zero
+  // bytes (carry-over) followed by the 20-byte address. So:
+  //   artifact:  00000000000000000000000000000000_00000000000000000000000000000000  (64 hex = 32 bytes)
+  //   on-chain:  000000000000000000000000<address-20-bytes>
+  // To patch we look for 32-byte zero windows in the artifact, take the LAST
+  // 20 bytes of each corresponding on-chain window as the stale immutable
+  // value, and overwrite that with the canonical EntryPoint address.
+  // Earlier the heuristic looked for 20-byte zero windows and patched the
+  // FIRST 20 bytes of each match, which misaligned by 12 bytes and left the
+  // real immutable untouched (AA97 still fired).
   const artifactPath2 = require.resolve(
     "@account-abstraction/contracts/artifacts/SenderCreator.json",
   );
@@ -199,17 +200,27 @@ async function main() {
       `SenderCreator runtime length mismatch: artifact ${artifactBytes.length}, on-chain ${onchainBytes.length}`,
     );
   }
-  // Walk the bytecode 1 byte at a time. When a 20-byte window in the
-  // artifact is all zeros and on-chain is non-zero, that's an immutable.
+  // Walk the bytecode 1 byte at a time. When a 32-byte window in the
+  // artifact is all zeros and on-chain is non-zero, that's an immutable
+  // slot. The address immutable occupies the trailing 20 bytes of the slot;
+  // the leading 12 bytes are zero in both artifact and runtime (and stay
+  // zero — they're not part of the address).
   let staleHex = null;
+  // Each entry: { addrOffsetHex, slotOffsetHex } where addrOffsetHex is the
+  // hex-string offset of the 20-byte address window inside `onchainBytes`.
   const occurrenceOffsets = [];
-  for (let i = 0; i + 40 <= artifactBytes.length; i += 2) {
-    const artifactWindow = artifactBytes.slice(i, i + 40);
-    if (artifactWindow !== "0".repeat(40)) continue;
-    const onchainWindow = onchainBytes.slice(i, i + 40);
-    if (onchainWindow === "0".repeat(40)) continue;
-    if (!staleHex) staleHex = onchainWindow;
-    if (onchainWindow === staleHex) occurrenceOffsets.push(i);
+  for (let i = 0; i + 64 <= artifactBytes.length; i += 2) {
+    const artifactWindow = artifactBytes.slice(i, i + 64);
+    if (artifactWindow !== "0".repeat(64)) continue;
+    // Slot is 32 bytes, address sits in the last 20 bytes (last 40 hex chars).
+    const addrOffsetHex = i + 24; // 24 hex chars = 12 bytes leading zeros
+    const onchainAddr = onchainBytes.slice(addrOffsetHex, addrOffsetHex + 40);
+    if (onchainAddr === "0".repeat(40)) continue;
+    // Sanity check: the leading 12 bytes of the slot should be zero on-chain.
+    const onchainLead = onchainBytes.slice(i, addrOffsetHex);
+    if (onchainLead !== "0".repeat(24)) continue;
+    if (!staleHex) staleHex = onchainAddr;
+    if (onchainAddr === staleHex) occurrenceOffsets.push(addrOffsetHex);
   }
   if (!staleHex || occurrenceOffsets.length === 0) {
     throw new Error("Could not locate entryPoint immutable in SenderCreator");

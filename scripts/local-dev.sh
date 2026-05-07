@@ -213,6 +213,20 @@ do_start() {
     exit 1
   fi
 
+  # Refresh deployments/local.json from the broadcast log. forge writes the
+  # broadcast log on every deploy but the in-script JSON writer was disabled
+  # (per a comment in DeployAll.s.sol — it produced wrong addresses on
+  # --resume). Without this step, the JSON stays at whatever a previous
+  # deploy run wrote, so the backend + frontend would read stale paymaster
+  # / curve addresses on every fresh stack and every userOp would fail with
+  # AA33 (paymaster has no code at the cached address). Bug surfaced during
+  # M5 live verification — fix in the script makes future runs deterministic.
+  log "  Refreshing deployments/local.json from broadcast log..."
+  if ! node "$ROOT_DIR/scripts/extract-deployment-addresses.js" --network local 2>&1 | sed 's/^/    /'; then
+    err "  Failed to extract deployment addresses"
+    exit 1
+  fi
+
   # Verify RolloverEscrow is in local.json
   local escrow
   escrow=$(get_deployment RolloverEscrow) || true
