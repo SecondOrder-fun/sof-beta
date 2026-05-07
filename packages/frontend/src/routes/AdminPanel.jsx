@@ -20,9 +20,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { keccak256, stringToHex } from "viem";
 import { useAllowlist } from "@/hooks/useAllowlist";
 import { ACCESS_LEVELS } from "@/config/accessLevels";
-import { AdminAuthProvider } from "@/context/AdminAuthContext";
-import { useAdminAuth } from "@/hooks/useAdminAuth";
-import { Button } from "@/components/ui/button";
+import { useAppAuth } from "@/hooks/useAppAuth";
+import { useTranslation } from "react-i18next";
 
 // Import NFT drops panel
 import NftDropsPanel from "@/components/admin/NftDropsPanel";
@@ -40,16 +39,18 @@ import LocalizationAdmin from "@/routes/LocalizationAdmin";
 
 /**
  * Inner panel that requires JWT authentication for admin write operations.
- * Rendered inside <AdminAuthProvider>.
  */
 function AdminPanelInner() {
+  const { t } = useTranslation("raffle");
   const { createSeason, startSeason, requestSeasonEnd } = useRaffleWrite();
   const allSeasonsQuery = useAllSeasons();
   const { address } = useAccount();
   const { hasRole } = useAccessControl();
   const chainId = useChainId();
   const publicClient = usePublicClient();
-  const { isAuthenticated, isLoading: isAuthLoading, error: authError, login } = useAdminAuth();
+  const { status: authStatus, error: authError } = useAppAuth();
+  const isAuthenticated = authStatus === "authenticated";
+  const isAuthLoading = authStatus === "signing" || authStatus === "verifying";
 
   // Network configuration
   const netKey = getStoredNetworkKey();
@@ -129,22 +130,14 @@ function AdminPanelInner() {
         <div className="space-y-4">
           <h2 className="text-2xl font-bold">Admin Panel</h2>
           <p className="text-sm text-muted-foreground">
-            Sign in with your wallet to access admin controls.
+            {isAuthLoading
+              ? t("createSeason.signingIn")
+              : t("createSeason.connectWalletPrompt")}
           </p>
+          {authError && (
+            <p className="text-sm text-destructive">{authError}</p>
+          )}
         </div>
-        <Card>
-          <CardContent className="pt-6 flex flex-col items-center gap-4">
-            <p className="text-muted-foreground">
-              Your wallet has admin access. Sign a message to authenticate for this session.
-            </p>
-            <Button onClick={login} disabled={isAuthLoading} size="lg">
-              {isAuthLoading ? "Signing…" : "Sign in to access admin controls"}
-            </Button>
-            {authError && (
-              <p className="text-sm text-red-500">{authError}</p>
-            )}
-          </CardContent>
-        </Card>
       </div>
     );
   }
@@ -250,11 +243,7 @@ function AdminPanelInner() {
 }
 
 function AdminPanel() {
-  return (
-    <AdminAuthProvider>
-      <AdminPanelInner />
-    </AdminAuthProvider>
-  );
+  return <AdminPanelInner />;
 }
 
 export default AdminPanel;
