@@ -36,7 +36,7 @@ import {
   XCircle,
   AlertCircle,
 } from "lucide-react";
-import { useAdminAuth } from "@/hooks/useAdminAuth";
+import { useAppAuth } from "@/hooks/useAppAuth";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
@@ -171,7 +171,7 @@ function truncateAddress(addr) {
 
 export default function AllowlistPanel() {
   const queryClient = useQueryClient();
-  const { getAuthHeaders } = useAdminAuth();
+  const { getAuthHeaders } = useAppAuth();
   const [addInput, setAddInput] = useState("");
   const [showInactive, setShowInactive] = useState(false);
   const [configWindowEnd, setConfigWindowEnd] = useState("");

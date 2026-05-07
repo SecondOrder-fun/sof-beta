@@ -44,11 +44,11 @@ import {
 } from "@/components/ui/dialog";
 import { Plus, Users, Trash2, UserPlus, UserMinus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useAdminAuth } from "@/hooks/useAdminAuth";
+import { useAppAuth } from "@/hooks/useAppAuth";
 
 export function GroupsPanel() {
   const { toast } = useToast();
-  const { getAuthHeaders } = useAdminAuth();
+  const { getAuthHeaders } = useAppAuth();
   const { groups, isLoading, refetch } = useAccessGroups();
   const { createGroup, isCreating } = useCreateGroup({ getAuthHeaders });
   const { deleteGroup } = useDeleteGroup({ getAuthHeaders });
@@ -312,7 +312,7 @@ function parseIdentifier(input) {
 
 function GroupMembersDialog({ group, onClose }) {
   const { members, isLoading } = useGroupMembers(group.slug);
-  const { getAuthHeaders } = useAdminAuth();
+  const { getAuthHeaders } = useAppAuth();
   const { addUserToGroup } = useAddUserToGroup({ getAuthHeaders });
   const { removeUserFromGroup } = useRemoveUserFromGroup({ getAuthHeaders });
   const { toast } = useToast();

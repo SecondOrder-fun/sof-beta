@@ -4,14 +4,14 @@
  */
 
 import { Shield } from "lucide-react";
-import { useAdminAuth } from "@/hooks/useAdminAuth";
+import { useAppAuth } from "@/hooks/useAppAuth";
 import UserAccessPanel from "./access/UserAccessPanel";
 import DefaultAccessPanel from "./access/DefaultAccessPanel";
 import AccessGroupsPanel from "./access/AccessGroupsPanel";
 import RouteConfigPanel from "./access/RouteConfigPanel";
 
 export default function AccessManagementPanel() {
-  const { getAuthHeaders } = useAdminAuth();
+  const { getAuthHeaders } = useAppAuth();
 
   return (
     <div className="space-y-6">

@@ -11,8 +11,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 vi.stubEnv("VITE_API_BASE_URL", "https://example.com/api");
 vi.stubEnv("VITE_ADMIN_BEARER_TOKEN", "test-token");
 
-vi.mock("@/hooks/useAdminAuth", () => ({
-  useAdminAuth: () => ({
+vi.mock("@/hooks/useAppAuth", () => ({
+  useAppAuth: () => ({
     getAuthHeaders: () => ({
       Authorization: "Bearer test-token",
     }),
@@ -31,8 +31,8 @@ describe("AllowlistPanel auth headers", () => {
     vi.resetModules();
 
     // Re-apply the hook mock after resetModules clears the module registry.
-    vi.doMock("@/hooks/useAdminAuth", () => ({
-      useAdminAuth: () => ({
+    vi.doMock("@/hooks/useAppAuth", () => ({
+      useAppAuth: () => ({
         getAuthHeaders: () => ({
           Authorization: "Bearer test-token",
         }),

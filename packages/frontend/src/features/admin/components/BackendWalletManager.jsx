@@ -17,11 +17,11 @@ import {
 } from "lucide-react";
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
 import { useToast } from "@/hooks/useToast";
-import { useAdminAuth } from "@/hooks/useAdminAuth";
+import { useAppAuth } from "@/hooks/useAppAuth";
 
 export function BackendWalletManager() {
   const { toast } = useToast();
-  const { getAuthHeaders } = useAdminAuth();
+  const { getAuthHeaders } = useAppAuth();
   const [probabilityResults, setProbabilityResults] = useState(null);
   const [isRefreshingProbabilities, setIsRefreshingProbabilities] =
     useState(false);

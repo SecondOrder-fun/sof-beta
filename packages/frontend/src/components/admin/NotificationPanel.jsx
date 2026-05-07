@@ -19,7 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Bell, Send, Users, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useAdminAuth } from "@/hooks/useAdminAuth";
+import { useAppAuth } from "@/hooks/useAppAuth";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
@@ -72,7 +72,7 @@ async function sendNotification({ fid, title, body, targetUrl, authHeaders = {} 
 
 function NotificationPanel() {
   const queryClient = useQueryClient();
-  const { getAuthHeaders } = useAdminAuth();
+  const { getAuthHeaders } = useAppAuth();
   const { t } = useTranslation("admin");
 
   // Form state
