@@ -3,7 +3,7 @@ import { createContext, useContext, useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { useAccount } from 'wagmi';
 import { useUsername } from '@/hooks/useUsername';
-import { useFarcaster } from '@/hooks/useFarcaster';
+import { useAppAuth } from '@/hooks/useAppAuth';
 
 const UsernameContext = createContext({
   username: null,
@@ -17,7 +17,9 @@ const UsernameContext = createContext({
 export const UsernameProvider = ({ children }) => {
   const { address, isConnected } = useAccount();
   const { data: username, isLoading } = useUsername(address);
-  const { isBackendAuthenticated, backendUser } = useFarcaster();
+  const { user: appUser, status: authStatus } = useAppAuth();
+  const isBackendAuthenticated = authStatus === 'authenticated';
+  const backendUser = appUser;
   const [showDialog, setShowDialog] = useState(false);
   const [hasCheckedUsername, setHasCheckedUsername] = useState(false);
   const [suggestedUsername, setSuggestedUsername] = useState(null);

@@ -53,6 +53,18 @@ vi.mock("@/context/farcasterContext", () => ({
   default: { _currentValue: null },
 }));
 
+vi.mock("@/hooks/useAppAuth", () => ({
+  useAppAuth: () => ({
+    jwt: null,
+    user: null,
+    status: "idle",
+    error: null,
+    signIn: vi.fn(),
+    signOut: vi.fn(),
+    getAuthHeaders: () => ({}),
+  }),
+}));
+
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 describe("useAirdrop - backend relay API calls + on-chain verification", () => {

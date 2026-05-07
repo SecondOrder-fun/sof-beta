@@ -1,11 +1,11 @@
 // src/hooks/useAirdrop.js
-import { useState, useEffect, useCallback, useContext } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAccount, useReadContract, useWalletClient } from "wagmi";
 import { useQueryClient } from "@tanstack/react-query";
 import { formatUnits } from "viem";
 import { getContractAddresses } from "@/config/contracts";
 import { getStoredNetworkKey } from "@/lib/wagmi";
-import FarcasterContext from "@/context/farcasterContext";
+import { useAppAuth } from "@/hooks/useAppAuth";
 
 // SOFAirdrop contract was deleted in the gasless rewrite. The hook is kept
 // for component compatibility; without an address all reads remain disabled.
@@ -61,7 +61,7 @@ function formatCountdown(remaining) {
 export function useAirdrop() {
   const { address, isConnected } = useAccount();
   const queryClient = useQueryClient();
-  const farcasterAuth = useContext(FarcasterContext);
+  const { getAuthHeaders } = useAppAuth();
   const { data: walletClient } = useWalletClient();
   const netKey = getStoredNetworkKey();
   const contracts = getContractAddresses(netKey);
@@ -208,7 +208,7 @@ export function useAirdrop() {
       setClaimInitialState({ isPending: true, isSuccess: false, isError: false, error: null });
 
       try {
-        const authHeaders = farcasterAuth?.getAuthHeaders?.() ?? {};
+        const authHeaders = getAuthHeaders() ?? {};
         const res = await fetch(`${API_BASE}/airdrop/claim`, {
           method: "POST",
           headers: { "Content-Type": "application/json", ...authHeaders },
@@ -231,7 +231,7 @@ export function useAirdrop() {
         });
       }
     },
-    [address, airdropAddress, farcasterAuth, verifyInitialClaim]
+    [address, airdropAddress, getAuthHeaders, verifyInitialClaim]
   );
 
   // ── Write: claimInitialBasic (no Farcaster, wallet signature proof) ───────

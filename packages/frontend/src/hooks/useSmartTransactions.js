@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useContext, useRef } from 'react';
+import { useMemo, useCallback, useRef } from 'react';
 import { useAccount, useChainId, useCapabilities, useSendCalls, useCallsStatus, usePublicClient, useWalletClient } from 'wagmi';
 import { waitForCallsStatus } from '@wagmi/core';
 import { encodeFunctionData, http } from 'viem';
@@ -7,7 +7,7 @@ import { ERC20Abi } from '@/utils/abis';
 import { getContractAddresses } from '@/config/contracts';
 import { getStoredNetworkKey } from '@/lib/wagmi';
 import { config as wagmiConfig } from '@/lib/wagmiConfig';
-import FarcasterContext from '@/context/farcasterContext';
+import { useAppAuth } from '@/hooks/useAppAuth';
 import { toSofSmartAccount } from '@/lib/sofSmartAccount';
 import { useRaffleAccount } from '@/hooks/useRaffleAccount';
 
@@ -86,8 +86,8 @@ export function useSmartTransactions() {
   const { walletType } = useRaffleAccount();
   // Use any available JWT — Farcaster (MiniApp), SIWE wallet auth (desktop browser).
   // Both are issued by the same backend AuthService and accepted by the session endpoint.
-  const farcasterAuth = useContext(FarcasterContext);
-  const backendJwt = farcasterAuth?.backendJwt
+  const { jwt: appJwt } = useAppAuth();
+  const backendJwt = appJwt
     ?? localStorage.getItem('sof:farcaster_jwt')
     ?? localStorage.getItem('sof:admin_jwt')
     ?? null;

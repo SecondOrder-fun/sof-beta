@@ -45,6 +45,17 @@ vi.mock('@/lib/wagmi', () => ({
   getChainConfig: () => ({ chain: { id: 31337 }, transport: {} }),
 }));
 vi.mock('@/lib/wagmiConfig', () => ({ config: {}, initialNetworkKey: 'LOCAL' }));
+vi.mock('@/hooks/useAppAuth', () => ({
+  useAppAuth: () => ({
+    jwt: null,
+    user: null,
+    status: 'idle',
+    error: null,
+    signIn: vi.fn(),
+    signOut: vi.fn(),
+    getAuthHeaders: () => ({}),
+  }),
+}));
 vi.mock('@/hooks/useWallet', () => ({
   useWallet: () => ({
     address: '0x1234567890123456789012345678901234567890',
