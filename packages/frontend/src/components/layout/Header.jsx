@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { ChevronDown, Ticket, User, Crown } from "lucide-react";
 import SettingsMenu from "@/components/common/SettingsMenu";
 import FarcasterAuth from "@/components/auth/FarcasterAuth";
-import { useFarcaster } from "@/hooks/useFarcaster";
+import { useAppAuth } from "@/hooks/useAppAuth";
 import { useLoginModal } from "@/hooks/useLoginModal";
 import { Button } from "@/components/ui/button";
 import { useUsername } from "@/hooks/useUsername";
@@ -30,7 +30,10 @@ const Header = () => {
   const { sma } = useRaffleAccount();
   const { disconnect } = useDisconnect();
   const { openLoginModal } = useLoginModal();
-  const { isBackendAuthenticated, backendUser, logout: farcasterLogout } = useFarcaster();
+  const { user: appAuthUser, status: authStatus, signOut: appAuthLogout } = useAppAuth();
+  const isBackendAuthenticated = authStatus === "authenticated";
+  const backendUser = appAuthUser; // shape: { address, sma, isAdmin, fid?, username? }
+  const farcasterLogout = appAuthLogout;
   const { data: username } = useUsername(address);
   const { accessLevel } = useAllowlist();
   const isAdmin = accessLevel >= ACCESS_LEVELS.ADMIN;

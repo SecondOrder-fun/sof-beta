@@ -1,6 +1,7 @@
 import { useRef, useCallback, useState, useEffect } from "react";
 import { useSignIn } from "@farcaster/auth-kit";
 import { useFarcaster } from "@/hooks/useFarcaster";
+import { useAppAuth } from "@/hooks/useAppAuth";
 import { useToast } from "@/hooks/useToast";
 import { useTranslation } from "react-i18next";
 
@@ -22,7 +23,9 @@ const RELAY_URL = "https://relay.farcaster.xyz/v1/channel/status";
  */
 export const useFarcasterSignIn = ({ onSuccess, onError } = {}) => {
   const { t } = useTranslation("auth");
-  const { fetchNonce, verifyWithBackend, isVerifying } = useFarcaster();
+  const { fetchNonce } = useFarcaster();
+  const { signIn, status: appAuthStatus } = useAppAuth();
+  const isVerifying = appAuthStatus === "verifying";
   const { toast } = useToast();
 
   const [isConnecting, setIsConnecting] = useState(false);
@@ -150,10 +153,10 @@ export const useFarcasterSignIn = ({ onSuccess, onError } = {}) => {
           return;
         }
 
-        const { user } = await verifyWithBackend({ message, signature, nonce });
+        await signIn({ method: "farcaster", message, signature, nonce });
         toast({
           title: t("siwfSuccess", "Signed In"),
-          description: `${t("welcome", "Welcome")}, ${user.displayName || user.username || `FID ${user.fid}`}!`,
+          description: t("welcome", "Welcome"),
         });
         onSuccessRef.current?.();
       })

@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { QRCodeSVG } from "qrcode.react";
 import { useFarcaster } from "@/hooks/useFarcaster";
+import { useAppAuth } from "@/hooks/useAppAuth";
 import { useFarcasterSignIn } from "@/hooks/useFarcasterSignIn";
 import { Button } from "@/components/ui/button";
 import { QrFrame } from "@/components/ui/qr-frame";
@@ -15,11 +16,18 @@ import { Loader2, X } from "lucide-react";
 
 const FarcasterAuth = () => {
   const { t } = useTranslation("auth");
+  const { profile } = useFarcaster();
   const {
-    isBackendAuthenticated,
-    backendUser,
-    logout,
-  } = useFarcaster();
+    user: appAuthUser,
+    status: authStatus,
+    signOut: appAuthSignOut,
+  } = useAppAuth();
+
+  const isBackendAuthenticated = authStatus === "authenticated";
+  const username = appAuthUser?.username || null;
+  const fid = appAuthUser?.fid || null;
+  const displayName = profile?.displayName || null;
+  const pfpUrl = profile?.pfpUrl || null;
 
   const {
     handleSignInClick,
@@ -31,23 +39,23 @@ const FarcasterAuth = () => {
   } = useFarcasterSignIn();
 
   // Authenticated state — show profile + sign-out
-  if (isBackendAuthenticated && backendUser) {
+  if (isBackendAuthenticated && appAuthUser) {
     return (
       <div className="flex items-center gap-3">
-        {backendUser.pfpUrl && (
+        {pfpUrl && (
           <img
-            src={backendUser.pfpUrl}
-            alt={backendUser.displayName || backendUser.username || ""}
+            src={pfpUrl}
+            alt={displayName || username || ""}
             className="w-8 h-8 rounded-full"
           />
         )}
         <div className="flex flex-col">
           <span className="text-sm font-medium text-foreground">
-            {backendUser.displayName || backendUser.username || `FID ${backendUser.fid}`}
+            {displayName || username || (fid ? `FID ${fid}` : "")}
           </span>
-          {backendUser.username && (
+          {username && (
             <span className="text-xs text-muted-foreground">
-              @{backendUser.username}
+              @{username}
             </span>
           )}
         </div>
@@ -56,7 +64,7 @@ const FarcasterAuth = () => {
           size="sm"
           onClick={() => {
             signOut();
-            logout();
+            appAuthSignOut();
           }}
         >
           {t("farcasterSignOut", "Sign Out")}
