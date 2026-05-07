@@ -58,7 +58,7 @@ class RaffleTransactionService {
         .from("raffle_transactions")
         .insert({
           season_id: seasonId,
-          user_address: userAddress,
+          user_address: userAddress.toLowerCase(),
           transaction_type: transactionType,
           ticket_amount: ticketAmount,
           sof_amount: sofAmount,
@@ -385,7 +385,7 @@ class RaffleTransactionService {
     const { data, error } = await db.client
       .from("raffle_transactions")
       .select("*")
-      .eq("user_address", userAddress)
+      .eq("user_address", userAddress.toLowerCase())
       .eq("season_id", seasonId)
       .order(orderBy, { ascending: order === "asc" })
       .range(offset, offset + limit - 1);
@@ -401,7 +401,7 @@ class RaffleTransactionService {
     const { data, error } = await db.client
       .from("user_raffle_positions")
       .select("*")
-      .eq("user_address", userAddress)
+      .eq("user_address", userAddress.toLowerCase())
       .eq("season_id", seasonId)
       .single();
 
@@ -416,7 +416,7 @@ class RaffleTransactionService {
     const { data, error } = await db.client
       .from("user_raffle_positions")
       .select("*")
-      .eq("user_address", userAddress)
+      .eq("user_address", userAddress.toLowerCase())
       .order("season_id", { ascending: false });
 
     if (error) throw error;
