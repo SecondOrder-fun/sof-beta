@@ -143,6 +143,10 @@
   "signToCreate": "Sign a message with your wallet to authenticate for season creation.",
   "signing": "Signing...",
   "signInToCreate": "Sign in to create seasons",
+  "createSeason": {
+    "signingIn": "Signing in…",
+    "connectWalletPrompt": "Connect your wallet to create a season."
+  },
   "configureSeasonTitle": "Configure Season",
   "configureSeasonDesc": "Set up your raffle season parameters.",
   "seasonCreated": "Season Created!",
