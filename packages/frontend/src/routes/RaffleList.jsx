@@ -5,6 +5,10 @@ import { formatUnits, createPublicClient, http } from "viem";
 import { useAllSeasons } from "@/hooks/useAllSeasons";
 import { useSeasonWinnerSummaries } from "@/hooks/useSeasonWinnerSummaries";
 import { useCurveState } from "@/hooks/useCurveState";
+import { useTradingLockStatus } from "@/hooks/buysell";
+import { buildPublicClient } from "@/lib/viemClient";
+import { getStoredNetworkKey } from "@/lib/wagmi";
+import { getNetworkByKey } from "@/config/networks";
 import { useAccount, useChains } from "wagmi";
 import { useLoginModal } from "@/hooks/useLoginModal";
 import BondingCurvePanel from "@/components/curve/CurveGraph";
@@ -40,14 +44,50 @@ const ActiveSeasonCard = ({ season, renderBadge, winnerSummary }) => {
       ? nowSec < startTimeSec
       : false;
   const totalTickets = BigInt(season?.totalTickets ?? 0n);
+  const endTime = season?.config?.endTime;
+  const isCompleted = statusNum === 4 || statusNum === 5;
   const { curveSupply, curveStep, allBondSteps } = useCurveState(
     bondingCurveAddress,
     {
+      // Poll only while the curve can change (active season). For pre-start
+      // and completed seasons useCurveState fetches once and stays put — the
+      // curve is locked at close time, so the recorded `currentStep` is the
+      // last price tier hit before lock.
       isActive: isActiveSeason,
       pollMs: 15000,
-      enabled: isActiveSeason || isPreStart,
+      enabled: true,
     },
   );
+
+  // Mirror BuySellWidget's trading-lock check so ended-but-not-finalized
+  // seasons (status 2 or 3 — past endTime, awaiting VRF / settlement) hide
+  // their buy/sell buttons in the list view, just like the Detail view's
+  // BuySellWidget hides its inputs when curveConfig.tradingLocked is true.
+  const netKey = getStoredNetworkKey();
+  const net = getNetworkByKey(netKey);
+  const lockStatusClient = useMemo(
+    () => (net?.rpcUrl ? buildPublicClient(netKey) : null),
+    [net?.rpcUrl, netKey],
+  );
+  const { tradingLocked } = useTradingLockStatus(
+    lockStatusClient,
+    bondingCurveAddress,
+  );
+  // Mirror the mobile SeasonCard's time-based gate: even if the on-chain
+  // status is still Active and the curve hasn't been locked yet, hide
+  // buttons once the season's endTime has passed (status will flip to
+  // Ended on the next requestSeasonEnd call).
+  const seasonEndedByTime = useMemo(() => {
+    if (!endTime) return false;
+    const end = Number(endTime);
+    if (!Number.isFinite(end)) return false;
+    return nowSec >= end;
+  }, [nowSec, endTime]);
+  // Hide buy/sell buttons whenever trading isn't open. Buttons require:
+  // (a) season is currently Active (status === 1), AND
+  // (b) the bonding curve hasn't been locked (post-end / paused / cancelled), AND
+  // (c) the season's endTime hasn't passed (status will flip soon, no point starting a buy).
+  const tradingOpen = isActiveSeason && !tradingLocked && !seasonEndedByTime;
 
   const currentPriceLabel = (() => {
     try {
@@ -60,9 +100,6 @@ const ActiveSeasonCard = ({ season, renderBadge, winnerSummary }) => {
       return "0.0000";
     }
   })();
-
-  const endTime = season?.config?.endTime;
-  const isCompleted = statusNum === 4 || statusNum === 5;
 
   return (
     <Card className="flex flex-col h-full">
@@ -104,18 +141,57 @@ const ActiveSeasonCard = ({ season, renderBadge, winnerSummary }) => {
         )}
       </CardHeader>
       <CardContent className="flex flex-col gap-2 pt-0">
-        {!isCompleted && (
-          <div className="overflow-hidden rounded-md bg-muted/40">
-            <div className="h-44">
-              <BondingCurvePanel
-                curveSupply={curveSupply}
-                curveStep={curveStep}
-                allBondSteps={allBondSteps}
-                mini
-              />
-            </div>
+        {/* Bonding curve graph — shown for every state. For completed
+            raffles this renders the locked curve state (price/step at the
+            moment the season was ended). */}
+        <div className="overflow-hidden rounded-md bg-muted/40">
+          <div className="h-44">
+            <BondingCurvePanel
+              curveSupply={curveSupply}
+              curveStep={curveStep}
+              allBondSteps={allBondSteps}
+              mini
+              isCompleted={isCompleted}
+            />
           </div>
-        )}
+        </div>
+
+        {/* Price line + buy/sell — label switches by state. Buttons only
+            render while trading is actually open (active, not locked, not
+            past endTime). */}
+        <div className="flex items-center justify-between text-sm">
+          <div>
+            <div className="text-xs text-primary">
+              {isPreStart
+                ? t("startingPrice", { defaultValue: "Starting Price (SOF)" })
+                : isCompleted
+                  ? t("finalPrice", { defaultValue: "Final Price (SOF)" })
+                  : t("currentPrice")}
+            </div>
+            <div className="font-mono text-base">{currentPriceLabel} SOF</div>
+          </div>
+          {!isPreStart && tradingOpen && (
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                onClick={() => navigate(`/raffles/${season.id}?mode=buy`)}
+              >
+                {t("common:buy")}
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => navigate(`/raffles/${season.id}?mode=sell`)}
+              >
+                {t("common:sell")}
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {/* Winner / no-participants card for completed raffles. Shown
+            below the graph + last-price line so the user can see both the
+            on-curve outcome (graph + last price) and the off-curve outcome
+            (winner). */}
         {isCompleted && winnerSummary && (
           <div className="rounded-md border border-border bg-muted/40 p-4 text-base text-muted-foreground">
             <div className="flex flex-wrap items-center gap-3">
@@ -149,32 +225,6 @@ const ActiveSeasonCard = ({ season, renderBadge, winnerSummary }) => {
             <div className="mt-2 text-sm text-muted-foreground">
               {t("noParticipants")}
             </div>
-          </div>
-        )}
-        {!isCompleted && (
-          <div className="flex items-center justify-between text-sm">
-            <div>
-              <div className="text-xs text-primary">
-                {isPreStart ? t("startingPrice", { defaultValue: "Starting Price (SOF)" }) : t("currentPrice")}
-              </div>
-              <div className="font-mono text-base">{currentPriceLabel} SOF</div>
-            </div>
-            {!isPreStart && (
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  onClick={() => navigate(`/raffles/${season.id}?mode=buy`)}
-                >
-                  {t("common:buy")}
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => navigate(`/raffles/${season.id}?mode=sell`)}
-                >
-                  {t("common:sell")}
-                </Button>
-              </div>
-            )}
           </div>
         )}
       </CardContent>
