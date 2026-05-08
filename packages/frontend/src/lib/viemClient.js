@@ -8,16 +8,19 @@ const DEMOTION_WINDOW_MS = 5 * 60 * 1000;
 const RESET_INTERVAL_MS = 10 * 60 * 1000;
 const badRpcUrls = new Map();
 let lastResetAt = Date.now();
-const SEPOLIA_BASE_HOST = "sepolia.base.org";
+// sepolia.base.org is the public Base Sepolia RPC. It does NOT serve the
+// Access-Control-Allow-Origin header for browser requests, so any URL that
+// reaches this host from the frontend produces a CORS error in the console.
+// Per CLAUDE.md, Tenderly is the canonical RPC. Prefer to filter
+// sepolia.base.org out of transport lists — but never strip it down to an
+// empty list, since that breaks bootstrap when the deploy env has it as the
+// sole configured URL. Filter when alternatives exist; otherwise fall through
+// with a warning.
+const PROBLEMATIC_RPC_HOSTS = ["sepolia.base.org"];
 
-function allowRpcUrl(url) {
+function isProblematicRpcUrl(url) {
   if (!url) return false;
-  if (url.includes(SEPOLIA_BASE_HOST)) {
-    return (import.meta.env.VITE_RPC_URL || "").includes(
-      SEPOLIA_BASE_HOST,
-    );
-  }
-  return true;
+  return PROBLEMATIC_RPC_HOSTS.some((host) => url.includes(host));
 }
 
 /**
@@ -77,12 +80,22 @@ export function buildPublicClient(networkKey) {
     },
   };
 
-  const allUrls = [primaryRpcUrl, ...fallbackUrls]
+  const rawUrls = [primaryRpcUrl, ...fallbackUrls]
     .filter((url) => typeof url === "string")
     .map((url) => url.trim())
-    .filter((url) => url.startsWith("http"))
-    .filter(allowRpcUrl);
-  if (allUrls.length === 0) return null;
+    .filter((url) => url.startsWith("http"));
+  if (rawUrls.length === 0) return null;
+  const cleanUrls = rawUrls.filter((url) => !isProblematicRpcUrl(url));
+  // If filtering would remove every URL, fall through with the raw list and
+  // a warning rather than returning null (which silently disables features).
+  const allUrls = cleanUrls.length > 0 ? cleanUrls : rawUrls;
+  if (cleanUrls.length === 0) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[buildPublicClient] all configured RPC URLs are on the problematic-host list (${PROBLEMATIC_RPC_HOSTS.join(", ")}). ` +
+        `Update VITE_RPC_URL/rpcFallbackUrls to a CORS-friendly endpoint. Falling back to the raw list — expect CORS errors.`,
+    );
+  }
   const activeUrls = allUrls.filter((url) => !isRpcBad(url, now));
   const urlsToUse = activeUrls.length > 0 ? activeUrls : allUrls;
   if (urlsToUse.length === 0) return null;
@@ -90,6 +103,14 @@ export function buildPublicClient(networkKey) {
   const httpTransports = urlsToUse
     .map((url) =>
       http(url, {
+        // batch: true coalesces RPC calls issued in the same microtask into
+        // a single HTTP POST. Without it every readContract / multicall is
+        // its own request and a busy page exhausts Tenderly rate limits in
+        // seconds. retryCount caps viem's default-3 retries that turn one
+        // 429 into four rapid-fire bursts.
+        batch: true,
+        retryCount: 1,
+        retryDelay: 1500,
         onFetchResponse(response) {
           if (response.status === 403 || response.status === 429) {
             markRpcBad(url, Date.now());
