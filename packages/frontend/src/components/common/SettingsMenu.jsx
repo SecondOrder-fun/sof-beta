@@ -47,7 +47,6 @@ import { getNetworkByKey } from "@/config/networks";
 import { getContractAddresses } from "@/config/contracts";
 import { ERC20Abi } from "@/utils/abis";
 import UsernameEditor from "@/components/account/UsernameEditor";
-import DailyClaimButton from "@/components/airdrop/DailyClaimButton";
 import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import PropTypes from "prop-types";
 
@@ -168,10 +167,6 @@ const SettingsMenu = ({ address, username, farcasterUser, onDisconnect }) => {
             ) : (
               <span>{sofBalance} SOF</span>
             )}
-          </div>
-
-          <div className="px-2 py-1.5">
-            <DailyClaimButton />
           </div>
 
           <DropdownMenuSeparator />
