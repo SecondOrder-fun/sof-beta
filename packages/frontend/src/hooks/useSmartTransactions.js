@@ -84,13 +84,11 @@ export function useSmartTransactions() {
   const publicClient = usePublicClient();
   const { data: walletClient } = useWalletClient();
   const { walletType } = useRaffleAccount();
-  // Use any available JWT — Farcaster (MiniApp), SIWE wallet auth (desktop browser).
-  // Both are issued by the same backend AuthService and accepted by the session endpoint.
-  const { jwt: appJwt } = useAppAuth();
-  const backendJwt = appJwt
-    ?? localStorage.getItem('sof:farcaster_jwt')
-    ?? localStorage.getItem('sof:admin_jwt')
-    ?? null;
+  // JWT from AppAuthProvider — covers SIWE-on-connect (desktop EOA / Coinbase
+  // Smart Wallet) and Farcaster SIWF (delegated via useFarcasterSignIn).
+  // Legacy storage keys (sof:farcaster_jwt, sof:admin_jwt) are cleared on
+  // AppAuthProvider mount, so localStorage fallbacks here are dead code.
+  const { jwt: backendJwt } = useAppAuth();
   const sessionCacheRef = useRef({ token: null, expiresAt: 0 });
   const apiBase = import.meta.env.VITE_API_BASE_URL || '';
 

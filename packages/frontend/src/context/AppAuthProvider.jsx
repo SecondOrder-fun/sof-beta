@@ -134,12 +134,15 @@ export function AppAuthProvider({ children }) {
   const inflightRef = useRef(false);
 
   const persist = useCallback((token, userObj) => {
-    if (!walletType || PERSIST_WALLET_TYPES.has(walletType)) {
-      try {
-        localStorage.setItem(STORAGE_JWT_KEY, token);
-        if (userObj) localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(userObj));
-      } catch { /* noop */ }
-    }
+    // Only persist for the explicitly-allowed wallet types. Spec §5.3:
+    // farcaster-miniapp → in-memory only; unknown types → in-memory (safer
+    // default than implicitly persisting for whatever new wallet type
+    // classifyWalletType doesn't recognize yet).
+    if (!PERSIST_WALLET_TYPES.has(walletType)) return;
+    try {
+      localStorage.setItem(STORAGE_JWT_KEY, token);
+      if (userObj) localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(userObj));
+    } catch { /* noop */ }
   }, [walletType]);
 
   const clearStorage = useCallback(() => {
