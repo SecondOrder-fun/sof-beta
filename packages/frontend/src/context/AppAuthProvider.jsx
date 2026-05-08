@@ -239,9 +239,14 @@ export function AppAuthProvider({ children }) {
     if (walletStatus === "disconnected" || !addressLc) {
       // Disconnect — clear everything. (Don't trigger this during
       // 'reconnecting' — that's a transient state, not a real disconnect.)
-      if (jwt || user) {
+      // Always reset status/error here, not just when jwt/user are set —
+      // a failed sign-in leaves status='error'/'rejected' with null jwt,
+      // and that error must clear when the wallet goes away or the retry
+      // banner sticks across sessions.
+      if (jwt || user || status !== "idle") {
         setAuth({ jwt: null, user: null });
         setStatus("idle");
+        setError(null);
         clearStorage();
       }
       return;
@@ -265,7 +270,7 @@ export function AppAuthProvider({ children }) {
         setStatus("authenticated");
       }
     }
-  }, [addressLc, walletStatus, jwt, user, clearStorage]);
+  }, [addressLc, walletStatus, jwt, user, status, clearStorage]);
 
   // Effect: auto-fire on connect when no valid JWT and wallet type qualifies.
   // Gated on walletStatus === 'connected' (not isConnected) so we don't try to

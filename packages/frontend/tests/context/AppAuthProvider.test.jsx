@@ -352,6 +352,42 @@ describe("AppAuthProvider", () => {
       );
       expect(localStorage.getItem("sof:auth_jwt")).toBeNull();
     });
+
+    it("resets status='error' to 'idle' when wallet disconnects after a failed sign-in", async () => {
+      // Simulate a failed sign-in: nonce ok, verify 401.
+      global.fetch = vi
+        .fn()
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ nonce: "abc" }) })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 401,
+          json: async () => ({ error: "Invalid signature" }),
+        });
+      wagmiCore.signMessage.mockResolvedValue("0xsig");
+      mockConnected({ address: EOA });
+
+      const { rerender } = render(
+        <AppAuthProvider>
+          <StatusProbe />
+        </AppAuthProvider>,
+      );
+
+      await waitFor(() =>
+        expect(screen.getByTestId("status")).toHaveTextContent("error"),
+      );
+
+      // User disconnects while error banner is showing.
+      mockDisconnected();
+      rerender(
+        <AppAuthProvider>
+          <StatusProbe />
+        </AppAuthProvider>,
+      );
+
+      await waitFor(() =>
+        expect(screen.getByTestId("status")).toHaveTextContent("idle"),
+      );
+    });
   });
 
   describe("error states", () => {
