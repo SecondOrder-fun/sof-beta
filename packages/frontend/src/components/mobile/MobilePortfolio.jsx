@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import BottomNav from "./BottomNav";
 import MobileCreatorTab from "./MobileCreatorTab";
 import MobileBalancesTab from "./MobileBalancesTab";
+import MobileClaimsTab from "./MobileClaimsTab";
 import { useProfileData } from "@/hooks/useProfileData";
 import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 
@@ -73,6 +74,9 @@ const MobilePortfolio = () => {
             <TabsTrigger value="balances" className="flex-1">
               {t("account:holdings")}
             </TabsTrigger>
+            <TabsTrigger value="claims" className="flex-1">
+              {t("account:claims")}
+            </TabsTrigger>
             <TabsTrigger value="creator" className="flex-1">
               {t("account:creator")}
             </TabsTrigger>
@@ -88,6 +92,10 @@ const MobilePortfolio = () => {
                 rafflePositions={rafflePositions}
                 isLoadingRafflePositions={seasonBalancesQuery.isLoading}
               />
+            </TabsContent>
+
+            <TabsContent value="claims" className="mt-0">
+              <MobileClaimsTab address={address} />
             </TabsContent>
 
             <TabsContent value="creator" className="mt-0">
