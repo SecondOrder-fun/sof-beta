@@ -97,7 +97,16 @@ function readPersistedAuth(currentAddressLc) {
 }
 
 export function AppAuthProvider({ children }) {
-  const { address, isConnected } = useAccount();
+  // wagmi v2 `status` is one of 'connected' | 'reconnecting' | 'connecting' |
+  // 'disconnected'. We gate auto-fire on the explicit 'connected' state because
+  // signMessage walks config.state.connections.get(state.current).connector and
+  // calls .getChainId() — during reconnecting hydration the connector reference
+  // is still the dehydrated shape (no class methods), and signMessage throws
+  // "connection.connector.getChainId is not a function". `isConnected` flips
+  // true during reconnecting too; `status === 'connected'` only when the
+  // connector instance is fully restored.
+  const { address, status: walletStatus } = useAccount();
+  const isFullyConnected = walletStatus === "connected";
   const { walletType } = useRaffleAccount();
 
   // Mount: clear legacy keys exactly once.
@@ -227,8 +236,9 @@ export function AppAuthProvider({ children }) {
 
   // Effect: react to address change / disconnect.
   useEffect(() => {
-    if (!isConnected || !addressLc) {
-      // Disconnect — clear everything.
+    if (walletStatus === "disconnected" || !addressLc) {
+      // Disconnect — clear everything. (Don't trigger this during
+      // 'reconnecting' — that's a transient state, not a real disconnect.)
       if (jwt || user) {
         setAuth({ jwt: null, user: null });
         setStatus("idle");
@@ -255,17 +265,20 @@ export function AppAuthProvider({ children }) {
         setStatus("authenticated");
       }
     }
-  }, [addressLc, isConnected, jwt, user, clearStorage]);
+  }, [addressLc, walletStatus, jwt, user, clearStorage]);
 
   // Effect: auto-fire on connect when no valid JWT and wallet type qualifies.
+  // Gated on walletStatus === 'connected' (not isConnected) so we don't try to
+  // signMessage during wagmi's reconnecting-hydration window — see comment
+  // above the useAccount() call for the failure mode.
   useEffect(() => {
-    if (!isConnected || !addressLc) return;
+    if (!isFullyConnected || !addressLc) return;
     if (!walletType || !AUTO_FIRE_WALLET_TYPES.has(walletType)) return;
     if (jwt) return;
     if (status === "signing" || status === "verifying") return;
     if (status === "rejected" || status === "error") return; // don't loop
     void signIn({ method: "wallet" });
-  }, [isConnected, addressLc, walletType, jwt, status, signIn]);
+  }, [isFullyConnected, addressLc, walletType, jwt, status, signIn]);
 
   const value = useMemo(
     () => ({ jwt, user, status, error, signIn, signOut, getAuthHeaders }),

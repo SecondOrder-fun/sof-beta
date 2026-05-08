@@ -59,6 +59,7 @@ function mockConnected({ address = EOA, walletType = "desktop-eoa" } = {}) {
   wagmi.useAccount.mockReturnValue({
     address,
     isConnected: !!address,
+    status: address ? "connected" : "disconnected",
     connector: { id: "metaMask" },
   });
   vi.spyOn(raffleAccountHook, "useRaffleAccount").mockReturnValue({
@@ -73,6 +74,7 @@ function mockDisconnected() {
   wagmi.useAccount.mockReturnValue({
     address: undefined,
     isConnected: false,
+    status: "disconnected",
     connector: undefined,
   });
   vi.spyOn(raffleAccountHook, "useRaffleAccount").mockReturnValue({
