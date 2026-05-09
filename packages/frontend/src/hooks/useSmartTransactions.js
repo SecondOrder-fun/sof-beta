@@ -2,7 +2,7 @@ import { useMemo, useCallback, useRef } from 'react';
 import { useAccount, useChainId, useCapabilities, useSendCalls, useCallsStatus, usePublicClient, useWalletClient } from 'wagmi';
 import { waitForCallsStatus } from '@wagmi/core';
 import { encodeFunctionData, http } from 'viem';
-import { createBundlerClient } from 'viem/account-abstraction';
+import { createBundlerClient, createPaymasterClient } from 'viem/account-abstraction';
 import { ERC20Abi } from '@/utils/abis';
 import { getContractAddresses } from '@/config/contracts';
 import { getStoredNetworkKey } from '@/lib/wagmi';
@@ -226,10 +226,46 @@ export function useSmartTransactions() {
         throw new Error('SOFSmartAccountFactory address missing — sponsored writes unavailable on this network');
       }
 
+      // Bundler + paymaster routing differs by chain.
+      //
+      //   LOCAL (chainId 31337):
+      //     Backend serves both bundler RPC and paymaster RPC at
+      //     /api/paymaster/local. `paymaster: true` tells viem to call
+      //     pm_getPaymasterStubData / pm_getPaymasterData against the
+      //     same URL as the bundler.
+      //
+      //   TESTNET / MAINNET:
+      //     Bundler RPC goes through the backend's session-gated Pimlico
+      //     proxy (/api/paymaster/pimlico?session=...). Paymaster signing
+      //     uses the backend's SOFPaymaster ERC-7677 service
+      //     (/api/paymaster/sof). Two separate URLs, two separate clients.
+      //
+      // We require an apiBase regardless. Without a backend, the SMA path
+      // can't function — the alternative would be exposing API keys to
+      // the client, which we won't do.
+      if (!apiBase) {
+        throw new Error('Paymaster URL not configured — set VITE_API_BASE_URL');
+      }
+
       const isLocalChain = chainId === 31337;
-      const paymasterUrl = isLocalChain && apiBase ? `${apiBase}/paymaster/local` : null;
-      if (!paymasterUrl) {
-        throw new Error('Paymaster URL not configured — set VITE_API_BASE_URL and the local bundler must be running');
+      let bundlerTransport;
+      let paymasterArg;
+
+      if (isLocalChain) {
+        bundlerTransport = http(`${apiBase}/paymaster/local`);
+        paymasterArg = true;
+      } else {
+        if (!backendJwt) {
+          throw new Error('Sign in required for sponsored writes — please reconnect your wallet so SIWE can fire');
+        }
+        const sessionToken = await fetchPaymasterSession(apiBase, backendJwt);
+        if (!sessionToken) {
+          throw new Error('Paymaster session token unavailable — backend may be down or rate-limiting');
+        }
+        bundlerTransport = http(`${apiBase}/paymaster/pimlico?session=${sessionToken}`);
+        paymasterArg = createPaymasterClient({
+          transport: http(`${apiBase}/paymaster/sof`),
+        });
       }
 
       const account = await toSofSmartAccount({
@@ -242,11 +278,8 @@ export function useSmartTransactions() {
       const bundlerClient = createBundlerClient({
         account,
         client: publicClient,
-        // Local backend serves bundler RPC + paymaster RPC on the same URL.
-        // `paymaster: true` tells viem to call pm_getPaymasterStubData /
-        // pm_getPaymasterData against the bundler endpoint itself.
-        transport: http(paymasterUrl),
-        paymaster: true,
+        transport: bundlerTransport,
+        paymaster: paymasterArg,
       });
 
       const userOpHash = await bundlerClient.sendUserOperation({ calls });
