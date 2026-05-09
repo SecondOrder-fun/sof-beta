@@ -49,10 +49,15 @@ function pickChain(network) {
         },
       });
     case "TESTNET": {
-      const rpcUrl = process.env.BASE_SEPOLIA_RPC_URL;
+      // Falls back to the generic RPC_URL (the env var Railway / deploy-env
+      // populates for the whole backend) when the network-specific override
+      // isn't set. Without this fallback, the route throws at boot on Railway
+      // PR previews and `/api/paymaster/sof` 404s — observed during the M5
+      // Path C testnet preview verification.
+      const rpcUrl = process.env.BASE_SEPOLIA_RPC_URL || process.env.RPC_URL;
       if (!rpcUrl) {
         throw new Error(
-          "BASE_SEPOLIA_RPC_URL not set — set a private RPC endpoint (Alchemy / Quicknode / etc.). Public sepolia.base.org rate-limits aggressively and would silently degrade sponsorship.",
+          "BASE_SEPOLIA_RPC_URL or RPC_URL not set — set a private RPC endpoint (Alchemy / Quicknode / etc.). Public sepolia.base.org rate-limits aggressively and would silently degrade sponsorship.",
         );
       }
       return defineChain({
@@ -63,10 +68,10 @@ function pickChain(network) {
       });
     }
     case "MAINNET": {
-      const rpcUrl = process.env.BASE_MAINNET_RPC_URL;
+      const rpcUrl = process.env.BASE_MAINNET_RPC_URL || process.env.RPC_URL;
       if (!rpcUrl) {
         throw new Error(
-          "BASE_MAINNET_RPC_URL not set — set a private RPC endpoint (Alchemy / Quicknode / etc.). Public mainnet.base.org rate-limits aggressively and would silently degrade sponsorship.",
+          "BASE_MAINNET_RPC_URL or RPC_URL not set — set a private RPC endpoint (Alchemy / Quicknode / etc.). Public mainnet.base.org rate-limits aggressively and would silently degrade sponsorship.",
         );
       }
       return defineChain({
