@@ -87,10 +87,31 @@ export async function toSofSmartAccount({ client, owner, factory, entryPoint }) 
       return { factory, factoryData };
     },
 
-    async getNonce() {
-      // Returning undefined causes viem's toSmartAccount to fall back to
-      // EntryPoint.getNonce(sender, key) — the canonical AA path.
-      return undefined;
+    async getNonce({ key = 0n } = {}) {
+      // Read EntryPoint.getNonce(sender, key) directly. Returning undefined
+      // here was relying on viem's wrapper to fall back to EntryPoint — that
+      // fallback fires inside `prepareUserOperation` on local Anvil but not
+      // when the bundler is Pimlico (observed on Base Sepolia preview: the
+      // userOp went out without a `nonce` field and Pimlico rejected with a
+      // schema validation error). Read it explicitly.
+      const nonce = await client.readContract({
+        abi: [
+          {
+            type: "function",
+            name: "getNonce",
+            stateMutability: "view",
+            inputs: [
+              { name: "sender", type: "address" },
+              { name: "key", type: "uint192" },
+            ],
+            outputs: [{ name: "nonce", type: "uint256" }],
+          },
+        ],
+        address: entryPoint.address,
+        functionName: "getNonce",
+        args: [smaAddress, key],
+      });
+      return nonce;
     },
 
     async signMessage({ message }) {
