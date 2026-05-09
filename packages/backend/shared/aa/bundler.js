@@ -143,11 +143,22 @@ const DEFAULT_GAS_CAPS = {
     preVerificationGas: 200_000n,
   },
   REMOTE: {
-    callGasLimit: 2_000_000n,
-    verificationGasLimit: 500_000n,
-    paymasterVerificationGasLimit: 200_000n,
-    paymasterPostOpGasLimit: 60_000n,
-    preVerificationGas: 150_000n,
+    // First-userOp-with-initCode (the path every fresh user takes when their
+    // SMA hasn't been deployed yet) is heavy: SenderCreator → factory →
+    // CREATE2 → SOFSmartAccount constructor (Account + SignerECDSA + ERC7739
+    // + ERC7821 + EIP712 + token receivers) burns ~1.5M verificationGas and
+    // ~4M callGas when the inner call also writes meaningful state (e.g.
+    // Raffle.createSeason deploying a token + curve). Match LOCAL's caps so
+    // remote networks can run the same path.
+    //
+    // The cap doesn't drive cost — paymaster pays actualGasUsed regardless,
+    // and griefing is bounded by the per-EOA hourly quota. Tight caps just
+    // rejected legitimate first-time userOps with -32602.
+    callGasLimit: 8_000_000n,
+    verificationGasLimit: 3_000_000n,
+    paymasterVerificationGasLimit: 500_000n,
+    paymasterPostOpGasLimit: 100_000n,
+    preVerificationGas: 200_000n,
   },
 };
 

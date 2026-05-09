@@ -682,25 +682,26 @@ describe("createBundlerService — default-cap parity", () => {
     const mod = await import("../../shared/aa/bundler.js");
     expect(mod._internals.DEFAULT_GAS_CAPS.LOCAL).toEqual({
       callGasLimit: 8_000_000n,
-      verificationGasLimit: 1_000_000n,
+      verificationGasLimit: 3_000_000n,
       paymasterVerificationGasLimit: 500_000n,
       paymasterPostOpGasLimit: 100_000n,
       preVerificationGas: 200_000n,
     });
   });
 
-  it("REMOTE defaults are tighter than LOCAL on every field", async () => {
+  it("REMOTE defaults match LOCAL — first-userOp-with-initCode is heavy on every network, " +
+     "and per-EOA quota is the real cost limiter, not these caps", async () => {
     vi.resetModules();
     const mod = await import("../../shared/aa/bundler.js");
     const { LOCAL, REMOTE } = mod._internals.DEFAULT_GAS_CAPS;
     for (const k of Object.keys(LOCAL)) {
-      expect(REMOTE[k]).toBeLessThanOrEqual(LOCAL[k]);
+      expect(REMOTE[k]).toBe(LOCAL[k]);
     }
-    expect(REMOTE.callGasLimit).toBe(2_000_000n);
-    expect(REMOTE.verificationGasLimit).toBe(500_000n);
-    expect(REMOTE.paymasterVerificationGasLimit).toBe(200_000n);
-    expect(REMOTE.paymasterPostOpGasLimit).toBe(60_000n);
-    expect(REMOTE.preVerificationGas).toBe(150_000n);
+    expect(REMOTE.callGasLimit).toBe(8_000_000n);
+    expect(REMOTE.verificationGasLimit).toBe(3_000_000n);
+    expect(REMOTE.paymasterVerificationGasLimit).toBe(500_000n);
+    expect(REMOTE.paymasterPostOpGasLimit).toBe(100_000n);
+    expect(REMOTE.preVerificationGas).toBe(200_000n);
   });
 
   it("every cap field has a matching env-var key (no field can be silently env-uncapped)", async () => {
