@@ -138,9 +138,9 @@ const DEFAULT_GAS_CAPS = {
     paymasterPostOpGasLimit: 100_000n,
     // EntryPoint v0.8 charges paymaster for preVerificationGas too. Without
     // an explicit cap a leaked verifying-signer key could let an attacker
-    // inflate per-op damage by claiming arbitrary preVerificationGas. Real
-    // userOps need ~50-100k; 200k is generous headroom for local dev.
-    preVerificationGas: 200_000n,
+    // inflate per-op damage by claiming arbitrary preVerificationGas.
+    // 10M matches REMOTE — see REMOTE block for L2 cost reasoning.
+    preVerificationGas: 10_000_000n,
   },
   REMOTE: {
     // First-userOp-with-initCode (the path every fresh user takes when their
@@ -158,7 +158,15 @@ const DEFAULT_GAS_CAPS = {
     verificationGasLimit: 3_000_000n,
     paymasterVerificationGasLimit: 500_000n,
     paymasterPostOpGasLimit: 100_000n,
-    preVerificationGas: 200_000n,
+    // On Base (and any L2 with rollup data publication), preVerificationGas
+    // includes the L1 calldata cost as a primary component. Pimlico's
+    // bundler-side estimation legitimately returns 5-10M on Base Sepolia
+    // for a userOp with initCode + a non-trivial inner call. The previous
+    // 200k cap was calibrated for L1 chains where preVG is just bundler
+    // simulation overhead (~50-100k). 10M gives headroom while still
+    // bounding griefing — at 0.014 gwei (Base Sepolia typical), 10M * gas
+    // is ~$0.14 per op even at high ETH prices.
+    preVerificationGas: 10_000_000n,
   },
 };
 

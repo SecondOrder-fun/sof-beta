@@ -351,8 +351,8 @@ describe("createBundlerService — gas caps", () => {
 
   it("TESTNET: rejects userOp claiming preVerificationGas above the default cap", async () => {
     const svc = await buildService({ network: "TESTNET" });
-    // Default REMOTE cap is 150k; claim 5M.
-    const oversized = { ...baseOp, preVerificationGas: "0x4c4b40" }; // 5M
+    // Default REMOTE cap is 10M (L2 preVG includes L1 calldata cost); claim 15M.
+    const oversized = { ...baseOp, preVerificationGas: "0xe4e1c0" }; // 15M
     await expect(svc.pm_getPaymasterData(oversized)).rejects.toMatchObject({
       message: expect.stringContaining("preVerificationGas"),
       code: -32602,
@@ -361,8 +361,8 @@ describe("createBundlerService — gas caps", () => {
 
   it("TESTNET: accepts userOp claiming preVerificationGas at the cap", async () => {
     const svc = await buildService({ network: "TESTNET" });
-    // Right at 150k — exactly the default cap, must NOT revert.
-    const atCap = { ...baseOp, preVerificationGas: "0x249f0" }; // 150k
+    // Right at 10M — exactly the default cap, must NOT revert.
+    const atCap = { ...baseOp, preVerificationGas: "0x989680" }; // 10M
     const res = await svc.pm_getPaymasterData(atCap);
     expect(res.paymasterData).toMatch(/^0x/);
   });
@@ -685,7 +685,7 @@ describe("createBundlerService — default-cap parity", () => {
       verificationGasLimit: 3_000_000n,
       paymasterVerificationGasLimit: 500_000n,
       paymasterPostOpGasLimit: 100_000n,
-      preVerificationGas: 200_000n,
+      preVerificationGas: 10_000_000n,
     });
   });
 
@@ -701,7 +701,7 @@ describe("createBundlerService — default-cap parity", () => {
     expect(REMOTE.verificationGasLimit).toBe(3_000_000n);
     expect(REMOTE.paymasterVerificationGasLimit).toBe(500_000n);
     expect(REMOTE.paymasterPostOpGasLimit).toBe(100_000n);
-    expect(REMOTE.preVerificationGas).toBe(200_000n);
+    expect(REMOTE.preVerificationGas).toBe(10_000_000n);
   });
 
   it("every cap field has a matching env-var key (no field can be silently env-uncapped)", async () => {
