@@ -97,25 +97,17 @@ jobs:
       # PR opened / synchronize / reopened: pair Vercel preview to Railway PR env
       # ─────────────────────────────────────────────────────────────────
 
-      - name: Wait for Railway PR env + deployed backend service
+      - name: Wait for Railway PR env to exist
         if: github.event.action != 'closed'
-        id: railway-domain
+        id: railway-env
         run: |
-          # We need three things in place before pairing:
-          #   (1) The PR env exists (Railway auto-creates it on PR open)
-          #   (2) The backend service in that env has a SUCCESS deployment
-          #       (focusedPrEnvironments may skip it for frontend-only PRs)
-          #   (3) A service domain is provisioned (Railway pre-provisions
-          #       domains when env is created, even before any deploy)
-          # If (2) doesn't happen within the timeout, we skip pairing — the
-          # Vercel preview falls back to its generic preview env vars,
-          # which already point at production. That's the correct outcome
-          # for a frontend-only PR.
-          domain=""
-          deploy_status=""
+          # Railway auto-creates the PR env on PR open. We capture its id so
+          # later steps (env-var sync, deploy wait, domain lookup) can target
+          # it. Production-env id captured here too so the sync step doesn't
+          # have to re-query it.
           env_id=""
-          for i in $(seq 1 30); do
-            # Find env by name suffix (Railway names them <repo>-pr-<N>)
+          prod_env_id=""
+          for i in $(seq 1 18); do
             envs=$(curl -sf -X POST "$RAILWAY_GRAPHQL" \
               -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
               -H "Content-Type: application/json" \
@@ -125,6 +117,122 @@ jobs:
                 '{query:$q,variables:{pid:$pid}}')" || echo '{}')
             env_id=$(echo "$envs" | jq -r --arg s "$ENV_SUFFIX" \
               '[.data.project.environments.edges[] | select(.node.name | endswith($s))] | first | .node.id // empty')
+            prod_env_id=$(echo "$envs" | jq -r \
+              '[.data.project.environments.edges[] | select(.node.name == "production")] | first | .node.id // empty')
+            if [ -n "$env_id" ] && [ -n "$prod_env_id" ]; then
+              break
+            fi
+            echo "Attempt $i/18 — env_id=${env_id:-none}, prod_env_id=${prod_env_id:-none}"
+            sleep 10
+          done
+          if [ -z "$env_id" ] || [ -z "$prod_env_id" ]; then
+            echo "::warning::Railway PR env or production env not found within 3 min."
+            echo "::warning::Likely a frontend-only PR (focusedPrEnvironments skipped backend env creation)."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "env_id=$env_id" >> "$GITHUB_OUTPUT"
+          echo "prod_env_id=$prod_env_id" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Sync env vars from production → PR env
+        if: github.event.action != 'closed' && steps.railway-env.outputs.skip != 'true'
+        env:
+          ENV_ID: ${{ steps.railway-env.outputs.env_id }}
+          PROD_ENV_ID: ${{ steps.railway-env.outputs.prod_env_id }}
+        run: |
+          # Railway PR Environments are forked from production at PR-open
+          # time. Subsequent variable changes to production do NOT propagate.
+          # Without this step, env vars added to packages/backend/env/.env.testnet
+          # during a PR's lifetime never reach the PR's preview backend,
+          # silently breaking any feature that depends on them (the
+          # SIWE airdrop pipeline on PR-74 was the canonical example —
+          # SOF_AIRDROP_AMOUNT_PER_USER missing → backend silently no-op'd
+          # the airdrop, sending fresh users to a contaminated test fixture).
+          #
+          # We read every variable from production, diff against PR env, and
+          # push missing/changed ones via variableCollectionUpsert (with
+          # skipDeploys=false this time so Railway redeploys the PR backend
+          # with the corrected env). Idempotent: no diffs → no push → no
+          # redeploy.
+
+          prod_vars=$(curl -sf -X POST "$RAILWAY_GRAPHQL" \
+            -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\": \"query { variables(projectId: \\\"$RAILWAY_PROJECT_ID\\\", environmentId: \\\"$PROD_ENV_ID\\\", serviceId: \\\"$RAILWAY_SERVICE_ID\\\") }\"}" \
+            | jq '.data.variables // {}')
+
+          pr_vars=$(curl -sf -X POST "$RAILWAY_GRAPHQL" \
+            -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\": \"query { variables(projectId: \\\"$RAILWAY_PROJECT_ID\\\", environmentId: \\\"$ENV_ID\\\", serviceId: \\\"$RAILWAY_SERVICE_ID\\\") }\"}" \
+            | jq '.data.variables // {}')
+
+          # Diff: keep prod entries whose value differs from PR env's, OR
+          # whose key isn't in PR env at all.
+          diff_vars=$(jq -n \
+            --argjson prod "$prod_vars" \
+            --argjson pr "$pr_vars" \
+            '$prod | with_entries(select(.value != ($pr[.key] // null)))')
+
+          count=$(echo "$diff_vars" | jq 'length')
+          echo "Diff: $count var(s) need sync from production → PR env"
+
+          if [ "$count" -eq 0 ]; then
+            echo "PR env already in sync with production. No push needed."
+            echo "synced=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Keys being synced (values redacted):"
+          echo "$diff_vars" | jq -r 'keys[]' | sed 's/^/  - /'
+
+          # variableCollectionUpsert with skipDeploys=false → Railway redeploys
+          # the service with the new env. The "Wait for SUCCESS deploy" step
+          # below catches this redeploy.
+          payload=$(jq -n \
+            --arg query 'mutation($input:VariableCollectionUpsertInput!){variableCollectionUpsert(input:$input)}' \
+            --arg pid "$RAILWAY_PROJECT_ID" \
+            --arg eid "$ENV_ID" \
+            --arg sid "$RAILWAY_SERVICE_ID" \
+            --argjson vars "$diff_vars" \
+            '{query:$query,variables:{input:{projectId:$pid,environmentId:$eid,serviceId:$sid,variables:$vars,skipDeploys:false}}}')
+
+          result=$(curl -s -X POST "$RAILWAY_GRAPHQL" \
+            -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$payload")
+
+          if echo "$result" | jq -e '.errors' > /dev/null 2>&1; then
+            echo "::error::variableCollectionUpsert failed:"
+            echo "$result" | jq -r '.errors[].message' | sed 's/^/  /'
+            exit 1
+          fi
+
+          echo "OK — $count var(s) synced; Railway will redeploy PR backend."
+          echo "synced=true" >> "$GITHUB_OUTPUT"
+        id: env-sync
+
+      - name: Wait for Railway backend deploy + domain
+        if: github.event.action != 'closed' && steps.railway-env.outputs.skip != 'true'
+        id: railway-domain
+        env:
+          ENV_ID: ${{ steps.railway-env.outputs.env_id }}
+        run: |
+          # We need two more things in place before pairing:
+          #   (1) The backend service in the PR env has a SUCCESS deployment
+          #       (focusedPrEnvironments may skip it for frontend-only PRs).
+          #       If env-sync triggered a redeploy, this catches it.
+          #   (2) A service domain is provisioned (Railway pre-provisions
+          #       domains when env is created, even before any deploy).
+          # If (1) doesn't happen within the timeout, we skip pairing — the
+          # Vercel preview falls back to its generic preview env vars,
+          # which already point at production. That's the correct outcome
+          # for a frontend-only PR.
+          domain=""
+          deploy_status=""
+          env_id="$ENV_ID"
+          for i in $(seq 1 30); do
 
             if [ -n "$env_id" ]; then
               # Check the backend service's latest deployment status
@@ -179,7 +287,7 @@ jobs:
           echo "Railway domain: $domain"
 
       - name: Push branch-scoped Vercel env vars
-        if: github.event.action != 'closed' && steps.railway-domain.outputs.skip != 'true'
+        if: github.event.action != 'closed' && steps.railway-env.outputs.skip != 'true' && steps.railway-domain.outputs.skip != 'true'
         env:
           DOMAIN: ${{ steps.railway-domain.outputs.domain }}
         run: |
@@ -220,7 +328,7 @@ jobs:
           fi
 
       - name: Redeploy Vercel preview to apply new env vars
-        if: github.event.action != 'closed' && steps.railway-domain.outputs.skip != 'true'
+        if: github.event.action != 'closed' && steps.railway-env.outputs.skip != 'true' && steps.railway-domain.outputs.skip != 'true'
         run: |
           # env-var changes do not apply to in-flight builds, so we trigger
           # a redeploy of the latest preview deployment for this branch.
@@ -239,7 +347,7 @@ jobs:
             --token "$VERCEL_TOKEN" --scope "$VERCEL_TEAM_ID"
 
       - name: Comment paired URLs on PR
-        if: github.event.action != 'closed' && steps.railway-domain.outputs.skip != 'true'
+        if: github.event.action != 'closed' && steps.railway-env.outputs.skip != 'true' && steps.railway-domain.outputs.skip != 'true'
         env:
           DOMAIN: ${{ steps.railway-domain.outputs.domain }}
         run: |
