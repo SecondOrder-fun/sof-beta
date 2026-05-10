@@ -686,6 +686,20 @@ try {
 
 // Graceful shutdown
 let isShuttingDown = false;
+const SHUTDOWN_HARD_TIMEOUT_MS = 8_000;
+
+// Each cleanup step gets its own try/catch — one failing listener (e.g. an
+// onClose hook throwing because Anvil is already down) must not abort the
+// remaining steps. Pino logs Error instances under the `err` key, not `error`,
+// so use that shape for visibility instead of the empty `{}` we used to log.
+function safeStep(label, fn) {
+  try {
+    fn();
+    app.log.info(`Stopped ${label}`);
+  } catch (err) {
+    app.log.error({ err }, `Error stopping ${label}`);
+  }
+}
 
 async function shutdown(signal) {
   if (isShuttingDown) {
@@ -696,59 +710,51 @@ async function shutdown(signal) {
   isShuttingDown = true;
   app.log.info(`${signal} received — shutting down server...`);
 
-  try {
-    // Stop all listeners
-    if (unwatchSeasonStarted) {
-      unwatchSeasonStarted();
-      app.log.info("Stopped SeasonStarted listener");
-    }
+  // Watchdog: if any close hook hangs (e.g. Redis client awaiting a reply that
+  // never comes because the server is gone), force-exit. Without this,
+  // `local-dev.sh stop` had to fall back to SIGKILL and listeners never got
+  // their last persisted cursor write.
+  const watchdog = setTimeout(() => {
+    app.log.error(
+      `Shutdown exceeded ${SHUTDOWN_HARD_TIMEOUT_MS}ms — forcing exit`,
+    );
+    process.exit(1);
+  }, SHUTDOWN_HARD_TIMEOUT_MS);
+  watchdog.unref();
 
-    if (unwatchSeasonCompleted) {
-      unwatchSeasonCompleted();
-      app.log.info("Stopped SeasonCompleted listener");
-    }
+  if (unwatchSeasonStarted)
+    safeStep("SeasonStarted listener", unwatchSeasonStarted);
+  if (unwatchSeasonCompleted)
+    safeStep("SeasonCompleted listener", unwatchSeasonCompleted);
+  if (unwatchMarketCreated)
+    safeStep("MarketCreated listener", unwatchMarketCreated);
+  if (unwatchRollover) safeStep("Rollover listener", unwatchRollover);
+  if (unwatchAccountCreated)
+    safeStep("AccountCreated listener", unwatchAccountCreated);
 
-    if (unwatchMarketCreated) {
-      unwatchMarketCreated();
-      app.log.info("Stopped MarketCreated listener");
-    }
-
-    if (unwatchRollover) {
-      unwatchRollover();
-      app.log.info("Stopped Rollover listener");
-    }
-
-    if (unwatchAccountCreated) {
-      unwatchAccountCreated();
-      app.log.info("Stopped AccountCreated listener");
-    }
-
-    // Stop all PositionUpdate listeners
-    for (const [seasonId, unwatch] of positionUpdateListeners.entries()) {
-      unwatch();
-      app.log.info(`Stopped PositionUpdate listener for season ${seasonId}`);
-    }
-
-    // Stop all Trade listeners
-    for (const [fpmmAddress, unwatch] of tradeListeners.entries()) {
-      unwatch();
-      app.log.info(`Stopped Trade listener for FPMM ${fpmmAddress}`);
-    }
-
-    // Stop Season Lifecycle Service
-    try {
-      const lifecycleService = getSeasonLifecycleService(app.log);
-      lifecycleService.stop();
-    } catch {
-      // Service may not have been started
-    }
-
-    await app.close();
-    app.log.info("Server shut down gracefully");
-  } catch (error) {
-    app.log.error({ error }, "Error during shutdown");
+  for (const [seasonId, unwatch] of positionUpdateListeners.entries()) {
+    safeStep(`PositionUpdate listener for season ${seasonId}`, unwatch);
   }
 
+  for (const [fpmmAddress, unwatch] of tradeListeners.entries()) {
+    safeStep(`Trade listener for FPMM ${fpmmAddress}`, unwatch);
+  }
+
+  try {
+    const lifecycleService = getSeasonLifecycleService(app.log);
+    lifecycleService.stop();
+  } catch {
+    // Service may not have been started
+  }
+
+  try {
+    await app.close();
+    app.log.info("Server shut down gracefully");
+  } catch (err) {
+    app.log.error({ err }, "Error during app.close()");
+  }
+
+  clearTimeout(watchdog);
   process.exit(0);
 }
 
