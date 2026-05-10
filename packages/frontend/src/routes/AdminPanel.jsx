@@ -42,7 +42,7 @@ import LocalizationAdmin from "@/routes/LocalizationAdmin";
  */
 function AdminPanelInner() {
   const { t } = useTranslation("raffle");
-  const { createSeason, startSeason, requestSeasonEnd } = useRaffleWrite();
+  const { createSeason, startSeason, requestSeasonEnd, finalizeSeason } = useRaffleWrite();
   const allSeasonsQuery = useAllSeasons();
   const { address } = useAccount();
   const { hasRole } = useAccessControl();
@@ -205,6 +205,7 @@ function AdminPanelInner() {
                 networkConfig={netCfg}
                 startSeason={startSeason}
                 requestSeasonEnd={requestSeasonEnd}
+                finalizeSeason={finalizeSeason}
                 fundDistributor={fundDistributorManual}
                 verify={verify}
                 endingE2EId={endingE2EId}

@@ -58,6 +58,7 @@ const SeasonList = ({
   networkConfig,
   startSeason,
   requestSeasonEnd,
+  finalizeSeason,
   fundDistributor,
   verify,
   endingE2EId,
@@ -66,6 +67,7 @@ const SeasonList = ({
   const { t } = useTranslation("admin");
   const [lastStartSeasonId, setLastStartSeasonId] = useState(null);
   const [lastEndSeasonId, setLastEndSeasonId] = useState(null);
+  const [lastFinalizeSeasonId, setLastFinalizeSeasonId] = useState(null);
 
   // Group seasons by category
   const groupedSeasons = useMemo(() => {
@@ -90,6 +92,7 @@ const SeasonList = ({
     const isPastEnd = nowSec >= endSec;
     const isNotStarted = season.status === SeasonStatus.NotStarted;
     const isActive = season.status === SeasonStatus.Active;
+    const isDistributing = season.status === SeasonStatus.Distributing;
     const chainMatch = chainId === networkConfig.id;
     const canStart = isNotStarted && isWindowOpen;
     const canEnd = (isActive && isPastEnd) || (isNotStarted && isPastEnd);
@@ -203,12 +206,44 @@ const SeasonList = ({
                   </p>
                 )}
 
+                {/* Finalize button — manual fallback for seasons stuck in
+                    Distributing (VRF returned, prize distribution pending).
+                    Backend lifecycle service normally fires this within ~5
+                    min of VRF; this is the override. */}
+                {isDistributing && (
+                  <Button
+                    onClick={() => {
+                      setLastFinalizeSeasonId(season.id);
+                      finalizeSeason?.mutate?.({ seasonId: season.id });
+                    }}
+                    disabled={
+                      !chainMatch ||
+                      finalizeSeason?.isPending
+                    }
+                    variant="default"
+                  >
+                    {finalizeSeason?.isPending && lastFinalizeSeasonId === season.id
+                      ? "Finalizing..."
+                      : "Finalize"}
+                  </Button>
+                )}
+
+                {lastFinalizeSeasonId === season.id && finalizeSeason?.error && (
+                  <p className="max-w-[260px] break-words text-xs text-destructive">
+                    {finalizeSeason.error.message}
+                  </p>
+                )}
+
                 {showStartStatus && (
                   <TransactionModal mutation={startSeason} title={`Starting Season #${season.id}`} />
                 )}
 
                 {lastEndSeasonId === season.id && (
                   <TransactionModal mutation={requestSeasonEnd} title={`Settling Season #${season.id}`} />
+                )}
+
+                {lastFinalizeSeasonId === season.id && finalizeSeason && (
+                  <TransactionModal mutation={finalizeSeason} title={`Finalizing Season #${season.id}`} />
                 )}
 
                 {verify[season.id] && (
@@ -378,6 +413,7 @@ SeasonList.propTypes = {
   networkConfig: PropTypes.object.isRequired,
   startSeason: PropTypes.object.isRequired,
   requestSeasonEnd: PropTypes.object.isRequired,
+  finalizeSeason: PropTypes.object,
   fundDistributor: PropTypes.func.isRequired,
   verify: PropTypes.object.isRequired,
   endingE2EId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),

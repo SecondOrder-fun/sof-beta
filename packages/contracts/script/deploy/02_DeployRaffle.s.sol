@@ -21,9 +21,9 @@ contract DeployRaffle is Script {
 
         addrs.raffle = address(raffle);
 
-        // Subscription + consumer wiring happens post-deploy via cast on local
-        // (see scripts/local-dev.sh). Testnet/mainnet use real Chainlink subs
-        // configured off-script.
+        // VRF consumer registration happens in step 19 (AddVRFConsumer) on
+        // testnet/mainnet, and post-deploy via cast in scripts/local-dev.sh
+        // for the Anvil VRF mock path.
         console2.log("Raffle:", address(raffle));
 
         return addrs;

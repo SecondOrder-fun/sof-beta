@@ -254,10 +254,31 @@ export function useRaffleWrite() {
     },
   });
 
+  // Manual fallback to push a season from Distributing → Completed when the
+  // backend lifecycle service hasn't yet (e.g. during outages, or before its
+  // 5-min poll picks the season up). Permissionless on-chain — gated to
+  // admins in the UI for UX rather than on-chain auth.
+  const finalizeSeason = useContractWriteWithFeedback({
+    contractConfig: ({ seasonId }) => {
+      if (!hasAddress) throw new Error('Raffle contract address not configured');
+      return {
+        ...raffleContractConfig,
+        functionName: 'finalizeSeason',
+        args: [typeof seasonId === 'bigint' ? seasonId : BigInt(seasonId)],
+      };
+    },
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['raffle', netKey, 'season', variables.seasonId] });
+      queryClient.invalidateQueries({ queryKey: ['raffle', netKey, 'currentSeasonId'] });
+      queryClient.invalidateQueries({ queryKey: ['allSeasons'] });
+    },
+  });
+
   return {
     createSeason,
     startSeason,
     requestSeasonEnd,
     requestSeasonEndEarly,
+    finalizeSeason,
   };
 }
