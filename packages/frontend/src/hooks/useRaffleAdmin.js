@@ -26,11 +26,15 @@ export function useRaffleAdmin(seasonId) {
   });
 
   // Delegate writes to the central hook
-  const { requestSeasonEnd } = useRaffleWrite();
+  const { requestSeasonEnd, finalizeSeason } = useRaffleWrite();
 
-  // Expose a stable callback with the delegated mutation
+  // Expose stable callbacks with the delegated mutations
   const handleRequestSeasonEnd = async () => {
     await requestSeasonEnd.mutateAsync({ seasonId: typeof seasonId === 'bigint' ? seasonId : BigInt(seasonId) });
+  };
+
+  const handleFinalizeSeason = async () => {
+    await finalizeSeason.mutateAsync({ seasonId: typeof seasonId === 'bigint' ? seasonId : BigInt(seasonId) });
   };
 
   return {
@@ -40,5 +44,9 @@ export function useRaffleAdmin(seasonId) {
     isConfirming: requestSeasonEnd.isPending || requestSeasonEnd.isConfirming,
     isConfirmed: requestSeasonEnd.isConfirmed,
     error: requestSeasonEnd.error,
+    finalizeSeason: handleFinalizeSeason,
+    isFinalizing: finalizeSeason.isPending || finalizeSeason.isConfirming,
+    isFinalized: finalizeSeason.isConfirmed,
+    finalizeError: finalizeSeason.error,
   };
 }

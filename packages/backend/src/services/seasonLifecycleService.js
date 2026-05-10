@@ -5,6 +5,9 @@
  * Checks every 5 minutes for:
  * - Seasons where startTime has passed but status is NotStarted → calls startSeason()
  * - Seasons where endTime has passed but status is Active → calls requestSeasonEnd()
+ * - Seasons in Distributing (VRF returned, prize distribution not yet executed)
+ *   → calls finalizeSeason() (permissionless on-chain; bounded VRF callback gas
+ *   forces this to be a separate tx after fulfillRandomWords flips status)
  *
  * Resilience features:
  * - Retry with exponential backoff (3 attempts, 5s/15s/45s)
@@ -184,6 +187,15 @@ export class SeasonLifecycleService {
         await this.requestSeasonEnd(seasonId, name);
         return;
       }
+
+      // Check if season needs FINALIZATION (VRF returned, prize distribution
+      // pending). The on-chain finalizeSeason() function itself re-checks
+      // status and that vrfRandomWords.length > 0, so we don't duplicate
+      // those checks here.
+      if (statusNum === SeasonStatus.Distributing) {
+        await this.finalizeSeason(seasonId, name);
+        return;
+      }
     } catch (error) {
       this.logger.error(
         `❌ Failed to process season ${seasonId}: ${error.message}`
@@ -316,6 +328,48 @@ export class SeasonLifecycleService {
 
       await this.sendAlert(
         `❌ Failed to auto-end season ${seasonId} "${seasonName}" after ${MAX_RETRIES} attempts\n\nError: ${error.message}`
+      );
+    } finally {
+      this.pendingSeasons.delete(dedupKey);
+    }
+  }
+
+  /**
+   * Call finalizeSeason on the contract. Permissionless on-chain, but the
+   * backend wallet pays gas. Idempotent: dedup'd in-memory and the contract
+   * reverts InvalidSeasonStatus if a parallel caller wins the race.
+   * @param {bigint} seasonId
+   * @param {string} seasonName
+   */
+  async finalizeSeason(seasonId, seasonName) {
+    const dedupKey = `finalize-${seasonId}`;
+    if (this.pendingSeasons.has(dedupKey)) {
+      this.logger.info(`⏳ Season ${seasonId} finalize already in progress, skipping`);
+      return;
+    }
+
+    this.pendingSeasons.add(dedupKey);
+    this.logger.info(`🏆 Finalizing season ${seasonId} "${seasonName}"...`);
+
+    try {
+      const { hash } = await this.submitWithRetry(
+        "finalizeSeason",
+        [seasonId],
+        `🏆 Season ${seasonId} finalize`
+      );
+
+      this.logger.info(`✅ Season ${seasonId} finalized and confirmed! TX: ${hash}`);
+
+      await this.sendAlert(
+        `🏆 Season ${seasonId} "${seasonName}" finalized! Prize distribution configured.\n\nTX: ${hash}`
+      );
+    } catch (error) {
+      this.logger.error(
+        `❌ Failed to finalize season ${seasonId} after ${MAX_RETRIES} attempts: ${error.message}`
+      );
+
+      await this.sendAlert(
+        `❌ Failed to auto-finalize season ${seasonId} "${seasonName}" after ${MAX_RETRIES} attempts\n\nError: ${error.message}`
       );
     } finally {
       this.pendingSeasons.delete(dedupKey);

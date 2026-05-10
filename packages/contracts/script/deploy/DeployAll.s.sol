@@ -25,6 +25,7 @@ import {DeployPaymaster} from "./15_DeployPaymaster.s.sol";
 import {DeployRolloverEscrow} from "./16_DeployRolloverEscrow.s.sol";
 import {DeployUSDCMock} from "./17_DeployUSDCMock.s.sol";
 import {DeploySOFExchange} from "./18_DeploySOFExchange.s.sol";
+import {AddVRFConsumer} from "./19_AddVRFConsumer.s.sol";
 import {RafflePrizeDistributor} from "../../src/core/RafflePrizeDistributor.sol";
 import {RolloverEscrow} from "../../src/core/RolloverEscrow.sol";
 import {SeasonFactory} from "../../src/core/SeasonFactory.sol";
@@ -174,6 +175,17 @@ contract DeployAll is Script {
                 console2.log("  Run: sof.approve(", vm.toString(addrs.rolloverEscrow), ", type(uint256).max)");
                 console2.log("  From the treasury wallet");
             }
+        }
+
+        // --- 18c: Register Raffle as VRF subscription consumer ---
+        // Without this, requestSeasonEnd reverts InvalidConsumer(uint256,address)
+        // (selector 0x79bfd401) at the coordinator. Idempotent + safe on local
+        // (the VRF mock path keeps vrfCoordinator = address(0) until 00_DeployVRFMock
+        // populates it; on Anvil consumer wiring is done in scripts/local-dev.sh
+        // via cast and this step short-circuits).
+        if (!networkConfig.isLocal) {
+            console2.log("=== 19: AddVRFConsumer ===");
+            addrs = new AddVRFConsumer().run(addrs);
         }
 
         // --- 4. Write deployment JSON (merge with existing file) ---
