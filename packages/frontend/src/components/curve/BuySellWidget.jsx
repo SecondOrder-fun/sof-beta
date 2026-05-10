@@ -9,6 +9,7 @@ import { getStoredNetworkKey } from "@/lib/wagmi";
 import { getNetworkByKey } from "@/config/networks";
 import { buildPublicClient } from "@/lib/viemClient";
 import { useAccount } from "wagmi";
+import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import { useSofDecimals } from "@/hooks/useSofDecimals";
 import { useSOFToken } from "@/hooks/useSOFToken";
 import {
@@ -42,7 +43,14 @@ const BuySellWidget = ({
     typeof sofDecimalsState === "number" && !Number.isNaN(sofDecimalsState);
   const sofDecimals = decimalsReady ? sofDecimalsState : 18;
   const formatSOF = useFormatSOF(sofDecimals);
-  const { address: connectedAddress } = useAccount();
+  // Connection state comes from the EOA (whether wallet is plugged in).
+  // All ticket/balance reads use the SMA — that's the on-chain identity for
+  // gameplay state per the M3 read-migration. `connectedAddress` (the
+  // address we feed into bondingCurve.playerTickets etc.) MUST be the SMA,
+  // not the EOA, or those reads return 0 for SMA-funded users.
+  const { address: eoaAddress } = useAccount();
+  const { sma: smaAddress } = useRaffleAccount();
+  const connectedAddress = smaAddress;
   const {
     balance: sofBalance = "0",
     isLoading: isBalanceLoading,
@@ -197,7 +205,9 @@ const BuySellWidget = ({
   const disabledTip = rpcMissing
     ? "RPC not configured. Set VITE_RPC_URL in env/.env.{network} and restart dev servers."
     : undefined;
-  const walletNotConnected = !connectedAddress;
+  // "Wallet not connected" means the EOA isn't plugged in. The SMA may take
+  // a moment to resolve after connect — that's covered by isBalanceLoading.
+  const walletNotConnected = !eoaAddress;
   const needsVerification = isGated && isVerified !== true;
 
   return (
@@ -259,8 +269,14 @@ const BuySellWidget = ({
             </div>
             <Input
               type="number"
+              min="1"
+              step="1"
               value={buyAmount}
-              onChange={(e) => setBuyAmount(e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value;
+                // Clamp to non-negative integers; allow empty for placeholder UX.
+                if (v === "" || (/^\d+$/.test(v) && Number(v) >= 1)) setBuyAmount(v);
+              }}
               placeholder={t("common:amount", { defaultValue: "Amount" })}
             />
             <div className="text-xs text-muted-foreground">
@@ -276,6 +292,7 @@ const BuySellWidget = ({
                 walletNotConnected ||
                 (!needsVerification && (
                   !buyAmount ||
+                  Number(buyAmount) < 1 ||
                   hasZeroBalance ||
                   hasInsufficientBalance
                 ))
@@ -310,8 +327,13 @@ const BuySellWidget = ({
             <div className="flex gap-2">
               <Input
                 type="number"
+                min="1"
+                step="1"
                 value={sellAmount}
-                onChange={(e) => setSellAmount(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "" || (/^\d+$/.test(v) && Number(v) >= 1)) setSellAmount(v);
+                }}
                 placeholder={t("common:amount", { defaultValue: "Amount" })}
               />
               <Button
@@ -341,6 +363,7 @@ const BuySellWidget = ({
               disabled={
                 rpcMissing ||
                 !sellAmount ||
+                Number(sellAmount) < 1 ||
                 isPending ||
                 tradingLocked ||
                 walletNotConnected

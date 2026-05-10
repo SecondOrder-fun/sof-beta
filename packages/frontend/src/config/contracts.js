@@ -17,18 +17,16 @@
  * @property {`0x${string}` | string} PRIZE_DISTRIBUTOR
  * @property {`0x${string}` | string} SOF_FAUCET
  * @property {`0x${string}` | string} SOF_EXCHANGE
- * @property {`0x${string}` | string} SOF_AIRDROP
  * @property {`0x${string}` | string} USDC
- * @property {`0x${string}` | string} SOF_SMART_ACCOUNT
+ * @property {`0x${string}` | string} SOF_SMART_ACCOUNT_FACTORY
  * @property {`0x${string}` | string} ROLLOVER_ESCROW
  */
 
-import { RaffleABI, SeasonGatingABI, SOFSmartAccountABI } from '@sof/contracts';
+import { RaffleABI, SeasonGatingABI } from '@sof/contracts';
 import { getDeployment } from '@sof/contracts/deployments';
 
 export const RAFFLE_ABI = RaffleABI;
 export const SEASON_GATING_ABI = SeasonGatingABI;
-export const SOF_SMART_ACCOUNT_ABI = SOFSmartAccountABI;
 
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 
@@ -81,11 +79,10 @@ export function getContractAddresses(key) {
     PRIZE_DISTRIBUTOR: s(deployment.PrizeDistributor),
     SOF_FAUCET: s(deployment.SOFFaucet),
     SOF_EXCHANGE: s(deployment.SOFExchange),
-    SOF_AIRDROP: s(deployment.SOFAirdrop),
     USDC: s(deployment.USDC),
     MARKET_TYPE_REGISTRY: s(deployment.MarketTypeRegistry),
     RAFFLE_ORACLE_ADAPTER: s(deployment.RaffleOracleAdapter),
-    SOF_SMART_ACCOUNT: s(deployment.SOFSmartAccount),
+    SOF_SMART_ACCOUNT_FACTORY: s(deployment.SOFSmartAccountFactory),
     ROLLOVER_ESCROW: s(deployment.RolloverEscrow),
   };
 }

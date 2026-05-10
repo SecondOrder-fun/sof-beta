@@ -2,6 +2,7 @@
 import PropTypes from "prop-types";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { Badge } from "@/components/ui/badge";
 import ExplorerLink from "@/components/common/ExplorerLink";
 import {
   AccordionItem,
@@ -10,28 +11,59 @@ import {
 } from "@/components/ui/accordion";
 
 /**
- * RaffleHoldingRow - Displays a raffle ticket holding as an AccordionItem
- * Must be used inside an <Accordion> wrapper
+ * RaffleHoldingRow - Displays a raffle ticket holding as an AccordionItem.
+ * Must be used inside an <Accordion> wrapper.
+ *
+ * @param {string} [address] - Single wallet address (legacy / other-user view).
+ * @param {string[]} [addresses] - List of addresses to merge (own-profile EOA + SMA).
+ *   When provided, transactions are fetched for each and merged.
+ * @param {Object<string,string>} [originLabels] - Lower-cased address → short
+ *   label (e.g. `{ '0x...eoa': 'EOA', '0x...sma': 'SMA' }`). Renders a per-row
+ *   Origin badge when both `addresses` and `originLabels` are provided.
  */
-const RaffleHoldingRow = ({ row, address, showViewLink = true }) => {
+const RaffleHoldingRow = ({
+  row,
+  address,
+  addresses,
+  originLabels,
+  showViewLink = true,
+}) => {
   const seasonKey = `season-${row.seasonId}`;
 
-  // Fetch transactions from database API
+  const queryAddresses = (addresses?.length ? addresses : address ? [address] : [])
+    .filter(Boolean)
+    .map((a) => a.toLowerCase());
+
+  const showOriginBadge =
+    Array.isArray(addresses) &&
+    addresses.length > 1 &&
+    originLabels &&
+    Object.keys(originLabels).length > 0;
+
   const transactionsQuery = useQuery({
-    queryKey: ["raffleTransactions", address, row.seasonId],
-    enabled: !!address && !!row?.seasonId,
+    queryKey: ["raffleTransactions", queryAddresses, row?.seasonId],
+    enabled: queryAddresses.length > 0 && !!row?.seasonId,
     queryFn: async () => {
-      const url = `${
-        import.meta.env.VITE_API_BASE_URL
-      }/raffle/transactions/${address}/${row.seasonId}`;
-
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error("Failed to fetch transactions");
+      const base = import.meta.env.VITE_API_BASE_URL;
+      const results = await Promise.all(
+        queryAddresses.map(async (addr) => {
+          const url = `${base}/raffle/transactions/${addr}/${row.seasonId}`;
+          const response = await fetch(url);
+          if (!response.ok) {
+            throw new Error("Failed to fetch transactions");
+          }
+          const data = await response.json();
+          return (data.transactions || []).map((t) => ({ ...t, origin: addr }));
+        })
+      );
+      const merged = results.flat();
+      // Dedupe (same tx surfaced for both addresses).
+      const seen = new Map();
+      for (const t of merged) {
+        const key = `${t.tx_hash}-${t.block_number ?? ""}`;
+        if (!seen.has(key)) seen.set(key, t);
       }
-
-      const data = await response.json();
-      return data.transactions || [];
+      return Array.from(seen.values());
     },
     staleTime: 15000,
   });
@@ -90,32 +122,46 @@ const RaffleHoldingRow = ({ row, address, showViewLink = true }) => {
                   (a, b) =>
                     new Date(b.created_at || 0) - new Date(a.created_at || 0)
                 )
-                .map((t) => (
-                  <div
-                    key={t.tx_hash + String(t.block_number)}
-                    className="text-sm flex justify-between items-center gap-2 py-1"
-                  >
-                    <span
-                      className={
-                        t.transaction_type === "BUY"
-                          ? "text-green-600"
-                          : "text-red-600"
-                      }
+                .map((t) => {
+                  const originLabel =
+                    showOriginBadge && t.origin
+                      ? originLabels?.[t.origin.toLowerCase()] || null
+                      : null;
+                  return (
+                    <div
+                      key={t.tx_hash + String(t.block_number)}
+                      className="text-sm flex justify-between items-center gap-2 py-1"
                     >
-                      {t.transaction_type === "BUY" ? "+" : "-"}
-                      {t.ticket_amount} tickets
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <ExplorerLink
-                        value={t.tx_hash}
-                        type="tx"
-                        text="View on Explorer"
-                        className="text-xs text-muted-foreground underline"
-                        copyLabelText="Copy transaction ID"
-                      />
+                      <span
+                        className={
+                          t.transaction_type === "BUY"
+                            ? "text-green-600"
+                            : "text-red-600"
+                        }
+                      >
+                        {t.transaction_type === "BUY" ? "+" : "-"}
+                        {t.ticket_amount} tickets
+                      </span>
+                      <div className="flex items-center gap-2">
+                        {originLabel && (
+                          <Badge
+                            variant={originLabel === "SMA" ? "default" : "outline"}
+                            className="text-[10px] px-1.5 py-0"
+                          >
+                            {originLabel}
+                          </Badge>
+                        )}
+                        <ExplorerLink
+                          value={t.tx_hash}
+                          type="tx"
+                          text="View on Explorer"
+                          className="text-xs text-muted-foreground underline"
+                          copyLabelText="Copy transaction ID"
+                        />
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
             </div>
           )}
         </div>
@@ -133,6 +179,8 @@ RaffleHoldingRow.propTypes = {
     name: PropTypes.string,
   }).isRequired,
   address: PropTypes.string,
+  addresses: PropTypes.arrayOf(PropTypes.string),
+  originLabels: PropTypes.objectOf(PropTypes.string),
   showViewLink: PropTypes.bool,
 };
 

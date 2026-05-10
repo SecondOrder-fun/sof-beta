@@ -5,7 +5,6 @@ import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 import {DeployedAddresses} from "./DeployedAddresses.sol";
 import {SOFPaymaster} from "../../src/paymaster/SOFPaymaster.sol";
-import {IEntryPoint} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
 
 contract DeployPaymaster is Script {
     /// @dev Canonical EntryPoint v0.8 address — same on every chain via
@@ -16,7 +15,6 @@ contract DeployPaymaster is Script {
 
     function run(DeployedAddresses memory addrs) public returns (DeployedAddresses memory) {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
-        address deployer = vm.addr(deployerKey);
 
         // On LOCAL the local stack runs scripts/setup-local-aa.js before this
         // script, which injects EntryPoint v0.8 via anvil_setCode. Forge's
@@ -36,14 +34,38 @@ contract DeployPaymaster is Script {
             console2.log("EntryPoint v0.8 verified at canonical (code length:", epCodeLen, ")");
         }
 
-        IEntryPoint entryPoint = IEntryPoint(ENTRY_POINT_V08);
+        // Spec §3.3 static allowlist:
+        //   {Raffle, SOFToken, InfoFiFactory, InfoFiSettlement, InfoFiFPMM,
+        //    RaffleOracleAdapter, RolloverEscrow, SOFExchange}
+        //
+        // Per-season SOFBondingCurve targets are NOT in the static set; they
+        // are validated dynamically via IRaffleCurveRegistry(raffle).isSofCurve.
+        //
+        // RolloverEscrow (step 16) and SOFExchange (step 18) deploy AFTER this
+        // script in the DeployAll chain, so their addresses are still zero in
+        // `addrs` when we construct here. We initialize the allowlist with the
+        // 6 already-deployed targets and rely on DeployAll to call
+        // `paymaster.setAllowlisted(rolloverEscrow|sofExchange, true)` after
+        // those deploy. The deployer keeps DEFAULT_ADMIN_ROLE / ADMIN_ROLE
+        // from the constructor, so the post-deploy wiring is authorized.
+        address[] memory initialAllowlist = new address[](6);
+        initialAllowlist[0] = addrs.raffle;
+        initialAllowlist[1] = addrs.sofToken;
+        initialAllowlist[2] = addrs.infoFiFactory;
+        initialAllowlist[3] = addrs.infoFiSettlement;
+        initialAllowlist[4] = addrs.fpmmManager; // InfoFiFPMMV2 instance
+        initialAllowlist[5] = addrs.oracleAdapter;
 
         vm.startBroadcast(deployerKey);
-        // Constructor: (entryPoint, verifyingSigner, owner). On testnet/mainnet
-        // both default to the deployer; rotate via setSigner / Ownable transfer
-        // immediately after deploy if you want signer != owner. See
-        // docs/02-architecture/paymaster-signer-rotation.md.
-        SOFPaymaster paymaster = new SOFPaymaster(entryPoint, deployer, deployer);
+        // Constructor (gasless rewrite §3.3):
+        //   (entryPoint, factory, raffle, initialAllowlist).
+        // Reverts ZeroAddress if any of (entryPoint, factory, raffle) are zero.
+        SOFPaymaster paymaster = new SOFPaymaster(
+            ENTRY_POINT_V08,
+            addrs.sofSmartAccountFactory,
+            addrs.raffle,
+            initialAllowlist
+        );
         vm.stopBroadcast();
 
         addrs.paymasterAddress = address(paymaster);
@@ -66,4 +88,3 @@ contract DeployPaymaster is Script {
         return addrs;
     }
 }
-

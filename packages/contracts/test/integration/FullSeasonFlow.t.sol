@@ -79,6 +79,7 @@ contract FullSeasonFlowTest is Test {
 
         // Wire SeasonFactory into Raffle (one-time setter)
         raffle.setSeasonFactory(address(seasonFactory));
+        raffle.grantRole(raffle.SEASON_FACTORY_ROLE(), address(seasonFactory));
 
         // Set up prize distributor
         distributor = new RafflePrizeDistributor(admin);

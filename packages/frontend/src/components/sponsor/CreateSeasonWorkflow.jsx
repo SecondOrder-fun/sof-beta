@@ -24,15 +24,14 @@ import {
 } from "@/components/ui/workflow";
 import { SponsorStakingCard } from "@/components/sponsor/SponsorStakingCard";
 import CreateSeasonForm from "@/components/admin/CreateSeasonForm";
-import { AdminAuthProvider } from "@/context/AdminAuthContext";
-import { useAdminAuth } from "@/hooks/useAdminAuth";
+import { useAppAuth } from "@/hooks/useAppAuth";
 import { useSponsorStaking } from "@/hooks/useSponsorStaking";
 import { useRaffleWrite } from "@/hooks/useRaffleWrite";
 import { getStoredNetworkKey } from "@/lib/wagmi";
 import { getContractAddresses, RAFFLE_ABI } from "@/config/contracts";
 
 /**
- * Inner component — requires AdminAuthProvider above it.
+ * Inner component.
  * Manages the sponsor panel ↔ creation workflow toggle.
  */
 function WorkflowInner() {
@@ -40,7 +39,9 @@ function WorkflowInner() {
   const { address, isConnected } = useAccount();
   const navigate = useNavigate();
   const publicClient = usePublicClient();
-  const { isAuthenticated, isLoading: isAuthLoading, error: authError, login } = useAdminAuth();
+  const { status: authStatus, error: authError } = useAppAuth();
+  const isAuthenticated = authStatus === "authenticated";
+  const isAuthLoading = authStatus === "signing" || authStatus === "verifying";
   const { isSponsor, isLoading: isSponsorLoading } = useSponsorStaking();
   const { createSeason } = useRaffleWrite();
 
@@ -186,19 +187,12 @@ function WorkflowInner() {
       {["details", "prizes", "curve", "sponsored"].map((step) => (
         <WorkflowContent key={step} value={step}>
           {!isAuthenticated ? (
-            <Card>
-              <CardContent className="pt-6 flex flex-col items-center gap-4">
-                <p className="text-muted-foreground text-center">
-                  {t("signToCreate")}
-                </p>
-                <Button onClick={login} disabled={isAuthLoading} size="lg">
-                  {isAuthLoading ? t("signing") : t("signInToCreate")}
-                </Button>
-                {authError && (
-                  <p className="text-sm text-destructive">{authError}</p>
-                )}
-              </CardContent>
-            </Card>
+            <div className="px-4 py-8 text-center text-muted-foreground">
+              {isAuthLoading
+                ? t("createSeason.signingIn")
+                : t("createSeason.connectWalletPrompt")}
+              {authError && <p className="mt-2 text-sm text-destructive">{authError}</p>}
+            </div>
           ) : null}
         </WorkflowContent>
       ))}
@@ -289,14 +283,10 @@ FormStepNav.propTypes = {
 };
 
 /**
- * Public component — wraps with AdminAuthProvider.
+ * Public component.
  */
 export function CreateSeasonWorkflow() {
-  return (
-    <AdminAuthProvider>
-      <WorkflowInner />
-    </AdminAuthProvider>
-  );
+  return <WorkflowInner />;
 }
 
 export default CreateSeasonWorkflow;

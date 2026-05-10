@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import useIsMobile from "@/hooks/useIsMobile";
 import MobilePortfolio from "@/components/mobile/MobilePortfolio";
 import ProfileContent from "@/components/account/ProfileContent";
+import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 
 const AccountPage = () => {
   const isMobile = useIsMobile();
@@ -17,7 +18,9 @@ const AccountPage = () => {
 };
 
 const DesktopAccountPage = () => {
-  const { address, isConnected } = useAccount();
+  const { isConnected } = useAccount();
+  // SMA-bound read per spec §4.3 — gameplay state lives at the SMA.
+  const { sma, isReady } = useRaffleAccount();
   const { t } = useTranslation(["account"]);
 
   if (!isConnected) {
@@ -37,7 +40,24 @@ const DesktopAccountPage = () => {
     );
   }
 
-  return <ProfileContent address={address} isOwnProfile />;
+  if (!isReady || !sma) {
+    return (
+      <div>
+        <h1 className="text-2xl font-bold text-foreground mb-4">
+          {t("account:myAccount")}
+        </h1>
+        <Card className="mb-4">
+          <CardContent className="pt-6">
+            <p className="text-center text-muted-foreground">
+              {t("account:loadingAccount", { defaultValue: "Loading account..." })}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return <ProfileContent address={sma} isOwnProfile />;
 };
 
 export default AccountPage;

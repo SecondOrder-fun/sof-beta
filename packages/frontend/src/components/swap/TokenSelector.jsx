@@ -12,7 +12,7 @@ import {
  * TokenSelector — dropdown for selecting a swap token.
  * Each token option shows its symbol; the value is the token address.
  */
-const TokenSelector = ({ tokens, value, onChange, disabled }) => {
+const TokenSelector = ({ tokens, value, onChange, disabled = false }) => {
   const { t } = useTranslation('swap');
 
   return (
@@ -44,10 +44,6 @@ TokenSelector.propTypes = {
   /** Callback fired with the newly selected token address */
   onChange: PropTypes.func.isRequired,
   disabled: PropTypes.bool,
-};
-
-TokenSelector.defaultProps = {
-  disabled: false,
 };
 
 export default TokenSelector;

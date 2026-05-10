@@ -9,13 +9,28 @@ import MobileCreatorTab from "./MobileCreatorTab";
 import MobileBalancesTab from "./MobileBalancesTab";
 import MobileClaimsTab from "./MobileClaimsTab";
 import { useProfileData } from "@/hooks/useProfileData";
+import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 
 /**
  * MobilePortfolio - Mobile-optimized portfolio page with tab navigation
  */
 const MobilePortfolio = () => {
-  const { address, isConnected } = useAccount();
+  const { isConnected } = useAccount();
+  const { eoa, sma } = useRaffleAccount();
+  const address = sma;
   const { t } = useTranslation(["account", "common"]);
+
+  // Merged address list for transaction-history surfaces (plan 5.11).
+  const transactionAddresses = useMemo(
+    () => [eoa, sma].filter(Boolean).map((a) => a.toLowerCase()),
+    [eoa, sma]
+  );
+  const originLabels = useMemo(() => {
+    const labels = {};
+    if (eoa) labels[eoa.toLowerCase()] = "EOA";
+    if (sma) labels[sma.toLowerCase()] = "SMA";
+    return labels;
+  }, [eoa, sma]);
 
   const { sofBalanceQuery, seasonBalancesQuery } = useProfileData(address);
 
@@ -71,6 +86,8 @@ const MobilePortfolio = () => {
             <TabsContent value="balances" className="mt-0">
               <MobileBalancesTab
                 address={address}
+                addresses={transactionAddresses}
+                originLabels={originLabels}
                 sofBalance={sofBalance}
                 rafflePositions={rafflePositions}
                 isLoadingRafflePositions={seasonBalancesQuery.isLoading}

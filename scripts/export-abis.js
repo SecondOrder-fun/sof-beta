@@ -61,12 +61,14 @@ const CONTRACTS_TO_EXPORT = [
   { source: 'Hats.sol/Hats.json', name: 'Hats' },
   { source: 'StakingEligibility.sol/StakingEligibility.json', name: 'StakingEligibility' },
 
-  // Exchange & Airdrop
+  // Exchange (SOFAirdrop deleted in the gasless rewrite — backend relayer
+  // does direct transfers now per spec §5.3)
   { source: 'SOFExchange.sol/SOFExchange.json', name: 'SOFExchange' },
-  { source: 'SOFAirdrop.sol/SOFAirdrop.json', name: 'SOFAirdrop' },
 
-  // Smart Account (ERC-7702)
+  // ERC-4337 account abstraction (gasless rewrite)
   { source: 'SOFSmartAccount.sol/SOFSmartAccount.json', name: 'SOFSmartAccount' },
+  { source: 'SOFSmartAccountFactory.sol/SOFSmartAccountFactory.json', name: 'SOFSmartAccountFactory' },
+  { source: 'SOFPaymaster.sol/SOFPaymaster.json', name: 'SOFPaymaster' },
 
   // Rollover Incentives
   { source: 'RolloverEscrow.sol/RolloverEscrow.json', name: 'RolloverEscrow' },

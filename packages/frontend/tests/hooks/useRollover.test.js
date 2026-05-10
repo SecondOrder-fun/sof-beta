@@ -15,6 +15,16 @@ vi.mock("wagmi", () => ({
   usePublicClient: () => mockPublicClient,
 }));
 
+// Mock useRaffleAccount — gameplay reads now key off the SMA per spec §4.3.
+vi.mock("@/hooks/useRaffleAccount", () => ({
+  useRaffleAccount: () => ({
+    eoa: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+    sma: "0x00000000000000000000000000000000000a5ed1",
+    walletType: "desktop-eoa",
+    isReady: true,
+  }),
+}));
+
 // Mock i18n
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key) => key, i18n: { language: "en" } }),

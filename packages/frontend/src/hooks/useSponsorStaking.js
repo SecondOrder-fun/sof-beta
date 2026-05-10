@@ -3,13 +3,17 @@ import { useAccount, useReadContracts } from "wagmi";
 import { formatUnits } from "viem";
 import { HATS_CONFIG } from "@/config/hats";
 import { StakingEligibilityAbi, HatsAbi } from "@/utils/abis";
+import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 
 /**
  * Hook for reading sponsor staking status
  * @returns {Object} Staking status and hat ownership info
  */
 export function useSponsorStaking() {
-  const { address, isConnected } = useAccount();
+  const { isConnected } = useAccount();
+  // SMA-bound read per spec §4.3 — sponsor stakes go through the SMA so
+  // gameplay-state checks (stake, hat ownership) live there.
+  const { sma: address } = useRaffleAccount();
 
   // Read multiple values in one call - auto-refresh every 10s
   const { data, isLoading, refetch } = useReadContracts({

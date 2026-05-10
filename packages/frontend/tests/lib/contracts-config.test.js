@@ -7,14 +7,14 @@ describe('config/contracts', () => {
     const addr = getContractAddresses('LOCAL')
     expect(addr).toHaveProperty('RAFFLE')
     expect(addr).toHaveProperty('SOF')
-    expect(addr).toHaveProperty('SOF_SMART_ACCOUNT')
+    expect(addr).toHaveProperty('SOF_SMART_ACCOUNT_FACTORY')
   })
 
   it('returns an object with expected keys for TESTNET', () => {
     const addr = getContractAddresses('TESTNET')
     expect(addr).toHaveProperty('RAFFLE')
     expect(addr).toHaveProperty('SOF')
-    expect(addr).toHaveProperty('SOF_SMART_ACCOUNT')
+    expect(addr).toHaveProperty('SOF_SMART_ACCOUNT_FACTORY')
   })
 
   it('RAFFLE_ABI is defined and non-empty array', () => {

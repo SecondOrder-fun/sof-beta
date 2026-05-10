@@ -72,6 +72,20 @@ When contracts change:
 2. Export ABIs: `node scripts/export-abis.js` (or `npm run build` in contracts, which does both)
 3. Frontend and backend automatically get updated ABIs via workspace dependency
 
+## DB Migration Pipeline
+
+When adding a SQL file to `packages/backend/migrations/` or `supabase/migrations/`, push it to the remote `SOf_beta` Supabase project (`mmblfpccknlrhowicesv`) **before** the backend deploy that depends on the schema. The local stack auto-applies migrations on every `local-dev.sh` run; the remote has no equivalent automation, so Railway's backend will silently 404 endpoints whose modules throw on missing tables.
+
+```bash
+supabase link --project-ref mmblfpccknlrhowicesv
+supabase migration list --linked         # check what's tracked remote
+supabase db push --linked                # apply pending migrations
+```
+
+If `migration list` shows the remote has empty history but tables exist (schema applied via SQL editor previously), use `supabase migration repair --status applied <timestamp>` first to mark prior migrations as applied — then push the new ones.
+
+After pushing, sanity-check the affected endpoint with a curl probe (`/api/airdrop/status?eoa=...` should return `{"found": false}` rather than a 500).
+
 ## Contract Deploy Checklist
 
 1. Deploy contract(s) to target network

@@ -44,7 +44,7 @@ import {
 } from "@/components/ui/dialog";
 import { Plus, Edit, Trash2, Shield, ShieldOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useAdminAuth } from "@/hooks/useAdminAuth";
+import { useAppAuth } from "@/hooks/useAppAuth";
 import {
   ACCESS_LEVELS,
   getAccessLevelDisplayName,
@@ -55,7 +55,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL + "/access";
 export function RouteAccessPanel() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { getAuthHeaders } = useAdminAuth();
+  const { getAuthHeaders } = useAppAuth();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
 
   // Fetch all route configs

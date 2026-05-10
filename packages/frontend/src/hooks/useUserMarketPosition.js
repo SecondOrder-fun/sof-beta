@@ -1,6 +1,6 @@
 // src/hooks/useUserMarketPosition.js
 import { useQuery } from "@tanstack/react-query";
-import { useAccount } from "wagmi";
+import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 
 /**
  * Hook to fetch user's position in a specific InfoFi market from backend API
@@ -8,7 +8,8 @@ import { useAccount } from "wagmi";
  * @returns {Object} Query result with position data
  */
 export const useUserMarketPosition = (marketId) => {
-  const { address } = useAccount();
+  // SMA-bound read per spec §4.3 — InfoFi positions live at the SMA.
+  const { sma: address } = useRaffleAccount();
 
   return useQuery({
     queryKey: ["userMarketPosition", marketId, address],

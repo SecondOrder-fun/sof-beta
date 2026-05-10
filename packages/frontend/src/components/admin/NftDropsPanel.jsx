@@ -40,7 +40,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useNftDrops, useNftDropMutations } from "@/hooks/useNftDrops";
-import { useAdminAuth } from "@/hooks/useAdminAuth";
+import { useAppAuth } from "@/hooks/useAppAuth";
 import AllowlistMintCard from "@/components/mint/AllowlistMintCard";
 import GiftClaimCard from "@/components/mint/GiftClaimCard";
 
@@ -48,7 +48,7 @@ import GiftClaimCard from "@/components/mint/GiftClaimCard";
  * Create Drop Form
  */
 function CreateDropForm({ onSuccess }) {
-  const { getAuthHeaders } = useAdminAuth();
+  const { getAuthHeaders } = useAppAuth();
   const { createDrop } = useNftDropMutations({ getAuthHeaders });
   const [formData, setFormData] = useState({
     name: "",
@@ -289,7 +289,7 @@ CreateDropForm.propTypes = {
  * Drop List Item
  */
 function DropListItem({ drop, onSelect }) {
-  const { getAuthHeaders } = useAdminAuth();
+  const { getAuthHeaders } = useAppAuth();
   const { toggleActive, toggleFeatured, deleteDrop } = useNftDropMutations({ getAuthHeaders });
 
   return (

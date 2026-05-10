@@ -24,7 +24,6 @@ export {
   HatsABI as HatsAbi,
   StakingEligibilityABI as StakingEligibilityAbi,
   SOFExchangeABI as SOFExchangeAbi,
-  SOFAirdropABI as SOFAirdropAbi,
 } from '@sof/contracts';
 
 // Minimal ERC-721 ABI for approve calls (not in Foundry build)

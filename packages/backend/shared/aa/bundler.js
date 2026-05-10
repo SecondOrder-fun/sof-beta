@@ -127,21 +127,46 @@ function resolveValidityWindow(envValue, isLocalNetwork) {
 const DEFAULT_GAS_CAPS = {
   LOCAL: {
     callGasLimit: 8_000_000n,
-    verificationGasLimit: 1_000_000n,
+    // 3M cap accommodates fresh-EOA UserOps that include initCode for SMA
+    // deployment. The SOFSmartAccount constructor is heavy (Account +
+    // SignerECDSA + ERC7739 + ERC7821 + EIP712 + token receivers) and the
+    // SenderCreator → factory → CREATE2 → constructor chain needs ~2M gas.
+    // 1M caused AA13 during M4 testing. The cap is intentionally generous
+    // on LOCAL since paymaster only pays for actualGasUsed.
+    verificationGasLimit: 3_000_000n,
     paymasterVerificationGasLimit: 500_000n,
     paymasterPostOpGasLimit: 100_000n,
     // EntryPoint v0.8 charges paymaster for preVerificationGas too. Without
     // an explicit cap a leaked verifying-signer key could let an attacker
-    // inflate per-op damage by claiming arbitrary preVerificationGas. Real
-    // userOps need ~50-100k; 200k is generous headroom for local dev.
-    preVerificationGas: 200_000n,
+    // inflate per-op damage by claiming arbitrary preVerificationGas.
+    // 10M matches REMOTE — see REMOTE block for L2 cost reasoning.
+    preVerificationGas: 10_000_000n,
   },
   REMOTE: {
-    callGasLimit: 2_000_000n,
-    verificationGasLimit: 500_000n,
-    paymasterVerificationGasLimit: 200_000n,
-    paymasterPostOpGasLimit: 60_000n,
-    preVerificationGas: 150_000n,
+    // First-userOp-with-initCode (the path every fresh user takes when their
+    // SMA hasn't been deployed yet) is heavy: SenderCreator → factory →
+    // CREATE2 → SOFSmartAccount constructor (Account + SignerECDSA + ERC7739
+    // + ERC7821 + EIP712 + token receivers) burns ~1.5M verificationGas and
+    // ~4M callGas when the inner call also writes meaningful state (e.g.
+    // Raffle.createSeason deploying a token + curve). Match LOCAL's caps so
+    // remote networks can run the same path.
+    //
+    // The cap doesn't drive cost — paymaster pays actualGasUsed regardless,
+    // and griefing is bounded by the per-EOA hourly quota. Tight caps just
+    // rejected legitimate first-time userOps with -32602.
+    callGasLimit: 8_000_000n,
+    verificationGasLimit: 3_000_000n,
+    paymasterVerificationGasLimit: 500_000n,
+    paymasterPostOpGasLimit: 100_000n,
+    // On Base (and any L2 with rollup data publication), preVerificationGas
+    // includes the L1 calldata cost as a primary component. Pimlico's
+    // bundler-side estimation legitimately returns 5-10M on Base Sepolia
+    // for a userOp with initCode + a non-trivial inner call. The previous
+    // 200k cap was calibrated for L1 chains where preVG is just bundler
+    // simulation overhead (~50-100k). 10M gives headroom while still
+    // bounding griefing — at 0.014 gwei (Base Sepolia typical), 10M * gas
+    // is ~$0.14 per op even at high ETH prices.
+    preVerificationGas: 10_000_000n,
   },
 };
 
@@ -410,7 +435,14 @@ export function createBundlerService({
     // out values we would later refuse to sign for in pm_getPaymasterData.
     const suggested = {
       preVerificationGas: 100_000n,
-      verificationGasLimit: 500_000n,
+      // 3M handles first-time SOFSmartAccount deploys via initCode. The SMA
+      // inherits OZ Account + SignerECDSA + ERC7739 + ERC7821 + EIP712 +
+      // token receivers; its constructor uses ~700k+ gas. Add SenderCreator
+      // overhead, account validateUserOp, paymaster validation and the
+      // first-touch SLOAD cost across the chain and a fresh-EOA UserOp
+      // routinely needs ~2M. 1M OOG'd as AA13 in M4 testing. The gasCap
+      // clamp still enforces the network-level upper bound.
+      verificationGasLimit: 3_000_000n,
       callGasLimit: 8_000_000n,
       paymasterVerificationGasLimit: 200_000n,
       paymasterPostOpGasLimit: 60_000n,
@@ -467,7 +499,15 @@ export function createBundlerService({
       if (data) {
         try {
           const decoded = decodeErrorResult({ abi: entryPoint08Abi, data });
-          const reason = decoded.args?.[1] ?? decoded.errorName;
+          // EntryPoint emits a few revert shapes:
+          //   FailedOp(uint256 opIndex, string reason)              → args[1] = reason
+          //   FailedOpWithRevert(uint256 opIndex, string reason, bytes inner) → args[1] = reason
+          //   Error(string reason)                                  → args[0] = reason
+          //   Panic(uint256 code)                                   → args[0] = code
+          const reason =
+            (typeof decoded.args?.[1] === "string" && decoded.args[1]) ||
+            (typeof decoded.args?.[0] === "string" && decoded.args[0]) ||
+            decoded.errorName;
 
           // For AA24 (account signature), surface the canonical hash + the
           // address the submitted signature actually recovers to so we can see

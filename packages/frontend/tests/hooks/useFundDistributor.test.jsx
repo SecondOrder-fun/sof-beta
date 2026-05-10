@@ -39,6 +39,16 @@ vi.mock("wagmi", async (importOriginal) => {
   };
 });
 
+// SMA-bound read per spec §4.3 — admin balance invalidation keys off SMA.
+vi.mock("@/hooks/useRaffleAccount", () => ({
+  useRaffleAccount: () => ({
+    eoa: "0xAdmin000000000000000000000000000000000000",
+    sma: "0xAdmin5ma0000000000000000000000000000000",
+    walletType: "desktop-eoa",
+    isReady: true,
+  }),
+}));
+
 import useFundDistributor from "@/hooks/useFundDistributor";
 
 function createWrapper() {

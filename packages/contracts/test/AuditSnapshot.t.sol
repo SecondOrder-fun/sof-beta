@@ -105,6 +105,7 @@ contract AuditSnapshotTest is Test {
         raffle = new AuditSnapshotHarness(address(sof), mockCoordinator, 0, bytes32(0));
         SeasonFactory factory = new SeasonFactory(address(raffle));
         raffle.setSeasonFactory(address(factory));
+        raffle.grantRole(raffle.SEASON_FACTORY_ROLE(), address(factory));
         RafflePrizeDistributor distributor = new RafflePrizeDistributor(address(this));
         distributor.grantRole(distributor.RAFFLE_ROLE(), address(raffle));
         raffle.setPrizeDistributor(address(distributor));

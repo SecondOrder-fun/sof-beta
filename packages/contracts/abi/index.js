@@ -25,8 +25,9 @@ import _AccessControl from './AccessControl.json' with { type: 'json' };
 import _Hats from './Hats.json' with { type: 'json' };
 import _StakingEligibility from './StakingEligibility.json' with { type: 'json' };
 import _SOFExchange from './SOFExchange.json' with { type: 'json' };
-import _SOFAirdrop from './SOFAirdrop.json' with { type: 'json' };
 import _SOFSmartAccount from './SOFSmartAccount.json' with { type: 'json' };
+import _SOFSmartAccountFactory from './SOFSmartAccountFactory.json' with { type: 'json' };
+import _SOFPaymaster from './SOFPaymaster.json' with { type: 'json' };
 import _RolloverEscrow from './RolloverEscrow.json' with { type: 'json' };
 
 // Helper: extract abi array from Foundry JSON or return as-is
@@ -56,6 +57,7 @@ export const AccessControlABI = e(_AccessControl);
 export const HatsABI = e(_Hats);
 export const StakingEligibilityABI = e(_StakingEligibility);
 export const SOFExchangeABI = e(_SOFExchange);
-export const SOFAirdropABI = e(_SOFAirdrop);
 export const SOFSmartAccountABI = e(_SOFSmartAccount);
+export const SOFSmartAccountFactoryABI = e(_SOFSmartAccountFactory);
+export const SOFPaymasterABI = e(_SOFPaymaster);
 export const RolloverEscrowABI = e(_RolloverEscrow);

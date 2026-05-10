@@ -1,14 +1,21 @@
-import { useMemo, useCallback, useContext, useRef } from 'react';
-import { useAccount, useChainId, useCapabilities, useSendCalls, useCallsStatus } from 'wagmi';
+import { useMemo, useCallback, useRef } from 'react';
+import { useAccount, useChainId, useCapabilities, useSendCalls, useCallsStatus, usePublicClient, useWalletClient } from 'wagmi';
 import { waitForCallsStatus } from '@wagmi/core';
-import { encodeFunctionData } from 'viem';
+import { encodeFunctionData, http } from 'viem';
+import { createBundlerClient, createPaymasterClient } from 'viem/account-abstraction';
 import { ERC20Abi } from '@/utils/abis';
 import { getContractAddresses } from '@/config/contracts';
 import { getStoredNetworkKey } from '@/lib/wagmi';
 import { config as wagmiConfig } from '@/lib/wagmiConfig';
-import FarcasterContext from '@/context/farcasterContext';
-import { useDelegationStatus } from './useDelegationStatus';
-import { useDelegatedAccount } from './useDelegatedAccount';
+import { useAppAuth } from '@/hooks/useAppAuth';
+import { toSofSmartAccount } from '@/lib/sofSmartAccount';
+import { useRaffleAccount } from '@/hooks/useRaffleAccount';
+
+/**
+ * Canonical EntryPoint v0.8 address — same on every chain.
+ * Matches the address the contracts package's deploy scripts use.
+ */
+const ENTRY_POINT_V08 = '0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108';
 
 // Upper bound for waiting on an ERC-5792 batch to land on chain after the
 // wallet prompt is accepted. Local Anvil confirms within seconds; 120s is
@@ -110,16 +117,15 @@ export function useSmartTransactions() {
   const chainId = useChainId();
   const { data: capabilities } = useCapabilities({ account: address });
   const { sendCallsAsync, data: batchId } = useSendCalls();
-  // Use any available JWT — Farcaster (MiniApp), SIWE wallet auth (desktop browser).
-  // Both are issued by the same backend AuthService and accepted by the session endpoint.
-  const farcasterAuth = useContext(FarcasterContext);
-  const backendJwt = farcasterAuth?.backendJwt
-    ?? localStorage.getItem('sof:farcaster_jwt')
-    ?? localStorage.getItem('sof:admin_jwt')
-    ?? null;
+  const publicClient = usePublicClient();
+  const { data: walletClient } = useWalletClient();
+  const { walletType } = useRaffleAccount();
+  // JWT from AppAuthProvider — covers SIWE-on-connect (desktop EOA / Coinbase
+  // Smart Wallet) and Farcaster SIWF (delegated via useFarcasterSignIn).
+  // Legacy storage keys (sof:farcaster_jwt, sof:admin_jwt) are cleared on
+  // AppAuthProvider mount, so localStorage fallbacks here are dead code.
+  const { jwt: backendJwt } = useAppAuth();
   const sessionCacheRef = useRef({ token: null, expiresAt: 0 });
-  const { isSOFDelegate, isDelegated } = useDelegationStatus();
-  const delegatedAccount = useDelegatedAccount();
   const apiBase = import.meta.env.VITE_API_BASE_URL || '';
 
   const { data: callsStatus } = useCallsStatus({
@@ -180,98 +186,138 @@ export function useSmartTransactions() {
    * @param {Array<{to: string, data: string, value?: bigint}>} calls - Raw calls to batch
    * @param {object} options - Additional options for sendCalls
    * @param {bigint} [options.sofAmount] - SOF amount for fee calculation (required when paymaster is active)
+   * @param {boolean} [options.bypassSponsorship] - **Use sparingly.** Forces the
+   *   per-call EOA-direct send path (skips Path A counterfactual SMA + UserOp).
+   *   Only needed when the target contract specifically checks an EOA signature
+   *   *and* the EOA's SMA cannot satisfy that check (i.e. role grants on the SMA
+   *   are infeasible). Default `false` — admin writes route through Path A now
+   *   that 14_ConfigureRoles grants admin roles to admin SMAs.
    */
   const executeBatch = useCallback(async (calls, options = {}) => {
-    const { sofAmount, ...sendOptions } = options;
+    const { sofAmount, bypassSponsorship, ...sendOptions } = options;
 
-    // ─── Path A: Delegated EOA → ERC-4337 UserOp ───
-    // On local Anvil (chain 31337) we talk to our own bundler+paymaster
-    // endpoint (no session token — it's the dev server). On testnet/mainnet
-    // we use the session-gated Pimlico proxy.
-    const isLocalChain = chainId === 31337;
-    if (import.meta.env.DEV) {
-      // eslint-disable-next-line no-console
-      console.log("[executeBatch] gate", {
-        isSOFDelegate,
-        hasDelegatedAccount: !!delegatedAccount,
-        apiBase,
-        chainId,
-        isLocalChain,
-        hasBackendJwt: !!backendJwt,
-        pathAWillFire: !!(
-          isSOFDelegate && delegatedAccount && apiBase && (isLocalChain || backendJwt)
-        ),
-      });
-    }
-    if (isSOFDelegate && delegatedAccount && apiBase && (isLocalChain || backendJwt)) {
-      let finalCalls = calls;
-      if (sofAmount && sofAmount > 0n) {
-        const feeCall = buildFeeCall(sofAmount);
-        finalCalls = feeCall ? [feeCall, ...calls] : calls;
+    const isCoinbaseWallet = connector?.id === 'coinbaseWalletSDK';
+    const hasAtomic = chainCaps.atomicStatus === 'ready' || chainCaps.atomicStatus === 'supported';
+
+    // ─── Path A: desktop-EOA → counterfactual SMA + ERC-4337 UserOp ───
+    //
+    // Wallets without native atomic batching (e.g. MetaMask) drive a
+    // SOFSmartAccount via the local bundler+paymaster proxy. Owner EOA
+    // signs the EntryPoint v0.8 typed-data userOpHash; the bundler relays.
+    //
+    // The factory address is per-network — when it isn't deployed (or the
+    // paymaster URL is unset for the target chain), we fall through to the
+    // per-call sendTransaction guard at the bottom of this branch.
+    //
+    // `bypassSponsorship` opts a call out of Path A entirely. Reserved for
+    // edge cases where the contract specifically checks an EOA signature and
+    // the EOA's SMA cannot hold the matching role (e.g. one-off ownership
+    // proofs or migrations from contracts whose role admins can't be reached).
+    // Admin writes no longer use this — 14_ConfigureRoles grants admin roles
+    // to admin SMAs, so they route through Path A like every other user.
+    if (!bypassSponsorship && walletType === 'desktop-eoa' && !isCoinbaseWallet) {
+      // Hard requirements for Path A. Loud failure beats silent EOA fallback.
+      if (!walletClient) throw new Error('Wallet client not ready');
+      if (!publicClient) throw new Error('Public client not ready');
+
+      const contracts = getContractAddresses(getStoredNetworkKey());
+      const factoryAddr = contracts.SOF_SMART_ACCOUNT_FACTORY;
+      if (!factoryAddr || !/^0x[0-9a-fA-F]{40}$/.test(factoryAddr)) {
+        throw new Error('SOFSmartAccountFactory address missing — sponsored writes unavailable on this network');
       }
 
-      let paymasterUrl;
+      // Bundler + paymaster routing differs by chain.
+      //
+      //   LOCAL (chainId 31337):
+      //     Backend serves both bundler RPC and paymaster RPC at
+      //     /api/paymaster/local. `paymaster: true` tells viem to call
+      //     pm_getPaymasterStubData / pm_getPaymasterData against the
+      //     same URL as the bundler.
+      //
+      //   TESTNET / MAINNET:
+      //     Bundler RPC goes through the backend's session-gated Pimlico
+      //     proxy (/api/paymaster/pimlico?session=...). Paymaster signing
+      //     uses the backend's SOFPaymaster ERC-7677 service
+      //     (/api/paymaster/sof). Two separate URLs, two separate clients.
+      //
+      // We require an apiBase regardless. Without a backend, the SMA path
+      // can't function — the alternative would be exposing API keys to
+      // the client, which we won't do.
+      if (!apiBase) {
+        throw new Error('Paymaster URL not configured — set VITE_API_BASE_URL');
+      }
+
+      const isLocalChain = chainId === 31337;
+      let bundlerTransport;
+      let paymasterArg;
+
       if (isLocalChain) {
-        paymasterUrl = `${apiBase}/paymaster/local`;
+        bundlerTransport = http(`${apiBase}/paymaster/local`);
+        paymasterArg = true;
       } else {
-        const now = Date.now();
-        let sessionToken;
-        if (sessionCacheRef.current.token && sessionCacheRef.current.expiresAt > now) {
-          sessionToken = sessionCacheRef.current.token;
-        } else {
-          sessionToken = await fetchPaymasterSession(apiBase, backendJwt);
-          if (sessionToken) {
-            sessionCacheRef.current = { token: sessionToken, expiresAt: now + 4 * 60 * 1000 };
-          }
+        if (!backendJwt) {
+          throw new Error('Sign in required for sponsored writes — please reconnect your wallet so SIWE can fire');
         }
+        const sessionToken = await fetchPaymasterSession(apiBase, backendJwt);
         if (!sessionToken) {
-          // Session unavailable — fall through to standard ERC-5792 path
-          paymasterUrl = null;
-        } else {
-          paymasterUrl = `${apiBase}/paymaster/pimlico?session=${sessionToken}`;
+          throw new Error('Paymaster session token unavailable — backend may be down or rate-limiting');
         }
+        bundlerTransport = http(`${apiBase}/paymaster/pimlico?session=${sessionToken}`);
+        paymasterArg = createPaymasterClient({
+          transport: http(`${apiBase}/paymaster/sof`),
+        });
       }
 
-      if (paymasterUrl) {
-        try {
-          const client = await delegatedAccount.create(paymasterUrl);
+      const account = await toSofSmartAccount({
+        client: publicClient,
+        owner: walletClient,
+        factory: factoryAddr,
+        entryPoint: { address: ENTRY_POINT_V08, version: '0.8' },
+      });
 
-          const userOpHash = await client.sendUserOperation({
-            calls: finalCalls,
-          });
+      const bundlerClient = createBundlerClient({
+        account,
+        client: publicClient,
+        transport: bundlerTransport,
+        paymaster: paymasterArg,
+      });
 
-          const receipt = await client.waitForUserOperationReceipt({
-            hash: userOpHash,
-            timeout: 30_000,
-          });
+      const userOpHash = await bundlerClient.sendUserOperation({ calls });
+      const receipt = await bundlerClient.waitForUserOperationReceipt({ hash: userOpHash });
+      return receipt.receipt.transactionHash;
+    }
 
-          // Callers feed the return value into `useWaitForTransactionReceipt`,
-          // which expects an actual on-chain tx hash. The userOpHash is an
-          // EIP-4337 identifier and isn't a tx hash — wagmi would poll it
-          // forever. Return the wrapping handleOps tx hash. permissionless's
-          // waitForUserOperationReceipt only resolves with a populated receipt,
-          // so this should never fall through; throw rather than hand back a
-          // userOpHash that the UI can't resolve.
-          const txHash = receipt?.receipt?.transactionHash;
-          if (!txHash) {
-            throw new Error("UserOp landed without a tx hash — bundler bug");
-          }
-          return txHash;
-        } catch (err) {
-          // Local backend down, bundler error, paymaster sig invalid — fall
-          // through to the ERC-5792 path so the UI doesn't hard-fail. The user
-          // pays gas, but the tx still goes through.
-          // eslint-disable-next-line no-console
-          console.warn("[executeBatch] sponsored path failed, falling back", err);
+    // ─── Per-call fallback (escape hatch OR non-desktop-eoa, non-Coinbase) ───
+    // Reached when:
+    //   - bypassSponsorship: true (rare; see comment above), OR
+    //   - walletType is not 'desktop-eoa' AND not Coinbase (e.g. unknown injected
+    //     wallet that doesn't advertise atomic batching).
+    // Never reached for desktop-eoa users — that path either succeeds via
+    // Path A or throws above. Silent EOA-direct send for desktop-eoa would
+    // bypass the whole SMA architecture (read SMA, spend EOA) and is exactly
+    // the bug we're guarding against.
+    if (bypassSponsorship || (!isCoinbaseWallet && !hasAtomic)) {
+      if (!walletClient) {
+        throw new Error('Wallet client not ready');
+      }
+      let lastHash = null;
+      for (const call of calls) {
+        lastHash = await walletClient.sendTransaction({
+          account: address,
+          to: call.to,
+          data: call.data,
+          value: call.value ?? 0n,
+        });
+        if (publicClient) {
+          await publicClient.waitForTransactionReceipt({ hash: lastHash });
         }
       }
+      return lastHash;
     }
 
     // ─── Path B: Coinbase Wallet → ERC-5792 + CDP paymaster (unchanged) ───
     const batchCapabilities = {};
     let finalCalls = calls;
-
-    const isCoinbaseWallet = connector?.id === 'coinbaseWalletSDK';
 
     if (isCoinbaseWallet && apiBase) {
       batchCapabilities.paymasterService = {
@@ -327,7 +373,7 @@ export function useSmartTransactions() {
     // before returning so callers can feed the value to useWaitForTransactionReceipt
     // and render it in the UI.
     return await normalizeBatchResult(sendResult);
-  }, [address, apiBase, backendJwt, chainId, connector, sendCallsAsync, buildFeeCall, isSOFDelegate, delegatedAccount]);
+  }, [address, apiBase, backendJwt, chainId, connector, sendCallsAsync, buildFeeCall, chainCaps.atomicStatus, walletClient, publicClient, walletType]);
 
   return {
     ...chainCaps,
@@ -336,7 +382,5 @@ export function useSmartTransactions() {
     callsStatus,
     sofFeeBps: SOF_FEE_BPS,
     needsSmartAccountUpgrade: chainCaps.atomicStatus === 'ready',
-    isDelegated: isSOFDelegate,
-    needsDelegation: !isSOFDelegate && !isDelegated && connector?.id !== 'coinbaseWalletSDK',
   };
 }

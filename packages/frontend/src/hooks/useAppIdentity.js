@@ -22,6 +22,7 @@ import { useAccount } from "wagmi";
 import useMiniAppSDK from "@/hooks/useFarcasterSDK";
 import { useContext } from "react";
 import FarcasterContext from "@/context/farcasterContext";
+import { useAppAuth } from "@/hooks/useAppAuth";
 
 export const FARCASTER_CLIENT_FID = 9152;
 export const BASE_APP_CLIENT_FID = 309857;
@@ -30,9 +31,11 @@ export function useAppIdentity() {
   const { address } = useAccount();
   const farcasterAuth = useContext(FarcasterContext);
   const isAuthenticated = Boolean(farcasterAuth?.isAuthenticated);
-  const isBackendAuthenticated = Boolean(farcasterAuth?.isBackendAuthenticated);
   const profile = farcasterAuth?.profile ?? null;
-  const backendUser = farcasterAuth?.backendUser ?? null;
+
+  const { user: appUser, status: authStatus } = useAppAuth();
+  const isBackendAuthenticated = authStatus === "authenticated";
+  const backendUser = appUser;
 
   const { context: miniAppContext, isInFarcasterClient } = useMiniAppSDK();
 

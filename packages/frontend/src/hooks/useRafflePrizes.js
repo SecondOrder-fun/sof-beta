@@ -1,4 +1,4 @@
-import { useReadContract, useAccount, useWatchContractEvent } from "wagmi";
+import { useReadContract, useWatchContractEvent } from "wagmi";
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatEther } from "viem";
@@ -11,11 +11,12 @@ import { useToast } from "@/hooks/useToast";
 import { createPublicClient, http } from "viem";
 import { getNetworkByKey } from "@/config/networks";
 import { useSmartTransactions } from "./useSmartTransactions";
+import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 
 export function useRafflePrizes(seasonId) {
   const netKey = getStoredNetworkKey();
-  // Using on-chain distributor discovery; no direct RAFFLE usage here.
-  const { address } = useAccount();
+  // SMA-bound read per spec §4.3 — winners are recorded at the SMA.
+  const { sma: address } = useRaffleAccount();
   const queryClient = useQueryClient();
   const { executeBatch } = useSmartTransactions();
   const [isWinner, setIsWinner] = useState(false);

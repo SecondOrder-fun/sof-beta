@@ -64,6 +64,17 @@ vi.mock("@/hooks/useFarcaster", () => ({
   }),
 }));
 
+vi.mock("@/hooks/useAppAuth", () => ({
+  useAppAuth: () => ({
+    user: null,
+    status: "idle",
+    error: null,
+    signIn: vi.fn(),
+    signOut: vi.fn(),
+    getAuthHeaders: () => ({}),
+  }),
+}));
+
 vi.mock("@/components/auth/FarcasterAuth", () => ({
   default: () => null,
 }));

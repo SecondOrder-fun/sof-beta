@@ -264,3 +264,21 @@ SQL migrations live in `packages/backend/migrations/` with sequential numbering 
 - Comma-separated: `https://secondorder.fun,/\.vercel\.app$/`
 
 In development (non-production), CORS defaults to `true` (allow all). In production, `CORS_ORIGINS` is required.
+
+## Operations
+
+### Backend Wallet Funding
+
+The backend wallet (`BACKEND_WALLET_PRIVATE_KEY` in env) must hold enough SOF
+to airdrop `SOF_AIRDROP_AMOUNT_PER_USER` to every new user that authenticates.
+For testnet, after each redeploy, verify the balance:
+
+```bash
+cast call $SOF_TOKEN "balanceOf(address)(uint256)" $BACKEND_WALLET_ADDRESS \
+  --rpc-url $RPC
+```
+
+If low, transfer from the deployer or treasury wallet. The
+`airdropService.transferToSma` function logs `transferToSma: tx reverted` if
+the balance is insufficient — `funded_at` will stay null and users will see
+the FirstConnectBanner but no SOF balance.

@@ -2,84 +2,141 @@
 pragma solidity ^0.8.20;
 
 import {Account} from "@openzeppelin/contracts/account/Account.sol";
-import {SignerERC7702} from "@openzeppelin/contracts/utils/cryptography/signers/SignerERC7702.sol";
+import {SignerECDSA} from "@openzeppelin/contracts/utils/cryptography/signers/SignerECDSA.sol";
+import {ERC7739} from "@openzeppelin/contracts/utils/cryptography/signers/draft-ERC7739.sol";
 import {ERC7821} from "@openzeppelin/contracts/account/extensions/draft-ERC7821.sol";
+import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {AbstractSigner} from "@openzeppelin/contracts/utils/cryptography/signers/AbstractSigner.sol";
 import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import {IERC1155Receiver} from "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
+
+error SOFSmartAccountInvalidSigner();
 
 /// @title SOFSmartAccount
-/// @notice Singleton ERC-7702 delegate contract for SecondOrder.fun.
-/// @dev EOAs delegate to this contract via EIP-7702 to gain ERC-4337
-///      compatibility (gas sponsorship, batched execution).
-///      Stateless — all per-account state lives in the EOA's storage
-///      via ERC-7201 namespaced storage in the OZ base contracts.
-contract SOFSmartAccount is Account, SignerERC7702, ERC7821, IERC721Receiver, IERC1155Receiver {
+/// @notice Counterfactual ERC-4337 v0.8 smart account, owned by a single EOA.
+/// @dev Composes OpenZeppelin's audited primitives:
+///      - {Account} ERC-4337 v0.8 base — wires `validateUserOp` to call
+///        `_rawSignatureValidation(_signableUserOpHash(...), signature)`.
+///        EntryPoint v0.8 produces an EIP-712 typed-data `userOpHash` natively,
+///        so {Account._signableUserOpHash} returns it unchanged. We do NOT
+///        override it — wallets show structured typed data from the v0.8
+///        userOpHash itself. Adding another wrap layer here would break the
+///        4337 validation flow used by bundlers.
+///      - {SignerECDSA} stores the owner address (set immutably at
+///        construction) and validates ECDSA recovery against it. Exposes a
+///        public `signer()` getter used by the factory and the paymaster.
+///      - {ERC7739} provides the ERC-1271 `isValidSignature` entry point with
+///        nested EIP-712 (typed-data + personal-sign) verification, so
+///        offchain consumers (e.g. permit2, EIP-1271-aware dapps) get
+///        replay-proof signed messages without the smart account writing the
+///        wrap by hand.
+///      - {ERC7821} provides batched `execute(bytes32 mode, bytes data)` for
+///        multi-call UserOps. We override `_erc7821AuthorizedExecutor` to
+///        permit the canonical EntryPoint as caller in addition to self.
+///      Owner is set at construction; the factory passes the target EOA. One
+///      SOFSmartAccount per EOA per chain, address derived counterfactually
+///      via the factory's CREATE2.
+contract SOFSmartAccount is
+    Account,
+    SignerECDSA,
+    ERC7739,
+    ERC7821,
+    IERC721Receiver,
+    IERC1155Receiver
+{
+    constructor(address signerAddr)
+        EIP712("SOF Smart Account", "1")
+        SignerECDSA(signerAddr)
+    {
+        // Defense in depth: SignerECDSA._setSigner doesn't check for zero,
+        // and a zero signer pairs with malformed-signature recovery to
+        // silently accept invalid sigs. Factory should validate too.
+        if (signerAddr == address(0)) revert SOFSmartAccountInvalidSigner();
+    }
 
-    /// @dev Allow the ERC-4337 EntryPoint to execute via ERC-7821,
-    ///      in addition to the EOA itself (default in ERC7821).
+    // ──────────────────────────────────────────────────────────────────
+    // Diamond-inheritance resolution
+    // ──────────────────────────────────────────────────────────────────
+
+    /// @dev `_rawSignatureValidation` is virtual in {AbstractSigner} and
+    ///      overridden by {SignerECDSA} (recovers ECDSA against the stored
+    ///      signer). {ERC7739} *consumes* the hook — it does NOT override
+    ///      it; its `isValidSignature` calls `_rawSignatureValidation` on a
+    ///      nested-EIP-712-wrapped digest. We bind the override to
+    ///      {SignerECDSA} via the explicit `override(AbstractSigner,
+    ///      SignerECDSA)` declaration. The explicit call below is equivalent
+    ///      to `super._rawSignatureValidation` here (only one parent
+    ///      implements the function), and is written this way for clarity.
+    function _rawSignatureValidation(bytes32 hash, bytes calldata signature)
+        internal
+        view
+        virtual
+        override(AbstractSigner, SignerECDSA)
+        returns (bool)
+    {
+        return SignerECDSA._rawSignatureValidation(hash, signature);
+    }
+
+    /// @dev Permit the canonical ERC-4337 EntryPoint (v0.8) to invoke
+    ///      {ERC7821.execute} in addition to the contract itself. Anyone else
+    ///      hits the `Account.AccountUnauthorized` revert in {ERC7821.execute}.
     function _erc7821AuthorizedExecutor(
         address caller,
         bytes32 mode,
         bytes calldata executionData
     ) internal view virtual override returns (bool) {
-        return caller == address(entryPoint()) || super._erc7821AuthorizedExecutor(caller, mode, executionData);
+        return caller == address(entryPoint())
+            || super._erc7821AuthorizedExecutor(caller, mode, executionData);
     }
 
-    // ──────────────── SimpleAccount-compatible execution ────────────────
-    //
-    // permissionless's `to7702SimpleSmartAccount` adapter encodes calls using
-    // eth-infinitism's SimpleAccount selectors:
-    //   execute(address,uint256,bytes)            → 0xb61d27f6
-    //   executeBatch((address,uint256,bytes)[])   → 0x34fcd5be
-    //
-    // OZ's ERC-7821 exposes a single `execute(bytes32 mode, bytes executionData)`
-    // dispatcher and doesn't expose those selectors. We add thin shims so the
-    // standard permissionless flow lands here without needing a custom
-    // smart-account adapter.
+    // ──────────────────────────────────────────────────────────────────
+    // Token receivers
+    // ──────────────────────────────────────────────────────────────────
 
-    struct Call {
-        address target;
-        uint256 value;
-        bytes data;
-    }
-
-    function execute(address target, uint256 value, bytes calldata data) external payable onlyEntryPointOrSelf {
-        (bool ok, bytes memory ret) = target.call{value: value}(data);
-        if (!ok) {
-            assembly { revert(add(ret, 0x20), mload(ret)) }
-        }
-    }
-
-    function executeBatch(Call[] calldata calls) external payable onlyEntryPointOrSelf {
-        for (uint256 i = 0; i < calls.length; ++i) {
-            (bool ok, bytes memory ret) = calls[i].target.call{value: calls[i].value}(calls[i].data);
-            if (!ok) {
-                assembly { revert(add(ret, 0x20), mload(ret)) }
-            }
-        }
-    }
-
-    // ──────────────── Token Receivers ────────────────
-
-    function onERC721Received(address, address, uint256, bytes calldata) external pure returns (bytes4) {
+    function onERC721Received(address, address, uint256, bytes calldata)
+        external
+        pure
+        override
+        returns (bytes4)
+    {
         return IERC721Receiver.onERC721Received.selector;
     }
 
-    function onERC1155Received(address, address, uint256, uint256, bytes calldata) external pure returns (bytes4) {
+    function onERC1155Received(address, address, uint256, uint256, bytes calldata)
+        external
+        pure
+        override
+        returns (bytes4)
+    {
         return IERC1155Receiver.onERC1155Received.selector;
     }
 
-    function onERC1155BatchReceived(address, address, uint256[] calldata, uint256[] calldata, bytes calldata) external pure returns (bytes4) {
+    function onERC1155BatchReceived(
+        address,
+        address,
+        uint256[] calldata,
+        uint256[] calldata,
+        bytes calldata
+    ) external pure override returns (bytes4) {
         return IERC1155Receiver.onERC1155BatchReceived.selector;
     }
 
-    // ──────────────── ERC-165 ────────────────
+    // ──────────────────────────────────────────────────────────────────
+    // ERC-165
+    // ──────────────────────────────────────────────────────────────────
 
-    function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
-        return
-            interfaceId == type(IERC721Receiver).interfaceId ||
-            interfaceId == type(IERC1155Receiver).interfaceId ||
-            interfaceId == type(IERC165).interfaceId;
+    function supportsInterface(bytes4 interfaceId) public pure virtual returns (bool) {
+        return interfaceId == type(IERC721Receiver).interfaceId
+            || interfaceId == type(IERC1155Receiver).interfaceId
+            || interfaceId == type(IERC1271).interfaceId
+            || interfaceId == type(IERC165).interfaceId;
     }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Receive ETH (resolves diamond inheritance with Account.receive)
+    // ──────────────────────────────────────────────────────────────────
+
+    receive() external payable override {}
 }

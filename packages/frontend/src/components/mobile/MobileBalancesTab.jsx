@@ -19,6 +19,8 @@ import InfoFiPositionsTab from "@/components/account/InfoFiPositionsTab";
  */
 const MobileBalancesTab = ({
   address,
+  addresses,
+  originLabels,
   sofBalance,
   rafflePositions,
   isLoadingRafflePositions = false,
@@ -137,7 +139,11 @@ const MobileBalancesTab = ({
         </TabsContent>
 
         <TabsContent value="infofi">
-          <InfoFiPositionsTab address={address} />
+          <InfoFiPositionsTab
+            address={address}
+            addresses={addresses}
+            originLabels={originLabels}
+          />
         </TabsContent>
 
         <TabsContent value="nfts">
@@ -157,6 +163,8 @@ const MobileBalancesTab = ({
 
 MobileBalancesTab.propTypes = {
   address: PropTypes.string,
+  addresses: PropTypes.arrayOf(PropTypes.string),
+  originLabels: PropTypes.objectOf(PropTypes.string),
   sofBalance: PropTypes.string.isRequired,
   isLoadingRafflePositions: PropTypes.bool,
   rafflePositions: PropTypes.arrayOf(

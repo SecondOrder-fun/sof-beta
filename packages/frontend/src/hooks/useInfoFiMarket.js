@@ -7,12 +7,15 @@ import { getContractAddresses } from '@/config/contracts';
 import { getStoredNetworkKey } from '@/lib/wagmi';
 import { InfoFiMarketFactoryAbi as InfoFiFactoryAbi, InfoFiMarketAbi, ERC20Abi } from '@/utils/abis';
 import { useSmartTransactions } from '@/hooks/useSmartTransactions';
+import { useRaffleAccount } from '@/hooks/useRaffleAccount';
 
 /**
  * Hook for interacting with InfoFi prediction markets
  */
 export function useInfoFiMarket(marketId) {
-  const { address, isConnected } = useAccount();
+  const { isConnected } = useAccount();
+  // SMA-bound read per spec §4.3 — InfoFi positions live at the SMA.
+  const { sma: address } = useRaffleAccount();
   const publicClient = usePublicClient();
   const { executeBatch } = useSmartTransactions();
   const queryClient = useQueryClient();

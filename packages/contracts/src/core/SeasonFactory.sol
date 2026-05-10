@@ -78,6 +78,9 @@ contract SeasonFactory is AccessControl {
             curve.grantRole(curve.ESCROW_ROLE(), rolloverEscrow);
         }
 
+        // Register the curve with Raffle so the paymaster can validate its target.
+        IRaffle(raffleAddress).registerCurve(curveAddr);
+
         emit SeasonContractsDeployed(seasonId, raffleTokenAddr, curveAddr);
     }
 

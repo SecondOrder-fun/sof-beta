@@ -77,6 +77,15 @@ export async function startContractEventPolling(params) {
       const currentBlock = await client.getBlockNumber();
 
       if (currentBlock < lastProcessedBlock) {
+        // Chain rewound below our cursor — almost always a local-dev Anvil
+        // restart while the backend kept running. Without this guard the poll
+        // is silently stuck forever (cursor never advances, new events at
+        // lower block numbers never get indexed). Reset to the current head
+        // so subsequent ticks resume normally.
+        lastProcessedBlock = currentBlock + 1n;
+        if (blockCursor) {
+          await blockCursor.set(currentBlock);
+        }
         return;
       }
 

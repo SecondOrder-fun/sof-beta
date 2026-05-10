@@ -47,7 +47,7 @@ import { getNetworkByKey } from "@/config/networks";
 import { getContractAddresses } from "@/config/contracts";
 import { ERC20Abi } from "@/utils/abis";
 import UsernameEditor from "@/components/account/UsernameEditor";
-import DailyClaimButton from "@/components/airdrop/DailyClaimButton";
+import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import PropTypes from "prop-types";
 
 /**
@@ -55,16 +55,22 @@ import PropTypes from "prop-types";
  * Replaces AccountMenu when wallet is connected
  */
 const SettingsMenu = ({ address, username, farcasterUser, onDisconnect }) => {
-  const { t } = useTranslation(["navigation", "account", "common"]);
+  const { t } = useTranslation(["navigation", "account", "common", "settings"]);
   const { i18n } = useTranslation();
   const { theme, setTheme } = useTheme();
-  const [copied, setCopied] = useState(false);
+  // Per-target copy state so the SMA + EOA copy buttons don't collide.
+  const [copiedTarget, setCopiedTarget] = useState(null);
   const [isUsernameDialogOpen, setIsUsernameDialogOpen] = useState(false);
 
   // Network configuration
   const netKey = getStoredNetworkKey();
   const net = getNetworkByKey(netKey);
   const contracts = getContractAddresses(netKey);
+
+  // Balance reads resolve at the user's smart account, not the EOA
+  // (spec §4.3). The `address` prop above is retained for the displayed /
+  // copyable address that the user sees in the menu.
+  const { eoa, sma, walletType, isReady } = useRaffleAccount();
 
   // Create viem client for balance query
   const client = useMemo(() => {
@@ -79,16 +85,16 @@ const SettingsMenu = ({ address, username, farcasterUser, onDisconnect }) => {
     });
   }, [net.id, net.name, net.rpcUrl]);
 
-  // SOF balance query
+  // SOF balance query — keyed on SMA
   const sofBalanceQuery = useQuery({
-    queryKey: ["sofBalance", netKey, contracts.SOF, address],
-    enabled: !!client && !!contracts.SOF && !!address,
+    queryKey: ["sofBalance", netKey, contracts.SOF, sma],
+    enabled: !!client && !!contracts.SOF && !!sma,
     queryFn: async () => {
       const bal = await client.readContract({
         address: contracts.SOF,
         abi: ERC20Abi,
         functionName: "balanceOf",
-        args: [address],
+        args: [sma],
       });
       return bal;
     },
@@ -106,25 +112,23 @@ const SettingsMenu = ({ address, username, farcasterUser, onDisconnect }) => {
   }, [sofBalanceQuery.data]);
 
   // Address formatting
-  const truncatedAddress = address
-    ? `${address.slice(0, 6)}...${address.slice(-4)}`
-    : "";
+  const shortenAddress = (addr) =>
+    addr ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : "";
 
-  const handleCopyAddress = async (e) => {
+  const copyToClipboard = (target, value) => async (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (address) {
-      await navigator.clipboard.writeText(address);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
+    if (!value) return;
+    await navigator.clipboard.writeText(value);
+    setCopiedTarget(target);
+    setTimeout(() => setCopiedTarget(null), 2000);
   };
 
-  const handleOpenExplorer = (e) => {
+  const openExplorer = (value) => (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (net.explorer && address) {
-      window.open(`${net.explorer}/address/${address}`, "_blank");
+    if (net.explorer && value) {
+      window.open(`${net.explorer}/address/${value}`, "_blank");
     }
   };
 
@@ -165,10 +169,6 @@ const SettingsMenu = ({ address, username, farcasterUser, onDisconnect }) => {
             )}
           </div>
 
-          <div className="px-2 py-1.5">
-            <DailyClaimButton />
-          </div>
-
           <DropdownMenuSeparator />
 
           {/* Username */}
@@ -184,62 +184,161 @@ const SettingsMenu = ({ address, username, farcasterUser, onDisconnect }) => {
             </div>
           </DropdownMenuItem>
 
-          {/* Address with tooltip, copy, and explorer link */}
-          <div className="px-2 py-1.5">
-            <div className="flex items-center justify-between">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="text-xs font-mono text-muted-foreground cursor-default">
-                    {truncatedAddress}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="left">
-                  <span className="font-mono text-xs">{address}</span>
-                </TooltipContent>
-              </Tooltip>
-              <div className="flex items-center gap-1">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="icon"
-                      onClick={handleCopyAddress}
-                      aria-label={t("common:copyToClipboard", "Copy to clipboard")}
-                    >
-                      {copied ? (
-                        <Check className="h-3.5 w-3.5" />
-                      ) : (
-                        <Copy className="h-3.5 w-3.5" />
+          {/* Account section — addresses moved here from the header per
+              spec §4.5 / plan task 5.10. Shows the gameplay-bearing SMA
+              with a copy button (and explorer link). For desktop-EOA
+              wallets we also surface the underlying signer EOA dimmed; for
+              Coinbase / Farcaster wallets the SMA == EOA so the second
+              line is suppressed. */}
+          {isReady && (sma || eoa) && (
+            <>
+              <DropdownMenuLabel className="text-muted-foreground text-xs font-normal">
+                {t("settings:account.section", "Account")}
+              </DropdownMenuLabel>
+              {sma && (
+                <div className="px-2 py-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex flex-col">
+                      <span className="text-xs text-muted-foreground">
+                        {t("settings:account.smartAccount", "Smart Account")}
+                      </span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="text-sm font-mono cursor-default">
+                            {shortenAddress(sma)}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="left">
+                          <span className="font-mono text-xs">{sma}</span>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="icon"
+                            onClick={copyToClipboard("sma", sma)}
+                            aria-label={t(
+                              "settings:account.copyTooltip",
+                              "Copy address"
+                            )}
+                          >
+                            {copiedTarget === "sma" ? (
+                              <Check className="h-3.5 w-3.5" />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {copiedTarget === "sma"
+                            ? t("common:copied", "Copied!")
+                            : t(
+                                "settings:account.copyTooltip",
+                                "Copy address"
+                              )}
+                        </TooltipContent>
+                      </Tooltip>
+                      {net.explorer && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size="icon"
+                              onClick={openExplorer(sma)}
+                              aria-label={t(
+                                "common:viewOnExplorer",
+                                "View on block explorer"
+                              )}
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {t(
+                              "common:viewOnExplorer",
+                              "View on block explorer"
+                            )}
+                          </TooltipContent>
+                        </Tooltip>
                       )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {copied
-                      ? t("common:copied", "Copied!")
-                      : t("common:copyToClipboard", "Copy to clipboard")}
-                  </TooltipContent>
-                </Tooltip>
-                {net.explorer && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        size="icon"
-                        onClick={handleOpenExplorer}
-                        aria-label={t(
-                          "common:viewOnExplorer",
-                          "View on block explorer"
-                        )}
-                      >
-                        <ExternalLink className="h-3.5 w-3.5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t("common:viewOnExplorer", "View on block explorer")}
-                    </TooltipContent>
-                  </Tooltip>
-                )}
-              </div>
-            </div>
-          </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {walletType === "desktop-eoa" && eoa && eoa !== sma && (
+                <div className="px-2 py-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex flex-col">
+                      <span className="text-xs text-muted-foreground">
+                        {t("settings:account.signer", "Signer (EOA)")}
+                      </span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="text-xs font-mono text-muted-foreground cursor-default">
+                            {shortenAddress(eoa)}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="left">
+                          <span className="font-mono text-xs">{eoa}</span>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="icon"
+                            onClick={copyToClipboard("eoa", eoa)}
+                            aria-label={t(
+                              "settings:account.copyTooltip",
+                              "Copy address"
+                            )}
+                          >
+                            {copiedTarget === "eoa" ? (
+                              <Check className="h-3.5 w-3.5" />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {copiedTarget === "eoa"
+                            ? t("common:copied", "Copied!")
+                            : t(
+                                "settings:account.copyTooltip",
+                                "Copy address"
+                              )}
+                        </TooltipContent>
+                      </Tooltip>
+                      {net.explorer && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size="icon"
+                              onClick={openExplorer(eoa)}
+                              aria-label={t(
+                                "common:viewOnExplorer",
+                                "View on block explorer"
+                              )}
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {t(
+                              "common:viewOnExplorer",
+                              "View on block explorer"
+                            )}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
 
           <DropdownMenuSeparator />
 

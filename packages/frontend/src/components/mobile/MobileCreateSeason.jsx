@@ -18,8 +18,7 @@ import {
   useWorkflow,
 } from "@/components/ui/workflow";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
-import { AdminAuthProvider } from "@/context/AdminAuthContext";
-import { useAdminAuth } from "@/hooks/useAdminAuth";
+import { useAppAuth } from "@/hooks/useAppAuth";
 import { useSponsorStaking } from "@/hooks/useSponsorStaking";
 import { useRaffleWrite } from "@/hooks/useRaffleWrite";
 import { useChainTime } from "@/hooks/useChainTime";
@@ -92,13 +91,15 @@ CurvePresetSelector.propTypes = {
 };
 
 /**
- * Inner workflow — requires AdminAuthProvider above.
+ * Inner workflow — reads global auth state from AppAuthProvider (mounted in main.jsx).
  */
 function MobileCreateSeasonInner() {
   const { t } = useTranslation("raffle");
   const navigate = useNavigate();
   const { address, isConnected } = useAccount();
-  const { isAuthenticated, isLoading: isAuthLoading, error: authError, login } = useAdminAuth();
+  const { status: authStatus, error: authError } = useAppAuth();
+  const isAuthenticated = authStatus === "authenticated";
+  const isAuthLoading = authStatus === "signing" || authStatus === "verifying";
   const { isSponsor, isLoading: isSponsorLoading } = useSponsorStaking();
   const { createSeason } = useRaffleWrite();
   const safeArea = useSafeArea();
@@ -258,16 +259,14 @@ function MobileCreateSeasonInner() {
     );
   }
 
-  // Auth gate
+  // Auth gate — auto-SIWE handles authentication on connect. If we're not
+  // authenticated here, either the wallet isn't connected, or the user
+  // rejected the popup (in which case SignInRetryBanner is showing site-wide).
   if (!isAuthenticated) {
     return (
-      <div className="flex flex-col items-center justify-center p-6 text-center gap-4">
-        <Crown className="h-8 w-8 text-primary" />
-        <p className="text-muted-foreground">{t("signToCreate")}</p>
-        <Button onClick={login} disabled={isAuthLoading} size="lg">
-          {isAuthLoading ? t("signing") : t("signInToCreate")}
-        </Button>
-        {authError && <p className="text-sm text-destructive">{authError}</p>}
+      <div className="px-4 py-8 text-center text-muted-foreground">
+        {isAuthLoading ? t("createSeason.signingIn") : t("createSeason.connectWalletPrompt")}
+        {authError && <p className="mt-2 text-sm text-destructive">{authError}</p>}
       </div>
     );
   }
@@ -436,14 +435,8 @@ Step2Nav.propTypes = {
 };
 
 /**
- * Public component — wraps with AdminAuthProvider.
+ * Public component.
  */
-const MobileCreateSeason = () => {
-  return (
-    <AdminAuthProvider>
-      <MobileCreateSeasonInner />
-    </AdminAuthProvider>
-  );
-};
+const MobileCreateSeason = () => <MobileCreateSeasonInner />;
 
 export default MobileCreateSeason;

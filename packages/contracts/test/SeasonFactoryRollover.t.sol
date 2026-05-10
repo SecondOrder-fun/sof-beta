@@ -28,6 +28,7 @@ contract SeasonFactoryRolloverTest is Test {
         raffle = new Raffle(address(sof), address(0xCAFE), 1, bytes32(0));
         seasonFactory = new SeasonFactory(address(raffle));
         raffle.setSeasonFactory(address(seasonFactory));
+        raffle.grantRole(raffle.SEASON_FACTORY_ROLE(), address(seasonFactory));
 
         distributor = new RafflePrizeDistributor(admin);
         distributor.grantRole(distributor.RAFFLE_ROLE(), address(raffle));

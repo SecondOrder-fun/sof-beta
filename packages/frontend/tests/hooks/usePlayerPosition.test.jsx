@@ -15,6 +15,15 @@ vi.mock("wagmi", () => ({
   })),
 }));
 
+vi.mock("@/hooks/useRaffleAccount", () => ({
+  useRaffleAccount: vi.fn(() => ({
+    eoa: TEST_ADDRESS,
+    sma: TEST_ADDRESS,
+    walletType: "desktop-eoa",
+    isReady: true,
+  })),
+}));
+
 vi.mock("@/lib/wagmi", () => ({
   getStoredNetworkKey: () => "TESTNET",
 }));
@@ -40,6 +49,14 @@ describe("usePlayerPosition", () => {
       address: TEST_ADDRESS,
       isConnected: true,
       ...overrides,
+    });
+
+    const { useRaffleAccount } = await import("@/hooks/useRaffleAccount");
+    useRaffleAccount.mockReturnValue({
+      eoa: overrides.address ?? TEST_ADDRESS,
+      sma: overrides.address ?? TEST_ADDRESS,
+      walletType: "desktop-eoa",
+      isReady: !!(overrides.address ?? TEST_ADDRESS),
     });
 
     vi.doMock("@/lib/viemClient", () => ({

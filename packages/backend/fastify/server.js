@@ -12,6 +12,8 @@ import { startMarketCreatedListener } from "../src/listeners/marketCreatedListen
 import { startTradeListener } from "../src/listeners/tradeListener.js";
 import { startSponsorHatListener } from "../src/listeners/sponsorHatListener.js";
 import { startRolloverEventListener } from "../src/listeners/rolloverEventListener.js";
+import { startAccountCreatedListener } from "../src/listeners/accountCreatedListener.js";
+import { getDeployment } from "@sof/contracts/deployments";
 import { infoFiPositionService } from "../src/services/infoFiPositionService.js";
 import { historicalOddsService } from "../shared/historicalOddsService.js";
 import { RaffleABI as raffleAbi, SOFBondingCurveABI as sofBondingCurveAbi, InfoFiMarketFactoryABI as infoFiMarketFactoryAbi, SimpleFPMMABI as simpleFpmmAbi } from '@sof/contracts';
@@ -308,6 +310,7 @@ let unwatchSeasonStarted;
 let unwatchSeasonCompleted;
 let unwatchMarketCreated;
 let unwatchRollover;
+let unwatchAccountCreated;
 const positionUpdateListeners = new Map(); // Map of seasonId -> unwatch function
 const tradeListeners = new Map(); // Map of fpmmAddress -> unwatch function
 
@@ -532,6 +535,32 @@ async function startListeners() {
         `❌ Failed to start RolloverEventListener: ${error.message}`
       );
     }
+
+    // Start AccountCreated listener — stamps smart_accounts.deployed_at
+    // when SOFSmartAccountFactory deploys an SMA via UserOp initCode.
+    // Per gasless-rewrite spec §5.5.
+    try {
+      const factoryAddress =
+        getDeployment(NETWORK.toLowerCase()).SOFSmartAccountFactory;
+      if (
+        factoryAddress &&
+        factoryAddress !== "0x0000000000000000000000000000000000000000"
+      ) {
+        unwatchAccountCreated = await startAccountCreatedListener(
+          factoryAddress,
+          app.log,
+        );
+        app.log.info("✅ AccountCreatedListener started");
+      } else {
+        app.log.warn(
+          "⚠️  SOFSmartAccountFactory not in deployments — AccountCreated listener skipped",
+        );
+      }
+    } catch (error) {
+      app.log.error(
+        `❌ Failed to start AccountCreatedListener: ${error.message}`,
+      );
+    }
   } catch (error) {
     app.log.error("Failed to start listeners:", error);
     // Don't crash server, but log the error
@@ -687,6 +716,11 @@ async function shutdown(signal) {
     if (unwatchRollover) {
       unwatchRollover();
       app.log.info("Stopped Rollover listener");
+    }
+
+    if (unwatchAccountCreated) {
+      unwatchAccountCreated();
+      app.log.info("Stopped AccountCreated listener");
     }
 
     // Stop all PositionUpdate listeners

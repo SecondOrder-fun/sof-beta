@@ -70,6 +70,16 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
     uint32 public defaultMaxParticipants = 10000;
     uint32 public constant ABSOLUTE_MAX_PARTICIPANTS = 50000;
 
+    // SOF curve registry — SeasonFactory registers each newly deployed curve
+    // so the gasless paymaster can validate per-season curve targets.
+    // Role declared here (rather than in RaffleStorage) because it is only
+    // referenced by Raffle itself; SeasonFactory will be granted this role
+    // post-deploy. See spec §3.4.
+    bytes32 public constant SEASON_FACTORY_ROLE = keccak256("SEASON_FACTORY_ROLE");
+    mapping(address => bool) public sofCurves;
+
+    event SofCurveRegistered(address indexed curve);
+
     // Core
     IERC20 public immutable sofToken;
     ISeasonFactory public seasonFactory;
@@ -154,6 +164,25 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         uint256 oldHatId = sponsorHatId;
         sponsorHatId = _hatId;
         emit SponsorHatUpdated(oldHatId, _hatId);
+    }
+
+    /**
+     * @notice Register a freshly deployed SOFBondingCurve as a known SOF curve.
+     * @dev Called by SeasonFactory immediately after curve deployment. The
+     *      gasless paymaster reads `isSofCurve` to gate sponsored buy/sell
+     *      transactions to per-season curves. See spec §3.4.
+     * @param curve The curve address to register.
+     */
+    function registerCurve(address curve) external onlyRole(SEASON_FACTORY_ROLE) {
+        sofCurves[curve] = true;
+        emit SofCurveRegistered(curve);
+    }
+
+    /**
+     * @notice Returns true if `curve` was registered via `registerCurve`.
+     */
+    function isSofCurve(address curve) external view returns (bool) {
+        return sofCurves[curve];
     }
 
     /**

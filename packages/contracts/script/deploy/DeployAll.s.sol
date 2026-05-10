@@ -19,16 +19,16 @@ import {DeployInfoFiFactory} from "./09_DeployInfoFiFactory.s.sol";
 import {DeploySettlement} from "./10_DeploySettlement.s.sol";
 import {DeployDistributor} from "./11_DeployDistributor.s.sol";
 import {DeployFaucet} from "./12_DeployFaucet.s.sol";
-import {DeploySOFSmartAccount} from "./13_DeploySOFSmartAccount.s.sol";
+import {DeploySOFSmartAccountFactory} from "./13_DeploySOFSmartAccountFactory.s.sol";
 import {ConfigureRoles} from "./14_ConfigureRoles.s.sol";
 import {DeployPaymaster} from "./15_DeployPaymaster.s.sol";
 import {DeployRolloverEscrow} from "./16_DeployRolloverEscrow.s.sol";
 import {DeployUSDCMock} from "./17_DeployUSDCMock.s.sol";
 import {DeploySOFExchange} from "./18_DeploySOFExchange.s.sol";
-import {DeploySOFAirdrop} from "./19_DeploySOFAirdrop.s.sol";
 import {RafflePrizeDistributor} from "../../src/core/RafflePrizeDistributor.sol";
 import {RolloverEscrow} from "../../src/core/RolloverEscrow.sol";
 import {SeasonFactory} from "../../src/core/SeasonFactory.sol";
+import {SOFPaymaster} from "../../src/paymaster/SOFPaymaster.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract DeployAll is Script {
@@ -88,8 +88,8 @@ contract DeployAll is Script {
         console2.log("=== 12: SOFFaucet ===");
         addrs = new DeployFaucet().run(addrs);
 
-        console2.log("=== 13: SOFSmartAccount ===");
-        addrs = new DeploySOFSmartAccount().run(addrs);
+        console2.log("=== 13: SOFSmartAccountFactory ===");
+        addrs = new DeploySOFSmartAccountFactory().run(addrs);
 
         console2.log("=== 14: ConfigureRoles ===");
         addrs = new ConfigureRoles().run(addrs);
@@ -106,8 +106,26 @@ contract DeployAll is Script {
         console2.log("=== 18: SOFExchange ===");
         addrs = new DeploySOFExchange().run(addrs);
 
-        console2.log("=== 19: SOFAirdrop ===");
-        addrs = new DeploySOFAirdrop().run(addrs);
+        // --- 18b: Late-bound paymaster allowlist entries ---
+        // RolloverEscrow (step 16) and SOFExchange (step 18) deploy AFTER the
+        // paymaster (step 15), so 15_DeployPaymaster.s.sol cannot include them
+        // in the constructor's initialAllowlist. Wire them in now via
+        // setAllowlisted (deployer holds ADMIN_ROLE from the paymaster ctor).
+        // This completes the spec §3.3 static allowlist of 8 targets.
+        console2.log("=== 18b: Wire late paymaster allowlist (RolloverEscrow, SOFExchange) ===");
+        {
+            SOFPaymaster paymaster = SOFPaymaster(addrs.paymasterAddress);
+            vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
+            if (addrs.rolloverEscrow != address(0)) {
+                paymaster.setAllowlisted(addrs.rolloverEscrow, true);
+                console2.log("Allowlisted RolloverEscrow on Paymaster");
+            }
+            if (addrs.sofExchange != address(0)) {
+                paymaster.setAllowlisted(addrs.sofExchange, true);
+                console2.log("Allowlisted SOFExchange on Paymaster");
+            }
+            vm.stopBroadcast();
+        }
 
         console2.log("=== 16b: Wire RolloverEscrow roles ===");
         {
@@ -166,9 +184,10 @@ contract DeployAll is Script {
         else networkName = "unknown";
 
         // Read existing file to preserve non-managed keys.
-        // Note: SOFExchange / SOFAirdrop / USDC moved into the managed set in
-        // 0.25.0 (deploy steps 17-19). SOFBondingCurve / SeasonGating /
-        // VRFCoordinator are still hand-maintained for non-local deploys.
+        // Note: SOFExchange / USDC moved into the managed set in 0.25.0
+        // (deploy steps 17-18; SOFAirdrop step 19 was deleted in the gasless
+        // rewrite). SOFBondingCurve / SeasonGating / VRFCoordinator are still
+        // hand-maintained for non-local deploys.
         string[3] memory preserveKeys = ["SOFBondingCurve", "SeasonGating", "VRFCoordinator"];
         string[3] memory preserveVals;
 
@@ -218,7 +237,7 @@ contract DeployAll is Script {
             '    "InfoFiSettlement": "', vm.toString(addrs.infoFiSettlement), '",\n',
             '    "PrizeDistributor": "', vm.toString(addrs.prizeDistributor), '",\n',
             '    "SOFFaucet": "', vm.toString(addrs.faucet), '",\n',
-            '    "SOFSmartAccount": "', vm.toString(addrs.sofSmartAccount), '",\n',
+            '    "SOFSmartAccountFactory": "', vm.toString(addrs.sofSmartAccountFactory), '",\n',
             '    "Paymaster": "', vm.toString(addrs.paymasterAddress), '",\n',
             '    "RolloverEscrow": "', vm.toString(addrs.rolloverEscrow), '",\n'
         );
@@ -226,7 +245,6 @@ contract DeployAll is Script {
             // Newly managed addresses (0.25.0). USDC may be address(0) on
             // non-local until HelperConfig grows a per-network USDC field.
             '    "SOFExchange": "', vm.toString(addrs.sofExchange), '",\n',
-            '    "SOFAirdrop": "', vm.toString(addrs.sofAirdrop), '",\n',
             '    "USDC": "', vm.toString(addrs.usdc), '"',
             preservedSection,
             '\n  }\n}'

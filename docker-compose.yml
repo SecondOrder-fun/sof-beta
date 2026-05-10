@@ -1,8 +1,30 @@
-# Local development services for SecondOrder.fun
+# Local development infrastructure for SecondOrder.fun.
+#
+# Scope: services that mirror the testnet/prod architecture.
+#   - anvil:           local L2 (replaces Base on testnet/mainnet)
+#   - redis:           cache + paymaster session store (mirrors Railway/Upstash)
+#   - deploy-contracts: one-shot Foundry deploy (no equivalent in prod — runs once
+#                       per fresh Anvil; on testnet/mainnet you run forge from
+#                       the host with the testnet RPC instead)
+#
+# What is NOT here:
+#   - postgres: in prod we use the Supabase project's managed postgres. Locally
+#               that role is filled by the supabase CLI (`supabase start`),
+#               which runs its own postgres on port 54322 and exposes the REST
+#               API on 54321. The backend talks to supabase via REST + service-
+#               role key, not via direct postgres URL.
+#   - backend:  in prod the backend runs as a node process on Railway. Locally
+#               we run it the same way via scripts/local-dev.sh (step 8) so the
+#               execution shape stays identical to prod. A docker `backend`
+#               service was previously stubbed here but never worked (no
+#               node_modules in the image) — removed for clarity.
+#
 # Usage:
-#   docker compose up -d            # Start everything (deploys contracts automatically)
-#   cd packages/frontend && npm run dev  # Start frontend
-#   docker compose down -v          # Stop and clean up
+#   ./scripts/local-dev.sh              # full stack up (compose + supabase + backend + frontend)
+#   docker compose down -v              # tear down compose layer only
+#
+# To bring up just the chain layer for a quick smoke:
+#   docker compose up -d anvil redis    # then `node scripts/setup-local-aa.js` to inject EntryPoint v0.8
 
 services:
   anvil:
@@ -44,33 +66,16 @@ services:
       retries: 5
     restart: unless-stopped
 
-  postgres:
-    image: postgres:15-alpine
-    ports:
-      - "5432:5432"
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: sof_local
-    volumes:
-      - ./docker/supabase/init.sql:/docker-entrypoint-initdb.d/01-init.sql
-      # 02-seed.sql adds local-only admins (Anvil Account[0]). Mounted from
-      # supabase/seed.sql so the supabase CLI and docker-compose share the
-      # same source. Postgres runs entrypoint .sql files in alphabetical order.
-      - ./supabase/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 2s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
   deploy-contracts:
     image: ghcr.io/foundry-rs/foundry:latest
     volumes:
       - .:/app
     working_dir: /app/packages/contracts
     entrypoint: ["sh", "-c"]
+    # --slow forces one tx per block. Without it the batched broadcast stalls
+    # mid-deploy on local Anvil (deployer nonce 29 of 43; receipt-poller hangs
+    # forever). Same flag the testnet deploy uses for delegated EOAs — it makes
+    # both paths share a single command shape.
     command:
       - |
         echo "[deploy] Building contracts..."
@@ -81,43 +86,10 @@ services:
         forge script script/deploy/DeployAll.s.sol:DeployAll \
           --rpc-url http://anvil:8545 \
           --broadcast \
-          --force \
-          --skip-simulation && \
+          --slow \
+          --force && \
         echo "[deploy] Contracts deployed successfully" || \
         echo "[deploy] WARNING: Contract deployment failed"
     depends_on:
       anvil:
         condition: service_healthy
-
-  backend:
-    image: node:22-alpine
-    working_dir: /app
-    ports:
-      - "3000:3000"
-    volumes:
-      - .:/app
-    command: ["node", "packages/backend/fastify/server.js"]
-    environment:
-      NETWORK: LOCAL
-      PORT: "3000"
-      NODE_ENV: development
-      RPC_URL: http://anvil:8545
-      REDIS_URL: redis://redis:6379
-      SUPABASE_URL: ""
-      SUPABASE_DB_URL: postgresql://postgres:postgres@postgres:5432/sof_local
-      SUPABASE_ANON_KEY: ""
-      SUPABASE_SERVICE_ROLE_KEY: ""
-      BACKEND_WALLET_PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-      BACKEND_WALLET_ADDRESS: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-      JWT_SECRET: local-dev-jwt-secret-do-not-use-in-production
-      JWT_EXPIRES_IN: 7d
-      CORS_ORIGINS: "http://localhost:5174,http://127.0.0.1:5174"
-      SIWF_ALLOWED_DOMAINS: "localhost,127.0.0.1"
-    depends_on:
-      deploy-contracts:
-        condition: service_completed_successfully
-      redis:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-    restart: unless-stopped

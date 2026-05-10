@@ -48,6 +48,7 @@ import {SOFBondingCurve} from "../src/curve/SOFBondingCurve.sol";
 import {RaffleTypes} from "../src/lib/RaffleTypes.sol";
 import {ISeasonFactory} from "../src/lib/ISeasonFactory.sol";
 import {RaffleToken} from "../src/token/RaffleToken.sol";
+import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
 
 contract RaffleTest is Test {
     Raffle public raffle;
@@ -306,5 +307,78 @@ contract MockERC20 {
         allowance[from][msg.sender] -= amount;
         emit Transfer(from, to, amount);
         return true;
+    }
+}
+
+// ── SOF curve registry tests (Task 1.7) ───────────────────────────────────
+// Covers Raffle.registerCurve / Raffle.isSofCurve added in Task 1.8
+// (spec §3.4). The SEASON_FACTORY_ROLE is a distinct role from the existing
+// SEASON_CREATOR_ROLE / BONDING_CURVE_ROLE — only the SeasonFactory may
+// register a deployed bonding curve so the SOFPaymaster can validate it.
+contract RaffleSofCurveRegistryTest is Test {
+    /// @dev Mirrors the event Task 1.8 will declare on Raffle. Test-local
+    ///      declaration suffices for vm.expectEmit's selector lookup.
+    event SofCurveRegistered(address indexed curve);
+
+    Raffle public raffle;
+    MockERC20 public sof;
+    address public seasonFactory = address(0xF0F0);
+    bytes32 public constant SEASON_FACTORY_ROLE = keccak256("SEASON_FACTORY_ROLE");
+
+    function setUp() public {
+        // Minimal deploy — same constructor signature as RaffleTest above
+        // (sofToken, vrfCoordinator, subId, keyHash). The deployer (this test
+        // contract) is granted DEFAULT_ADMIN_ROLE in the Raffle constructor,
+        // so we can grant SEASON_FACTORY_ROLE here.
+        sof = new MockERC20("SOF Token", "SOF", 18);
+        address mockCoordinator = address(0x1);
+        raffle = new Raffle(address(sof), mockCoordinator, 0, bytes32(0));
+
+        raffle.grantRole(SEASON_FACTORY_ROLE, seasonFactory);
+    }
+
+    function test_registerCurve_onlySeasonFactory() public {
+        address bad = address(0xBAD);
+        vm.prank(bad);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector,
+                bad,
+                SEASON_FACTORY_ROLE
+            )
+        );
+        raffle.registerCurve(address(0xC0));
+    }
+
+    function test_registerCurve_marksAsSofCurve() public {
+        address curve = address(0xC0);
+
+        // Pin both the storage flip AND the event emission. Off-chain
+        // consumers (paymaster proxies, indexers) subscribe to
+        // SofCurveRegistered to track curve liveness; if the impl drops
+        // the emit, no other test catches it.
+        vm.expectEmit(true, false, false, true, address(raffle));
+        emit SofCurveRegistered(curve);
+
+        vm.prank(seasonFactory);
+        raffle.registerCurve(curve);
+        assertTrue(raffle.isSofCurve(curve));
+    }
+
+    function test_registerCurve_tracksMultipleCurvesIndependently() public {
+        address curveA = address(0xC0);
+        address curveB = address(0xC1);
+
+        vm.startPrank(seasonFactory);
+        raffle.registerCurve(curveA);
+        raffle.registerCurve(curveB);
+        vm.stopPrank();
+
+        assertTrue(raffle.isSofCurve(curveA));
+        assertTrue(raffle.isSofCurve(curveB));
+    }
+
+    function test_isSofCurve_returnsFalseForUnregistered() public view {
+        assertFalse(raffle.isSofCurve(address(0xDEAD)));
     }
 }

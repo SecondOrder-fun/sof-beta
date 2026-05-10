@@ -2,61 +2,69 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {SOFPaymaster, InvalidSigner} from "../src/paymaster/SOFPaymaster.sol";
-import {IEntryPoint, IPaymaster, PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
-import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {SOFPaymaster} from "src/paymaster/SOFPaymaster.sol";
+import {SOFSmartAccountFactory} from "src/account/SOFSmartAccountFactory.sol";
+import {SOFSmartAccount} from "src/account/SOFSmartAccount.sol";
+import {Raffle} from "src/core/Raffle.sol";
+import {SOFToken} from "src/token/SOFToken.sol";
+import {ERC7821} from "@openzeppelin/contracts/account/extensions/draft-ERC7821.sol";
+import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
+import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 
-/// @dev Minimal mock EntryPoint that implements the subset of IEntryPoint used by SOFPaymaster.
-contract MockEntryPoint {
-    mapping(address => uint256) public deposits;
-
-    function depositTo(address account) external payable {
-        deposits[account] += msg.value;
-    }
-
-    function withdrawTo(address payable withdrawAddress, uint256 withdrawAmount) external {
-        require(deposits[msg.sender] >= withdrawAmount, "insufficient deposit");
-        deposits[msg.sender] -= withdrawAmount;
-        (bool success,) = withdrawAddress.call{value: withdrawAmount}("");
-        require(success, "transfer failed");
-    }
-
-    function balanceOf(address account) external view returns (uint256) {
-        return deposits[account];
-    }
-
-    // Stub functions to satisfy IEntryPoint interface if needed — not called in tests
-    function getNonce(address, uint192) external pure returns (uint256) { return 0; }
-    function addStake(uint32) external payable {}
-    function unlockStake() external {}
-    function withdrawStake(address payable) external {}
-    function handleOps(PackedUserOperation[] calldata, address payable) external {}
-
-    receive() external payable {}
-}
-
+/// @title SOFPaymasterTest
+/// @notice TDD red-phase tests for the rewritten SOFPaymaster (Task 1.11).
+/// @dev    Per spec §3.3, the paymaster sponsors UserOps where:
+///           1. `sender` is a SOFSmartAccount the factory would have deployed
+///              for `SOFSmartAccount(sender).signer()` (factory-counterfactual
+///              identity). Reads `factory.getAddress(account.signer())` and
+///              compares to `sender`.
+///           2. Every call target inside the user's batched callData is in the
+///              static allowlist OR `raffle.isSofCurve(target) == true`.
+///         The new constructor signature is:
+///           `(address _entryPoint, address _factory, address _raffle, address[] memory initialAllowlist)`.
+///         These tests will not compile/run successfully until Task 1.11
+///         rewrites SOFPaymaster.sol — that is the desired TDD red state.
 contract SOFPaymasterTest is Test {
-    using MessageHashUtils for bytes32;
+    /// @dev ERC-7821 single batch mode: CallType 0x01 in the high byte, all
+    ///      other bytes zero. This is the only mode OZ ERC7821 supports.
+    bytes32 internal constant ERC7821_BATCH_MODE =
+        bytes32(hex"0100000000000000000000000000000000000000000000000000000000000000");
 
-    SOFPaymaster public paymaster;
-    MockEntryPoint public entryPoint;
+    SOFPaymaster internal paymaster;
+    SOFSmartAccountFactory internal factory;
+    Raffle internal raffle;
+    SOFToken internal sof;
 
-    address public owner;
-    address public signer;
-    uint256 public signerPk;
-    address public user;
+    /// @dev EntryPoint stand-in. The new paymaster only requires that
+    ///      `validatePaymasterUserOp` reverts unless `msg.sender == entryPoint`,
+    ///      so we don't need a real EntryPoint contract here.
+    address internal entryPoint = address(0xEEEE);
+
+    address internal constant EOA_OWNER = address(0x0E0A);
+    address internal constant RANDOM_CURVE = address(0xBADC0DE);
+    address internal constant NON_ALLOWLISTED_TARGET = address(0xBEEF);
+    address internal constant VRF_COORDINATOR_PLACEHOLDER = address(0xC00D);
 
     function setUp() public {
-        owner = address(this);
-        (signer, signerPk) = makeAddrAndKey("signer");
-        user = makeAddr("user");
+        // Real SOFToken so allowlist entries are non-zero, real addresses.
+        sof = new SOFToken("SecondOrder Fun Token", "SOF", 1_000_000 ether);
 
-        entryPoint = new MockEntryPoint();
+        // Real Raffle so we can exercise registerCurve / isSofCurve. The mock
+        // VRF coordinator address is fine — the paymaster path doesn't touch
+        // VRF. Pattern mirrors test/SeasonFactoryRollover.t.sol:28.
+        raffle = new Raffle(address(sof), VRF_COORDINATOR_PLACEHOLDER, 0, bytes32(0));
+
+        factory = new SOFSmartAccountFactory();
+
+        address[] memory initialAllowlist = new address[](2);
+        initialAllowlist[0] = address(raffle);
+        initialAllowlist[1] = address(sof);
+
         paymaster = new SOFPaymaster(
-            IEntryPoint(address(entryPoint)),
-            signer,
-            owner
+            entryPoint,
+            address(factory),
+            address(raffle),
+            initialAllowlist
         );
     }
 
@@ -64,255 +72,135 @@ contract SOFPaymasterTest is Test {
     // Helpers
     // ──────────────────────────────────────────────────────────────────
 
-    /// @dev Build a minimal PackedUserOperation with the given paymasterAndData.
-    function _buildUserOp(bytes memory paymasterAndData) internal view returns (PackedUserOperation memory) {
-        return PackedUserOperation({
-            sender: user,
-            nonce: 0,
-            initCode: "",
-            callData: "",
-            accountGasLimits: bytes32(0),
-            preVerificationGas: 0,
-            gasFees: bytes32(0),
-            paymasterAndData: paymasterAndData,
-            signature: ""
-        });
+    /// @dev Build the SMA's outer callData for a single-target inner call by
+    ///      wrapping it in a 1-element ERC-7821 batch. OZ ERC7821 only
+    ///      supports batch mode, so even a "single call" must be encoded as
+    ///      `Execution[]` of length 1.
+    function _singleCallBatch(address target) internal pure returns (bytes memory) {
+        Execution[] memory calls = new Execution[](1);
+        calls[0] = Execution({target: target, value: 0, callData: ""});
+        return abi.encodeCall(ERC7821.execute, (ERC7821_BATCH_MODE, abi.encode(calls)));
     }
 
-    /// @dev Build valid paymasterAndData by signing the contract-side `getHash`.
-    ///      The userOp must be passed in with the paymasterAndData prefix already
-    ///      populated so `getHash` can hash `paymasterAndData[0:52]` correctly.
-    function _signPaymasterData(
-        PackedUserOperation memory userOp,
-        uint48 validUntil,
-        uint48 validAfter
-    ) internal view returns (bytes memory) {
-        bytes32 hash = paymaster.getHash(userOp, validUntil, validAfter);
-        bytes32 ethSignedHash = hash.toEthSignedMessageHash();
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerPk, ethSignedHash);
-
-        // Layout: paymaster(20) + verificationGasLimit(16) + postOpGasLimit(16)
-        //       + validUntil(6) + validAfter(6) + sig(65) = 129
-        return abi.encodePacked(
-            address(paymaster),  // 20 bytes
-            uint128(0),          // verificationGasLimit — 16 bytes
-            uint128(0),          // postOpGasLimit — 16 bytes
-            validUntil,          // 6 bytes (uint48)
-            validAfter,          // 6 bytes (uint48)
-            r,                   // 32 bytes
-            s,                   // 32 bytes
-            v                    // 1 byte
-        );
+    /// @dev Build the SMA's outer callData for an N-target ERC-7821 batch.
+    function _multiCallBatch(address[] memory targets) internal pure returns (bytes memory) {
+        Execution[] memory calls = new Execution[](targets.length);
+        for (uint256 i = 0; i < targets.length; i++) {
+            calls[i] = Execution({target: targets[i], value: 0, callData: ""});
+        }
+        return abi.encodeCall(ERC7821.execute, (ERC7821_BATCH_MODE, abi.encode(calls)));
     }
 
-    /// @dev Build a userOp + valid paymasterAndData together: first construct a
-    ///      userOp whose paymasterAndData prefix matches what we'll sign, then
-    ///      sign, then splice the signature in. Returns the final userOp.
-    function _userOpWithSig(uint48 validUntil, uint48 validAfter)
-        internal
-        view
-        returns (PackedUserOperation memory)
-    {
-        // Prefix has to be present when we hash; the trailing signature bytes
-        // are what we're computing, so they're filled with zeros for the hash.
-        bytes memory prefix = abi.encodePacked(
-            address(paymaster),
-            uint128(0),
-            uint128(0),
-            validUntil,
-            validAfter,
-            bytes32(0),  // r placeholder
-            bytes32(0),  // s placeholder
-            uint8(0)     // v placeholder
-        );
-        PackedUserOperation memory userOp = _buildUserOp(prefix);
-        bytes memory finalData = _signPaymasterData(userOp, validUntil, validAfter);
-        userOp.paymasterAndData = finalData;
-        return userOp;
-    }
-
-    /// @dev Helper to extract packed validationData components.
-    function _unpackValidationData(uint256 validationData)
+    /// @dev Build a minimal PackedUserOperation. The paymaster only inspects
+    ///      `sender` and `callData`; the rest can be zeroed.
+    function _userOp(address sender, bytes memory callData)
         internal
         pure
-        returns (uint256 sigFailed, uint48 validUntil, uint48 validAfter)
+        returns (PackedUserOperation memory op)
     {
-        // The authorizer is the lowest 160 bits, but for our paymaster it is 0 or 1.
-        sigFailed = validationData & 1;
-        validUntil = uint48(validationData >> 160);
-        validAfter = uint48(validationData >> 208);
+        op.sender = sender;
+        op.callData = callData;
+        // All other fields default to their zero values.
     }
 
     // ──────────────────────────────────────────────────────────────────
     // Tests
     // ──────────────────────────────────────────────────────────────────
 
-    function test_constructorSetsSigner() public view {
-        assertEq(paymaster.verifyingSigner(), signer, "signer mismatch");
-        assertEq(paymaster.owner(), owner, "owner mismatch");
-        assertEq(address(paymaster.ENTRY_POINT()), address(entryPoint), "entryPoint mismatch");
+    /// @notice Sender deployed via factory + only target is in static allowlist
+    ///         → paymaster returns SIG_VALIDATION_SUCCESS (validationData == 0).
+    function test_sponsorsAllowlistedTarget() public {
+        SOFSmartAccount account = factory.createAccount(EOA_OWNER);
+
+        bytes memory callData = _singleCallBatch(address(sof));
+        PackedUserOperation memory op = _userOp(address(account), callData);
+
+        vm.prank(entryPoint);
+        (bytes memory ctx, uint256 validationData) =
+            paymaster.validatePaymasterUserOp(op, bytes32(0), 0);
+
+        assertEq(validationData, 0, "validationData should be 0 for allowlisted target");
+        assertEq(ctx.length, 0, "context should be empty");
     }
 
-    function test_constructorRevertsZeroSigner() public {
-        vm.expectRevert(InvalidSigner.selector);
-        new SOFPaymaster(IEntryPoint(address(entryPoint)), address(0), owner);
+    /// @notice Sender deployed via factory + target is registered as a sofCurve
+    ///         → paymaster returns SIG_VALIDATION_SUCCESS.
+    function test_sponsorsRegisteredCurve() public {
+        // Test contract holds DEFAULT_ADMIN_ROLE on raffle (it deployed it),
+        // so it can grant SEASON_FACTORY_ROLE to itself and call registerCurve.
+        raffle.grantRole(raffle.SEASON_FACTORY_ROLE(), address(this));
+        raffle.registerCurve(RANDOM_CURVE);
+        assertTrue(raffle.isSofCurve(RANDOM_CURVE), "precondition: curve should be registered");
+
+        SOFSmartAccount account = factory.createAccount(EOA_OWNER);
+
+        bytes memory callData = _singleCallBatch(RANDOM_CURVE);
+        PackedUserOperation memory op = _userOp(address(account), callData);
+
+        vm.prank(entryPoint);
+        (, uint256 validationData) = paymaster.validatePaymasterUserOp(op, bytes32(0), 0);
+
+        assertEq(validationData, 0, "validationData should be 0 for registered curve");
     }
 
-    function test_deposit() public {
-        uint256 amount = 1 ether;
-        paymaster.deposit{value: amount}();
-        assertEq(entryPoint.balanceOf(address(paymaster)), amount, "deposit not reflected");
-        assertEq(paymaster.getDeposit(), amount, "getDeposit mismatch");
-    }
-
-    function test_setSigner_onlyOwner() public {
-        address newSigner = makeAddr("newSigner");
-
-        // Owner can update
-        paymaster.setSigner(newSigner);
-        assertEq(paymaster.verifyingSigner(), newSigner, "signer not updated");
-
-        // Non-owner reverts
-        vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
-        paymaster.setSigner(makeAddr("anotherSigner"));
-    }
-
-    function test_setSigner_revertsZeroAddress() public {
-        vm.expectRevert(InvalidSigner.selector);
-        paymaster.setSigner(address(0));
-    }
-
-    function test_validatePaymasterUserOp_validSigner() public {
-        PackedUserOperation memory userOp = _userOpWithSig(0, 0);
-
-        vm.prank(address(entryPoint));
-        // The userOpHash arg is ignored by the new SOFPaymaster (it derives its
-        // own digest via getHash). Pass any value.
-        (bytes memory context, uint256 validationData) =
-            paymaster.validatePaymasterUserOp(userOp, bytes32(0), 0);
-
-        (uint256 sigFailed,,) = _unpackValidationData(validationData);
-        assertEq(sigFailed, 0, "should return 0 for valid signature");
-        assertEq(context.length, 0, "context should be empty");
-    }
-
-    function test_validatePaymasterUserOp_withTimeBounds() public {
-        uint48 validUntil = uint48(block.timestamp + 300);
-        uint48 validAfter = uint48(block.timestamp);
-
-        PackedUserOperation memory userOp = _userOpWithSig(validUntil, validAfter);
-
-        vm.prank(address(entryPoint));
-        (bytes memory context, uint256 validationData) =
-            paymaster.validatePaymasterUserOp(userOp, bytes32(0), 0);
-
-        (uint256 sigFailed, uint48 retValidUntil, uint48 retValidAfter) = _unpackValidationData(validationData);
-        assertEq(sigFailed, 0, "should return 0 for valid signature");
-        assertEq(retValidUntil, validUntil, "validUntil mismatch");
-        assertEq(retValidAfter, validAfter, "validAfter mismatch");
-        assertEq(context.length, 0, "context should be empty");
-    }
-
-    function test_validatePaymasterUserOp_invalidSigner() public {
-        // Sign with a different key — signature recovers to wrong address.
-        (, uint256 wrongPk) = makeAddrAndKey("wrongSigner");
-        uint48 validUntil = 0;
-        uint48 validAfter = 0;
-
-        bytes memory prefix = abi.encodePacked(
-            address(paymaster), uint128(0), uint128(0),
-            validUntil, validAfter,
-            bytes32(0), bytes32(0), uint8(0)
-        );
-        PackedUserOperation memory userOp = _buildUserOp(prefix);
-
-        bytes32 hash = paymaster.getHash(userOp, validUntil, validAfter);
-        bytes32 ethSignedHash = hash.toEthSignedMessageHash();
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongPk, ethSignedHash);
-
-        userOp.paymasterAndData = abi.encodePacked(
-            address(paymaster), uint128(0), uint128(0),
-            validUntil, validAfter,
-            r, s, v
+    /// @notice Sender is a SOFSmartAccount NOT deployed via the factory
+    ///         (direct `new` deploy) → factory.getAddress(signer) doesn't match
+    ///         sender → paymaster reverts.
+    function test_rejectsNonFactorySender() public {
+        // Direct deploy of a SOFSmartAccount — its address is NOT the CREATE2
+        // address the factory would produce for `EOA_OWNER`.
+        SOFSmartAccount fake = new SOFSmartAccount(EOA_OWNER);
+        // Sanity check: confirm addresses differ so the paymaster check is meaningful.
+        assertTrue(
+            address(fake) != factory.getAddress(EOA_OWNER),
+            "precondition: directly-deployed account address must differ from factory's CREATE2 address"
         );
 
-        vm.prank(address(entryPoint));
-        (, uint256 validationData) =
-            paymaster.validatePaymasterUserOp(userOp, bytes32(0), 0);
+        bytes memory callData = _singleCallBatch(address(sof));
+        PackedUserOperation memory op = _userOp(address(fake), callData);
 
-        (uint256 sigFailed,,) = _unpackValidationData(validationData);
-        assertEq(sigFailed, 1, "should return 1 for invalid signature");
+        vm.prank(entryPoint);
+        // Per plan Task 1.11 stub: paymaster reverts with NotFactoryAccount()
+        // when factory.getAddress(account.signer()) != sender. Typed expect so
+        // the test fails loudly if Task 1.11 reverts via some unrelated path.
+        vm.expectRevert(SOFPaymaster.NotFactoryAccount.selector);
+        paymaster.validatePaymasterUserOp(op, bytes32(0), 0);
     }
 
-    function test_validatePaymasterUserOp_shortData() public {
-        bytes memory shortData = new bytes(51);
-        PackedUserOperation memory userOp = _buildUserOp(shortData);
+    /// @notice Sender deployed via factory but target is neither in static
+    ///         allowlist nor a registered curve → paymaster reverts with
+    ///         `TargetNotAllowed(target)`.
+    function test_rejectsNonAllowlistedTarget() public {
+        SOFSmartAccount account = factory.createAccount(EOA_OWNER);
 
-        vm.prank(address(entryPoint));
-        (, uint256 validationData) =
-            paymaster.validatePaymasterUserOp(userOp, bytes32(0), 0);
+        bytes memory callData = _singleCallBatch(NON_ALLOWLISTED_TARGET);
+        PackedUserOperation memory op = _userOp(address(account), callData);
 
-        assertEq(validationData, 1, "should return 1 for short data");
-    }
-
-    function test_validatePaymasterUserOp_onlyEntryPoint() public {
-        PackedUserOperation memory userOp = _buildUserOp("");
-
-        vm.prank(user);
-        vm.expectRevert("SOFPaymaster: not EntryPoint");
-        paymaster.validatePaymasterUserOp(userOp, bytes32(0), 0);
-    }
-
-    function test_validatePaymasterUserOp_replayWithDifferentTimeBounds() public {
-        // Sign for one set of bounds, then tamper validUntil before submission.
-        uint48 validUntil = uint48(block.timestamp + 300);
-        uint48 validAfter = uint48(block.timestamp);
-
-        PackedUserOperation memory userOp = _userOpWithSig(validUntil, validAfter);
-
-        // Tamper validUntil bytes [52:58] in paymasterAndData
-        uint48 tamperedValidUntil = uint48(block.timestamp + 3600);
-        // Read sig bytes from the trailing 65 bytes of paymasterAndData
-        bytes memory pmData = userOp.paymasterAndData;
-        bytes32 r;
-        bytes32 s;
-        uint8 v;
-        assembly {
-            // offset = 32 (length prefix) + 64 (start of sig bytes [64:64+65])
-            let p := add(pmData, 96)
-            r := mload(p)
-            s := mload(add(p, 32))
-            v := byte(0, mload(add(p, 64)))
-        }
-        userOp.paymasterAndData = abi.encodePacked(
-            address(paymaster), uint128(0), uint128(0),
-            tamperedValidUntil, validAfter,
-            r, s, v
+        vm.prank(entryPoint);
+        vm.expectRevert(
+            abi.encodeWithSignature("TargetNotAllowed(address)", NON_ALLOWLISTED_TARGET)
         );
-
-        vm.prank(address(entryPoint));
-        (, uint256 validationData) =
-            paymaster.validatePaymasterUserOp(userOp, bytes32(0), 0);
-
-        (uint256 sigFailed,,) = _unpackValidationData(validationData);
-        assertEq(sigFailed, 1, "should fail when time bounds are tampered");
+        paymaster.validatePaymasterUserOp(op, bytes32(0), 0);
     }
 
-    function test_withdrawTo_onlyOwner() public {
-        // Fund the paymaster deposit
-        paymaster.deposit{value: 1 ether}();
+    /// @notice In a multi-call ERC-7821 batch, every inner call's target must
+    ///         pass the allowlist/sofCurve check. If even one is non-allowed,
+    ///         paymaster reverts. Specifically: call[0] is allowlisted, call[1]
+    ///         is not → revert.
+    function test_validatesAllInnerCalls_inExecuteBatch() public {
+        SOFSmartAccount account = factory.createAccount(EOA_OWNER);
 
-        address payable recipient = payable(makeAddr("recipient"));
+        address[] memory targets = new address[](2);
+        targets[0] = address(sof); // allowlisted
+        targets[1] = NON_ALLOWLISTED_TARGET; // NOT allowlisted, NOT a curve
 
-        // Owner can withdraw
-        paymaster.withdrawTo(recipient, 0.5 ether);
-        assertEq(recipient.balance, 0.5 ether, "recipient should receive ETH");
-        assertEq(paymaster.getDeposit(), 0.5 ether, "deposit should decrease");
+        bytes memory callData = _multiCallBatch(targets);
+        PackedUserOperation memory op = _userOp(address(account), callData);
 
-        // Non-owner reverts
-        vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
-        paymaster.withdrawTo(recipient, 0.1 ether);
+        vm.prank(entryPoint);
+        vm.expectRevert(
+            abi.encodeWithSignature("TargetNotAllowed(address)", NON_ALLOWLISTED_TARGET)
+        );
+        paymaster.validatePaymasterUserOp(op, bytes32(0), 0);
     }
 }

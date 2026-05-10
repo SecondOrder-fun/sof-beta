@@ -5,10 +5,11 @@ import { useTranslation } from "react-i18next";
 import { ChevronDown, Ticket, User, Crown } from "lucide-react";
 import SettingsMenu from "@/components/common/SettingsMenu";
 import FarcasterAuth from "@/components/auth/FarcasterAuth";
-import { useFarcaster } from "@/hooks/useFarcaster";
+import { useAppAuth } from "@/hooks/useAppAuth";
 import { useLoginModal } from "@/hooks/useLoginModal";
 import { Button } from "@/components/ui/button";
 import { useUsername } from "@/hooks/useUsername";
+import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import { useAllowlist } from "@/hooks/useAllowlist";
 import { ACCESS_LEVELS } from "@/config/accessLevels";
 import { useRouteAccess } from "@/hooks/useRouteAccess";
@@ -24,9 +25,15 @@ const Header = () => {
   const { t } = useTranslation("navigation");
   const { t: tAuth } = useTranslation("auth");
   const { address, isConnected } = useAccount();
+  // Header no longer renders raw addresses; the SMA is still consumed for
+  // the SettingsMenu's `address` prop (display + copy live there now).
+  const { sma } = useRaffleAccount();
   const { disconnect } = useDisconnect();
   const { openLoginModal } = useLoginModal();
-  const { isBackendAuthenticated, backendUser, logout: farcasterLogout } = useFarcaster();
+  const { user: appAuthUser, status: authStatus, signOut: appAuthLogout } = useAppAuth();
+  const isBackendAuthenticated = authStatus === "authenticated";
+  const backendUser = appAuthUser; // shape: { address, sma, isAdmin, fid?, username? }
+  const farcasterLogout = appAuthLogout;
   const { data: username } = useUsername(address);
   const { accessLevel } = useAllowlist();
   const isAdmin = accessLevel >= ACCESS_LEVELS.ADMIN;
@@ -136,15 +143,17 @@ const Header = () => {
         </div>
         <div className="flex items-center space-x-4">
           {isConnected ? (
-            <SettingsMenu
-              address={address}
-              username={username}
-              farcasterUser={isBackendAuthenticated ? backendUser : null}
-              onDisconnect={() => {
-                farcasterLogout();
-                disconnect();
-              }}
-            />
+            <>
+              <SettingsMenu
+                address={sma || address}
+                username={username}
+                farcasterUser={isBackendAuthenticated ? backendUser : null}
+                onDisconnect={() => {
+                  farcasterLogout();
+                  disconnect();
+                }}
+              />
+            </>
           ) : isBackendAuthenticated && backendUser ? (
             <>
               <FarcasterAuth />

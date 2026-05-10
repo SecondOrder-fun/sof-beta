@@ -4,11 +4,8 @@ import { useTranslation } from "react-i18next";
 import ClaimCenter from "@/components/infofi/ClaimCenter";
 
 /**
- * MobileClaimsTab - Claims interface adapted for the Farcaster/mobile Portfolio UI
- *
- * Note: the legacy MobileFaucetWidget was retired alongside the desktop faucet
- * page consolidation. Mobile parity for the new Get SOF layout is a follow-up;
- * for now mobile users access airdrop claims via /get-sof on this device.
+ * MobileClaimsTab — raffle prize + InfoFi market claim interface for the
+ * Farcaster / mobile Portfolio UI. Thin wrapper that delegates to ClaimCenter.
  *
  * @param {Object} props
  * @param {string} [props.address] - Connected wallet address

@@ -1,4 +1,5 @@
 // src/components/account/ProfileContent.jsx
+import { useMemo } from "react";
 import PropTypes from "prop-types";
 import { useTranslation } from "react-i18next";
 import { useWatchContractEvent } from "wagmi";
@@ -21,6 +22,7 @@ import ClaimCenter from "@/components/infofi/ClaimCenter";
 import { useProfileData } from "@/hooks/useProfileData";
 import { useUsername } from "@/hooks/useUsername";
 import { useUsernameContext } from "@/context/UsernameContext";
+import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import { RafflePrizeDistributorAbi as PrizeDistributorAbi } from "@/utils/abis";
 import RolloverPortfolioCard from "@/components/user/RolloverPortfolioCard";
 
@@ -34,6 +36,23 @@ const ProfileContent = ({ address, isOwnProfile }) => {
   const { t } = useTranslation(["account", "common"]);
   const { data: username } = useUsername(address);
   const { setShowDialog } = useUsernameContext();
+  // Own profile gets a merged EOA + SMA transaction history (plan 5.11);
+  // other-profile views remain single-address (we don't know the viewed
+  // user's EOA from an SMA route param).
+  const { eoa, sma } = useRaffleAccount();
+  const transactionAddresses = useMemo(() => {
+    if (!isOwnProfile) return [address];
+    return [eoa, sma].filter(Boolean).map((a) => a.toLowerCase());
+  }, [isOwnProfile, address, eoa, sma]);
+  // Origin badge metadata so the table can render `EOA` / `SMA` badges
+  // without re-deriving which-is-which.
+  const originLabels = useMemo(() => {
+    if (!isOwnProfile) return {};
+    const labels = {};
+    if (eoa) labels[eoa.toLowerCase()] = "EOA";
+    if (sma) labels[sma.toLowerCase()] = "SMA";
+    return labels;
+  }, [isOwnProfile, eoa, sma]);
 
   const {
     sofBalanceQuery,
@@ -146,7 +165,11 @@ const ProfileContent = ({ address, isOwnProfile }) => {
               </TabsList>
 
               <TabsContent value="sof" className="mt-4">
-                <SOFTransactionHistory address={address} embedded />
+                <SOFTransactionHistory
+                  addresses={transactionAddresses}
+                  originLabels={originLabels}
+                  embedded
+                />
               </TabsContent>
 
               <TabsContent value="raffle" className="mt-4">
@@ -181,6 +204,8 @@ const ProfileContent = ({ address, isOwnProfile }) => {
                                 key={row.seasonId}
                                 row={row}
                                 address={address}
+                                addresses={transactionAddresses}
+                                originLabels={originLabels}
                                 showViewLink={false}
                               />
                             ))}
@@ -191,7 +216,10 @@ const ProfileContent = ({ address, isOwnProfile }) => {
               </TabsContent>
 
               <TabsContent value="infofi" className="mt-4">
-                <InfoFiPositionsTab address={address} />
+                <InfoFiPositionsTab
+                  addresses={transactionAddresses}
+                  originLabels={originLabels}
+                />
               </TabsContent>
             </Tabs>
           </CardContent>

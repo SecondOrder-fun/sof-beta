@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAccount } from "wagmi";
+import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import { getStoredNetworkKey } from "@/lib/wagmi";
 import { buildPublicClient } from "@/lib/viemClient";
 import { SOFBondingCurveAbi, ERC20Abi } from "@/utils/abis";
@@ -22,7 +23,9 @@ const erc20Abi = Array.isArray(ERC20Abi)
  * @returns {{ position: {tickets:bigint, probBps:number, total:bigint}|null, isRefreshing:boolean, refreshNow:()=>Promise<void>, setPosition:(p)=>void }}
  */
 export function usePlayerPosition(bondingCurveAddress, { seasonDetails } = {}) {
-  const { address, isConnected } = useAccount();
+  const { isConnected } = useAccount();
+  // Position reads resolve at the user's smart account, not the EOA (spec §4.3).
+  const { sma: address } = useRaffleAccount();
   const [position, setPosition] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 

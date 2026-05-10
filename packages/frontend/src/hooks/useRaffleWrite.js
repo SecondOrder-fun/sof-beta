@@ -86,6 +86,11 @@ function useContractWriteWithFeedback(mutationOptions) {
       }
 
       try {
+        // Admin writes (createSeason, startSeason, requestSeasonEnd,
+        // requestSeasonEndEarly) flow through Path A like any other user.
+        // The deploy script (14_ConfigureRoles) grants the same on-chain
+        // roles to each admin's deterministic SMA so msg.sender == SMA
+        // satisfies AccessControl.
         return await executeBatch([{
           to: config.address,
           data: encodeFunctionData({
@@ -93,7 +98,9 @@ function useContractWriteWithFeedback(mutationOptions) {
             functionName: config.functionName,
             args: config.args,
           }),
-        }], { sofAmount: 0n });
+        }], {
+          sofAmount: 0n,
+        });
       } catch (writeErr) {
         if (writeErr && typeof writeErr === 'object') {
           writeErr.shortMessage = buildFriendlyMessage(config.abi, writeErr, 'Write failed');
