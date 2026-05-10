@@ -498,7 +498,7 @@ for log in d.get('logs', []):
   JWT_EXPIRES_IN=7d \
   CORS_ORIGINS="http://localhost:5174,http://127.0.0.1:5174" \
   SIWF_ALLOWED_DOMAINS="localhost,127.0.0.1" \
-  SOF_AIRDROP_AMOUNT_PER_USER=100000000000000000000 \
+  SOF_AIRDROP_AMOUNT_PER_USER=100 \
   PORT=3000 \
   node fastify/boot.js > "$PID_DIR/backend.log" 2>&1 &
   echo $! > "$PID_DIR/backend.pid"

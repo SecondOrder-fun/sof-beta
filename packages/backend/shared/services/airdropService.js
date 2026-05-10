@@ -25,12 +25,13 @@
  */
 
 import process from "node:process";
-import { erc20Abi } from "viem";
+import { erc20Abi, parseUnits } from "viem";
 import { getDeployment } from "@sof/contracts/deployments";
 import { getWalletClient, publicClient } from "../../src/lib/viemClient.js";
 import { smartAccountsDb } from "./smartAccountsDb.js";
 
 let _service = null;
+let _decimalsCache = null;
 
 /**
  * Resolve the SOF token address for the active network.
@@ -47,14 +48,40 @@ function getSofTokenAddress() {
 }
 
 /**
- * Parse the per-user airdrop amount from env. Returns 0n if unset/invalid;
- * caller should treat 0n as "skip airdrop" and log a warning.
+ * Read SOF.decimals() and cache. Lets the env var be a human-readable
+ * count of SOF (e.g. "100" for 100 SOF) rather than a raw 21-digit wei
+ * value — which is what kept misfiring across LOCAL/testnet/mainnet
+ * configs (env had "100", code interpreted as 100 wei = 1e-16 SOF).
  */
-function getAirdropAmountWei() {
+async function getSofDecimals(sofAddress) {
+  if (_decimalsCache !== null) return _decimalsCache;
+  const decimals = await publicClient.readContract({
+    address: sofAddress,
+    abi: erc20Abi,
+    functionName: "decimals",
+  });
+  _decimalsCache = Number(decimals);
+  return _decimalsCache;
+}
+
+/**
+ * Parse the per-user airdrop amount from env (interpreted as a count of
+ * SOF, NOT raw wei) and convert to wei using SOF.decimals(). Returns 0n
+ * if unset/invalid; caller should treat 0n as "skip airdrop" and log a
+ * warning.
+ *
+ * Accepts integer or decimal strings ("100", "100.5"). parseUnits handles
+ * both. Negative or non-numeric → 0n.
+ */
+async function getAirdropAmountWei(sofAddress) {
   const raw = process.env.SOF_AIRDROP_AMOUNT_PER_USER;
   if (!raw) return 0n;
+  // Reject obviously bad input early (parseUnits would throw on letters).
+  if (!/^-?\d+(\.\d+)?$/.test(raw.trim())) return 0n;
+  if (raw.trim().startsWith("-")) return 0n;
   try {
-    return BigInt(raw);
+    const decimals = await getSofDecimals(sofAddress);
+    return parseUnits(raw.trim(), decimals);
   } catch {
     return 0n;
   }
@@ -85,11 +112,12 @@ export function getAirdropService(logger) {
       }
       const smaLc = String(sma).toLowerCase();
 
-      const amount = getAirdropAmountWei();
+      const sofAddress = getSofTokenAddress();
+      const amount = await getAirdropAmountWei(sofAddress);
       if (amount === 0n) {
         logger?.warn?.(
           { sma: smaLc },
-          "SOF_AIRDROP_AMOUNT_PER_USER unset or 0 — skipping airdrop",
+          "SOF_AIRDROP_AMOUNT_PER_USER unset, 0, or invalid — skipping airdrop",
         );
         return null;
       }
@@ -107,7 +135,6 @@ export function getAirdropService(logger) {
         return null;
       }
 
-      const sofAddress = getSofTokenAddress();
       const wallet = getWalletClient();
 
       logger?.info?.(
@@ -148,7 +175,8 @@ export function getAirdropService(logger) {
   return _service;
 }
 
-/** Test/dev hook: clear the cached singleton. */
+/** Test/dev hook: clear the cached singleton + decimals cache. */
 export function _resetAirdropService() {
   _service = null;
+  _decimalsCache = null;
 }
