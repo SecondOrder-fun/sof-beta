@@ -127,13 +127,26 @@ supabase_db_apply_file() {
 
 kill_pid_file() {
   local pidfile=$1
+  local timeout=${2:-10}
   if [ -f "$pidfile" ]; then
     local pid
     pid=$(cat "$pidfile")
     if kill -0 "$pid" 2>/dev/null; then
-      kill "$pid" 2>/dev/null || true
-      sleep 1
-      kill -9 "$pid" 2>/dev/null || true
+      # Send SIGTERM and poll for graceful exit. The backend's shutdown
+      # handler (server.js) takes more than 1s in the worst case (Fastify
+      # close hooks + listener teardown), so the previous "kill; sleep 1;
+      # kill -9" left zombie processes and aborted graceful cleanup.
+      kill -TERM "$pid" 2>/dev/null || true
+      local i=0
+      while kill -0 "$pid" 2>/dev/null; do
+        i=$((i + 1))
+        if [ $i -ge $((timeout * 2)) ]; then
+          warn "PID $pid did not exit within ${timeout}s — sending SIGKILL"
+          kill -9 "$pid" 2>/dev/null || true
+          break
+        fi
+        sleep 0.5
+      done
     fi
     rm -f "$pidfile"
   fi
@@ -145,20 +158,39 @@ kill_pid_file() {
 do_stop() {
   log "Stopping local dev environment..."
 
-  # Kill local processes
-  kill_pid_file "$PID_DIR/backend.pid"
-  kill_pid_file "$PID_DIR/frontend.pid"
+  # Kill local processes (graceful — give server.js shutdown handler time)
+  kill_pid_file "$PID_DIR/backend.pid" 10
+  kill_pid_file "$PID_DIR/frontend.pid" 5
 
   # Also kill by port in case PID files are stale
   lsof -ti:3000 2>/dev/null | xargs kill -9 2>/dev/null || true
   lsof -ti:5174 2>/dev/null | xargs kill -9 2>/dev/null || true
 
-  # Stop Supabase
+  # Stop Supabase. The CLI manages its own containers (label
+  # com.supabase.cli.project=sof-beta) outside docker-compose, so the
+  # `docker compose down` below won't touch them. Surface output instead
+  # of swallowing it — silent failure left orphan supabase_* containers
+  # that had to be cleaned up by hand.
   if command -v supabase &>/dev/null; then
-    supabase stop 2>/dev/null || true
+    log "  Stopping Supabase via CLI..."
+    supabase stop || warn "  supabase stop returned non-zero — checking for orphans"
+  else
+    warn "  supabase CLI not found; will attempt label-based cleanup"
   fi
 
-  # Stop Docker containers
+  # Fallback: force-stop any remaining Supabase containers by project label.
+  # Catches cases where the CLI errored out, was killed mid-run, or the
+  # config drifted from the running set.
+  local orphans
+  orphans=$(docker ps -q --filter "label=com.supabase.cli.project=sof-beta" 2>/dev/null)
+  if [ -n "$orphans" ]; then
+    warn "  Force-stopping orphaned Supabase containers..."
+    docker stop $orphans >/dev/null 2>&1 || true
+    docker rm $orphans >/dev/null 2>&1 || true
+    ok "  Orphans cleaned up"
+  fi
+
+  # Stop docker-compose-managed containers (anvil, redis, deploy-contracts)
   docker compose down -v 2>/dev/null || true
 
   rm -rf "$PID_DIR"
