@@ -270,5 +270,17 @@
   "confirmYes": "Yes",
   "confirmNo": "No",
   "confirmCancelBtn": "Cancel",
-  "confirmSignBtn": "Confirm & Sign Transaction"
+  "confirmSignBtn": "Confirm & Sign Transaction",
+  "tabs": {
+    "upcoming": "Upcoming",
+    "active": "Active",
+    "settling": "Settling",
+    "complete": "Complete"
+  },
+  "emptyTab": {
+    "upcoming": "No upcoming raffles.",
+    "active": "No active raffles right now.",
+    "settling": "Nothing settling.",
+    "complete": "No completed raffles yet."
+  }
 }
