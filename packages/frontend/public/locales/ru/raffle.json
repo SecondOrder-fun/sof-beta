@@ -280,7 +280,7 @@
   "emptyTab": {
     "upcoming": "No upcoming raffles.",
     "active": "No active raffles right now.",
-    "settling": "Nothing settling.",
+    "settling": "No raffles currently settling.",
     "complete": "No completed raffles yet."
   }
 }
