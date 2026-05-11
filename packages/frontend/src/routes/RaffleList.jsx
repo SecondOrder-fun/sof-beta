@@ -110,14 +110,18 @@ const RaffleList = () => {
 
   const renderBadge = (st) => {
     const statusNum = Number(st);
-    const label =
-      statusNum === 1 ? "Active" : statusNum === 0 ? "NotStarted" : "Completed";
-    const variant =
-      statusNum === 1
-        ? "statusActive"
-        : statusNum === 0
-          ? "statusUpcoming"
-          : "statusCompleted";
+    const { label, variant } = (() => {
+      switch (statusNum) {
+        case 0: return { label: "NotStarted", variant: "statusUpcoming" };
+        case 1: return { label: "Active", variant: "statusActive" };
+        case 2: return { label: "End Requested", variant: "statusUpcoming" };
+        case 3: return { label: "Drawing Winner", variant: "statusUpcoming" };
+        case 4: return { label: "Distributing", variant: "statusUpcoming" };
+        case 5: return { label: "Completed", variant: "statusCompleted" };
+        case 6: return { label: "Cancelled", variant: "statusDanger" };
+        default: return { label: "Unknown", variant: "statusCompleted" };
+      }
+    })();
     return <Badge variant={variant}>{label}</Badge>;
   };
 
