@@ -19,6 +19,7 @@ import SignatureGateModal from "@/components/gating/SignatureGateModal";
 import { useProfileData } from "@/hooks/useProfileData";
 import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import { SeasonCard } from "@/components/raffles/SeasonCard";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 /**
  * Map an on-chain SeasonStatus enum value to its tab group name.
@@ -225,6 +226,16 @@ const RaffleList = () => {
       ? seasonsSorted.filter((s) => ownedSeasonIds.has(Number(s.id)))
       : seasonsSorted;
 
+  // Bucket the (already filtered) displayed seasons into the four tab groups.
+  const grouped = useMemo(() => {
+    const buckets = { upcoming: [], active: [], settling: [], complete: [] };
+    for (const s of displayedSeasons) {
+      const g = getSeasonGroup(s.status);
+      if (buckets[g]) buckets[g].push(s);
+    }
+    return buckets;
+  }, [displayedSeasons]);
+
   if (isMobile) {
     // Note: We pass raw season data and let MobileRafflesList handle curve state
     // This avoids calling hooks inside map/filter which violates Rules of Hooks
@@ -321,16 +332,53 @@ const RaffleList = () => {
         {displayedSeasons.length === 0 && !allSeasonsQuery.isLoading && (
           <p>{t("noActiveSeasons")}</p>
         )}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {displayedSeasons.map((season) => (
-            <SeasonCard
-              key={season.id}
-              season={season}
-              renderBadge={renderBadge}
-              winnerSummary={winnerSummariesQuery.data?.[season.id]}
-            />
-          ))}
-        </div>
+        {!allSeasonsQuery.isLoading && displayedSeasons.length > 0 && (
+          <Tabs defaultValue="active">
+            <TabsList>
+              {["upcoming", "active", "settling", "complete"].map((g) => {
+                const count = grouped[g].length;
+                return (
+                  <TabsTrigger
+                    key={g}
+                    value={g}
+                    className="flex items-center gap-2"
+                  >
+                    <span>{t(`tabs.${g}`)}</span>
+                    <span
+                      className="rounded-full px-2 text-xs font-semibold leading-5
+                                 bg-secondary text-secondary-foreground
+                                 [[data-state=active]_&]:bg-background
+                                 [[data-state=active]_&]:text-primary"
+                    >
+                      {count}
+                    </span>
+                  </TabsTrigger>
+                );
+              })}
+            </TabsList>
+
+            {["upcoming", "active", "settling", "complete"].map((g) => (
+              <TabsContent key={g} value={g}>
+                {grouped[g].length === 0 ? (
+                  <p className="text-muted-foreground py-8 text-center">
+                    {t(`emptyTab.${g}`)}
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {grouped[g].map((season) => (
+                      <SeasonCard
+                        key={season.id}
+                        season={season}
+                        renderBadge={renderBadge}
+                        winnerSummary={winnerSummariesQuery.data?.[season.id]}
+                      />
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+            ))}
+          </Tabs>
+        )}
       </div>
     </div>
   );

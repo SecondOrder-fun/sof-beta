@@ -2,7 +2,7 @@
   @vitest-environment jsdom
 */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -194,6 +194,15 @@ function renderPage() {
   );
 }
 
+// RaffleList groups seasons into Upcoming/Active/Settling/Complete tabs.
+// Radix Tabs only mounts the active tab's content, so tests that target a
+// specific bucket must click into the right tab first.
+function selectTab(name) {
+  const tab = screen.getByRole("tab", { name: new RegExp(`tabs\\.${name}`) });
+  // Radix Tabs activates on mousedown (left-button), not click.
+  fireEvent.mouseDown(tab, { button: 0 });
+}
+
 describe("RaffleList winner display", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -201,6 +210,7 @@ describe("RaffleList winner display", () => {
 
   it("renders winner + grand prize for completed seasons", async () => {
     renderPage();
+    selectTab("complete");
 
     expect(screen.getAllByText("#2")[0]).toBeInTheDocument();
     expect(screen.getByText("Completed Season")).toBeInTheDocument();
@@ -218,6 +228,7 @@ describe("RaffleList winner display", () => {
 
   it("does not render winner block for non-completed seasons", async () => {
     renderPage();
+    // Active is the default tab; the Active Season (id=1) lives here.
 
     expect(screen.getAllByText("#1")[0]).toBeInTheDocument();
     expect(screen.getAllByText("Active Season")[0]).toBeInTheDocument();
@@ -225,6 +236,7 @@ describe("RaffleList winner display", () => {
 
   it("renders startsIn countdown and hides curve/price for pre-start seasons", async () => {
     renderPage();
+    selectTab("upcoming");
 
     expect(screen.getAllByText("#4")[0]).toBeInTheDocument();
     const upcomingTitle = screen.getByText("Upcoming Season");
@@ -242,6 +254,7 @@ describe("RaffleList winner display", () => {
 
   it("renders a no-winner fallback for completed seasons with no participants", async () => {
     renderPage();
+    selectTab("complete");
 
     expect(screen.getAllByText("#3")[0]).toBeInTheDocument();
     expect(screen.getByText("Empty Season")).toBeInTheDocument();
