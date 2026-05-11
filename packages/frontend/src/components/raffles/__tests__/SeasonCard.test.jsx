@@ -19,6 +19,28 @@ vi.mock('@/components/common/CountdownTimer', () => ({
 vi.mock('@/components/user/UsernameDisplay', () => ({
   default: ({ address }) => <span>{address}</span>,
 }));
+// SeasonCard also reads trading-lock status and builds a viem public client
+// against the stored network. Other comparable tests in the suite (see
+// tests/routes/RaffleDetails.toastsAndFallback.test.jsx and
+// tests/routes/RaffleList.winnerDisplay.test.jsx) stub these to keep unit
+// tests off the network. Without them this test passes only because
+// useTradingLockStatus silently swallows its read error.
+vi.mock('@/hooks/buysell', () => ({
+  useTradingLockStatus: () => ({ tradingLocked: false, buyFeeBps: 0, sellFeeBps: 0 }),
+}));
+vi.mock('@/lib/viemClient', () => ({
+  buildPublicClient: () => null,
+}));
+vi.mock('@/lib/wagmi', () => ({
+  getStoredNetworkKey: () => 'LOCAL',
+}));
+vi.mock('@/config/networks', () => ({
+  getNetworkByKey: () => ({
+    id: 31337,
+    name: 'Local',
+    rpcUrl: 'http://127.0.0.1:8545',
+  }),
+}));
 
 const noopBadge = (status) => <span data-testid="badge">{status}</span>;
 
