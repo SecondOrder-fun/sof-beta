@@ -114,6 +114,8 @@ vi.mock("@/hooks/useSeasonGating", () => ({
   useSeasonGating: () => ({
     isVerified: null,
     verifyPassword: vi.fn(),
+    verifySignature: vi.fn(),
+    gates: [],
     refetch: vi.fn(),
   }),
 }));

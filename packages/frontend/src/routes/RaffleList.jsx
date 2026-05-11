@@ -40,9 +40,8 @@ const RaffleList = () => {
   const { isMobile, isFarcaster } = usePlatform();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, chainId } = useAccount();
   const { sma } = useRaffleAccount();
-  const { chainId } = useAccount();
   const chains = useChains();
   const { openLoginModal } = useLoginModal();
   const allSeasonsQuery = useAllSeasons();
@@ -218,13 +217,14 @@ const RaffleList = () => {
   };
 
   // Mobile view for Farcaster Mini App and Base App
-  const seasonsSorted = [...(allSeasonsQuery.data || [])].sort(
-    (a, b) => Number(b.id) - Number(a.id),
-  );
-  const displayedSeasons =
-    showMineOnly && isConnected
-      ? seasonsSorted.filter((s) => ownedSeasonIds.has(Number(s.id)))
-      : seasonsSorted;
+  const displayedSeasons = useMemo(() => {
+    const sorted = [...(allSeasonsQuery.data || [])].sort(
+      (a, b) => Number(b.id) - Number(a.id),
+    );
+    return showMineOnly && isConnected
+      ? sorted.filter((s) => ownedSeasonIds.has(Number(s.id)))
+      : sorted;
+  }, [allSeasonsQuery.data, showMineOnly, isConnected, ownedSeasonIds]);
 
   // Bucket the (already filtered) displayed seasons into the four tab groups.
   const grouped = useMemo(() => {
