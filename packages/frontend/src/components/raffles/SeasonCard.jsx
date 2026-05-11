@@ -237,5 +237,4 @@ SeasonCard.propTypes = {
   }),
 };
 
-export default SeasonCard;
 export { SeasonCard };
