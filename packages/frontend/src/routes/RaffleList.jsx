@@ -20,6 +20,20 @@ import { useProfileData } from "@/hooks/useProfileData";
 import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import { SeasonCard } from "@/components/raffles/SeasonCard";
 
+/**
+ * Map an on-chain SeasonStatus enum value to its tab group name.
+ * Spec: docs/superpowers/specs/2026-05-10-raffle-list-design-upgrade-design.md
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function getSeasonGroup(statusNum) {
+  const n = Number(statusNum);
+  if (n === 0) return "upcoming";
+  if (n === 1) return "active";
+  if (n === 2 || n === 3 || n === 4) return "settling";
+  if (n === 5 || n === 6) return "complete";
+  return "active";
+}
+
 const RaffleList = () => {
   const { t } = useTranslation(["raffle", "navigation"]);
   const { isMobile, isFarcaster } = usePlatform();
