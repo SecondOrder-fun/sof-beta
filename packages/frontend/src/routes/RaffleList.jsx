@@ -114,9 +114,9 @@ const RaffleList = () => {
       switch (statusNum) {
         case 0: return { label: "NotStarted", variant: "statusUpcoming" };
         case 1: return { label: "Active", variant: "statusActive" };
-        case 2: return { label: "End Requested", variant: "statusUpcoming" };
-        case 3: return { label: "Drawing Winner", variant: "statusUpcoming" };
-        case 4: return { label: "Distributing", variant: "statusUpcoming" };
+        case 2: return { label: "End Requested", variant: "statusSettling" };
+        case 3: return { label: "Drawing Winner", variant: "statusSettling" };
+        case 4: return { label: "Distributing", variant: "statusSettling" };
         case 5: return { label: "Completed", variant: "statusCompleted" };
         case 6: return { label: "Cancelled", variant: "statusDanger" };
         default: return { label: "Unknown", variant: "statusCompleted" };

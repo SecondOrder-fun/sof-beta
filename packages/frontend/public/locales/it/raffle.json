@@ -282,5 +282,9 @@
     "active": "No active raffles right now.",
     "settling": "No raffles currently settling.",
     "complete": "No completed raffles yet."
-  }
+  },
+  "tradingLocked": "Trading locked",
+  "settlingAwaitingEnd": "Awaiting end",
+  "settlingDrawingWinner": "Drawing winner",
+  "settlingDistributing": "Distributing prizes"
 }

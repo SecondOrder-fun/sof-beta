@@ -19,6 +19,9 @@ vi.mock('@/components/common/CountdownTimer', () => ({
 vi.mock('@/components/user/UsernameDisplay', () => ({
   default: ({ address }) => <span>{address}</span>,
 }));
+vi.mock('@/components/common/TimeElapsed', () => ({
+  default: () => <span data-testid="time-elapsed">elapsed</span>,
+}));
 // SeasonCard also reads trading-lock status and builds a viem public client
 // against the stored network. Other comparable tests in the suite (see
 // tests/routes/RaffleDetails.toastsAndFallback.test.jsx and
@@ -60,5 +63,75 @@ describe('SeasonCard', () => {
     expect(screen.getByText(/Test/)).toBeInTheDocument();
     expect(screen.getByText(/#1/)).toBeInTheDocument();
     expect(screen.getByTestId('badge')).toHaveTextContent('1');
+  });
+});
+
+describe('SeasonCard variants', () => {
+  // Use a far-future endTime so seasonEndedByTime is false; otherwise the
+  // existing tradingOpen gate (Task 1) hides the Buy/Sell buttons on Active.
+  const FUTURE = BigInt(Math.floor(Date.now() / 1000) + 86400);
+  const baseSeason = (status) => ({
+    id: 1,
+    status,
+    totalTickets: 0n,
+    config: { name: 'T', startTime: 0n, endTime: FUTURE, bondingCurve: '0xa' },
+  });
+
+  it('Active status renders curve + Current Price + Buy/Sell', () => {
+    render(
+      <MemoryRouter>
+        <SeasonCard season={baseSeason(1)} renderBadge={noopBadge} winnerSummary={null} />
+      </MemoryRouter>
+    );
+    expect(screen.getByTestId('curve-mini')).toBeInTheDocument();
+    expect(screen.getByText(/currentPrice/i)).toBeInTheDocument();
+    expect(screen.getByText(/common:buy/i)).toBeInTheDocument();
+  });
+
+  it('Settling status (3 = VRFPending) hides curve and price, shows time-elapsed', () => {
+    render(
+      <MemoryRouter>
+        <SeasonCard season={baseSeason(3)} renderBadge={noopBadge} winnerSummary={null} />
+      </MemoryRouter>
+    );
+    expect(screen.queryByTestId('curve-mini')).not.toBeInTheDocument();
+    expect(screen.queryByText(/currentPrice/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/common:buy/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/tradingLocked/i)).toBeInTheDocument();
+  });
+
+  it('Settling status 2 hides curve and price', () => {
+    render(
+      <MemoryRouter>
+        <SeasonCard season={baseSeason(2)} renderBadge={noopBadge} winnerSummary={null} />
+      </MemoryRouter>
+    );
+    expect(screen.queryByTestId('curve-mini')).not.toBeInTheDocument();
+  });
+
+  it('Settling status 4 hides curve and price', () => {
+    render(
+      <MemoryRouter>
+        <SeasonCard season={baseSeason(4)} renderBadge={noopBadge} winnerSummary={null} />
+      </MemoryRouter>
+    );
+    expect(screen.queryByTestId('curve-mini')).not.toBeInTheDocument();
+  });
+
+  it('Completed status (5) with winner shows winner box, no curve, no price', () => {
+    render(
+      <MemoryRouter>
+        <SeasonCard
+          season={baseSeason(5)}
+          renderBadge={noopBadge}
+          winnerSummary={{ winnerAddress: '0xwinner', grandPrizeWei: 1000000000000000000n }}
+        />
+      </MemoryRouter>
+    );
+    expect(screen.queryByTestId('curve-mini')).not.toBeInTheDocument();
+    // The winner-label translation key is rendered (translation mock returns the key),
+    // alongside the rendered winner address. Both match /winner/i, so check the label
+    // via the exact translation-key text.
+    expect(screen.getByText('winner')).toBeInTheDocument();
   });
 });
