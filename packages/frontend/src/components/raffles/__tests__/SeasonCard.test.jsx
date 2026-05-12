@@ -147,4 +147,15 @@ describe('SeasonCard variants', () => {
     expect(screen.queryByText(/winner/i)).not.toBeInTheDocument();
     expect(screen.getByText(/seasonCancelled/i)).toBeInTheDocument();
   });
+
+  it('Cancelled status (6) with tickets still shows cancelled indicator, not no-participants', () => {
+    const s = { ...baseSeason(6), totalTickets: 10n };
+    render(
+      <MemoryRouter>
+        <SeasonCard season={s} renderBadge={noopBadge} winnerSummary={null} />
+      </MemoryRouter>
+    );
+    expect(screen.getByText(/seasonCancelled/i)).toBeInTheDocument();
+    expect(screen.queryByText(/noParticipants/i)).not.toBeInTheDocument();
+  });
 });
