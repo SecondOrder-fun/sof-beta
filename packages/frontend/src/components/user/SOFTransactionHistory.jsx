@@ -375,8 +375,11 @@ function TransactionRow({ tx, network, compact = false, originLabel = null }) {
     return formatTimestamp(timestamp);
   };
 
-  const explorerUrl = network?.blockExplorer
-    ? `${network.blockExplorer}/tx/${tx.hash}`
+  const explorerUrl = network?.explorer
+    ? `${network.explorer.replace(/\/$/, "")}/tx/${tx.hash}`
+    : null;
+  const truncatedHash = tx.hash
+    ? `${tx.hash.slice(0, 6)}…${tx.hash.slice(-4)}`
     : null;
 
   // Origin badge — `EOA` (semantic neutral, "outline") or `SMA` (semantic
@@ -444,16 +447,26 @@ function TransactionRow({ tx, network, compact = false, originLabel = null }) {
             {tx.direction === "IN" ? "+" : "-"}
             {parseFloat(tx.amount).toFixed(4)} SOF
           </div>
-          {!compact && explorerUrl && (
-            <a
-              href={explorerUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-primary hover:underline flex items-center gap-1"
-            >
-              {t("viewTx")}
-              <ExternalLinkIcon className="h-3 w-3" />
-            </a>
+          {truncatedHash && (
+            explorerUrl ? (
+              <a
+                href={explorerUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={tx.hash}
+                className="text-xs text-primary hover:underline flex items-center gap-1 font-mono"
+              >
+                {truncatedHash}
+                <ExternalLinkIcon className="h-3 w-3" />
+              </a>
+            ) : (
+              <span
+                className="text-xs text-muted-foreground font-mono"
+                title={tx.hash}
+              >
+                {truncatedHash}
+              </span>
+            )
           )}
         </div>
       </div>
@@ -480,7 +493,7 @@ TransactionRow.propTypes = {
     origin: PropTypes.string,
   }).isRequired,
   network: PropTypes.shape({
-    blockExplorer: PropTypes.string,
+    explorer: PropTypes.string,
   }),
   compact: PropTypes.bool,
   originLabel: PropTypes.string,
