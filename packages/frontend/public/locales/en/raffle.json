@@ -325,5 +325,6 @@
   "notStarted": "Not started",
   "completed": "Completed",
   "cancelled": "Cancelled",
+  "seasonCancelled": "Season cancelled. No payout.",
   "unknownStatus": "Unknown"
 }
