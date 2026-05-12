@@ -88,6 +88,15 @@ vi.mock("@/components/curve/CurveGraph", () => ({
   __esModule: true,
   default: () => <div />,
 }));
+vi.mock("@/components/raffle/CompletedRaffleResults", () => ({
+  __esModule: true,
+  default: ({ winnerAddress, grandPrizeWei }) => (
+    <div data-testid="completed-results">
+      <span>{winnerAddress}</span>
+      <span>{grandPrizeWei?.toString()}</span>
+    </div>
+  ),
+}));
 
 vi.mock("@/components/user/UsernameDisplay", () => ({
   __esModule: true,
@@ -149,6 +158,12 @@ vi.mock("viem", async () => {
 vi.mock("@/hooks/useChainTime", () => ({
   useChainTime: () => Math.floor(Date.now() / 1000),
 }));
+vi.mock("@/hooks/useConsolationStatus", () => ({
+  useConsolationStatus: () => ({
+    totalPoolWei: 0n, perLoserShareWei: 0n,
+    viewerEligible: false, viewerClaimed: false, isLoading: false,
+  }),
+}));
 
 import RaffleDetails from "@/routes/RaffleDetails.jsx";
 
@@ -173,14 +188,16 @@ describe("RaffleDetails winner display", () => {
     vi.clearAllMocks();
   });
 
-  it("shows winner announcement card when season is completed", () => {
+  it("shows CompletedRaffleResults with winner data when season is completed", () => {
     renderPage();
 
-    expect(screen.getByText("winnerAnnouncement")).toBeInTheDocument();
-    expect(screen.getByText("winner:")).toBeInTheDocument();
+    // New completed layout: CompletedRaffleResults receives the winner data
+    expect(screen.getByTestId("completed-results")).toBeInTheDocument();
     expect(
       screen.getByText("0x1111111111111111111111111111111111111111"),
     ).toBeInTheDocument();
-    expect(screen.getByText(/grandPrize\s*:/)).toBeInTheDocument();
+    expect(screen.getByText("1230000000000000000")).toBeInTheDocument();
+    // Old inline winner announcement card is replaced by CompletedRaffleResults
+    expect(screen.queryByText("winnerAnnouncement")).not.toBeInTheDocument();
   });
 });

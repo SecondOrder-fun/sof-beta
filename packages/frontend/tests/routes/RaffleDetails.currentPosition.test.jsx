@@ -224,6 +224,12 @@ vi.mock("@/components/admin/RaffleAdminControls", () => ({
 vi.mock("@/components/admin/TreasuryControls", () => ({
   TreasuryControls: () => null,
 }));
+vi.mock("@/hooks/useConsolationStatus", () => ({
+  useConsolationStatus: () => ({
+    totalPoolWei: 0n, perLoserShareWei: 0n,
+    viewerEligible: false, viewerClaimed: false, isLoading: false,
+  }),
+}));
 
 import RaffleDetails from "@/routes/RaffleDetails.jsx";
 import { MemoryRouter, Route, Routes } from "react-router-dom";

@@ -237,6 +237,12 @@ vi.mock("@/components/common/CountdownTimer", () => ({
   __esModule: true,
   default: () => <span>countdown</span>,
 }));
+vi.mock("@/hooks/useConsolationStatus", () => ({
+  useConsolationStatus: () => ({
+    totalPoolWei: 0n, perLoserShareWei: 0n,
+    viewerEligible: false, viewerClaimed: false, isLoading: false,
+  }),
+}));
 
 import RaffleDetails from "@/routes/RaffleDetails.jsx";
 import { MemoryRouter, Route, Routes } from "react-router-dom";

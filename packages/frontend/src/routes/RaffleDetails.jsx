@@ -46,6 +46,14 @@ import { SponsorPrizeWidget } from "@/components/prizes/SponsorPrizeWidget";
 import { ClaimPrizeWidget } from "@/components/prizes/ClaimPrizeWidget";
 import { useSeasonWinnerSummary } from "@/hooks/useSeasonWinnerSummaries";
 import { useSeasonGating, GateType } from "@/hooks/useSeasonGating";
+import CompletedRaffleResults from "@/components/raffle/CompletedRaffleResults";
+import { useConsolationStatus } from "@/hooks/useConsolationStatus";
+import {
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
+} from "@/components/ui/accordion";
 
 
 const RaffleDetails = () => {
@@ -66,10 +74,12 @@ const RaffleDetails = () => {
   const statusNum = Number(seasonDetailsQuery?.data?.status);
   const isActiveSeason = statusNum === 1;
   const isCompletedSeason = statusNum === 4 || statusNum === 5;
+  const isCancelledSeason = statusNum === 6;
   const winnerSummaryQuery = useSeasonWinnerSummary(
     seasonIdNumber,
     seasonDetailsQuery?.data?.status,
   );
+  const consolationStatus = useConsolationStatus(seasonIdNumber);
 
   // ── Season gating ──
   const isSeasonGated = Boolean(seasonDetailsQuery?.data?.config?.gated);
@@ -463,263 +473,325 @@ const RaffleDetails = () => {
                 })()}
               </div>
 
-              {(() => {
-                const startTs = Number(cfg.startTime);
-                const endTs = Number(cfg.endTime);
-                if (!chainNow) return null;
+              {(isCompletedSeason || isCancelledSeason) ? (
+                <>
+                  <div className="px-6 mt-3">
+                    <CompletedRaffleResults
+                      winnerAddress={winnerSummaryQuery?.data?.winnerAddress || null}
+                      grandPrizeWei={winnerSummaryQuery?.data?.grandPrizeWei || 0n}
+                      consolationStatus={consolationStatus}
+                      seasonStatus={statusNum}
+                    />
+                  </div>
 
-                // Reason: these hints are only intended for admin-controlled transitions.
-                if (
-                  statusNum === 0 &&
-                  chainNow >= startTs &&
-                  chainNow < endTs
-                ) {
-                  return (
-                    <p className="px-6 text-sm text-muted-foreground">
-                      Window open on-chain, awaiting admin Start.
-                    </p>
-                  );
-                }
+                  <div className="px-6 mt-3">
+                    <SponsoredPrizesDisplay seasonId={seasonId} isCompleted={isCompletedSeason} />
+                  </div>
 
-                if (chainNow >= endTs && statusNum === 1) {
-                  return (
-                    <p className="px-6 text-sm text-muted-foreground">
-                      Window ended on-chain, awaiting admin End.
-                    </p>
-                  );
-                }
+                  {isCompletedSeason && (
+                    <div className="px-6 mt-3 flex justify-center">
+                      <ClaimPrizeWidget seasonId={seasonId} />
+                    </div>
+                  )}
 
-                return null;
-              })()}
-
-              {isCompletedSeason && winnerSummaryQuery.data && (
-                <div className="px-6 mt-3">
-                  <Card>
-                    <CardContent className="p-4">
-                      <div className="text-sm font-semibold text-foreground">
-                        {t("winnerAnnouncement")}
-                      </div>
-                      <div className="mt-2 text-sm uppercase tracking-wide text-primary">
-                        {t("winner")}:
-                      </div>
-                      <div className="text-lg font-semibold text-foreground mt-1">
-                        <UsernameDisplay
-                          address={winnerSummaryQuery.data.winnerAddress}
-                          className="text-lg"
-                        />
-                      </div>
-                      <div className="text-sm text-muted-foreground mt-2">
-                        {t("grandPrize")}:{" "}
-                        {(() => {
-                          try {
-                            return `${Number(formatUnits(winnerSummaryQuery.data.grandPrizeWei, 18)).toFixed(2)} SOF`;
-                          } catch {
-                            return "0.00 SOF";
-                          }
-                        })()}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
-
-              {/* Sponsored Prizes Display */}
-              <div className="px-6 mt-3">
-                <SponsoredPrizesDisplay seasonId={seasonId} isCompleted={isCompletedSeason} />
-              </div>
-
-              {/* Sponsor Prize Widget (for active seasons) */}
-              {!isCompletedSeason && statusNum >= 1 && (
-                <div className="px-6 mt-3">
-                  <SponsorPrizeWidget seasonId={seasonId} />
-                </div>
-              )}
-
-              {/* Claim Prize Widget (for winners) */}
-              {isCompletedSeason && (
-                <div className="px-6 mt-3 flex justify-center">
-                  <ClaimPrizeWidget seasonId={seasonId} />
-                </div>
-              )}
-
-              {/* Bonding Curve UI */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
-                {(() => {
-                  if (!chainNow) return null;
-
-                  return (
-                    <Card className="lg:col-span-2">
-                      <CardHeader>
-                        <CardTitle>Bonding Curve</CardTitle>
-                      </CardHeader>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4 px-6">
+                    <Card>
+                      <CardHeader><CardTitle>{t("common:transactions")}</CardTitle></CardHeader>
                       <CardContent>
-                        <BondingCurvePanel
-                          curveSupply={curveSupply}
-                          curveStep={curveStep}
-                          allBondSteps={allBondSteps}
-                        />
-                        {curveStep?.rangeTo != null && curveSupply != null && (() => {
-                          const remaining = BigInt(curveStep.rangeTo) - BigInt(curveSupply);
-                          if (remaining <= 0n) return null;
-                          return (
-                            <div className="flex justify-center mt-3">
-                              <div className="w-3/5 text-center rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-                                <span className="font-mono font-semibold text-foreground">{remaining.toString()}</span>{" "}
-                                {t("ticketsRemainUntilNextPriceIncrease", { defaultValue: "tickets remain until next price increase" })}
-                              </div>
-                            </div>
-                          );
-                        })()}
+                        <TransactionsTab bondingCurveAddress={bc} seasonId={seasonIdNumber} />
                       </CardContent>
                     </Card>
-                  );
-                })()}
-                <Card>
-                  <CardContent>
-                    {chainNow && (
-                      <BuySellWidget
-                        bondingCurveAddress={bc}
-                        seasonId={seasonIdNumber}
-                        initialTab={initialTradeTab}
-                        isGated={isSeasonGated}
-                        isVerified={isGatingVerified}
-                        onGatingRequired={(mode) => {
-                          setPendingAction(mode);
-                          setGateModalOpen(true);
-                        }}
-                        onTxSuccess={() => triggerStaggeredRefresh()}
-                        onNotify={(evt) => {
-                          addToast(evt);
-                          triggerStaggeredRefresh();
-                        }}
-                      />
-                    )}
-                    {/* Player position display - only visible when a wallet is connected */}
-                    {isConnected && (
-                      <SecondaryCard
-                        title={t("yourCurrentPosition")}
-                        right={
-                          isRefreshing ? (
-                            <Badge variant="outline" className="animate-pulse">
-                              {t("updating")}
-                            </Badge>
-                          ) : null
-                        }
-                      >
-                        {localPosition ? (
-                          <div className="space-y-1">
-                            <div>
-                              <span className="text-primary">
-                                {t("tickets")}:
-                              </span>{" "}
-                              <span className="font-mono">
-                                {localPosition.tickets.toString()}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-primary">
-                                {t("winProbability")}:
-                              </span>{" "}
-                              <span className="font-mono">
-                                {(() => {
-                                  try {
-                                    const bps = Number(localPosition.probBps);
-                                    return `${(bps / 100).toFixed(2)}%`;
-                                  } catch {
-                                    return "0.00%";
-                                  }
-                                })()}
-                              </span>
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              {t("totalTicketsAtSnapshot")}:{" "}
-                              <span className="font-mono">
-                                {localPosition.total.toString()}
-                              </span>
-                            </div>
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">
-                            No position yet.
-                          </span>
-                        )}
-                      </SecondaryCard>
-                    )}
-                    {/* Toasts container (inline under position) */}
-                    {toasts.length > 0 && (
-                      <div className="mt-3 space-y-2">
-                        {toasts.map((toast) => (
-                          <Alert
-                            key={toast.id}
-                            variant={toast.type === "error" ? "destructive" : "success"}
-                          >
-                            <AlertTitle>{toast.message}</AlertTitle>
-                            {toast.hash && (
-                              <AlertDescription>
-                                <ExplorerLink
-                                  value={toast.hash}
-                                  type="tx"
-                                  text="View Transaction"
-                                  className="underline text-primary font-mono break-all"
-                                />
-                              </AlertDescription>
-                            )}
-                          </Alert>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
+                    <Card>
+                      <CardHeader><CardTitle>{t("tokenHolders")}</CardTitle></CardHeader>
+                      <CardContent>
+                        <HoldersTab bondingCurveAddress={bc} seasonId={seasonIdNumber} />
+                      </CardContent>
+                    </Card>
+                  </div>
 
-              <Card className="mt-4">
-                <CardHeader>
-                  <CardTitle>{t("activityAndDetails")}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Tabs value={activeTab} onValueChange={setActiveTab}>
-                    <TabsList>
-                      <TabsTrigger value="token-info">
-                        {t("tokenInfo")}
-                      </TabsTrigger>
-                      <TabsTrigger value="transactions">
-                        {t("common:transactions")}
-                      </TabsTrigger>
-                      <TabsTrigger value="holders">
-                        {t("tokenHolders")}
-                      </TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="token-info">
-                      <TokenInfoTab
-                        bondingCurveAddress={bc}
-                        seasonId={seasonIdNumber}
-                        curveSupply={curveSupply}
-                        allBondSteps={allBondSteps}
-                        curveReserves={curveReserves}
-                        seasonStatus={seasonDetailsQuery.data.status}
-                        totalPrizePool={seasonDetailsQuery.data.totalPrizePool}
-                      />
-                    </TabsContent>
-                    <TabsContent value="transactions">
-                      <TransactionsTab
-                        bondingCurveAddress={bc}
-                        seasonId={seasonIdNumber}
-                      />
-                    </TabsContent>
-                    <TabsContent value="holders">
-                      <HoldersTab
-                        bondingCurveAddress={bc}
-                        seasonId={seasonIdNumber}
-                      />
-                    </TabsContent>
-                  </Tabs>
-                </CardContent>
-              </Card>
-              <RaffleAdminControls seasonId={seasonIdNumber} />
-              <TreasuryControls
-                seasonId={seasonIdNumber}
-                bondingCurveAddress={bc}
-              />
+                  <div className="px-6 mt-3">
+                    <Accordion type="single" collapsible>
+                      <AccordionItem value="raffle-info">
+                        <AccordionTrigger>{t("raffleInfo")}</AccordionTrigger>
+                        <AccordionContent>
+                          <TokenInfoTab
+                            bondingCurveAddress={bc}
+                            seasonId={seasonIdNumber}
+                            curveSupply={curveSupply}
+                            allBondSteps={allBondSteps}
+                            curveReserves={curveReserves}
+                            seasonStatus={seasonDetailsQuery.data.status}
+                            totalPrizePool={seasonDetailsQuery.data.totalPrizePool}
+                          />
+                        </AccordionContent>
+                      </AccordionItem>
+                    </Accordion>
+                  </div>
+
+                  <RaffleAdminControls seasonId={seasonIdNumber} />
+                  <TreasuryControls seasonId={seasonIdNumber} bondingCurveAddress={bc} />
+                </>
+              ) : (
+                <>
+                  {(() => {
+                    const startTs = Number(cfg.startTime);
+                    const endTs = Number(cfg.endTime);
+                    if (!chainNow) return null;
+
+                    // Reason: these hints are only intended for admin-controlled transitions.
+                    if (
+                      statusNum === 0 &&
+                      chainNow >= startTs &&
+                      chainNow < endTs
+                    ) {
+                      return (
+                        <p className="px-6 text-sm text-muted-foreground">
+                          Window open on-chain, awaiting admin Start.
+                        </p>
+                      );
+                    }
+
+                    if (chainNow >= endTs && statusNum === 1) {
+                      return (
+                        <p className="px-6 text-sm text-muted-foreground">
+                          Window ended on-chain, awaiting admin End.
+                        </p>
+                      );
+                    }
+
+                    return null;
+                  })()}
+
+                  {isCompletedSeason && winnerSummaryQuery.data && (
+                    <div className="px-6 mt-3">
+                      <Card>
+                        <CardContent className="p-4">
+                          <div className="text-sm font-semibold text-foreground">
+                            {t("winnerAnnouncement")}
+                          </div>
+                          <div className="mt-2 text-sm uppercase tracking-wide text-primary">
+                            {t("winner")}:
+                          </div>
+                          <div className="text-lg font-semibold text-foreground mt-1">
+                            <UsernameDisplay
+                              address={winnerSummaryQuery.data.winnerAddress}
+                              className="text-lg"
+                            />
+                          </div>
+                          <div className="text-sm text-muted-foreground mt-2">
+                            {t("grandPrize")}:{" "}
+                            {(() => {
+                              try {
+                                return `${Number(formatUnits(winnerSummaryQuery.data.grandPrizeWei, 18)).toFixed(2)} SOF`;
+                              } catch {
+                                return "0.00 SOF";
+                              }
+                            })()}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
+
+                  {/* Sponsored Prizes Display */}
+                  <div className="px-6 mt-3">
+                    <SponsoredPrizesDisplay seasonId={seasonId} isCompleted={isCompletedSeason} />
+                  </div>
+
+                  {/* Sponsor Prize Widget (for active seasons) */}
+                  {!isCompletedSeason && statusNum >= 1 && (
+                    <div className="px-6 mt-3">
+                      <SponsorPrizeWidget seasonId={seasonId} />
+                    </div>
+                  )}
+
+                  {/* Claim Prize Widget (for winners) */}
+                  {isCompletedSeason && (
+                    <div className="px-6 mt-3 flex justify-center">
+                      <ClaimPrizeWidget seasonId={seasonId} />
+                    </div>
+                  )}
+
+                  {/* Bonding Curve UI */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
+                    {(() => {
+                      if (!chainNow) return null;
+
+                      return (
+                        <Card className="lg:col-span-2">
+                          <CardHeader>
+                            <CardTitle>Bonding Curve</CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <BondingCurvePanel
+                              curveSupply={curveSupply}
+                              curveStep={curveStep}
+                              allBondSteps={allBondSteps}
+                            />
+                            {curveStep?.rangeTo != null && curveSupply != null && (() => {
+                              const remaining = BigInt(curveStep.rangeTo) - BigInt(curveSupply);
+                              if (remaining <= 0n) return null;
+                              return (
+                                <div className="flex justify-center mt-3">
+                                  <div className="w-3/5 text-center rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                                    <span className="font-mono font-semibold text-foreground">{remaining.toString()}</span>{" "}
+                                    {t("ticketsRemainUntilNextPriceIncrease", { defaultValue: "tickets remain until next price increase" })}
+                                  </div>
+                                </div>
+                              );
+                            })()}
+                          </CardContent>
+                        </Card>
+                      );
+                    })()}
+                    <Card>
+                      <CardContent>
+                        {chainNow && (
+                          <BuySellWidget
+                            bondingCurveAddress={bc}
+                            seasonId={seasonIdNumber}
+                            initialTab={initialTradeTab}
+                            isGated={isSeasonGated}
+                            isVerified={isGatingVerified}
+                            onGatingRequired={(mode) => {
+                              setPendingAction(mode);
+                              setGateModalOpen(true);
+                            }}
+                            onTxSuccess={() => triggerStaggeredRefresh()}
+                            onNotify={(evt) => {
+                              addToast(evt);
+                              triggerStaggeredRefresh();
+                            }}
+                          />
+                        )}
+                        {/* Player position display - only visible when a wallet is connected */}
+                        {isConnected && (
+                          <SecondaryCard
+                            title={t("yourCurrentPosition")}
+                            right={
+                              isRefreshing ? (
+                                <Badge variant="outline" className="animate-pulse">
+                                  {t("updating")}
+                                </Badge>
+                              ) : null
+                            }
+                          >
+                            {localPosition ? (
+                              <div className="space-y-1">
+                                <div>
+                                  <span className="text-primary">
+                                    {t("tickets")}:
+                                  </span>{" "}
+                                  <span className="font-mono">
+                                    {localPosition.tickets.toString()}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-primary">
+                                    {t("winProbability")}:
+                                  </span>{" "}
+                                  <span className="font-mono">
+                                    {(() => {
+                                      try {
+                                        const bps = Number(localPosition.probBps);
+                                        return `${(bps / 100).toFixed(2)}%`;
+                                      } catch {
+                                        return "0.00%";
+                                      }
+                                    })()}
+                                  </span>
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  {t("totalTicketsAtSnapshot")}:{" "}
+                                  <span className="font-mono">
+                                    {localPosition.total.toString()}
+                                  </span>
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground">
+                                No position yet.
+                              </span>
+                            )}
+                          </SecondaryCard>
+                        )}
+                        {/* Toasts container (inline under position) */}
+                        {toasts.length > 0 && (
+                          <div className="mt-3 space-y-2">
+                            {toasts.map((toast) => (
+                              <Alert
+                                key={toast.id}
+                                variant={toast.type === "error" ? "destructive" : "success"}
+                              >
+                                <AlertTitle>{toast.message}</AlertTitle>
+                                {toast.hash && (
+                                  <AlertDescription>
+                                    <ExplorerLink
+                                      value={toast.hash}
+                                      type="tx"
+                                      text="View Transaction"
+                                      className="underline text-primary font-mono break-all"
+                                    />
+                                  </AlertDescription>
+                                )}
+                              </Alert>
+                            ))}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  <Card className="mt-4">
+                    <CardHeader>
+                      <CardTitle>{t("activityAndDetails")}</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <Tabs value={activeTab} onValueChange={setActiveTab}>
+                        <TabsList>
+                          <TabsTrigger value="token-info">
+                            {t("tokenInfo")}
+                          </TabsTrigger>
+                          <TabsTrigger value="transactions">
+                            {t("common:transactions")}
+                          </TabsTrigger>
+                          <TabsTrigger value="holders">
+                            {t("tokenHolders")}
+                          </TabsTrigger>
+                        </TabsList>
+                        <TabsContent value="token-info">
+                          <TokenInfoTab
+                            bondingCurveAddress={bc}
+                            seasonId={seasonIdNumber}
+                            curveSupply={curveSupply}
+                            allBondSteps={allBondSteps}
+                            curveReserves={curveReserves}
+                            seasonStatus={seasonDetailsQuery.data.status}
+                            totalPrizePool={seasonDetailsQuery.data.totalPrizePool}
+                          />
+                        </TabsContent>
+                        <TabsContent value="transactions">
+                          <TransactionsTab
+                            bondingCurveAddress={bc}
+                            seasonId={seasonIdNumber}
+                          />
+                        </TabsContent>
+                        <TabsContent value="holders">
+                          <HoldersTab
+                            bondingCurveAddress={bc}
+                            seasonId={seasonIdNumber}
+                          />
+                        </TabsContent>
+                      </Tabs>
+                    </CardContent>
+                  </Card>
+                  <RaffleAdminControls seasonId={seasonIdNumber} />
+                  <TreasuryControls
+                    seasonId={seasonIdNumber}
+                    bondingCurveAddress={bc}
+                  />
+                </>
+              )}
             </>
           );
         })()}
