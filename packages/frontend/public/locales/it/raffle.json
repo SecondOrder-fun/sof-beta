@@ -286,5 +286,9 @@
   "tradingLocked": "Trading locked",
   "settlingAwaitingEnd": "Awaiting end",
   "settlingDrawingWinner": "Drawing winner",
-  "settlingDistributing": "Distributing prizes"
+  "settlingDistributing": "Distributing prizes",
+  "notStarted": "Not started",
+  "completed": "Completed",
+  "cancelled": "Cancelled",
+  "unknownStatus": "Unknown"
 }
