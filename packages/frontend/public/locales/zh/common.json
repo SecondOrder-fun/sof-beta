@@ -238,5 +238,12 @@
   "market_activity_details": "活动与详情",
   "transactions": "交易",
   "market_token_info": "代币信息",
-  "market_token_holders": "代币持有者"
+  "market_token_holders": "代币持有者",
+  "timeElapsed": {
+    "justNow": "just now",
+    "minsAgo": "{{count}} min ago",
+    "hrsAgo": "{{count}} hr ago",
+    "daysAgo_one": "{{count}} day ago",
+    "daysAgo_other": "{{count}} days ago"
+  }
 }

@@ -2,6 +2,23 @@ import { render, screen, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import TimeElapsed from '../TimeElapsed';
 
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key, opts) => {
+      if (key === 'timeElapsed.justNow') return 'just now';
+      if (key === 'timeElapsed.minsAgo') return `${opts.count} min ago`;
+      if (key === 'timeElapsed.hrsAgo') return `${opts.count} hr ago`;
+      if (
+        key === 'timeElapsed.daysAgo_one' ||
+        (key === 'timeElapsed.daysAgo' && opts && opts.count === 1)
+      ) {
+        return `${opts.count} day ago`;
+      }
+      return `${opts.count} days ago`;
+    },
+  }),
+}));
+
 describe('TimeElapsed', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -33,8 +50,14 @@ describe('TimeElapsed', () => {
     expect(screen.getByText(/2 days ago/i)).toBeInTheDocument();
   });
 
-  it('returns null for missing or invalid timestamps', () => {
-    const { container } = render(<TimeElapsed targetTimestamp={undefined} />);
+  it.each([
+    ['undefined', undefined],
+    ['null', null],
+    ['0', 0],
+    ['-1', -1],
+    ['NaN', NaN],
+  ])('returns null for invalid timestamp: %s', (_label, val) => {
+    const { container } = render(<TimeElapsed targetTimestamp={val} />);
     expect(container.firstChild).toBeNull();
   });
 

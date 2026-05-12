@@ -238,5 +238,12 @@
   "market_activity_details": "Активность и детали",
   "transactions": "Транзакции",
   "market_token_info": "Информация о токене",
-  "market_token_holders": "Держатели токена"
+  "market_token_holders": "Держатели токена",
+  "timeElapsed": {
+    "justNow": "just now",
+    "minsAgo": "{{count}} min ago",
+    "hrsAgo": "{{count}} hr ago",
+    "daysAgo_one": "{{count}} day ago",
+    "daysAgo_other": "{{count}} days ago"
+  }
 }
