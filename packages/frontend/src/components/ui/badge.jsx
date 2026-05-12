@@ -29,6 +29,8 @@ const badgeVariants = cva(
           "bg-[#082016] border-[#2ea96f] text-[#c7f2dd] hover:bg-[#0d2b1f]",
         statusUpcoming:
           "bg-[#17171f] border-[#4b5563] text-[#e5e7eb] hover:bg-[#1f2933]",
+        statusSettling:
+          "bg-warning/15 text-warning hover:bg-warning/15 border-warning/30",
         statusDanger:
           "bg-[#2b0008] border-[#f04455] text-[#fecaca] hover:bg-[#3b000d]",
       },
@@ -63,6 +65,7 @@ Badge.propTypes = {
     "statusActive",
     "statusCompleted",
     "statusUpcoming",
+    "statusSettling",
     "statusDanger",
   ]),
 };

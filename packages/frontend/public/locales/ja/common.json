@@ -238,5 +238,12 @@
   "market_activity_details": "アクティビティ・詳細",
   "transactions": "トランザクション",
   "market_token_info": "トークン情報",
-  "market_token_holders": "トークン保有者"
+  "market_token_holders": "トークン保有者",
+  "timeElapsed": {
+    "justNow": "just now",
+    "minsAgo": "{{count}} min ago",
+    "hrsAgo": "{{count}} hr ago",
+    "daysAgo_one": "{{count}} day ago",
+    "daysAgo_other": "{{count}} days ago"
+  }
 }

@@ -238,5 +238,12 @@
   "market_activity_details": "Attività e Dettagli",
   "transactions": "Transazioni",
   "market_token_info": "Info Token",
-  "market_token_holders": "Detentori Token"
+  "market_token_holders": "Detentori Token",
+  "timeElapsed": {
+    "justNow": "just now",
+    "minsAgo": "{{count}} min ago",
+    "hrsAgo": "{{count}} hr ago",
+    "daysAgo_one": "{{count}} day ago",
+    "daysAgo_other": "{{count}} days ago"
+  }
 }

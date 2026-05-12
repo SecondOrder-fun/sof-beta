@@ -12,6 +12,7 @@ import BondingCurvePanel from "@/components/curve/CurveGraph";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import CountdownTimer from "@/components/common/CountdownTimer";
+import TimeElapsed from "@/components/common/TimeElapsed";
 import UsernameDisplay from "@/components/user/UsernameDisplay";
 
 const SeasonCard = ({ season, renderBadge, winnerSummary }) => {
@@ -19,7 +20,6 @@ const SeasonCard = ({ season, renderBadge, winnerSummary }) => {
   const { t } = useTranslation(["raffle", "common"]);
   const bondingCurveAddress = season?.config?.bondingCurve;
   const statusNum = Number(season?.status);
-  const isActiveSeason = statusNum === 1;
   const nowSec = Math.floor(Date.now() / 1000);
   const startTimeSec = season?.config?.startTime
     ? Number(season.config.startTime)
@@ -30,7 +30,21 @@ const SeasonCard = ({ season, renderBadge, winnerSummary }) => {
       : false;
   const totalTickets = BigInt(season?.totalTickets ?? 0n);
   const endTime = season?.config?.endTime;
-  const isCompleted = statusNum === 4 || statusNum === 5;
+  // Precise per-status gates (replaces the previous coarse
+  // isCompleted = (4 || 5) which leaked the curve+price into Settling
+  // statuses 2/3/4).
+  const isUpcoming = statusNum === 0;
+  const isActive = statusNum === 1;
+  const isSettling = statusNum === 2 || statusNum === 3 || statusNum === 4;
+  const isComplete = statusNum === 5 || statusNum === 6;
+  const settlingLabelKey =
+    statusNum === 2
+      ? "settlingAwaitingEnd"
+      : statusNum === 3
+        ? "settlingDrawingWinner"
+        : statusNum === 4
+          ? "settlingDistributing"
+          : null;
   const { curveSupply, curveStep, allBondSteps } = useCurveState(
     bondingCurveAddress,
     {
@@ -38,7 +52,7 @@ const SeasonCard = ({ season, renderBadge, winnerSummary }) => {
       // and completed seasons useCurveState fetches once and stays put — the
       // curve is locked at close time, so the recorded `currentStep` is the
       // last price tier hit before lock.
-      isActive: isActiveSeason,
+      isActive,
       pollMs: 15000,
       enabled: true,
     },
@@ -72,7 +86,7 @@ const SeasonCard = ({ season, renderBadge, winnerSummary }) => {
   // (a) season is currently Active (status === 1), AND
   // (b) the bonding curve hasn't been locked (post-end / paused / cancelled), AND
   // (c) the season's endTime hasn't passed (status will flip soon, no point starting a buy).
-  const tradingOpen = isActiveSeason && !tradingLocked && !seasonEndedByTime;
+  const tradingOpen = isActive && !tradingLocked && !seasonEndedByTime;
 
   const currentPriceLabel = (() => {
     try {
@@ -126,58 +140,98 @@ const SeasonCard = ({ season, renderBadge, winnerSummary }) => {
         )}
       </CardHeader>
       <CardContent className="flex flex-col gap-2 pt-0">
-        {/* Bonding curve graph — shown for every state. For completed
-            raffles this renders the locked curve state (price/step at the
-            moment the season was ended). */}
-        <div className="overflow-hidden rounded-md bg-muted/40">
-          <div className="h-44">
-            <BondingCurvePanel
-              curveSupply={curveSupply}
-              curveStep={curveStep}
-              allBondSteps={allBondSteps}
-              mini
-              isCompleted={isCompleted}
-            />
-          </div>
-        </div>
-
-        {/* Price line + buy/sell — label switches by state. Buttons only
-            render while trading is actually open (active, not locked, not
-            past endTime). */}
-        <div className="flex items-center justify-between text-sm">
-          <div>
-            <div className="text-xs text-primary">
-              {isPreStart
-                ? t("startingPrice", { defaultValue: "Starting Price (SOF)" })
-                : isCompleted
-                  ? t("finalPrice", { defaultValue: "Final Price (SOF)" })
-                  : t("currentPrice")}
+        {/* Active: live curve + current price + buy/sell. Buy/Sell still
+            gated by `tradingOpen` (Task 1 — hides buttons once endTime
+            passes or the curve is locked, even if status hasn't flipped). */}
+        {isActive && (
+          <>
+            <div className="overflow-hidden rounded-md bg-muted/40">
+              <div className="h-44">
+                <BondingCurvePanel
+                  curveSupply={curveSupply}
+                  curveStep={curveStep}
+                  allBondSteps={allBondSteps}
+                  mini
+                />
+              </div>
             </div>
-            <div className="font-mono text-base">{currentPriceLabel} SOF</div>
-          </div>
-          {!isPreStart && tradingOpen && (
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                onClick={() => navigate(`/raffles/${season.id}?mode=buy`)}
-              >
-                {t("common:buy")}
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => navigate(`/raffles/${season.id}?mode=sell`)}
-              >
-                {t("common:sell")}
-              </Button>
+            <div className="flex items-center justify-between text-sm">
+              <div>
+                <div className="text-xs text-primary">{t("currentPrice")}</div>
+                <div className="font-mono text-base">
+                  {currentPriceLabel} SOF
+                </div>
+              </div>
+              {tradingOpen && (
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => navigate(`/raffles/${season.id}?mode=buy`)}
+                  >
+                    {t("common:buy")}
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => navigate(`/raffles/${season.id}?mode=sell`)}
+                  >
+                    {t("common:sell")}
+                  </Button>
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </>
+        )}
 
-        {/* Winner / no-participants card for completed raffles. Shown
-            below the graph + last-price line so the user can see both the
-            on-curve outcome (graph + last price) and the off-curve outcome
-            (winner). */}
-        {isCompleted && winnerSummary && (
+        {/* Upcoming: preview the configured curve + starting price; no
+            buy/sell yet. */}
+        {isUpcoming && (
+          <>
+            <div className="overflow-hidden rounded-md bg-muted/40">
+              <div className="h-44">
+                <BondingCurvePanel
+                  curveSupply={curveSupply}
+                  curveStep={curveStep}
+                  allBondSteps={allBondSteps}
+                  mini
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <div>
+                <div className="text-xs text-primary">
+                  {t("startingPrice", {
+                    defaultValue: "Starting Price (SOF)",
+                  })}
+                </div>
+                <div className="font-mono text-base">
+                  {currentPriceLabel} SOF
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Settling (2/3/4): trading is locked. Hide curve + price + buy/sell.
+            v1 uses endTime as the lock-time proxy for TimeElapsed (spec
+            accepted vs. reading vrfRequestTimestamp). */}
+        {isSettling && (
+          <div className="rounded-md border border-border bg-muted/40 p-4 text-center">
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">
+              {t("tradingLocked", { defaultValue: "Trading locked" })}
+            </div>
+            <div className="font-mono text-base text-foreground mt-1">
+              <TimeElapsed targetTimestamp={Number(season?.config?.endTime)} />
+            </div>
+            {settlingLabelKey && (
+              <div className="mt-2 text-xs text-muted-foreground">
+                {t(settlingLabelKey)}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Complete (5/6): winner box or no-participants note. */}
+        {isComplete && winnerSummary && (
           <div className="rounded-md border border-border bg-muted/40 p-4 text-base text-muted-foreground">
             <div className="flex flex-wrap items-center gap-3">
               <span className="text-sm uppercase tracking-wide text-primary">
@@ -202,7 +256,7 @@ const SeasonCard = ({ season, renderBadge, winnerSummary }) => {
             </div>
           </div>
         )}
-        {isCompleted && !winnerSummary && totalTickets === 0n && (
+        {isComplete && !winnerSummary && totalTickets === 0n && (
           <div className="rounded-md border border-border bg-muted/40 p-4 text-base text-muted-foreground">
             <div className="text-sm font-semibold text-foreground">
               {t("noWinner")}
