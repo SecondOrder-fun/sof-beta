@@ -329,7 +329,7 @@
   "results": "Results",
   "awaitingDraw": "Awaiting draw…",
   "vrfPending": "VRF pending",
-  "consolationPerLoser": "{{total}} SOF · {{share}} each",
+  "consolationPerLoser": "{{total}} · {{share}} each",
   "consolationClaimsOpenAfterDraw": "Claims open after draw",
   "connectToCheckEligibility": "Connect wallet to check eligibility",
   "youClaimable": "You: claimable",

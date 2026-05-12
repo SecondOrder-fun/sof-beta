@@ -30,7 +30,7 @@ describe('CompletedRaffleResults', () => {
         seasonStatus={5}
       />
     );
-    expect(screen.getByTestId('username')).toHaveTextContent('0xA1B2');
+    expect(screen.getByTestId('username')).toHaveTextContent('0xA1B2C3D4E5F60718293A4B5C6D7E8F9012345678');
     expect(screen.getByText(/1250\.00/)).toBeInTheDocument();
     expect(screen.getByText(/500\.00 SOF/)).toBeInTheDocument();
     expect(screen.getByText('youClaimable')).toBeInTheDocument();
