@@ -13,7 +13,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import PageTitle from "@/components/layout/PageTitle";
-import { formatUnits } from "viem";
 // removed inline buy/sell form controls
 import { getStoredNetworkKey } from "@/lib/wagmi";
 import { getNetworkByKey } from "@/config/networks";
@@ -40,7 +39,6 @@ import MobileRaffleDetail from "@/components/mobile/MobileRaffleDetail";
 import BuySellSheet from "@/components/mobile/BuySellSheet";
 import PasswordGateModal from "@/components/gating/PasswordGateModal";
 import SignatureGateModal from "@/components/gating/SignatureGateModal";
-import UsernameDisplay from "@/components/user/UsernameDisplay";
 import { SponsoredPrizesDisplay } from "@/components/prizes/SponsoredPrizesDisplay";
 import { SponsorPrizeWidget } from "@/components/prizes/SponsorPrizeWidget";
 import { ClaimPrizeWidget } from "@/components/prizes/ClaimPrizeWidget";
@@ -485,7 +483,7 @@ const RaffleDetails = () => {
                   </div>
 
                   <div className="px-6 mt-3">
-                    <SponsoredPrizesDisplay seasonId={seasonId} isCompleted={isCompletedSeason} />
+                    <SponsoredPrizesDisplay seasonId={seasonId} isCompleted={isCompletedSeason || isCancelledSeason} />
                   </div>
 
                   {isCompletedSeason && (
@@ -562,53 +560,15 @@ const RaffleDetails = () => {
                     return null;
                   })()}
 
-                  {isCompletedSeason && winnerSummaryQuery.data && (
-                    <div className="px-6 mt-3">
-                      <Card>
-                        <CardContent className="p-4">
-                          <div className="text-sm font-semibold text-foreground">
-                            {t("winnerAnnouncement")}
-                          </div>
-                          <div className="mt-2 text-sm uppercase tracking-wide text-primary">
-                            {t("winner")}:
-                          </div>
-                          <div className="text-lg font-semibold text-foreground mt-1">
-                            <UsernameDisplay
-                              address={winnerSummaryQuery.data.winnerAddress}
-                              className="text-lg"
-                            />
-                          </div>
-                          <div className="text-sm text-muted-foreground mt-2">
-                            {t("grandPrize")}:{" "}
-                            {(() => {
-                              try {
-                                return `${Number(formatUnits(winnerSummaryQuery.data.grandPrizeWei, 18)).toFixed(2)} SOF`;
-                              } catch {
-                                return "0.00 SOF";
-                              }
-                            })()}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </div>
-                  )}
-
                   {/* Sponsored Prizes Display */}
                   <div className="px-6 mt-3">
-                    <SponsoredPrizesDisplay seasonId={seasonId} isCompleted={isCompletedSeason} />
+                    <SponsoredPrizesDisplay seasonId={seasonId} />
                   </div>
 
                   {/* Sponsor Prize Widget (for active seasons) */}
-                  {!isCompletedSeason && statusNum >= 1 && (
+                  {statusNum >= 1 && (
                     <div className="px-6 mt-3">
                       <SponsorPrizeWidget seasonId={seasonId} />
-                    </div>
-                  )}
-
-                  {/* Claim Prize Widget (for winners) */}
-                  {isCompletedSeason && (
-                    <div className="px-6 mt-3 flex justify-center">
-                      <ClaimPrizeWidget seasonId={seasonId} />
                     </div>
                   )}
 

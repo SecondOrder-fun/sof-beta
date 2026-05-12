@@ -1,8 +1,9 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import RaffleDetails from '@/routes/RaffleDetails';
+import { useRaffleState } from '@/hooks/useRaffleState';
 
 // Force desktop branch
 vi.mock('@/hooks/usePlatform', () => ({
@@ -16,21 +17,7 @@ vi.mock('@/hooks/useChainTime', () => ({
 }));
 
 vi.mock('@/hooks/useRaffleState', () => ({
-  useRaffleState: () => ({
-    seasonDetailsQuery: {
-      isLoading: false,
-      data: {
-        status: 5,
-        totalPrizePool: 0n,
-        config: {
-          name: 'Spring Cup',
-          startTime: BigInt(NOW - 7200),
-          endTime: BigInt(NOW - 60),
-          bondingCurve: '0x000000000000000000000000000000000000aBcD',
-        },
-      },
-    },
-  }),
+  useRaffleState: vi.fn(),
 }));
 
 vi.mock('@/hooks/useCurveState', () => ({
@@ -93,17 +80,38 @@ vi.mock('@/components/common/SecondaryCard', () => ({ default: () => null }));
 
 const makeClient = () => new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
+const makeSeasonQuery = (status) => ({
+  isLoading: false,
+  data: {
+    status,
+    totalPrizePool: 0n,
+    config: {
+      name: 'Spring Cup',
+      startTime: BigInt(NOW - 7200),
+      endTime: BigInt(NOW - 60),
+      bondingCurve: '0x000000000000000000000000000000000000aBcD',
+    },
+  },
+});
+
+const renderRoute = () =>
+  render(
+    <QueryClientProvider client={makeClient()}>
+      <MemoryRouter initialEntries={['/raffles/7']}>
+        <Routes>
+          <Route path="/raffles/:seasonId" element={<RaffleDetails />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+
 describe('RaffleDetails completed branch', () => {
+  beforeEach(() => {
+    vi.mocked(useRaffleState).mockReturnValue({ seasonDetailsQuery: makeSeasonQuery(5) });
+  });
+
   it('renders CompletedRaffleResults, Transactions, Holders side-by-side, and hides BuySell/BondingCurve at status 5', () => {
-    render(
-      <QueryClientProvider client={makeClient()}>
-        <MemoryRouter initialEntries={['/raffles/7']}>
-          <Routes>
-            <Route path="/raffles/:seasonId" element={<RaffleDetails />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
+    renderRoute();
 
     expect(screen.getByTestId('completed-results')).toBeInTheDocument();
     expect(screen.getByTestId('transactions-tab')).toBeInTheDocument();
@@ -111,5 +119,22 @@ describe('RaffleDetails completed branch', () => {
     expect(screen.queryByTestId('bonding-curve-panel')).not.toBeInTheDocument();
     expect(screen.queryByTestId('buy-sell-widget')).not.toBeInTheDocument();
     expect(screen.queryByTestId('sponsor-widget')).not.toBeInTheDocument();
+  });
+
+  it('routes to the completed branch at status 4 (VRF pending)', () => {
+    vi.mocked(useRaffleState).mockReturnValue({ seasonDetailsQuery: makeSeasonQuery(4) });
+    renderRoute();
+
+    expect(screen.getByTestId('completed-results')).toBeInTheDocument();
+    expect(screen.queryByTestId('bonding-curve-panel')).not.toBeInTheDocument();
+  });
+
+  it('routes to the completed branch at status 6 (cancelled) and hides ClaimPrizeWidget', () => {
+    vi.mocked(useRaffleState).mockReturnValue({ seasonDetailsQuery: makeSeasonQuery(6) });
+    renderRoute();
+
+    expect(screen.getByTestId('completed-results')).toBeInTheDocument();
+    expect(screen.queryByTestId('bonding-curve-panel')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('claim-widget')).not.toBeInTheDocument();
   });
 });
