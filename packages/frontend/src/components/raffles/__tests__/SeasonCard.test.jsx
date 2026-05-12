@@ -136,4 +136,15 @@ describe('SeasonCard variants', () => {
     // via the exact translation-key text.
     expect(screen.getByText('winner')).toBeInTheDocument();
   });
+
+  it('Cancelled status (6) shows cancelled indicator, no curve, no winner', () => {
+    render(
+      <MemoryRouter>
+        <SeasonCard season={baseSeason(6)} renderBadge={noopBadge} winnerSummary={null} />
+      </MemoryRouter>
+    );
+    expect(screen.queryByTestId('curve-mini')).not.toBeInTheDocument();
+    expect(screen.queryByText(/winner/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/seasonCancelled/i)).toBeInTheDocument();
+  });
 });

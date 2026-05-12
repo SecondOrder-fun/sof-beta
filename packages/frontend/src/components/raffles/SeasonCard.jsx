@@ -37,6 +37,10 @@ const SeasonCard = ({ season, renderBadge, winnerSummary }) => {
   const isActive = statusNum === 1;
   const isSettling = statusNum === 2 || statusNum === 3 || statusNum === 4;
   const isComplete = statusNum === 5 || statusNum === 6;
+  // Cancelled is a sub-state of Complete (status 6). Renders a dedicated
+  // indicator instead of falling into the no-winner / winner branches —
+  // a cancelled season can have tickets but no payout.
+  const isCancelled = statusNum === 6;
   const settlingLabelKey =
     statusNum === 2
       ? "settlingAwaitingEnd"
@@ -230,8 +234,21 @@ const SeasonCard = ({ season, renderBadge, winnerSummary }) => {
           </div>
         )}
 
-        {/* Complete (5/6): winner box or no-participants note. */}
-        {isComplete && winnerSummary && (
+        {/* Complete (5/6): cancelled indicator, winner box, or no-participants
+            note. The three branches are mutually exclusive — cancelled is
+            checked first so a cancelled season with tickets doesn't silently
+            fall through to the no-winner / winner paths. */}
+        {isComplete && isCancelled && (
+          <div className="rounded-md border border-border bg-muted/40 p-4 text-base text-muted-foreground">
+            <div className="text-sm font-semibold text-foreground">
+              {t("cancelled", { defaultValue: "Cancelled" })}
+            </div>
+            <div className="mt-2 text-sm text-muted-foreground">
+              {t("seasonCancelled", { defaultValue: "Season cancelled. No payout." })}
+            </div>
+          </div>
+        )}
+        {isComplete && !isCancelled && winnerSummary && (
           <div className="rounded-md border border-border bg-muted/40 p-4 text-base text-muted-foreground">
             <div className="flex flex-wrap items-center gap-3">
               <span className="text-sm uppercase tracking-wide text-primary">
@@ -256,7 +273,7 @@ const SeasonCard = ({ season, renderBadge, winnerSummary }) => {
             </div>
           </div>
         )}
-        {isComplete && !winnerSummary && totalTickets === 0n && (
+        {isComplete && !isCancelled && !winnerSummary && totalTickets === 0n && (
           <div className="rounded-md border border-border bg-muted/40 p-4 text-base text-muted-foreground">
             <div className="text-sm font-semibold text-foreground">
               {t("noWinner")}
