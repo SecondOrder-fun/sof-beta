@@ -291,5 +291,17 @@
   "completed": "Completed",
   "cancelled": "Cancelled",
   "seasonCancelled": "Season cancelled. No payout.",
+  "results": "Results",
+  "awaitingDraw": "Awaiting draw…",
+  "vrfPending": "VRF pending",
+  "consolationPerLoser": "{{total}} · {{share}} each",
+  "consolationClaimsOpenAfterDraw": "Claims open after draw",
+  "connectToCheckEligibility": "Connect wallet to check eligibility",
+  "youClaimable": "You: claimable",
+  "youClaimed": "You: claimed",
+  "raffleInfo": "Raffle info",
+  "noPayoutRefunded": "No payout. All buyers refunded on-chain.",
+  "pendingPayoutSetup": "Pending payout setup",
+  "dashEmpty": "—",
   "unknownStatus": "Unknown"
 }

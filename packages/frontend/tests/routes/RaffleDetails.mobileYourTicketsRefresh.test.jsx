@@ -140,6 +140,12 @@ vi.mock("@/hooks/usePlayerPosition", () => ({
     refreshNow: mockRefreshNow,
   }),
 }));
+vi.mock("@/hooks/useConsolationStatus", () => ({
+  useConsolationStatus: () => ({
+    totalPoolWei: 0n, perLoserShareWei: 0n,
+    viewerEligible: false, viewerClaimed: false, isLoading: false,
+  }),
+}));
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import RaffleDetails from "@/routes/RaffleDetails.jsx";

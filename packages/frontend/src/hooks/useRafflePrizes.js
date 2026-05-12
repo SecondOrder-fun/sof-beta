@@ -245,5 +245,6 @@ export function useRafflePrizes(seasonId) {
       : raffleDetails?.status,
     claimStatus,
     claimTxHash: claimHash || historicalClaimTxQuery.data,
+    seasonPayouts,
   };
 }
