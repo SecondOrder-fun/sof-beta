@@ -30,7 +30,7 @@ export function useConsolationStatus(seasonId) {
     distributorAddress && viewerAddress && seasonId !== undefined && seasonId !== null,
   );
 
-  const { data: eligible } = useReadContract({
+  const { data: eligible, isLoading: isLoadingEligible } = useReadContract({
     address: distributorAddress,
     abi: RafflePrizeDistributorAbi,
     functionName: "isEligibleForConsolation",
@@ -38,7 +38,7 @@ export function useConsolationStatus(seasonId) {
     query: { enabled },
   });
 
-  const { data: claimed } = useReadContract({
+  const { data: claimed, isLoading: isLoadingClaimed } = useReadContract({
     address: distributorAddress,
     abi: RafflePrizeDistributorAbi,
     functionName: "hasClaimedConsolation",
@@ -47,7 +47,7 @@ export function useConsolationStatus(seasonId) {
   });
 
   const totalPoolWei = seasonPayouts?.consolationAmount ?? 0n;
-  const totalParticipants = BigInt(seasonPayouts?.totalParticipants ?? 0n);
+  const totalParticipants = seasonPayouts?.totalParticipants ?? 0n;
   const loserCount = totalParticipants > 1n ? totalParticipants - 1n : 0n;
   const perLoserShareWei =
     totalPoolWei > 0n && loserCount > 0n ? totalPoolWei / loserCount : 0n;
@@ -57,6 +57,6 @@ export function useConsolationStatus(seasonId) {
     perLoserShareWei,
     viewerEligible: viewerAddress ? Boolean(eligible) : null,
     viewerClaimed: Boolean(claimed),
-    isLoading: Boolean(prizes.isLoading),
+    isLoading: Boolean(prizes.isLoading || isLoadingEligible || isLoadingClaimed),
   };
 }

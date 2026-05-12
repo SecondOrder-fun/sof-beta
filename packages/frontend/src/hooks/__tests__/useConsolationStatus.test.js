@@ -89,11 +89,27 @@ describe('useConsolationStatus', () => {
     });
     // Order matters: hook calls isEligible first, then hasClaimed.
     mockUseReadContract
-      .mockReturnValueOnce({ data: true })
-      .mockReturnValueOnce({ data: true });
+      .mockReturnValueOnce({ data: true, isLoading: false })
+      .mockReturnValueOnce({ data: true, isLoading: false });
 
     const { result } = renderHook(() => useConsolationStatus(7));
     expect(result.current.viewerEligible).toBe(true);
     expect(result.current.viewerClaimed).toBe(true);
+  });
+
+  it('isLoading is true when any of the three reads is in flight', () => {
+    mockUseRaffleAccount.mockReturnValue({ sma: '0xviewer' });
+    mockUseRafflePrizes.mockReturnValue({
+      distributorAddress: '0xdistributor',
+      isLoading: false,
+      seasonPayouts: { consolationAmount: 100n, totalParticipants: 5n },
+    });
+    // Eligible call still loading, claimed call settled
+    mockUseReadContract
+      .mockReturnValueOnce({ data: undefined, isLoading: true })
+      .mockReturnValueOnce({ data: false, isLoading: false });
+
+    const { result } = renderHook(() => useConsolationStatus(7));
+    expect(result.current.isLoading).toBe(true);
   });
 });
