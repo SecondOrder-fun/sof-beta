@@ -305,5 +305,17 @@
   "totalTicketValue": "Total ticket value",
   "rolloverSuccess": "Rollover confirmed",
   "refundSuccess": "Refund confirmed",
-  "rolloverBuy": "Rollover"
+  "rolloverBuy": "Rollover",
+  "tabs": {
+    "upcoming": "Upcoming",
+    "active": "Active",
+    "settling": "Settling",
+    "complete": "Complete"
+  },
+  "emptyTab": {
+    "upcoming": "No upcoming raffles.",
+    "active": "No active raffles right now.",
+    "settling": "No raffles currently settling.",
+    "complete": "No completed raffles yet."
+  }
 }
