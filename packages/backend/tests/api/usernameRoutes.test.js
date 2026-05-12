@@ -31,6 +31,11 @@ vi.mock("../../shared/redisClient.js", () => ({
   },
 }));
 
+const mockGetSmartAccountBySma = vi.fn();
+vi.mock("../../shared/services/smartAccountsDb.js", () => ({
+  getSmartAccountBySma: (...args) => mockGetSmartAccountBySma(...args),
+}));
+
 describe("Username Routes", () => {
   let app;
   let usernameRoutes;
@@ -42,6 +47,7 @@ describe("Username Routes", () => {
     mockExec.mockResolvedValue([["OK"], ["OK"]]);
     mockMget.mockResolvedValue([null, null]);
     mockKeys.mockResolvedValue([]);
+    mockGetSmartAccountBySma.mockResolvedValue(null);
 
     // Import routes after mocks are set up
     usernameRoutes = (await import("../../fastify/routes/usernameRoutes.js"))
@@ -75,6 +81,44 @@ describe("Username Routes", () => {
       });
 
       expect(response.statusCode).toBe(400);
+    });
+
+    it("falls back to the owner EOA username when the address is an SMA", async () => {
+      const sma = "0x" + "a".repeat(40);
+      const eoa = "0x" + "b".repeat(40);
+
+      // First Redis lookup (wallet:{sma}) returns null; SMA→EOA fallback
+      // resolves, second Redis lookup (wallet:{eoa}) returns the username.
+      mockGet
+        .mockResolvedValueOnce(null) // wallet:{sma}
+        .mockResolvedValueOnce("alice"); // wallet:{eoa}
+      mockGetSmartAccountBySma.mockResolvedValueOnce({ eoa, sma });
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/api/usernames/${sma}`,
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.username).toBe("alice");
+      expect(mockGetSmartAccountBySma).toHaveBeenCalledWith(sma.toLowerCase());
+    });
+
+    it("returns null when neither the address nor any owner EOA has a username", async () => {
+      const sma = "0x" + "c".repeat(40);
+
+      mockGet.mockResolvedValueOnce(null);
+      mockGetSmartAccountBySma.mockResolvedValueOnce(null);
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/api/usernames/${sma}`,
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.username).toBeNull();
     });
   });
 

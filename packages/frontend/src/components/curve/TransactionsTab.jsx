@@ -130,11 +130,12 @@ const TransactionsTab = ({ bondingCurveAddress, seasonId }) => {
           if (!txHash) {
             return <span className="text-xs text-muted-foreground">—</span>;
           }
+          const truncated = `${txHash.slice(0, 6)}…${txHash.slice(-4)}`;
           return (
             <ExplorerLink
               value={txHash}
               type="tx"
-              text="View txn on explorer."
+              text={truncated}
               className="text-xs font-mono"
               showCopy={false}
             />
