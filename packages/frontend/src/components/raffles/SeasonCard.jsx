@@ -20,7 +20,6 @@ const SeasonCard = ({ season, renderBadge, winnerSummary }) => {
   const { t } = useTranslation(["raffle", "common"]);
   const bondingCurveAddress = season?.config?.bondingCurve;
   const statusNum = Number(season?.status);
-  const isActiveSeason = statusNum === 1;
   const nowSec = Math.floor(Date.now() / 1000);
   const startTimeSec = season?.config?.startTime
     ? Number(season.config.startTime)
@@ -53,7 +52,7 @@ const SeasonCard = ({ season, renderBadge, winnerSummary }) => {
       // and completed seasons useCurveState fetches once and stays put — the
       // curve is locked at close time, so the recorded `currentStep` is the
       // last price tier hit before lock.
-      isActive: isActiveSeason,
+      isActive,
       pollMs: 15000,
       enabled: true,
     },
@@ -87,7 +86,7 @@ const SeasonCard = ({ season, renderBadge, winnerSummary }) => {
   // (a) season is currently Active (status === 1), AND
   // (b) the bonding curve hasn't been locked (post-end / paused / cancelled), AND
   // (c) the season's endTime hasn't passed (status will flip soon, no point starting a buy).
-  const tradingOpen = isActiveSeason && !tradingLocked && !seasonEndedByTime;
+  const tradingOpen = isActive && !tradingLocked && !seasonEndedByTime;
 
   const currentPriceLabel = (() => {
     try {

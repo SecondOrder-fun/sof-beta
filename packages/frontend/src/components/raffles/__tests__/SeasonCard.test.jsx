@@ -107,6 +107,7 @@ describe('SeasonCard variants', () => {
       </MemoryRouter>
     );
     expect(screen.queryByTestId('curve-mini')).not.toBeInTheDocument();
+    expect(screen.getByText('settlingAwaitingEnd')).toBeInTheDocument();
   });
 
   it('Settling status 4 hides curve and price', () => {
@@ -116,6 +117,7 @@ describe('SeasonCard variants', () => {
       </MemoryRouter>
     );
     expect(screen.queryByTestId('curve-mini')).not.toBeInTheDocument();
+    expect(screen.getByText('settlingDistributing')).toBeInTheDocument();
   });
 
   it('Completed status (5) with winner shows winner box, no curve, no price', () => {
