@@ -71,7 +71,6 @@ vi.mock('@/components/prizes/ClaimPrizeWidget', () => ({ ClaimPrizeWidget: () =>
 vi.mock('@/components/admin/RaffleAdminControls', () => ({ RaffleAdminControls: () => null }));
 vi.mock('@/components/admin/TreasuryControls', () => ({ TreasuryControls: () => null }));
 vi.mock('@/components/raffle/CompletedRaffleResults', () => ({ default: () => <div data-testid="completed-results" /> }));
-vi.mock('@/components/user/UsernameDisplay', () => ({ default: ({ address }) => <span>{address}</span> }));
 vi.mock('@/components/common/ExplorerLink', () => ({ default: () => null }));
 vi.mock('@/components/common/CountdownTimer', () => ({ default: () => null }));
 vi.mock('@/components/gating/PasswordGateModal', () => ({ default: () => null }));
