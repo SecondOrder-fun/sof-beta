@@ -112,7 +112,11 @@ contract DeployAll is Script {
         // paymaster (step 15), so 15_DeployPaymaster.s.sol cannot include them
         // in the constructor's initialAllowlist. Wire them in now via
         // setAllowlisted (deployer holds ADMIN_ROLE from the paymaster ctor).
-        // This completes the spec §3.3 static allowlist of 8 targets.
+        // Combined with 15_DeployPaymaster's initialAllowlist (7 targets
+        // including RafflePrizeDistributor), this brings the static
+        // allowlist to 9 targets total. The defensive prizeDistributor
+        // re-set below is a no-op on fresh deploys but heals paymasters
+        // deployed before the constructor allowlist included it.
         console2.log("=== 18b: Wire late paymaster allowlist (RolloverEscrow, SOFExchange) ===");
         {
             SOFPaymaster paymaster = SOFPaymaster(addrs.paymasterAddress);
