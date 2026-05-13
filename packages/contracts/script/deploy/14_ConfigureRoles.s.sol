@@ -174,6 +174,21 @@ contract ConfigureRoles is Script {
                 console2.log("RolloverEscrow on PrizeDistributor already set");
             }
 
+            // Raffle._executeFinalization calls openCohort on the escrow during
+            // season finalization. Grant the role + wire the address so the
+            // call has authority and a target.
+            try rolloverEscrow.grantRole(rolloverEscrow.DEFAULT_ADMIN_ROLE(), addrs.raffle) {
+                console2.log("Granted DEFAULT_ADMIN_ROLE on RolloverEscrow to Raffle");
+            } catch {
+                console2.log("DEFAULT_ADMIN_ROLE on RolloverEscrow to Raffle already set");
+            }
+
+            try raffle.setRolloverEscrow(addrs.rolloverEscrow) {
+                console2.log("Set RolloverEscrow on Raffle");
+            } catch {
+                console2.log("RolloverEscrow on Raffle already set");
+            }
+
             console2.log("IMPORTANT: Treasury must approve RolloverEscrow for SOF spending");
             console2.log("  Run: sof.approve(", vm.toString(addrs.rolloverEscrow), ", type(uint256).max)");
             console2.log("  From the treasury wallet");

@@ -26,6 +26,7 @@ import {DeployRolloverEscrow} from "./16_DeployRolloverEscrow.s.sol";
 import {DeployUSDCMock} from "./17_DeployUSDCMock.s.sol";
 import {DeploySOFExchange} from "./18_DeploySOFExchange.s.sol";
 import {AddVRFConsumer} from "./19_AddVRFConsumer.s.sol";
+import {Raffle} from "../../src/core/Raffle.sol";
 import {RafflePrizeDistributor} from "../../src/core/RafflePrizeDistributor.sol";
 import {RolloverEscrow} from "../../src/core/RolloverEscrow.sol";
 import {SeasonFactory} from "../../src/core/SeasonFactory.sol";
@@ -143,6 +144,7 @@ contract DeployAll is Script {
             RolloverEscrow rolloverEscrow = RolloverEscrow(addrs.rolloverEscrow);
             RafflePrizeDistributor distributor = RafflePrizeDistributor(addrs.prizeDistributor);
             SeasonFactory seasonFactory = SeasonFactory(addrs.seasonFactory);
+            Raffle raffle = Raffle(addrs.raffle);
             vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
 
             try rolloverEscrow.grantRole(rolloverEscrow.DISTRIBUTOR_ROLE(), addrs.prizeDistributor) {
@@ -161,6 +163,21 @@ contract DeployAll is Script {
                 console2.log("Set RolloverEscrow on SeasonFactory (auto-grants ESCROW_ROLE on new curves)");
             } catch {
                 console2.log("RolloverEscrow on SeasonFactory already set");
+            }
+
+            // Raffle._executeFinalization calls openCohort on the escrow during
+            // season finalization (see Raffle.sol). Grant the role + wire the
+            // address so the call has authority and a target.
+            try rolloverEscrow.grantRole(rolloverEscrow.DEFAULT_ADMIN_ROLE(), addrs.raffle) {
+                console2.log("Granted DEFAULT_ADMIN_ROLE on RolloverEscrow to Raffle");
+            } catch {
+                console2.log("DEFAULT_ADMIN_ROLE on RolloverEscrow to Raffle already set");
+            }
+
+            try raffle.setRolloverEscrow(addrs.rolloverEscrow) {
+                console2.log("Set RolloverEscrow on Raffle");
+            } catch {
+                console2.log("RolloverEscrow on Raffle already set");
             }
 
             vm.stopBroadcast();
