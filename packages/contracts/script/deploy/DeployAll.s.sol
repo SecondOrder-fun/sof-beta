@@ -125,6 +125,12 @@ contract DeployAll is Script {
                 paymaster.setAllowlisted(addrs.sofExchange, true);
                 console2.log("Allowlisted SOFExchange on Paymaster");
             }
+            // Defensive: heal existing paymaster deployments that predate the
+            // prizeDistributor allowlist entry (see 15_DeployPaymaster.s.sol).
+            if (addrs.prizeDistributor != address(0)) {
+                paymaster.setAllowlisted(addrs.prizeDistributor, true);
+                console2.log("Allowlisted RafflePrizeDistributor on Paymaster (defensive)");
+            }
             vm.stopBroadcast();
         }
 
