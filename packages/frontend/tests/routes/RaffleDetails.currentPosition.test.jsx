@@ -186,6 +186,12 @@ vi.mock("@/hooks/useSmartTransactions", () => ({
   }),
 }));
 
+vi.mock("@/hooks/useClaims", () => ({
+  useClaims: () => ({
+    claimRaffleConsolation: { mutate: vi.fn(), isPending: false },
+  }),
+}));
+
 vi.mock("@/components/prizes/SponsorPrizeWidget", () => ({
   SponsorPrizeWidget: () => null,
 }));

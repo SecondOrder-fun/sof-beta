@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import UsernameDisplay from "@/components/user/UsernameDisplay";
+import ConsolationClaimAction from "./ConsolationClaimAction";
 
 function formatSof(wei) {
   try {
@@ -18,6 +19,9 @@ function CompletedRaffleResults({
   grandPrizeWei,
   consolationStatus,
   seasonStatus,
+  seasonId,
+  viewerClaimableAmount,
+  onClaimToWallet,
 }) {
   const { t } = useTranslation("raffle");
 
@@ -114,11 +118,21 @@ function CompletedRaffleResults({
                   )}
                 {!isVrfPending &&
                   consolationStatus.viewerEligible === true &&
-                  !consolationStatus.viewerClaimed && (
+                  !consolationStatus.viewerClaimed &&
+                  (seasonId !== undefined && onClaimToWallet ? (
+                    <div className="mt-2">
+                      <ConsolationClaimAction
+                        seasonId={seasonId}
+                        amount={viewerClaimableAmount}
+                        isPending={false}
+                        onClaimToWallet={onClaimToWallet}
+                      />
+                    </div>
+                  ) : (
                     <Badge variant="default" className="mt-1">
                       {t("youClaimable")}
                     </Badge>
-                  )}
+                  ))}
               </>
             )}
           </div>
@@ -139,6 +153,9 @@ CompletedRaffleResults.propTypes = {
     isLoading: PropTypes.bool,
   }).isRequired,
   seasonStatus: PropTypes.number.isRequired,
+  seasonId: PropTypes.any,
+  viewerClaimableAmount: PropTypes.any,
+  onClaimToWallet: PropTypes.func,
 };
 
 export default CompletedRaffleResults;

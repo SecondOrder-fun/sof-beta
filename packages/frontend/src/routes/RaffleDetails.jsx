@@ -46,6 +46,7 @@ import { useSeasonWinnerSummary } from "@/hooks/useSeasonWinnerSummaries";
 import { useSeasonGating, GateType } from "@/hooks/useSeasonGating";
 import CompletedRaffleResults from "@/components/raffle/CompletedRaffleResults";
 import { useConsolationStatus } from "@/hooks/useConsolationStatus";
+import { useClaims } from "@/hooks/useClaims";
 import {
   Accordion,
   AccordionItem,
@@ -78,6 +79,7 @@ const RaffleDetails = () => {
     seasonDetailsQuery?.data?.status,
   );
   const consolationStatus = useConsolationStatus(seasonIdNumber);
+  const { claimRaffleConsolation } = useClaims();
 
   // ── Season gating ──
   const isSeasonGated = Boolean(seasonDetailsQuery?.data?.config?.gated);
@@ -479,6 +481,11 @@ const RaffleDetails = () => {
                       grandPrizeWei={winnerSummaryQuery?.data?.grandPrizeWei || 0n}
                       consolationStatus={consolationStatus}
                       seasonStatus={statusNum}
+                      seasonId={BigInt(seasonIdNumber)}
+                      viewerClaimableAmount={consolationStatus.perLoserShareWei}
+                      onClaimToWallet={({ seasonId: sid }) =>
+                        claimRaffleConsolation.mutate({ seasonId: sid })
+                      }
                     />
                   </div>
 

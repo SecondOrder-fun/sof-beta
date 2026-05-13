@@ -57,6 +57,14 @@ vi.mock('wagmi', async (importOriginal) => {
     useAccount: () => ({ isConnected: false, address: undefined }),
   };
 });
+vi.mock('@/hooks/useSmartTransactions', () => ({
+  useSmartTransactions: () => ({ executeBatch: vi.fn(), isSmartWallet: false }),
+}));
+vi.mock('@/hooks/useClaims', () => ({
+  useClaims: () => ({
+    claimRaffleConsolation: { mutate: vi.fn(), isPending: false },
+  }),
+}));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k) => k }) }));
 
 // Stub heavy children so the test stays focused on layout structure
