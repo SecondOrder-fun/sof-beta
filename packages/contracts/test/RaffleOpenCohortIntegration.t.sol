@@ -72,6 +72,19 @@ contract RaffleFinalizeHarnessOC is Raffle {
         vrfRequestToSeason[requestId] = seasonId;
         fulfillRandomWords(requestId, words);
     }
+
+    /// @notice Simulate requestSeasonEnd without calling the real VRF coordinator.
+    /// Mirrors the harness in RaffleVRF.t.sol: locks trading, captures SOF reserves
+    /// into totalPrizePool, and wires the VRF request mapping — all in one call so
+    /// tests can exercise _executeFinalization's normal (non-early-exit) branch.
+    function testRequestSeasonEnd(uint256 seasonId, uint256 requestId) external {
+        SOFBondingCurve(seasons[seasonId].bondingCurve).lockTrading();
+        seasonStates[seasonId].totalPrizePool = SOFBondingCurve(seasons[seasonId].bondingCurve).getSofReserves();
+        seasons[seasonId].isActive = false;
+        seasonStates[seasonId].status = SeasonStatus.VRFPending;
+        seasonStates[seasonId].vrfRequestTimestamp = block.timestamp;
+        vrfRequestToSeason[requestId] = seasonId;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -186,6 +199,69 @@ contract RaffleOpenCohortIntegrationTest is Test {
         // Should complete without revert
         raffle.finalizeSeason(seasonId);
 
+        (, RaffleStorage.SeasonStatus status,,,) = raffle.getSeasonDetails(seasonId);
+        assertEq(uint8(status), uint8(RaffleStorage.SeasonStatus.Completed), "Season should be Completed");
+    }
+
+    // -----------------------------------------------------------------------
+    // Test 3: finalizeSeason with a non-zero prize pool opens rollover cohort
+    //         via the NORMAL path of _executeFinalization (not the early-exit).
+    // -----------------------------------------------------------------------
+    function test_finalizeSeason_withNonZeroPool_opensRolloverCohort() public {
+        // --- Setup: create season and buy tickets so totalPrizePool > 0 ---
+        RaffleTypes.SeasonConfig memory cfg;
+        cfg.name = "S-normal-path";
+        cfg.startTime = block.timestamp + 1;
+        cfg.endTime = block.timestamp + 3 days;
+        cfg.winnerCount = 2;
+        cfg.grandPrizeBps = 6500;
+        cfg.treasuryAddress = treasury;
+        uint256 seasonId = raffle.createSeason(cfg, _steps(), 50, 70);
+        (RaffleTypes.SeasonConfig memory out,,,,) = raffle.getSeasonDetails(seasonId);
+        SOFBondingCurve curve = SOFBondingCurve(out.bondingCurve);
+
+        vm.warp(block.timestamp + 1);
+        raffle.startSeason(seasonId);
+
+        vm.startPrank(player1);
+        sof.approve(address(curve), type(uint256).max);
+        curve.buyTokens(10, 20 ether);
+        vm.stopPrank();
+
+        vm.startPrank(player2);
+        sof.approve(address(curve), type(uint256).max);
+        curve.buyTokens(5, 20 ether);
+        vm.stopPrank();
+
+        // Simulate requestSeasonEnd: locks trading, captures SOF reserves into
+        // totalPrizePool, sets VRFPending — without calling the real coordinator.
+        uint256 reqId = 99;
+        raffle.testRequestSeasonEnd(seasonId, reqId);
+
+        // Confirm totalPrizePool is non-zero (i.e. we're on the normal path)
+        (,, uint256 totalParticipants,, uint256 totalPrizePool) = raffle.getSeasonDetails(seasonId);
+        assertGt(totalPrizePool, 0, "totalPrizePool must be non-zero for normal path");
+        assertEq(totalParticipants, 2, "Two participants should be registered");
+
+        // Fulfill VRF: VRFPending -> Distributing
+        uint256[] memory words = new uint256[](2);
+        words[0] = 111;
+        words[1] = 222;
+        raffle.testSetVrfState(seasonId, reqId, words);
+
+        // Pre-finalize cohort phase must be None
+        (RolloverEscrow.EscrowPhase phaseBefore,,,,,,) = escrow.getCohortState(seasonId);
+        assertEq(uint8(phaseBefore), uint8(RolloverEscrow.EscrowPhase.None), "Pre-finalize phase should be None");
+
+        // finalizeSeason drives _executeFinalization through the normal branch
+        raffle.finalizeSeason(seasonId);
+
+        // Post-finalize: cohort must be Open (openCohort was called on the normal path)
+        (RolloverEscrow.EscrowPhase phaseAfter,, uint16 bonusBps,,,,) = escrow.getCohortState(seasonId);
+        assertEq(uint8(phaseAfter), uint8(RolloverEscrow.EscrowPhase.Open), "Post-finalize phase should be Open");
+        assertEq(bonusBps, escrow.defaultBonusBps(), "bonusBps should equal defaultBonusBps");
+
+        // Season must also be Completed
         (, RaffleStorage.SeasonStatus status,,,) = raffle.getSeasonDetails(seasonId);
         assertEq(uint8(status), uint8(RaffleStorage.SeasonStatus.Completed), "Season should be Completed");
     }
