@@ -1218,6 +1218,19 @@
   },
   {
     "type": "function",
+    "name": "rolloverEscrow",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IRolloverEscrow"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "s_vrfCoordinator",
     "inputs": [],
     "outputs": [
@@ -1428,6 +1441,19 @@
     "inputs": [
       {
         "name": "distributor",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setRolloverEscrow",
+    "inputs": [
+      {
+        "name": "_rolloverEscrow",
         "type": "address",
         "internalType": "address"
       }
@@ -1977,6 +2003,25 @@
       },
       {
         "name": "sender",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RolloverEscrowUpdated",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "current",
         "type": "address",
         "indexed": true,
         "internalType": "address"
