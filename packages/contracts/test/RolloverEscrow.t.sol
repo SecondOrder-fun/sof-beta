@@ -154,6 +154,12 @@ contract MockRolloverEscrow is IRolloverEscrow {
         deposits.push(DepositRecord({user: user, amount: amount, seasonId: seasonId}));
     }
 
+    function openCohort(uint256, uint16) external override {}
+
+    function defaultBonusBps() external pure override returns (uint16) {
+        return 0;
+    }
+
     function depositCount() external view returns (uint256) {
         return deposits.length;
     }

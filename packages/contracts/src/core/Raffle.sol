@@ -17,6 +17,7 @@ import {IHats} from "../lib/IHats.sol";
 import {IRafflePrizeDistributor} from "../lib/IRafflePrizeDistributor.sol";
 import {TierConfigFailed} from "./RafflePrizeDistributor.sol";
 import {ISeasonGating} from "../gating/ISeasonGating.sol";
+import {IRolloverEscrow} from "./IRolloverEscrow.sol";
 
 // ============================================================================
 // CUSTOM ERRORS - Clear, gas-efficient error reporting
@@ -85,6 +86,8 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
     ISeasonFactory public seasonFactory;
     // Prize Distributor integration
     address public prizeDistributor;
+    // Rollover Escrow integration
+    IRolloverEscrow public rolloverEscrow;
     // Default grand prize split in BPS (e.g., 6500 = 65%). If seasonConfig.grandPrizeBps == 0, use this default.
     uint16 public defaultGrandPrizeBps = 6500;
 
@@ -126,6 +129,17 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
     function setPrizeDistributor(address distributor) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (distributor == address(0)) revert InvalidAddress();
         prizeDistributor = distributor;
+    }
+
+    event RolloverEscrowUpdated(address indexed previous, address indexed current);
+
+    /**
+     * @notice Set (or unset) the rollover escrow contract.
+     * @dev Passing address(0) disables rollover cohort opening on finalize.
+     */
+    function setRolloverEscrow(address _rolloverEscrow) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        emit RolloverEscrowUpdated(address(rolloverEscrow), _rolloverEscrow);
+        rolloverEscrow = IRolloverEscrow(_rolloverEscrow);
     }
 
     /**
@@ -486,6 +500,9 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         // If there are no participants or no winners, we can still complete the
         // season but skip prize distribution logic that assumes a non-zero winner.
         if (state.totalParticipants == 0 || winners.length == 0 || totalPrizePool == 0) {
+            if (address(rolloverEscrow) != address(0)) {
+                rolloverEscrow.openCohort(seasonId, 0);
+            }
             cfg.isCompleted = true;
             state.status = SeasonStatus.Completed;
             emit PrizeDistributionSetup(seasonId, prizeDistributor);
@@ -534,6 +551,14 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
 
         // Map winners to tiers and lock sponsorships
         _finalizeTiersAndSponsorships(seasonId, winners);
+
+        // Open the rollover cohort for this season if escrow is wired.
+        // Raffle holds DEFAULT_ADMIN_ROLE on RolloverEscrow (granted in
+        // 14_ConfigureRoles). Passing 0 falls through to defaultBonusBps
+        // inside RolloverEscrow.openCohort.
+        if (address(rolloverEscrow) != address(0)) {
+            rolloverEscrow.openCohort(seasonId, 0);
+        }
 
         cfg.isCompleted = true;
         state.status = SeasonStatus.Completed;
