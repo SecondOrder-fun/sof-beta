@@ -138,8 +138,9 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
      * @dev Passing address(0) disables rollover cohort opening on finalize.
      */
     function setRolloverEscrow(address _rolloverEscrow) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        emit RolloverEscrowUpdated(address(rolloverEscrow), _rolloverEscrow);
+        address previous = address(rolloverEscrow);
         rolloverEscrow = IRolloverEscrow(_rolloverEscrow);
+        emit RolloverEscrowUpdated(previous, _rolloverEscrow);
     }
 
     /**
@@ -500,6 +501,10 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         // If there are no participants or no winners, we can still complete the
         // season but skip prize distribution logic that assumes a non-zero winner.
         if (state.totalParticipants == 0 || winners.length == 0 || totalPrizePool == 0) {
+            // Open a (zero-deposit) rollover cohort even for empty seasons so
+            // the UI doesn't special-case them. bps=0 falls through to
+            // defaultBonusBps inside RolloverEscrow.openCohort; Raffle holds
+            // DEFAULT_ADMIN_ROLE on the escrow (granted in 14_ConfigureRoles).
             if (address(rolloverEscrow) != address(0)) {
                 rolloverEscrow.openCohort(seasonId, 0);
             }
