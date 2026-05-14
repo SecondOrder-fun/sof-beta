@@ -7,6 +7,7 @@ import {
   startContractEventPolling,
 } from "../lib/contractEventPolling.js";
 import { createBlockCursor } from "../lib/blockCursor.js";
+import { pokeConsolationEligibleChunked } from "../services/pokeConsolationEligible.js";
 
 /**
  * Resolve InfoFi markets onchain via InfoFiMarketFactory.resolveSeasonMarkets()
@@ -196,6 +197,23 @@ async function processSeasonCompletedLog(
     logger.info(
       `✅ SeasonCompleted Event: Season ${seasonId} marked as inactive`,
     );
+
+    // Populate the consolation eligibility map on-chain. Permissionless +
+    // idempotent (warm-SSTORE on re-run), so racing other callers is safe.
+    // Wrapped: poke failures must not block the rest of the listener (InfoFi
+    // settlement, cleanup) — eligibility can be repaired by anyone later via
+    // a manual cast send of pokeConsolationEligible.
+    try {
+      await pokeConsolationEligibleChunked({
+        raffleAddress,
+        logger,
+        seasonId: seasonIdNum,
+      });
+    } catch (pokeError) {
+      logger.error(
+        `❌ Failed to poke consolation eligibility for season ${seasonIdNum}: ${pokeError.message}`,
+      );
+    }
 
     // Settle InfoFi markets for this season
     await settleInfoFiMarkets(seasonIdNum, raffleAddress, raffleAbi, logger);

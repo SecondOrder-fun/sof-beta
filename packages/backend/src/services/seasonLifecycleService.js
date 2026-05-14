@@ -362,18 +362,12 @@ export class SeasonLifecycleService {
 
       this.logger.info(`✅ Season ${seasonId} finalized and confirmed! TX: ${hash}`);
 
-      // Populate the consolation eligibility map. pokeConsolationEligible is
-      // permissionless on-chain and idempotent on re-runs (warm SSTORE), so a
-      // crash mid-poke is safe.
-      try {
-        await this.pokeConsolationEligibleChunked(seasonId);
-      } catch (pokeError) {
-        this.logger.error(
-          `❌ Failed to poke consolation eligibility for season ${seasonId}: ${pokeError.message}`
-        );
-        // Don't rethrow — finalize itself succeeded. Eligibility can be
-        // populated by anyone via pokeConsolationEligible.
-      }
+      // Note: consolation eligibility population (pokeConsolationEligible) is
+      // now driven by the SeasonCompleted event listener
+      // (seasonCompletedListener.js), not by this method. Reason: finalizeSeason
+      // is permissionless on-chain — anyone (admin UI, opportunistic bot) can
+      // call it. Coupling the poke step to a chain event instead of a backend
+      // method means it fires regardless of who finalizes.
 
       await this.sendAlert(
         `🏆 Season ${seasonId} "${seasonName}" finalized! Prize distribution configured.\n\nTX: ${hash}`
@@ -391,37 +385,6 @@ export class SeasonLifecycleService {
     }
   }
 
-  /**
-   * Read participants and call pokeConsolationEligible in 500-address chunks.
-   * Permissionless and idempotent on-chain — safe to retry after a partial run.
-   * @param {bigint} seasonId
-   */
-  async pokeConsolationEligibleChunked(seasonId) {
-    const CHUNK_SIZE = 500n;
-    const participants = await publicClient.readContract({
-      address: this.raffleAddress,
-      abi: RaffleAbi,
-      functionName: "getParticipants",
-      args: [seasonId],
-    });
-    const length = BigInt(participants.length);
-
-    if (length === 0n) {
-      this.logger.info(`📋 Season ${seasonId} has no participants to poke`);
-      return;
-    }
-
-    this.logger.info(
-      `📋 Poking ${length} participants for season ${seasonId} in chunks of ${CHUNK_SIZE}`
-    );
-    for (let offset = 0n; offset < length; offset += CHUNK_SIZE) {
-      await this.submitWithRetry(
-        "pokeConsolationEligible",
-        [seasonId, offset, CHUNK_SIZE],
-        `📋 Season ${seasonId} poke [${offset}..${offset + CHUNK_SIZE}]`
-      );
-    }
-  }
 
   /**
    * Send alert via adminAlertService if available
