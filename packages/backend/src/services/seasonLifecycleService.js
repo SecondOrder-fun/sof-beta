@@ -210,7 +210,9 @@ export class SeasonLifecycleService {
    * @param {string} label - Human-readable label for logging
    * @returns {{ hash: string, receipt: object }} - Transaction hash and receipt
    */
-  async submitWithRetry(functionName, args, label) {
+  async submitWithRetry(functionName, args, label, opts = {}) {
+    const targetAddress = opts.address ?? this.raffleAddress;
+    const targetAbi = opts.abi ?? RaffleAbi;
     let lastError;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
@@ -218,8 +220,8 @@ export class SeasonLifecycleService {
         const walletClient = getWalletClient();
 
         const hash = await walletClient.writeContract({
-          address: this.raffleAddress,
-          abi: RaffleAbi,
+          address: targetAddress,
+          abi: targetAbi,
           functionName,
           args,
         });
@@ -360,6 +362,13 @@ export class SeasonLifecycleService {
 
       this.logger.info(`✅ Season ${seasonId} finalized and confirmed! TX: ${hash}`);
 
+      // Note: consolation eligibility population (pokeConsolationEligible) is
+      // now driven by the SeasonCompleted event listener
+      // (seasonCompletedListener.js), not by this method. Reason: finalizeSeason
+      // is permissionless on-chain — anyone (admin UI, opportunistic bot) can
+      // call it. Coupling the poke step to a chain event instead of a backend
+      // method means it fires regardless of who finalizes.
+
       await this.sendAlert(
         `🏆 Season ${seasonId} "${seasonName}" finalized! Prize distribution configured.\n\nTX: ${hash}`
       );
@@ -375,6 +384,7 @@ export class SeasonLifecycleService {
       this.pendingSeasons.delete(dedupKey);
     }
   }
+
 
   /**
    * Send alert via adminAlertService if available

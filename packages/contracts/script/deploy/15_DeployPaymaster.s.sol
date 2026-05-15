@@ -36,7 +36,8 @@ contract DeployPaymaster is Script {
 
         // Spec §3.3 static allowlist:
         //   {Raffle, SOFToken, InfoFiFactory, InfoFiSettlement, InfoFiFPMM,
-        //    RaffleOracleAdapter, RolloverEscrow, SOFExchange}
+        //    RaffleOracleAdapter, RafflePrizeDistributor, RolloverEscrow,
+        //    SOFExchange}
         //
         // Per-season SOFBondingCurve targets are NOT in the static set; they
         // are validated dynamically via IRaffleCurveRegistry(raffle).isSofCurve.
@@ -44,17 +45,19 @@ contract DeployPaymaster is Script {
         // RolloverEscrow (step 16) and SOFExchange (step 18) deploy AFTER this
         // script in the DeployAll chain, so their addresses are still zero in
         // `addrs` when we construct here. We initialize the allowlist with the
-        // 6 already-deployed targets and rely on DeployAll to call
+        // 7 already-deployed targets (including RafflePrizeDistributor, step 11)
+        // and rely on DeployAll to call
         // `paymaster.setAllowlisted(rolloverEscrow|sofExchange, true)` after
         // those deploy. The deployer keeps DEFAULT_ADMIN_ROLE / ADMIN_ROLE
         // from the constructor, so the post-deploy wiring is authorized.
-        address[] memory initialAllowlist = new address[](6);
+        address[] memory initialAllowlist = new address[](7);
         initialAllowlist[0] = addrs.raffle;
         initialAllowlist[1] = addrs.sofToken;
         initialAllowlist[2] = addrs.infoFiFactory;
         initialAllowlist[3] = addrs.infoFiSettlement;
         initialAllowlist[4] = addrs.fpmmManager; // InfoFiFPMMV2 instance
         initialAllowlist[5] = addrs.oracleAdapter;
+        initialAllowlist[6] = addrs.prizeDistributor;
 
         vm.startBroadcast(deployerKey);
         // Constructor (gasless rewrite §3.3):
