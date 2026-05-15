@@ -79,7 +79,7 @@ const RaffleDetails = () => {
     seasonDetailsQuery?.data?.status,
   );
   const consolationStatus = useConsolationStatus(seasonIdNumber);
-  const { claimRaffleConsolation } = useClaims();
+  const { claimRaffleConsolation, pendingClaims, getClaimKey } = useClaims();
 
   // ── Season gating ──
   const isSeasonGated = Boolean(seasonDetailsQuery?.data?.config?.gated);
@@ -483,6 +483,11 @@ const RaffleDetails = () => {
                       seasonStatus={statusNum}
                       seasonId={BigInt(seasonIdNumber)}
                       viewerClaimableAmount={consolationStatus.perLoserShareWei}
+                      isClaimPending={pendingClaims.has(
+                        getClaimKey("raffle-consolation", {
+                          seasonId: BigInt(seasonIdNumber),
+                        })
+                      )}
                       onClaimToWallet={({ seasonId: sid }) =>
                         claimRaffleConsolation.mutate({ seasonId: sid })
                       }

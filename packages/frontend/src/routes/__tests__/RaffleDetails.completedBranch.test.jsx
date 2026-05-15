@@ -63,6 +63,8 @@ vi.mock('@/hooks/useSmartTransactions', () => ({
 vi.mock('@/hooks/useClaims', () => ({
   useClaims: () => ({
     claimRaffleConsolation: { mutate: vi.fn(), isPending: false },
+    pendingClaims: new Set(),
+    getClaimKey: (type, params) => `${type}-${params.seasonId}`,
   }),
 }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k) => k }) }));

@@ -22,6 +22,7 @@ function CompletedRaffleResults({
   seasonId,
   viewerClaimableAmount,
   onClaimToWallet,
+  isClaimPending = false,
 }) {
   const { t } = useTranslation("raffle");
 
@@ -124,7 +125,7 @@ function CompletedRaffleResults({
                       <ConsolationClaimAction
                         seasonId={seasonId}
                         amount={viewerClaimableAmount}
-                        isPending={false}
+                        isPending={isClaimPending}
                         onClaimToWallet={onClaimToWallet}
                       />
                     </div>
@@ -156,6 +157,7 @@ CompletedRaffleResults.propTypes = {
   seasonId: PropTypes.any,
   viewerClaimableAmount: PropTypes.any,
   onClaimToWallet: PropTypes.func,
+  isClaimPending: PropTypes.bool,
 };
 
 export default CompletedRaffleResults;
