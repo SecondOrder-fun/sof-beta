@@ -34,6 +34,19 @@ vi.mock('wagmi', () => ({
   useCallsStatus: () => ({ data: undefined }),
 }));
 
+// Mock rollover cohort hook (replaces useRollover in BuySellWidget)
+vi.mock('@/hooks/useEligibleRolloverCohort', () => ({
+  useEligibleRolloverCohort: () => ({
+    cohortSeasonId: undefined,
+    available: 0n,
+    bonusBps: 0n,
+    bonusAmount: () => 0n,
+    isEligible: false,
+    isLoading: false,
+    error: null,
+  }),
+}));
+
 // Minimal stubs for dependencies
 vi.mock('@/hooks/useSofDecimals', () => ({ useSofDecimals: () => 18 }));
 vi.mock('@/config/contracts', () => ({ getContractAddresses: () => ({}) }));
