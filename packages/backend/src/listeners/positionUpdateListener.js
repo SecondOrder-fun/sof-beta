@@ -3,7 +3,7 @@ import { db } from "../../shared/supabaseClient.js";
 import { getChainByKey } from "../config/chain.js";
 import { oracleCallService } from "../services/oracleCallService.js";
 import { getPaymasterService } from "../services/paymasterService.js";
-import { getSSEService } from "../services/sseService.js";
+import { getSSEChannelService } from "../services/sseChannelService.js";
 import { raffleTransactionService } from "../services/raffleTransactionService.js";
 import {
   getContractEventsInChunks,
@@ -140,7 +140,8 @@ async function scanHistoricalPositionUpdateEvents(
 
             // Trigger market creation
             if (paymasterService.initialized && infoFiFactoryAddress) {
-              sseService.broadcastMarketCreationStarted({
+              sseService.broadcast('infofi', {
+                type: 'MarketCreationStarted',
                 seasonId: seasonIdNum,
                 player,
                 probability: newShareBps,
@@ -162,7 +163,8 @@ async function scanHistoricalPositionUpdateEvents(
                 logger.info(
                   `✅ Historical market creation confirmed: ${result.hash}`,
                 );
-                sseService.broadcastMarketCreationConfirmed({
+                sseService.broadcast('infofi', {
+                  type: 'MarketCreationConfirmed',
                   seasonId: seasonIdNum,
                   player,
                   transactionHash: result.hash,
@@ -172,7 +174,8 @@ async function scanHistoricalPositionUpdateEvents(
                 logger.error(
                   `❌ Historical market creation failed: ${result.error}`,
                 );
-                sseService.broadcastMarketCreationFailed({
+                sseService.broadcast('infofi', {
+                  type: 'MarketCreationFailed',
                   seasonId: seasonIdNum,
                   player,
                   error: result.error,
@@ -259,7 +262,7 @@ export async function startPositionUpdateListener(
 
   // Initialize services
   const paymasterService = getPaymasterService(logger);
-  const sseService = getSSEService(logger);
+  const sseService = getSSEChannelService(logger);
 
   // Initialize Paymaster service if not already done
   if (!paymasterService.initialized) {
@@ -537,7 +540,8 @@ export async function startPositionUpdateListener(
             );
 
             // Broadcast market creation started event
-            sseService.broadcastMarketCreationStarted({
+            sseService.broadcast('infofi', {
+              type: 'MarketCreationStarted',
               seasonId: seasonIdNum,
               player,
               probability: newShareBps,
@@ -564,7 +568,8 @@ export async function startPositionUpdateListener(
                   logger.info(
                     `✅ Market creation confirmed: ${result.hash} (attempts: ${result.attempts})`,
                   );
-                  sseService.broadcastMarketCreationConfirmed({
+                  sseService.broadcast('infofi', {
+                    type: 'MarketCreationConfirmed',
                     seasonId: seasonIdNum,
                     player,
                     transactionHash: result.hash,
@@ -574,7 +579,8 @@ export async function startPositionUpdateListener(
                   logger.error(
                     `❌ Market creation failed: ${result.error} (attempts: ${result.attempts})`,
                   );
-                  sseService.broadcastMarketCreationFailed({
+                  sseService.broadcast('infofi', {
+                    type: 'MarketCreationFailed',
                     seasonId: seasonIdNum,
                     player,
                     error: result.error,
@@ -597,7 +603,8 @@ export async function startPositionUpdateListener(
                 }
               } catch (error) {
                 logger.error(`❌ Market creation error: ${error.message}`);
-                sseService.broadcastMarketCreationFailed({
+                sseService.broadcast('infofi', {
+                  type: 'MarketCreationFailed',
                   seasonId: seasonIdNum,
                   player,
                   error: error.message,
