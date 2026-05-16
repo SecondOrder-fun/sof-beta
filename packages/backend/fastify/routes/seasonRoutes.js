@@ -2,10 +2,22 @@
 import { db } from "../../shared/supabaseClient.js";
 
 export default async function seasonRoutes(fastify) {
+  // Get every season (active + past). Used by useAllSeasons on the frontend
+  // to render the raffle list across all 4 tabs without an N×RPC fan-out.
+  fastify.get("/all", async (_request, reply) => {
+    try {
+      const data = await db.getAllSeasonContracts();
+      return data;
+    } catch (error) {
+      fastify.log.error(error, "Failed to get all seasons");
+      return reply.status(500).send({ error: error.message });
+    }
+  });
+
   // Get season contract info including created_block
   fastify.get("/:seasonId", async (request, reply) => {
     const { seasonId } = request.params;
-    
+
     try {
       const data = await db.getSeasonContracts(Number(seasonId));
       if (!data) {

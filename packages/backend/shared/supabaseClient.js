@@ -598,6 +598,20 @@ export class DatabaseService {
   }
 
   /**
+   * Get all season contracts (active + completed)
+   * @returns {Promise<Array>} Array of all season contract records, sorted by season_id descending
+   */
+  async getAllSeasonContracts() {
+    const { data, error } = await this.client
+      .from("season_contracts")
+      .select("*")
+      .order("season_id", { ascending: false });
+
+    if (error) throw new Error(error.message);
+    return data || [];
+  }
+
+  /**
    * Mark season as inactive
    * @param {number} seasonId - Season ID
    * @returns {Promise<Object>} Updated season contract record
