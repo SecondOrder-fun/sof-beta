@@ -679,6 +679,54 @@ export async function startPositionUpdateListener(
             // Don't crash listener - just log and continue
           }
 
+          // Update curve_state with current supply
+          try {
+            await db.upsertCurveState(log.address, {
+              current_supply: totalTickets.toString(),
+              last_updated_block: Number(log.blockNumber),
+            });
+          } catch (e) {
+            logger.warn(`[POSITION_UPDATE_LISTENER] curve_state write failed: ${e.message}`);
+          }
+
+          // Update curve_state with step/config/fees via multicall
+          try {
+            const { SOFBondingCurveABI } = await import('@sof/contracts');
+            const results = await publicClient.multicall({
+              contracts: [
+                { address: log.address, abi: SOFBondingCurveABI, functionName: 'getCurrentStep' },
+                { address: log.address, abi: SOFBondingCurveABI, functionName: 'curveConfig' },
+                { address: log.address, abi: SOFBondingCurveABI, functionName: 'accumulatedFees' },
+              ],
+              allowFailure: true,
+            });
+            const step = results[0]?.status === 'success' ? results[0].result : null;
+            const cfg = results[1]?.status === 'success' ? results[1].result : null;
+            const fees = results[2]?.status === 'success' ? results[2].result : null;
+            await db.upsertCurveState(log.address, {
+              current_step_index: step ? Number(step[0]) : null,
+              current_step_price: step ? step[1].toString() : null,
+              current_step_range_to: step ? step[2].toString() : null,
+              sof_reserves: cfg ? cfg[1].toString() : '0',
+              accumulated_fees: fees != null ? fees.toString() : '0',
+            });
+          } catch (e) {
+            logger.warn(`[POSITION_UPDATE_LISTENER] curve multicall failed: ${e.message}`);
+          }
+
+          // Broadcast PositionUpdate to raffle SSE channel
+          sseService.broadcast('raffle', {
+            type: 'PositionUpdate',
+            bondingCurveAddress: log.address,
+            seasonId: seasonIdNum,
+            player,
+            oldTickets: oldTickets.toString(),
+            newTickets: newTickets.toString(),
+            totalTickets: totalTickets.toString(),
+            blockNumber: Number(log.blockNumber),
+            txHash: log.transactionHash,
+          });
+
           // Only validate probabilities if markets were actually updated
           if (updatedCount > 0) {
             // Log individual player probabilities for debugging

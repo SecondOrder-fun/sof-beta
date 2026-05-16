@@ -13,6 +13,7 @@
 import { createPublicClient, createWalletClient, http, parseAbi } from 'viem';
 import { baseSepolia } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
+import { getSSEChannelService } from '../services/sseChannelService.js';
 
 const STAKING_ELIGIBILITY_ABI = parseAbi([
   'event StakingEligibility_Staked(address staker, uint248 amount)',
@@ -59,6 +60,9 @@ export async function startSponsorHatListener() {
     chain: baseSepolia,
     transport: http(rpcUrl),
   });
+
+  const consoleLogger = { info: console.log, warn: console.log, error: console.error, debug: console.log };
+  const sseService = getSSEChannelService(consoleLogger);
 
   console.log(`[SponsorHat] Watching StakingEligibility at ${stakingAddress}`);
   console.log(`[SponsorHat] Will mint hat ${sponsorHatId} via ${account.address}`);
@@ -113,6 +117,16 @@ export async function startSponsorHatListener() {
           // Wait for confirmation
           const receipt = await publicClient.waitForTransactionReceipt({ hash });
           console.log(`[SponsorHat] Confirmed in block ${receipt.blockNumber}`);
+
+          // Broadcast SponsorHatGranted to raffle SSE channel (after mint confirmed)
+          sseService.broadcast('raffle', {
+            type: 'SponsorHatGranted',
+            seasonId: null,
+            holder: staker,
+            hatId: sponsorHatId?.toString?.() ?? null,
+            blockNumber: Number(receipt.blockNumber),
+            txHash: hash,
+          });
 
         } catch (err) {
           console.error(`[SponsorHat] Error minting for ${staker}:`, err.message);

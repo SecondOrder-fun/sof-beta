@@ -8,6 +8,7 @@ import {
 } from "../lib/contractEventPolling.js";
 import { createBlockCursor } from "../lib/blockCursor.js";
 import { pokeConsolationEligibleChunked } from "../services/pokeConsolationEligible.js";
+import { getSSEChannelService } from "../services/sseChannelService.js";
 
 /**
  * Resolve InfoFi markets onchain via InfoFiMarketFactory.resolveSeasonMarkets()
@@ -167,6 +168,7 @@ async function settleInfoFiMarkets(seasonId, raffleAddress, raffleAbi, logger) {
  * @param {object} raffleAbi - Raffle contract ABI
  * @param {object} logger - Logger instance
  * @param {function} [onSeasonCompleted] - Callback when season completes (for listener cleanup)
+ * @param {object} [sseService] - SSE channel service instance
  */
 async function processSeasonCompletedLog(
   log,
@@ -174,6 +176,7 @@ async function processSeasonCompletedLog(
   raffleAbi,
   logger,
   onSeasonCompleted,
+  sseService,
 ) {
   const { seasonId } = log.args;
 
@@ -228,6 +231,16 @@ async function processSeasonCompletedLog(
         );
       }
     }
+
+    // Broadcast SeasonCompleted to raffle SSE channel (after all DB writes)
+    if (sseService) {
+      sseService.broadcast('raffle', {
+        type: 'SeasonCompleted',
+        seasonId: seasonIdNum,
+        blockNumber: Number(log.blockNumber),
+        txHash: log.transactionHash,
+      });
+    }
   } catch (error) {
     logger.error(`❌ Failed to process SeasonCompleted for season ${seasonId}`);
     logger.error(`   Error: ${error.message}`);
@@ -278,7 +291,8 @@ async function scanHistoricalSeasonCompletedEvents(
       );
 
       for (const log of logs) {
-        await processSeasonCompletedLog(log, raffleAddress, raffleAbi, logger);
+        // No SSE broadcast for historical events — clients aren't connected yet
+        await processSeasonCompletedLog(log, raffleAddress, raffleAbi, logger, undefined, undefined);
       }
     } else {
       logger.info("   No historical SeasonCompleted events found");
@@ -315,6 +329,8 @@ export async function startSeasonCompletedListener(
     throw new Error("logger instance is required");
   }
 
+  const sseService = getSSEChannelService(logger);
+
   // First, scan for any historical events we may have missed
   await scanHistoricalSeasonCompletedEvents(raffleAddress, raffleAbi, logger);
 
@@ -339,6 +355,7 @@ export async function startSeasonCompletedListener(
           raffleAbi,
           logger,
           onSeasonCompleted,
+          sseService,
         );
       }
     },

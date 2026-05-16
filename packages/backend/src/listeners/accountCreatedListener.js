@@ -21,11 +21,12 @@ import {
 } from "../lib/contractEventPolling.js";
 import { createBlockCursor } from "../lib/blockCursor.js";
 import { smartAccountsDb } from "../../shared/services/smartAccountsDb.js";
+import { getSSEChannelService } from "../services/sseChannelService.js";
 
 /**
  * Process a single AccountCreated event log.
  */
-async function processAccountCreatedLog(log, logger) {
+async function processAccountCreatedLog(log, logger, sseService) {
   try {
     const owner = log.args?.owner;
     const account = log.args?.account;
@@ -52,6 +53,17 @@ async function processAccountCreatedLog(log, logger) {
     logger.info(
       `🪪 AccountCreated: eoa=${eoaLc} sma=${smaLc} (block ${log.blockNumber})`,
     );
+
+    // Broadcast AccountCreated to raffle SSE channel (after DB writes)
+    if (sseService) {
+      sseService.broadcast('raffle', {
+        type: 'AccountCreated',
+        owner,
+        account,
+        blockNumber: Number(log.blockNumber),
+        txHash: log.transactionHash,
+      });
+    }
   } catch (error) {
     logger.error(
       `❌ Failed to process AccountCreated for ${log?.args?.owner}/${log?.args?.account}: ${error.message}`,
@@ -88,7 +100,8 @@ async function scanHistoricalAccountCreated(factoryAddress, logger) {
     if (logs.length > 0) {
       logger.info(`   Found ${logs.length} historical AccountCreated event(s)`);
       for (const log of logs) {
-        await processAccountCreatedLog(log, logger);
+        // No SSE broadcast for historical events — clients aren't connected yet
+        await processAccountCreatedLog(log, logger, undefined);
       }
     } else {
       logger.info("   No historical AccountCreated events found");
@@ -116,6 +129,8 @@ export async function startAccountCreatedListener(factoryAddress, logger) {
     throw new Error("logger instance is required");
   }
 
+  const sseService = getSSEChannelService(logger);
+
   await scanHistoricalAccountCreated(factoryAddress, logger);
 
   const blockCursor = await createBlockCursor(
@@ -132,7 +147,7 @@ export async function startAccountCreatedListener(factoryAddress, logger) {
     blockCursor,
     onLogs: async (logs) => {
       for (const log of logs) {
-        await processAccountCreatedLog(log, logger);
+        await processAccountCreatedLog(log, logger, sseService);
       }
     },
     onError: (error) => {

@@ -6,6 +6,7 @@ import {
   startContractEventPolling,
 } from "../lib/contractEventPolling.js";
 import { createBlockCursor } from "../lib/blockCursor.js";
+import { getSSEChannelService } from "../services/sseChannelService.js";
 
 /**
  * Process a SeasonStarted event log
@@ -14,6 +15,7 @@ import { createBlockCursor } from "../lib/blockCursor.js";
  * @param {object} raffleAbi - Raffle contract ABI
  * @param {object} logger - Logger instance
  * @param {function} onSeasonCreated - Callback for new season
+ * @param {object} sseService - SSE channel service instance
  */
 async function processSeasonStartedLog(
   log,
@@ -21,6 +23,7 @@ async function processSeasonStartedLog(
   raffleAbi,
   logger,
   onSeasonCreated,
+  sseService,
 ) {
   const { seasonId } = log.args;
 
@@ -70,7 +73,44 @@ async function processSeasonStartedLog(
     logger.info(`   BondingCurve: ${bondingCurve}`);
     logger.info(`   RaffleToken: ${raffleToken}`);
 
-    // 4. Dynamically start PositionUpdate listener for this season
+    // 4. Seed bond steps into curve_state (immutable per season — cache once)
+    if (bondingCurve) {
+      try {
+        const { SOFBondingCurveABI } = await import('@sof/contracts');
+        const [steps, treasuryAddr] = await Promise.all([
+          publicClient.readContract({
+            address: bondingCurve,
+            abi: SOFBondingCurveABI,
+            functionName: 'getBondSteps',
+          }),
+          publicClient.readContract({
+            address: bondingCurve,
+            abi: SOFBondingCurveABI,
+            functionName: 'treasuryAddress',
+          }),
+        ]);
+        const stepsJson = (steps || []).map((s) => ({
+          rangeTo: s.rangeTo?.toString?.() ?? s[0]?.toString?.() ?? '0',
+          price: s.price?.toString?.() ?? s[1]?.toString?.() ?? '0',
+        }));
+        await db.setCurveBondSteps(bondingCurve, stepsJson, treasuryAddr);
+        logger.info(`   ✅ Bond steps seeded for bonding curve ${bondingCurve}`);
+      } catch (e) {
+        logger.warn(`[SEASON_STARTED_LISTENER] bond_steps seed failed: ${e.message}`);
+      }
+    }
+
+    // 5. Broadcast SeasonStarted to raffle SSE channel (after all DB writes)
+    if (sseService) {
+      sseService.broadcast('raffle', {
+        type: 'SeasonStarted',
+        seasonId: seasonIdNum,
+        blockNumber: Number(log.blockNumber),
+        txHash: log.transactionHash,
+      });
+    }
+
+    // 6. Dynamically start PositionUpdate listener for this season
     if (typeof onSeasonCreated === "function") {
       try {
         await onSeasonCreated({
@@ -98,12 +138,14 @@ async function processSeasonStartedLog(
  * @param {object} raffleAbi - Raffle contract ABI
  * @param {object} logger - Logger instance
  * @param {function} onSeasonCreated - Callback for new season
+ * @param {object} sseService - SSE channel service instance
  */
 async function scanHistoricalSeasonEvents(
   raffleAddress,
   raffleAbi,
   logger,
   onSeasonCreated,
+  sseService,
 ) {
   try {
     logger.info("🔍 Scanning for historical SeasonStarted events...");
@@ -141,6 +183,7 @@ async function scanHistoricalSeasonEvents(
           raffleAbi,
           logger,
           onSeasonCreated,
+          sseService,
         );
       }
     } else {
@@ -179,12 +222,15 @@ export async function startSeasonStartedListener(
     throw new Error("logger instance is required");
   }
 
+  const sseService = getSSEChannelService(logger);
+
   // First, scan for any historical events we may have missed
   await scanHistoricalSeasonEvents(
     raffleAddress,
     raffleAbi,
     logger,
     onSeasonCreated,
+    sseService,
   );
 
   // Create persistent block cursor for this listener
@@ -206,6 +252,7 @@ export async function startSeasonStartedListener(
           raffleAbi,
           logger,
           onSeasonCreated,
+          sseService,
         );
       }
     },
