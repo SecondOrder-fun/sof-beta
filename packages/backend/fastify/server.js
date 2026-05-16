@@ -292,6 +292,26 @@ try {
   app.log.error({ err }, "Failed to mount /sse");
 }
 
+try {
+  if (process.env.BLOCKSCOUT_BASE_URL && process.env.BLOCKSCOUT_API_KEY) {
+    const { createBlockscoutClient } = await import("../src/services/blockscoutClient.js");
+    const blockscoutClient = createBlockscoutClient({
+      baseUrl: process.env.BLOCKSCOUT_BASE_URL,
+      apiKey: process.env.BLOCKSCOUT_API_KEY,
+      logger: app.log,
+    });
+    await app.register((await import("./routes/blockscoutRoutes.js")).default, {
+      prefix: "/api/blockscout",
+      blockscoutClient,
+    });
+    app.log.info("✅ Blockscout proxy registered at /api/blockscout");
+  } else {
+    app.log.warn("⚠️  BLOCKSCOUT_BASE_URL/API_KEY missing; cold reads disabled");
+  }
+} catch (err) {
+  app.log.error({ err }, "Failed to mount /api/blockscout");
+}
+
 // Debug: print all mounted routes
 // app.ready(() => {
 //   try {
