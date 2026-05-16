@@ -87,21 +87,63 @@ export function useBuySellTransactions(
    * @param {Function} params.onComplete - Optional completion callback
    */
   const executeBuy = useCallback(
-    async ({ tokenAmount, maxSofAmount, slippagePct, onComplete, rolloverSeasonId, rolloverAmount }) => {
+    async ({
+      tokenAmount,
+      maxSofAmount,
+      slippagePct,
+      onComplete,
+      rolloverSeasonId,
+      rolloverAmount,
+      walletTopupTickets = 0n,
+      walletTopupMaxSof = 0n,
+    }) => {
       setIsPending(true);
       try {
         const cap = applyMaxSlippage(maxSofAmount, slippagePct);
+        const hasRollover = rolloverSeasonId && rolloverAmount > 0n;
+        const hasWalletTopup = hasRollover && walletTopupTickets > 0n;
 
         let calls;
-        if (rolloverSeasonId && rolloverAmount > 0n) {
-          // Rollover buy: escrow contract handles approve + buyTokensFor internally.
+        if (hasRollover && hasWalletTopup) {
+          // Mixed batch: rollover funds part of the buy, wallet funds the rest.
+          // ticketAmount on spendFromRollover is the rollover-funded portion only.
           const { buildSpendFromRolloverCall } = await import("@/services/onchainRolloverEscrow");
-          calls = [buildSpendFromRolloverCall({
-            seasonId: rolloverSeasonId,
-            sofAmount: rolloverAmount,
-            ticketAmount: tokenAmount,
-            maxTotalSof: cap,
-          })];
+          const rolloverTickets = tokenAmount - walletTopupTickets;
+          calls = [
+            buildSpendFromRolloverCall({
+              seasonId: rolloverSeasonId,
+              sofAmount: rolloverAmount,
+              ticketAmount: rolloverTickets,
+              maxTotalSof: rolloverAmount + (rolloverAmount * 1000n) / 10000n, // base + 10% headroom for bonus
+            }),
+            {
+              to: contracts.SOF,
+              data: encodeFunctionData({
+                abi: ERC20Abi,
+                functionName: "approve",
+                args: [bondingCurveAddress, walletTopupMaxSof],
+              }),
+            },
+            {
+              to: bondingCurveAddress,
+              data: encodeFunctionData({
+                abi: SOFBondingCurveAbi,
+                functionName: "buyTokens",
+                args: [walletTopupTickets, walletTopupMaxSof],
+              }),
+            },
+          ];
+        } else if (hasRollover) {
+          // Rollover-only: escrow contract handles approve + buyTokensFor internally.
+          const { buildSpendFromRolloverCall } = await import("@/services/onchainRolloverEscrow");
+          calls = [
+            buildSpendFromRolloverCall({
+              seasonId: rolloverSeasonId,
+              sofAmount: rolloverAmount,
+              ticketAmount: tokenAmount,
+              maxTotalSof: cap,
+            }),
+          ];
         } else {
           // Normal buy: SMA approves curve, SMA calls buyTokens. Both run as
           // msg.sender = SMA inside the same ERC-7821 batch, so the curve
