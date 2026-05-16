@@ -293,6 +293,15 @@ try {
 }
 
 try {
+  await app.register((await import("./routes/curveRoutes.js")).default, {
+    prefix: "/api/curve",
+  });
+  app.log.info("Mounted /api/curve");
+} catch (err) {
+  app.log.error({ err }, "Failed to mount /api/curve");
+}
+
+try {
   if (process.env.BLOCKSCOUT_BASE_URL && process.env.BLOCKSCOUT_API_KEY) {
     const { createBlockscoutClient } = await import("../src/services/blockscoutClient.js");
     const blockscoutClient = createBlockscoutClient({
