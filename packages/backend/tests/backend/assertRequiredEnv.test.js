@@ -31,6 +31,8 @@ function validTestnetEnv() {
     NETWORK: "TESTNET",
     PAYMASTER_RPC_URL: "https://api.pimlico.io/v2/84532/rpc?apikey=stub",
     PIMLICO_API_KEY: "pim_live_aaaaaaaaaa",
+    BLOCKSCOUT_BASE_URL: "https://base-sepolia.blockscout.com",
+    BLOCKSCOUT_API_KEY: "abcdef0123456789",
   };
 }
 
@@ -179,6 +181,21 @@ describe("assertRequiredEnv", () => {
   it("does NOT require PIMLICO_API_KEY on LOCAL (still feature-gated)", () => {
     const env = validLocalEnv();
     delete env.PIMLICO_API_KEY;
+    expect(() => assertRequiredEnv(env)).not.toThrow();
+  });
+
+  it("requires BLOCKSCOUT_BASE_URL on TESTNET", () => {
+    const env = { ...validTestnetEnv(), BLOCKSCOUT_BASE_URL: "" };
+    expect(() => assertRequiredEnv(env)).toThrow(/BLOCKSCOUT_BASE_URL: missing/);
+  });
+
+  it("requires BLOCKSCOUT_API_KEY on TESTNET", () => {
+    const env = { ...validTestnetEnv(), BLOCKSCOUT_API_KEY: "" };
+    expect(() => assertRequiredEnv(env)).toThrow(/BLOCKSCOUT_API_KEY: missing/);
+  });
+
+  it("does NOT require BLOCKSCOUT_* on LOCAL", () => {
+    const env = { ...validLocalEnv(), BLOCKSCOUT_BASE_URL: "", BLOCKSCOUT_API_KEY: "" };
     expect(() => assertRequiredEnv(env)).not.toThrow();
   });
 });
