@@ -24,15 +24,16 @@ vi.mock("@/services/onchainRolloverEscrow", () => ({
 import { readCohortState, readAvailableBalance } from "@/services/onchainRolloverEscrow";
 import { useEligibleRolloverCohort } from "@/hooks/useEligibleRolloverCohort";
 
+let queryClient;
 function wrapper({ children }) {
-  const qc = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
-  return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
 }
 
 describe("useEligibleRolloverCohort", () => {
   beforeEach(() => {
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
     vi.clearAllMocks();
     mockSma.mockReturnValue("0xsma");
     readCohortState.mockResolvedValue({

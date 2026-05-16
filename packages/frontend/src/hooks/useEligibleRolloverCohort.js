@@ -31,6 +31,12 @@ import {
  * }}
  */
 export function useEligibleRolloverCohort(currentSeasonId) {
+  if (typeof currentSeasonId !== "bigint") {
+    throw new TypeError(
+      `useEligibleRolloverCohort: currentSeasonId must be bigint (got ${typeof currentSeasonId})`
+    );
+  }
+
   const { sma } = useRaffleAccount();
   const publicClient = usePublicClient();
   const netKey = getStoredNetworkKey();
