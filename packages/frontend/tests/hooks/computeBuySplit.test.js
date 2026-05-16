@@ -87,4 +87,29 @@ describe("computeBuySplit", () => {
     expect(r.walletTopupTickets).toBe(1000n);
     expect(r.walletTopupSofBase).toBe(0n);
   });
+
+  it("regression: wallet portion is ticket-proportional, not SOF-subtraction (fee-aware)", () => {
+    // Reproduces 2026-05-16 testnet SlippageExceeded(cost=6.006, maxAllowed=5.5146)
+    // Setup: 380 tickets @ 1 SOF base + 0.1% fee = 380.38 SOF curve cost.
+    // Rollover effective (354.9 base + 6% bonus = 376.194) covers 375 tickets.
+    // Wallet covers 5 tickets at curve cost 5 × 1.001 = 5.005 SOF.
+    //
+    // Old (buggy) math: walletTopupSofBase = estBuyWithFees − rolloverAmount
+    //                                      = 380.38 − 376.194 = 4.186 SOF ← under-priced
+    //                  → buyTokens reverts SlippageExceeded on 5.005 > 4.228 cap.
+    //
+    // New math: walletTopupSofBase = estBuyWithFees × walletTopupTickets / tokenAmount
+    //                              = 380.38 × 5 / 380 = 5.005 SOF (ceil-divided)
+    const r = computeBuySplit({
+      tokenAmount: 380n,
+      estBuyWithFees: 380380n * 10n ** 15n,        // 380.38 SOF
+      rolloverAmount: 376194n * 10n ** 15n,        // 376.194 SOF (354.9 + 21.294 bonus)
+    });
+    expect(r.rolloverTickets).toBe(375n);
+    expect(r.walletTopupTickets).toBe(5n);
+    // 380.38 SOF × 5 / 380 = 5.005 SOF exactly = 5005000000000000000 wei
+    expect(r.walletTopupSofBase).toBe(5005000000000000000n);
+    // Critically: NOT 380.38 − 376.194 = 4.186 SOF
+    expect(r.walletTopupSofBase).not.toBe(4186000000000000000n);
+  });
 });
