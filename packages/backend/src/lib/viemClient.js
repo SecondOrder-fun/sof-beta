@@ -119,3 +119,25 @@ export const walletClient = new Proxy(
     },
   },
 );
+
+/**
+ * Chain time cache populated by contractEventPolling.
+ * Used by GET /api/chain/time to serve warm-cached block timestamp.
+ */
+export const chainTimeCache = {
+  blockNumber: null,
+  timestamp: null,
+  updatedAt: null,
+};
+
+/**
+ * Update the chain time cache with latest block number and timestamp.
+ * Called by contractEventPolling after each successful block fetch.
+ * @param {bigint | number} blockNumber
+ * @param {bigint | number} timestamp
+ */
+export function updateChainTimeCache(blockNumber, timestamp) {
+  chainTimeCache.blockNumber = blockNumber;
+  chainTimeCache.timestamp = timestamp;
+  chainTimeCache.updatedAt = Date.now();
+}

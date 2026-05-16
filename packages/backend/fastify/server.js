@@ -302,6 +302,15 @@ try {
 }
 
 try {
+  await app.register((await import("./routes/chainTimeRoutes.js")).default, {
+    prefix: "/api/chain",
+  });
+  app.log.info("Mounted /api/chain");
+} catch (err) {
+  app.log.error({ err }, "Failed to mount /api/chain");
+}
+
+try {
   if (process.env.BLOCKSCOUT_BASE_URL && process.env.BLOCKSCOUT_API_KEY) {
     const { createBlockscoutClient } = await import("../src/services/blockscoutClient.js");
     const blockscoutClient = createBlockscoutClient({
