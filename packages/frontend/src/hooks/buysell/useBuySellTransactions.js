@@ -17,6 +17,7 @@
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { encodeFunctionData } from "viem";
+import { useQueryClient } from "@tanstack/react-query";
 import { useSOFToken } from "@/hooks/useSOFToken";
 import { useSmartTransactions } from "@/hooks/useSmartTransactions";
 import { getReadableContractError } from "@/utils/buysell/contractErrors";
@@ -43,6 +44,7 @@ export function useBuySellTransactions(
   const { refetchBalance } = useSOFToken();
   const contracts = getContractAddresses(getStoredNetworkKey());
   const { executeBatch } = useSmartTransactions();
+  const queryClient = useQueryClient();
   const [isPending, setIsPending] = useState(false);
 
   const finishWithReceipt = useCallback(
@@ -67,6 +69,18 @@ export function useBuySellTransactions(
         onSuccess?.();
         onComplete?.();
         void refetchBalance?.();
+        // Invalidate React Query caches that reflect on-chain state touched
+        // by this tx so the UI refreshes immediately instead of waiting for
+        // the next refetchInterval (60s for rollover-eligible).
+        // - "rollover" / "rollover-eligible": both the claim-time (useRollover)
+        //   and buy-time (useEligibleRolloverCohort) queries — spendFromRollover
+        //   mutates the user's position; refund/claim also touch it.
+        // - "sofBalance" / "sofTransactions": wallet SOF balance + history
+        //   change on any buy/sell.
+        queryClient.invalidateQueries({ queryKey: ["rollover"] });
+        queryClient.invalidateQueries({ queryKey: ["rollover-eligible"] });
+        queryClient.invalidateQueries({ queryKey: ["sofBalance"] });
+        queryClient.invalidateQueries({ queryKey: ["sofTransactions"] });
         return { success: true, hash };
       } catch (waitErr) {
         const waitMsg = waitErr instanceof Error ? waitErr.message : "Failed waiting for transaction receipt";
@@ -75,7 +89,7 @@ export function useBuySellTransactions(
         return { success: false, hash, error: waitMsg };
       }
     },
-    [client, onNotify, onSuccess, refetchBalance, t]
+    [client, onNotify, onSuccess, queryClient, refetchBalance, t]
   );
 
   /**
@@ -87,21 +101,66 @@ export function useBuySellTransactions(
    * @param {Function} params.onComplete - Optional completion callback
    */
   const executeBuy = useCallback(
-    async ({ tokenAmount, maxSofAmount, slippagePct, onComplete, rolloverSeasonId, rolloverAmount }) => {
+    async ({
+      tokenAmount,
+      maxSofAmount,
+      slippagePct,
+      onComplete,
+      rolloverSeasonId,
+      rolloverAmount,
+      walletTopupTickets = 0n,
+      walletTopupMaxSof = 0n,
+      rolloverMaxTotalSof = 0n,
+    }) => {
       setIsPending(true);
       try {
         const cap = applyMaxSlippage(maxSofAmount, slippagePct);
+        const hasRollover = rolloverSeasonId && rolloverAmount > 0n;
+        const hasWalletTopup = hasRollover && walletTopupTickets > 0n;
+        const rolloverTickets = hasWalletTopup ? tokenAmount - walletTopupTickets : 0n;
 
         let calls;
-        if (rolloverSeasonId && rolloverAmount > 0n) {
-          // Rollover buy: escrow contract handles approve + buyTokensFor internally.
+        if (hasWalletTopup && rolloverTickets > 0n) {
+          // Mixed batch: rollover funds part of the buy, wallet funds the rest.
+          // ticketAmount on spendFromRollover is the rollover-funded portion only.
           const { buildSpendFromRolloverCall } = await import("@/services/onchainRolloverEscrow");
-          calls = [buildSpendFromRolloverCall({
-            seasonId: rolloverSeasonId,
-            sofAmount: rolloverAmount,
-            ticketAmount: tokenAmount,
-            maxTotalSof: cap,
-          })];
+          calls = [
+            buildSpendFromRolloverCall({
+              seasonId: rolloverSeasonId,
+              sofAmount: rolloverAmount,
+              ticketAmount: rolloverTickets,
+              maxTotalSof: rolloverMaxTotalSof > 0n
+                ? rolloverMaxTotalSof
+                : rolloverAmount + (rolloverAmount * 1000n) / 10000n, // legacy fallback for old callers
+            }),
+            {
+              to: contracts.SOF,
+              data: encodeFunctionData({
+                abi: ERC20Abi,
+                functionName: "approve",
+                args: [bondingCurveAddress, walletTopupMaxSof],
+              }),
+            },
+            {
+              to: bondingCurveAddress,
+              data: encodeFunctionData({
+                abi: SOFBondingCurveAbi,
+                functionName: "buyTokens",
+                args: [walletTopupTickets, walletTopupMaxSof],
+              }),
+            },
+          ];
+        } else if (hasRollover && !hasWalletTopup) {
+          // Rollover-only: escrow contract handles approve + buyTokensFor internally.
+          const { buildSpendFromRolloverCall } = await import("@/services/onchainRolloverEscrow");
+          calls = [
+            buildSpendFromRolloverCall({
+              seasonId: rolloverSeasonId,
+              sofAmount: rolloverAmount,
+              ticketAmount: tokenAmount,
+              maxTotalSof: cap,
+            }),
+          ];
         } else {
           // Normal buy: SMA approves curve, SMA calls buyTokens. Both run as
           // msg.sender = SMA inside the same ERC-7821 batch, so the curve

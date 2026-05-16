@@ -302,6 +302,8 @@
   "fromRollover": "From rollover",
   "fromWallet": "From wallet",
   "bonusPercent": "Bonus ({{percent}}%)",
+  "walletTopupLine": "+ from wallet",
+  "walletTopupTickets": "Top-up tickets",
   "totalTicketValue": "Total ticket value",
   "rolloverSuccess": "Rollover confirmed",
   "refundSuccess": "Refund confirmed",

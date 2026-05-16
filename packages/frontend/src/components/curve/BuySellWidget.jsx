@@ -24,7 +24,9 @@ import {
   SlippageSettings,
   TradingStatusOverlay,
 } from "@/components/buysell";
-import { useRollover } from "@/hooks/useRollover";
+import { useEligibleRolloverCohort } from "@/hooks/useEligibleRolloverCohort";
+import { computeBuySplit } from "@/hooks/buysell/computeBuySplit";
+import { applyMaxSlippage } from "@/utils/buysell/slippage";
 import RolloverBanner from "./RolloverBanner";
 
 const BuySellWidget = ({
@@ -86,13 +88,15 @@ const BuySellWidget = ({
     return buildPublicClient(netKey);
   }, [net?.rpcUrl, netKey]);
 
-  // Rollover hook
+  // Rollover-spend lookup: find the cohort funding a buy in this season.
+  // Per the N→N+1 rule, it's exactly cohort (seasonId - 1n) when active.
   const {
-    rolloverBalance,
+    cohortSeasonId,
+    available: rolloverBalance,
     bonusBps,
     bonusAmount,
-    isRolloverAvailable,
-  } = useRollover(seasonId);
+    isEligible: isRolloverAvailable,
+  } = useEligibleRolloverCohort(seasonId != null ? BigInt(seasonId) : 0n);
 
   // Shared hooks
   const { tradingLocked, buyFeeBps, sellFeeBps } = useTradingLockStatus(
@@ -110,18 +114,80 @@ const BuySellWidget = ({
       sellFeeBps
     );
 
+  // Minimum rollover SOF needed for the bonus alone to cover the full buy.
+  //   rolloverNeededForFull × (1 + bonusBps/10000) ≥ estBuyWithFees
+  // Cap rolloverAmount at this so the rollover-only branch fires whenever
+  // the user's rollover (with bonus) can cover the full buy — instead of
+  // wasting the bonus on a too-large sofAmount deduction.
+  //
+  // Uses CEILING division to defeat the "double floor" trap: a plain
+  //   floor((estBuyWithFees × 10000) / (10000 + bps))
+  // followed by bonusAmount() (which floors again on x × bps / 10000)
+  // can land 1 wei below estBuyWithFees, kicking the buy into the mixed
+  // branch for a 1-wei wallet topup that the user shouldn't pay.
+  const rolloverNeededForFull = useMemo(() => {
+    const bps = BigInt(bonusBps || 0);
+    if (bps === 0n) return estBuyWithFees;
+    const denom = 10000n + bps;
+    return (estBuyWithFees * 10000n + denom - 1n) / denom;
+  }, [estBuyWithFees, bonusBps]);
+
+  // Computed rollover amount: override takes precedence, otherwise auto-deplete
+  // up to rolloverNeededForFull (or rollover balance if that's smaller).
+  const rolloverAmount = rolloverAmountOverride ?? (
+    isRolloverAvailable && rolloverEnabled
+      ? (rolloverBalance < rolloverNeededForFull ? rolloverBalance : rolloverNeededForFull)
+      : 0n
+  );
+
+  // Effective rollover SOF (base + bonus) — what the curve actually sees
+  // when escrow spendFromRollover funds tickets. Used for split + balance.
+  const rolloverEffectiveAmount = useMemo(
+    () =>
+      isRolloverAvailable && rolloverEnabled
+        ? rolloverAmount + bonusAmount(rolloverAmount)
+        : 0n,
+    [isRolloverAvailable, rolloverEnabled, rolloverAmount, bonusAmount]
+  );
+
+  // Split the requested ticket count across rollover + wallet portions.
+  // Pass rolloverEffectiveAmount (base + bonus), NOT raw rolloverAmount —
+  // the curve sees base+bonus, so that's what determines how many tickets
+  // the rollover portion can fund.
+  const { walletTopupTickets, walletTopupSofBase } = useMemo(
+    () =>
+      computeBuySplit({
+        tokenAmount: (() => {
+          try {
+            return BigInt(buyAmount || "0");
+          } catch {
+            return 0n;
+          }
+        })(),
+        estBuyWithFees,
+        rolloverEffectiveSof: rolloverEffectiveAmount,
+      }),
+    [buyAmount, estBuyWithFees, rolloverEffectiveAmount]
+  );
+
+  // Apply slippage to the wallet-topup base for the maxSof cap.
+  const walletTopupMaxSof = useMemo(
+    () => applyMaxSlippage(walletTopupSofBase, slippagePct),
+    [walletTopupSofBase, slippagePct]
+  );
+
+  // Precise cap for spendFromRollover maxTotalSof: base + actual bonus + slippage buffer.
+  const rolloverMaxTotalSof = useMemo(
+    () => applyMaxSlippage(rolloverEffectiveAmount, slippagePct),
+    [rolloverEffectiveAmount, slippagePct]
+  );
+
   const { hasInsufficientBalance, hasZeroBalance } = useBalanceValidation(
     sofBalance,
     sofDecimals,
     estBuyWithFees,
-    isBalanceLoading
-  );
-
-  // Computed rollover amount: override takes precedence, otherwise auto-deplete up to estBuyWithFees
-  const rolloverAmount = rolloverAmountOverride ?? (
-    isRolloverAvailable && rolloverEnabled
-      ? (rolloverBalance < estBuyWithFees ? rolloverBalance : estBuyWithFees)
-      : 0n
+    isBalanceLoading,
+    rolloverEffectiveAmount,
   );
 
   const { executeBuy, executeSell, isPending } = useBuySellTransactions(
@@ -150,7 +216,10 @@ const BuySellWidget = ({
     onGatingRequired,
     rolloverEnabled: isRolloverAvailable && rolloverEnabled,
     rolloverAmount,
-    rolloverSeasonId: seasonId,
+    rolloverSeasonId: cohortSeasonId,
+    walletTopupTickets,
+    walletTopupMaxSof,
+    rolloverMaxTotalSof,
   });
 
   // Persist active tab in localStorage
@@ -256,11 +325,13 @@ const BuySellWidget = ({
               rolloverBalance={rolloverBalance}
               bonusBps={bonusBps}
               bonusAmount={bonusAmount}
-              sourceSeasonId={seasonId}
+              sourceSeasonId={cohortSeasonId}
               enabled={rolloverEnabled}
               onEnabledChange={setRolloverEnabled}
               rolloverAmount={rolloverAmount}
               onRolloverAmountChange={setRolloverAmountOverride}
+              walletTopupSof={walletTopupSofBase}
+              walletTopupTickets={walletTopupTickets}
             />
           )}
           <form className="space-y-2" onSubmit={onBuy}>
