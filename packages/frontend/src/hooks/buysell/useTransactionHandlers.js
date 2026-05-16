@@ -28,6 +28,8 @@ export function useTransactionHandlers({
   rolloverEnabled = false,
   rolloverAmount = 0n,
   rolloverSeasonId,
+  walletTopupTickets = 0n,
+  walletTopupMaxSof = 0n,
 }) {
   const { t } = useTranslation(["common", "transactions"]);
 
@@ -93,7 +95,10 @@ export function useTransactionHandlers({
         return { success: false };
       }
 
-      // Execute transaction — route through rollover if enabled
+      // Execute transaction — route through rollover if enabled.
+      // executeBuy picks the right branch based on (rolloverAmount, walletTopupTickets):
+      //   - rollover-only when walletTopupTickets is 0
+      //   - mixed batch when walletTopupTickets > 0 (rollover + wallet top-up)
       if (rolloverEnabled && rolloverAmount > 0n && rolloverSeasonId) {
         return await executeBuy({
           tokenAmount,
@@ -102,6 +107,8 @@ export function useTransactionHandlers({
           onComplete,
           rolloverSeasonId,
           rolloverAmount,
+          walletTopupTickets,
+          walletTopupMaxSof,
         });
       }
 
@@ -130,6 +137,8 @@ export function useTransactionHandlers({
       rolloverEnabled,
       rolloverAmount,
       rolloverSeasonId,
+      walletTopupTickets,
+      walletTopupMaxSof,
     ]
   );
 
