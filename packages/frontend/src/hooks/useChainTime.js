@@ -1,34 +1,23 @@
 // src/hooks/useChainTime.js
-// Shared hook for on-chain timestamp via React Query.
-// Replaces raw setInterval patterns in RaffleDetails, AdminPanel, and CreateSeasonWorkflow.
-
-import { useQuery } from "@tanstack/react-query";
-import { getStoredNetworkKey } from "@/lib/wagmi";
-import { buildPublicClient } from "@/lib/viemClient";
+import { useWarmRead } from '@/hooks/chain/useWarmRead';
 
 /**
- * Returns the latest on-chain block timestamp (seconds) and keeps it fresh.
- * Uses React Query so every consumer that calls useChainTime() shares a single
- * cached value keyed by `["chainTime", netKey]`.
+ * Returns the latest chain block timestamp from /api/chain/time, populated
+ * by backend listener polling. Refetches every 10s by default — pass
+ * `refetchInterval: ms` to override.
  *
- * @param {object} [options]
- * @param {number} [options.refetchInterval=15000] - Polling interval in ms
- * @returns {number|null} chainNow — block.timestamp as a JS number, or null while loading
+ * Returns `null` until the backend cache has been populated.
+ *
+ * @param {object} [opts]
+ * @param {number} [opts.refetchInterval=10000] - Polling interval in ms
+ * @returns {number|null} block.timestamp as a JS number (seconds), or null
  */
-export function useChainTime({ refetchInterval = 15_000 } = {}) {
-  const netKey = getStoredNetworkKey();
-
-  const { data: chainNow } = useQuery({
-    queryKey: ["chainTime", netKey],
-    queryFn: async () => {
-      const client = buildPublicClient(netKey);
-      if (!client) return null;
-      const block = await client.getBlock();
-      return Number(block.timestamp);
-    },
-    refetchInterval,
-    staleTime: 10_000,
+export function useChainTime(opts = {}) {
+  const query = useWarmRead({
+    path: '/chain/time',
+    refetchInterval: opts.refetchInterval ?? 10_000,
+    staleTime: 5_000,
   });
-
-  return chainNow ?? null;
+  if (!query.data) return null;
+  return Number(query.data.timestamp);
 }
