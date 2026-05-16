@@ -159,3 +159,129 @@ describe("useBuySellTransactions.executeBuy mixed-batch", () => {
     expect(calls[1].to).toBe(ADDR_CURVE);  // buyTokens
   });
 });
+
+describe("useBuySellTransactions.executeBuy — query invalidation on success", () => {
+  let queryClient;
+  let mockClient;
+  let invalidateSpy;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExecuteBatch.mockResolvedValue("0xtxhash");
+    mockClient = {
+      waitForTransactionReceipt: vi.fn(),
+    };
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+  });
+
+  function wrapper({ children }) {
+    return (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+  }
+
+  function setupWithClient() {
+    const { result } = renderHook(
+      () => useBuySellTransactions(ADDR_CURVE, mockClient, vi.fn(), vi.fn()),
+      { wrapper }
+    );
+    return result;
+  }
+
+  it("invalidates rollover + balance + transactions queries on confirmed success", async () => {
+    mockClient.waitForTransactionReceipt.mockResolvedValue({
+      status: "success",
+      blockNumber: 1n,
+    });
+
+    const result = setupWithClient();
+    await act(async () => {
+      await result.current.executeBuy({
+        tokenAmount: 1000n,
+        maxSofAmount: 1000n * ONE_SOF,
+        slippagePct: "1",
+        rolloverSeasonId: null,
+        rolloverAmount: 0n,
+        walletTopupTickets: 1000n,
+        walletTopupMaxSof: 1010n * ONE_SOF,
+      });
+    });
+
+    const invalidatedKeys = invalidateSpy.mock.calls.map((c) => c[0].queryKey);
+    expect(invalidatedKeys).toContainEqual(["rollover"]);
+    expect(invalidatedKeys).toContainEqual(["rollover-eligible"]);
+    expect(invalidatedKeys).toContainEqual(["sofBalance"]);
+    expect(invalidatedKeys).toContainEqual(["sofTransactions"]);
+  });
+
+  it("does NOT invalidate caches when the tx receipt is reverted", async () => {
+    mockClient.waitForTransactionReceipt.mockResolvedValue({
+      status: "reverted",
+      blockNumber: 1n,
+    });
+
+    const result = setupWithClient();
+    await act(async () => {
+      await result.current.executeBuy({
+        tokenAmount: 1000n,
+        maxSofAmount: 1000n * ONE_SOF,
+        slippagePct: "1",
+        rolloverSeasonId: null,
+        rolloverAmount: 0n,
+        walletTopupTickets: 1000n,
+        walletTopupMaxSof: 1010n * ONE_SOF,
+      });
+    });
+
+    expect(invalidateSpy).not.toHaveBeenCalled();
+  });
+
+  it("does NOT invalidate caches when waitForTransactionReceipt throws", async () => {
+    mockClient.waitForTransactionReceipt.mockRejectedValue(
+      new Error("rpc blip")
+    );
+
+    const result = setupWithClient();
+    await act(async () => {
+      await result.current.executeBuy({
+        tokenAmount: 1000n,
+        maxSofAmount: 1000n * ONE_SOF,
+        slippagePct: "1",
+        rolloverSeasonId: null,
+        rolloverAmount: 0n,
+        walletTopupTickets: 1000n,
+        walletTopupMaxSof: 1010n * ONE_SOF,
+      });
+    });
+
+    expect(invalidateSpy).not.toHaveBeenCalled();
+  });
+
+  it("invalidates rollover queries on a rollover-only buy too (not only wallet-only)", async () => {
+    mockClient.waitForTransactionReceipt.mockResolvedValue({
+      status: "success",
+      blockNumber: 1n,
+    });
+
+    const result = setupWithClient();
+    await act(async () => {
+      await result.current.executeBuy({
+        tokenAmount: 1000n,
+        maxSofAmount: 1000n * ONE_SOF,
+        slippagePct: "1",
+        rolloverSeasonId: 1n,
+        rolloverAmount: 1000n * ONE_SOF,
+        walletTopupTickets: 0n,
+        walletTopupMaxSof: 0n,
+        rolloverMaxTotalSof: 1060n * ONE_SOF,
+      });
+    });
+
+    const invalidatedKeys = invalidateSpy.mock.calls.map((c) => c[0].queryKey);
+    expect(invalidatedKeys).toContainEqual(["rollover"]);
+    expect(invalidatedKeys).toContainEqual(["rollover-eligible"]);
+  });
+});
