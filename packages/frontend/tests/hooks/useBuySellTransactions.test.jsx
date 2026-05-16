@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // Valid 20-byte addresses referenced in assertions
 const ADDR_SOF    = "0x1111111111111111111111111111111111111111";
@@ -32,14 +33,26 @@ import { useBuySellTransactions } from "@/hooks/buysell/useBuySellTransactions";
 const ONE_SOF = 10n ** 18n;
 
 describe("useBuySellTransactions.executeBuy mixed-batch", () => {
+  let queryClient;
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockExecuteBatch.mockResolvedValue("0xtxhash");
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
   });
 
+  function wrapper({ children }) {
+    return (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+  }
+
   function setup() {
-    const { result } = renderHook(() =>
-      useBuySellTransactions(ADDR_CURVE, null, vi.fn(), vi.fn())
+    const { result } = renderHook(
+      () => useBuySellTransactions(ADDR_CURVE, null, vi.fn(), vi.fn()),
+      { wrapper }
     );
     return result;
   }
