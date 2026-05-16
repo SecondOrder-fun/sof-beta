@@ -818,6 +818,55 @@ export class DatabaseService {
       throw new Error(`Error fetching active FPMM addresses: ${error.message}`);
     }
   }
+
+  /**
+   * Get curve state for a bonding curve address
+   * @param {string} bondingCurveAddress - Bonding curve contract address
+   * @returns {Promise<Object|null>} Curve state record or null if not found
+   */
+  async getCurveState(bondingCurveAddress) {
+    const { data, error } = await this.client
+      .from("curve_state")
+      .select("*")
+      .eq("bonding_curve_address", bondingCurveAddress.toLowerCase())
+      .maybeSingle();
+    if (error) throw error;
+    return data;
+  }
+
+  /**
+   * Create or update curve state for a bonding curve
+   * @param {string} bondingCurveAddress - Bonding curve contract address
+   * @param {Object} patch - Fields to upsert
+   * @returns {Promise<Object>} Upserted curve state record
+   */
+  async upsertCurveState(bondingCurveAddress, patch) {
+    const row = {
+      bonding_curve_address: bondingCurveAddress.toLowerCase(),
+      ...patch,
+    };
+    const { data, error } = await this.client
+      .from("curve_state")
+      .upsert(row, { onConflict: "bonding_curve_address" })
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  /**
+   * Update bond steps and treasury address for a bonding curve
+   * @param {string} bondingCurveAddress - Bonding curve contract address
+   * @param {Array} bondSteps - Bond steps array
+   * @param {string|null} treasuryAddress - Treasury address (optional)
+   * @returns {Promise<Object>} Updated curve state record
+   */
+  async setCurveBondSteps(bondingCurveAddress, bondSteps, treasuryAddress) {
+    return await this.upsertCurveState(bondingCurveAddress, {
+      bond_steps: bondSteps,
+      treasury_address: treasuryAddress?.toLowerCase() ?? null,
+    });
+  }
 }
 
 // Export singleton instance
