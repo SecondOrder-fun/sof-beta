@@ -283,6 +283,15 @@ try {
   app.log.error({ err }, "Failed to mount /api/rollover");
 }
 
+try {
+  await app.register((await import("./routes/sseRoutes.js")).default, {
+    prefix: "/sse",
+  });
+  app.log.info("Mounted /sse");
+} catch (err) {
+  app.log.error({ err }, "Failed to mount /sse");
+}
+
 // Debug: print all mounted routes
 // app.ready(() => {
 //   try {
