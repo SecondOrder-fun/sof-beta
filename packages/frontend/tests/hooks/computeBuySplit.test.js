@@ -25,6 +25,24 @@ describe("computeBuySplit", () => {
     expect(r.walletTopupSofBase).toBe(0n);
   });
 
+  it("regression: when rolloverAmount represents base+bonus (e.g. 376.2 SOF effective for 354.9 base @ 6% bonus), all-rollover branch fires", () => {
+    // Reproduces 2026-05-16 testnet incident: user had 354.9 SOF rollover for a 360-ticket / 360.36 SOF buy.
+    // Before fix, callers passed raw rolloverAmount = 354.9 SOF → mixed branch fired → wallet portion
+    // was underpriced (proportional split ignored the bonus) → SlippageExceeded revert.
+    //
+    // After fix, callers compute rolloverEffectiveAmount = rolloverAmount + bonus and pass that here.
+    // For the user's scenario the cap is rolloverNeededForFull (~339.96 SOF), so effective ~360.36 ≥
+    // estBuyWithFees → all-rollover branch, no wallet portion, no slippage trap.
+    const r = computeBuySplit({
+      tokenAmount: 360n,
+      estBuyWithFees: 360360n * 10n ** 15n,         // 360.36 SOF
+      rolloverAmount: 360360n * 10n ** 15n,         // 360.36 SOF effective (= 339.96 base + 6% bonus)
+    });
+    expect(r.rolloverTickets).toBe(360n);
+    expect(r.walletTopupTickets).toBe(0n);
+    expect(r.walletTopupSofBase).toBe(0n);
+  });
+
   it("splits proportionally when 0 < rolloverAmount < estBuyWithFees", () => {
     // tokenAmount=1000, estBuyWithFees=1000 SOF, rollover=455 SOF → 455 tickets
     const r = computeBuySplit({
