@@ -154,6 +154,12 @@ const BuySellWidget = ({
     [isRolloverAvailable, rolloverEnabled, rolloverAmount, bonusAmount]
   );
 
+  // Precise cap for spendFromRollover maxTotalSof: base + actual bonus + slippage buffer.
+  const rolloverMaxTotalSof = useMemo(
+    () => applyMaxSlippage(rolloverEffectiveAmount, slippagePct),
+    [rolloverEffectiveAmount, slippagePct]
+  );
+
   const { hasInsufficientBalance, hasZeroBalance } = useBalanceValidation(
     sofBalance,
     sofDecimals,
@@ -191,6 +197,7 @@ const BuySellWidget = ({
     rolloverSeasonId: cohortSeasonId,
     walletTopupTickets,
     walletTopupMaxSof,
+    rolloverMaxTotalSof,
   });
 
   // Persist active tab in localStorage
@@ -301,7 +308,6 @@ const BuySellWidget = ({
               onEnabledChange={setRolloverEnabled}
               rolloverAmount={rolloverAmount}
               onRolloverAmountChange={setRolloverAmountOverride}
-              estBuyWithFees={estBuyWithFees}
               walletTopupSof={walletTopupSofBase}
               walletTopupTickets={walletTopupTickets}
             />

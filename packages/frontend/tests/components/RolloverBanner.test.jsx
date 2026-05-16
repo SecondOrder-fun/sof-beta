@@ -23,7 +23,6 @@ const baseProps = {
   onEnabledChange: vi.fn(),
   rolloverAmount: 455n * ONE_SOF,
   onRolloverAmountChange: vi.fn(),
-  estBuyWithFees: 455n * ONE_SOF,
   walletTopupSof: 0n,
   walletTopupTickets: 0n,
 };

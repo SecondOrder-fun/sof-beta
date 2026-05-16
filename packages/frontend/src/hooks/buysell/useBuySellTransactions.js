@@ -96,25 +96,28 @@ export function useBuySellTransactions(
       rolloverAmount,
       walletTopupTickets = 0n,
       walletTopupMaxSof = 0n,
+      rolloverMaxTotalSof = 0n,
     }) => {
       setIsPending(true);
       try {
         const cap = applyMaxSlippage(maxSofAmount, slippagePct);
         const hasRollover = rolloverSeasonId && rolloverAmount > 0n;
         const hasWalletTopup = hasRollover && walletTopupTickets > 0n;
+        const rolloverTickets = hasWalletTopup ? tokenAmount - walletTopupTickets : 0n;
 
         let calls;
-        if (hasRollover && hasWalletTopup) {
+        if (hasWalletTopup && rolloverTickets > 0n) {
           // Mixed batch: rollover funds part of the buy, wallet funds the rest.
           // ticketAmount on spendFromRollover is the rollover-funded portion only.
           const { buildSpendFromRolloverCall } = await import("@/services/onchainRolloverEscrow");
-          const rolloverTickets = tokenAmount - walletTopupTickets;
           calls = [
             buildSpendFromRolloverCall({
               seasonId: rolloverSeasonId,
               sofAmount: rolloverAmount,
               ticketAmount: rolloverTickets,
-              maxTotalSof: rolloverAmount + (rolloverAmount * 1000n) / 10000n, // base + 10% headroom for bonus
+              maxTotalSof: rolloverMaxTotalSof > 0n
+                ? rolloverMaxTotalSof
+                : rolloverAmount + (rolloverAmount * 1000n) / 10000n, // legacy fallback for old callers
             }),
             {
               to: contracts.SOF,
@@ -133,7 +136,7 @@ export function useBuySellTransactions(
               }),
             },
           ];
-        } else if (hasRollover) {
+        } else if (hasRollover && !hasWalletTopup) {
           // Rollover-only: escrow contract handles approve + buyTokensFor internally.
           const { buildSpendFromRolloverCall } = await import("@/services/onchainRolloverEscrow");
           calls = [

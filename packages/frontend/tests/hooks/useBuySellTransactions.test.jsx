@@ -74,6 +74,7 @@ describe("useBuySellTransactions.executeBuy mixed-batch", () => {
         rolloverAmount: 1000n * ONE_SOF,
         walletTopupTickets: 0n,
         walletTopupMaxSof: 0n,
+        rolloverMaxTotalSof: 1060n * ONE_SOF,
       });
     });
     const calls = mockExecuteBatch.mock.calls[0][0];
@@ -92,11 +93,14 @@ describe("useBuySellTransactions.executeBuy mixed-batch", () => {
         rolloverAmount: 455n * ONE_SOF,
         walletTopupTickets: 545n,
         walletTopupMaxSof: 551n * ONE_SOF,
+        rolloverMaxTotalSof: 490n * ONE_SOF,
       });
     });
     const calls = mockExecuteBatch.mock.calls[0][0];
     expect(calls).toHaveLength(3);
     expect(calls[0].to).toBe(ADDR_ESCROW);
+    // maxTotalSof should use rolloverMaxTotalSof (490 * ONE_SOF), not the 10% fallback
+    expect(calls[0].data).toContain(String(490n * ONE_SOF));
     expect(calls[0].data).toContain("455");      // sofAmount (455 * ONE_SOF)
     expect(calls[1].to).toBe(ADDR_SOF);          // approve
     expect(calls[2].to).toBe(ADDR_CURVE);        // buyTokens for top-up
@@ -113,10 +117,32 @@ describe("useBuySellTransactions.executeBuy mixed-batch", () => {
         rolloverAmount: 455n * ONE_SOF,
         walletTopupTickets: 545n,
         walletTopupMaxSof: 551n * ONE_SOF,
+        rolloverMaxTotalSof: 490n * ONE_SOF,
       });
     });
     const spendCall = mockExecuteBatch.mock.calls[0][0][0];
     // ticketAmount in spendFromRollover args is 1000 - 545 = 455
     expect(spendCall.data).toContain(",455,");
+  });
+
+  it("falls through to wallet-only when rolloverTickets would be 0 (1-ticket edge)", async () => {
+    const result = setup();
+    await act(async () => {
+      await result.current.executeBuy({
+        tokenAmount: 1n,
+        maxSofAmount: 100n * ONE_SOF,
+        slippagePct: "1",
+        rolloverSeasonId: 1n,
+        rolloverAmount: 1n * ONE_SOF,    // 1 SOF, not enough for 1 ticket
+        walletTopupTickets: 1n,           // all tickets from wallet
+        walletTopupMaxSof: 101n * ONE_SOF,
+        rolloverMaxTotalSof: 2n * ONE_SOF,
+      });
+    });
+    const calls = mockExecuteBatch.mock.calls[0][0];
+    // rolloverTickets = 1 - 1 = 0 → mixed branch must NOT fire, wallet-only path runs
+    expect(calls).toHaveLength(2);
+    expect(calls[0].to).toBe(ADDR_SOF);    // approve
+    expect(calls[1].to).toBe(ADDR_CURVE);  // buyTokens
   });
 });

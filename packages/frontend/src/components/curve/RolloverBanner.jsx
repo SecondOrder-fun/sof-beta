@@ -13,7 +13,6 @@ export default function RolloverBanner({
   onEnabledChange,
   rolloverAmount,
   onRolloverAmountChange,
-  estBuyWithFees: _estBuyWithFees = 0n,
   walletTopupSof = 0n,
   walletTopupTickets = 0n,
 }) {
@@ -121,7 +120,6 @@ RolloverBanner.propTypes = {
   onEnabledChange: PropTypes.func.isRequired,
   rolloverAmount: PropTypes.any.isRequired,
   onRolloverAmountChange: PropTypes.func.isRequired,
-  estBuyWithFees: PropTypes.any,
   walletTopupSof: PropTypes.any,
   walletTopupTickets: PropTypes.any,
 };

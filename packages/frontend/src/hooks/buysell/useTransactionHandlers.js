@@ -30,6 +30,7 @@ export function useTransactionHandlers({
   rolloverSeasonId,
   walletTopupTickets = 0n,
   walletTopupMaxSof = 0n,
+  rolloverMaxTotalSof = 0n,
 }) {
   const { t } = useTranslation(["common", "transactions"]);
 
@@ -109,6 +110,7 @@ export function useTransactionHandlers({
           rolloverAmount,
           walletTopupTickets,
           walletTopupMaxSof,
+          rolloverMaxTotalSof,
         });
       }
 
@@ -139,6 +141,7 @@ export function useTransactionHandlers({
       rolloverSeasonId,
       walletTopupTickets,
       walletTopupMaxSof,
+      rolloverMaxTotalSof,
     ]
   );
 
