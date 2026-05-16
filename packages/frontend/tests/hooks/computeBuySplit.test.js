@@ -7,7 +7,7 @@ describe("computeBuySplit", () => {
     const r = computeBuySplit({
       tokenAmount: 1000n,
       estBuyWithFees: 1000n * 10n ** 18n,
-      rolloverAmount: 0n,
+      rolloverEffectiveSof: 0n,
     });
     expect(r.rolloverTickets).toBe(0n);
     expect(r.walletTopupTickets).toBe(1000n);
@@ -18,7 +18,7 @@ describe("computeBuySplit", () => {
     const r = computeBuySplit({
       tokenAmount: 1000n,
       estBuyWithFees: 1000n * 10n ** 18n,
-      rolloverAmount: 1000n * 10n ** 18n,
+      rolloverEffectiveSof: 1000n * 10n ** 18n,
     });
     expect(r.rolloverTickets).toBe(1000n);
     expect(r.walletTopupTickets).toBe(0n);
@@ -36,7 +36,7 @@ describe("computeBuySplit", () => {
     const r = computeBuySplit({
       tokenAmount: 360n,
       estBuyWithFees: 360360n * 10n ** 15n,         // 360.36 SOF
-      rolloverAmount: 360360n * 10n ** 15n,         // 360.36 SOF effective (= 339.96 base + 6% bonus)
+      rolloverEffectiveSof: 360360n * 10n ** 15n,         // 360.36 SOF effective (= 339.96 base + 6% bonus)
     });
     expect(r.rolloverTickets).toBe(360n);
     expect(r.walletTopupTickets).toBe(0n);
@@ -48,7 +48,7 @@ describe("computeBuySplit", () => {
     const r = computeBuySplit({
       tokenAmount: 1000n,
       estBuyWithFees: 1000n * 10n ** 18n,
-      rolloverAmount: 455n * 10n ** 18n,
+      rolloverEffectiveSof: 455n * 10n ** 18n,
     });
     expect(r.rolloverTickets).toBe(455n);
     expect(r.walletTopupTickets).toBe(545n);
@@ -60,7 +60,7 @@ describe("computeBuySplit", () => {
     const r = computeBuySplit({
       tokenAmount: 1000n,
       estBuyWithFees: 1000n * 10n ** 18n,
-      rolloverAmount: 3333n * 10n ** 17n, // 333.3 SOF
+      rolloverEffectiveSof: 3333n * 10n ** 17n, // 333.3 SOF
     });
     expect(r.rolloverTickets).toBe(333n);
     expect(r.walletTopupTickets).toBe(667n);
@@ -70,7 +70,7 @@ describe("computeBuySplit", () => {
     const r = computeBuySplit({
       tokenAmount: 0n,
       estBuyWithFees: 0n,
-      rolloverAmount: 100n,
+      rolloverEffectiveSof: 100n,
     });
     expect(r.rolloverTickets).toBe(0n);
     expect(r.walletTopupTickets).toBe(0n);
@@ -81,11 +81,26 @@ describe("computeBuySplit", () => {
     const r = computeBuySplit({
       tokenAmount: 1000n,
       estBuyWithFees: 0n,
-      rolloverAmount: 100n,
+      rolloverEffectiveSof: 100n,
     });
     expect(r.rolloverTickets).toBe(0n);
     expect(r.walletTopupTickets).toBe(1000n);
     expect(r.walletTopupSofBase).toBe(0n);
+  });
+
+  it("edge: rolloverEffective 1 wei short of full → 1-ticket wallet topup with correct cap", () => {
+    // Documents what the widget's bonus-aware rolloverNeededForFull ceil-div fix
+    // prevents: when the effective rollover misses by even 1 wei, the split MUST
+    // make the wallet cover that one ticket fully — never truncate the cap.
+    const r = computeBuySplit({
+      tokenAmount: 1n,
+      estBuyWithFees: 1000n * 10n ** 18n,
+      rolloverEffectiveSof: 1000n * 10n ** 18n - 1n, // exactly 1 wei short
+    });
+    expect(r.rolloverTickets).toBe(0n);
+    expect(r.walletTopupTickets).toBe(1n);
+    // ceil(1000e18 × 1 / 1) = 1000e18 — wallet bears the full curve cost
+    expect(r.walletTopupSofBase).toBe(1000n * 10n ** 18n);
   });
 
   it("regression: wallet portion is ticket-proportional, not SOF-subtraction (fee-aware)", () => {
@@ -103,7 +118,7 @@ describe("computeBuySplit", () => {
     const r = computeBuySplit({
       tokenAmount: 380n,
       estBuyWithFees: 380380n * 10n ** 15n,        // 380.38 SOF
-      rolloverAmount: 376194n * 10n ** 15n,        // 376.194 SOF (354.9 + 21.294 bonus)
+      rolloverEffectiveSof: 376194n * 10n ** 15n,        // 376.194 SOF (354.9 + 21.294 bonus)
     });
     expect(r.rolloverTickets).toBe(375n);
     expect(r.walletTopupTickets).toBe(5n);

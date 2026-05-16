@@ -115,14 +115,21 @@ const BuySellWidget = ({
     );
 
   // Minimum rollover SOF needed for the bonus alone to cover the full buy.
-  //   rolloverNeededForFull × (1 + bonusBps/10000) = estBuyWithFees
+  //   rolloverNeededForFull × (1 + bonusBps/10000) ≥ estBuyWithFees
   // Cap rolloverAmount at this so the rollover-only branch fires whenever
   // the user's rollover (with bonus) can cover the full buy — instead of
   // wasting the bonus on a too-large sofAmount deduction.
+  //
+  // Uses CEILING division to defeat the "double floor" trap: a plain
+  //   floor((estBuyWithFees × 10000) / (10000 + bps))
+  // followed by bonusAmount() (which floors again on x × bps / 10000)
+  // can land 1 wei below estBuyWithFees, kicking the buy into the mixed
+  // branch for a 1-wei wallet topup that the user shouldn't pay.
   const rolloverNeededForFull = useMemo(() => {
     const bps = BigInt(bonusBps || 0);
     if (bps === 0n) return estBuyWithFees;
-    return (estBuyWithFees * 10000n) / (10000n + bps);
+    const denom = 10000n + bps;
+    return (estBuyWithFees * 10000n + denom - 1n) / denom;
   }, [estBuyWithFees, bonusBps]);
 
   // Computed rollover amount: override takes precedence, otherwise auto-deplete
@@ -158,7 +165,7 @@ const BuySellWidget = ({
           }
         })(),
         estBuyWithFees,
-        rolloverAmount: rolloverEffectiveAmount,
+        rolloverEffectiveSof: rolloverEffectiveAmount,
       }),
     [buyAmount, estBuyWithFees, rolloverEffectiveAmount]
   );
