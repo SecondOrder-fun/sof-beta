@@ -13,6 +13,9 @@ export default function RolloverBanner({
   onEnabledChange,
   rolloverAmount,
   onRolloverAmountChange,
+  estBuyWithFees: _estBuyWithFees = 0n,
+  walletTopupSof = 0n,
+  walletTopupTickets = 0n,
 }) {
   const { t } = useTranslation(["raffle"]);
   const [adjustOpen, setAdjustOpen] = useState(false);
@@ -92,6 +95,19 @@ export default function RolloverBanner({
           </div>
         </div>
       )}
+
+      {enabled && walletTopupTickets > 0n && (
+        <div className="mt-2 pt-2 border-t border-emerald-500/20 space-y-1 text-xs">
+          <div className="flex justify-between text-muted-foreground">
+            <span>{t("raffle:walletTopupLine")}</span>
+            <span>{formatUnits(walletTopupSof, 18)} SOF</span>
+          </div>
+          <div className="flex justify-between text-muted-foreground">
+            <span>{t("raffle:walletTopupTickets")}</span>
+            <span>{String(walletTopupTickets)}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -105,4 +121,7 @@ RolloverBanner.propTypes = {
   onEnabledChange: PropTypes.func.isRequired,
   rolloverAmount: PropTypes.any.isRequired,
   onRolloverAmountChange: PropTypes.func.isRequired,
+  estBuyWithFees: PropTypes.any,
+  walletTopupSof: PropTypes.any,
+  walletTopupTickets: PropTypes.any,
 };
