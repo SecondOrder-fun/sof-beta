@@ -17,8 +17,6 @@
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { encodeFunctionData } from "viem";
-import { useQueryClient } from "@tanstack/react-query";
-import { useSOFToken } from "@/hooks/useSOFToken";
 import { useSmartTransactions } from "@/hooks/useSmartTransactions";
 import { getReadableContractError } from "@/utils/buysell/contractErrors";
 import { applyMaxSlippage, applyMinSlippage } from "@/utils/buysell/slippage";
@@ -41,10 +39,8 @@ export function useBuySellTransactions(
   onSuccess
 ) {
   const { t } = useTranslation(["common", "transactions"]);
-  const { refetchBalance } = useSOFToken();
   const contracts = getContractAddresses(getStoredNetworkKey());
   const { executeBatch } = useSmartTransactions();
-  const queryClient = useQueryClient();
   const [isPending, setIsPending] = useState(false);
 
   const finishWithReceipt = useCallback(
@@ -68,19 +64,6 @@ export function useBuySellTransactions(
         onNotify?.({ type: "success", message: t(successKey), hash });
         onSuccess?.();
         onComplete?.();
-        void refetchBalance?.();
-        // Invalidate React Query caches that reflect on-chain state touched
-        // by this tx so the UI refreshes immediately instead of waiting for
-        // the next refetchInterval (60s for rollover-eligible).
-        // - "rollover" / "rollover-eligible": both the claim-time (useRollover)
-        //   and buy-time (useEligibleRolloverCohort) queries — spendFromRollover
-        //   mutates the user's position; refund/claim also touch it.
-        // - "sofBalance" / "sofTransactions": wallet SOF balance + history
-        //   change on any buy/sell.
-        queryClient.invalidateQueries({ queryKey: ["rollover"] });
-        queryClient.invalidateQueries({ queryKey: ["rollover-eligible"] });
-        queryClient.invalidateQueries({ queryKey: ["sofBalance"] });
-        queryClient.invalidateQueries({ queryKey: ["sofTransactions"] });
         return { success: true, hash };
       } catch (waitErr) {
         const waitMsg = waitErr instanceof Error ? waitErr.message : "Failed waiting for transaction receipt";
@@ -89,7 +72,7 @@ export function useBuySellTransactions(
         return { success: false, hash, error: waitMsg };
       }
     },
-    [client, onNotify, onSuccess, queryClient, refetchBalance, t]
+    [client, onNotify, onSuccess, t]
   );
 
   /**

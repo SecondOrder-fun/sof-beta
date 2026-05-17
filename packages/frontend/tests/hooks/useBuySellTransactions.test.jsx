@@ -24,9 +24,6 @@ vi.mock("@/services/onchainRolloverEscrow", () => ({
   }),
 }));
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (k) => k }) }));
-vi.mock("@/hooks/useSOFToken", () => ({
-  useSOFToken: () => ({ refetchBalance: vi.fn() }),
-}));
 
 import { useBuySellTransactions } from "@/hooks/buysell/useBuySellTransactions";
 
@@ -191,7 +188,7 @@ describe("useBuySellTransactions.executeBuy — query invalidation on success", 
     return result;
   }
 
-  it("invalidates rollover + balance + transactions queries on confirmed success", async () => {
+  it("does not call invalidateQueries in finishWithReceipt on confirmed success (central invalidator handles it)", async () => {
     mockClient.waitForTransactionReceipt.mockResolvedValue({
       status: "success",
       blockNumber: 1n,
@@ -210,11 +207,9 @@ describe("useBuySellTransactions.executeBuy — query invalidation on success", 
       });
     });
 
-    const invalidatedKeys = invalidateSpy.mock.calls.map((c) => c[0].queryKey);
-    expect(invalidatedKeys).toContainEqual(["rollover"]);
-    expect(invalidatedKeys).toContainEqual(["rollover-eligible"]);
-    expect(invalidatedKeys).toContainEqual(["sofBalance"]);
-    expect(invalidatedKeys).toContainEqual(["sofTransactions"]);
+    // Legacy per-key invalidations removed — invalidateUltraFreshTouching in
+    // useSmartTransactions.executeBatch now handles cache eviction centrally.
+    expect(invalidateSpy).not.toHaveBeenCalled();
   });
 
   it("does NOT invalidate caches when the tx receipt is reverted", async () => {
@@ -260,7 +255,7 @@ describe("useBuySellTransactions.executeBuy — query invalidation on success", 
     expect(invalidateSpy).not.toHaveBeenCalled();
   });
 
-  it("invalidates rollover queries on a rollover-only buy too (not only wallet-only)", async () => {
+  it("does not call invalidateQueries on a rollover-only buy either (central invalidator handles it)", async () => {
     mockClient.waitForTransactionReceipt.mockResolvedValue({
       status: "success",
       blockNumber: 1n,
@@ -280,8 +275,8 @@ describe("useBuySellTransactions.executeBuy — query invalidation on success", 
       });
     });
 
-    const invalidatedKeys = invalidateSpy.mock.calls.map((c) => c[0].queryKey);
-    expect(invalidatedKeys).toContainEqual(["rollover"]);
-    expect(invalidatedKeys).toContainEqual(["rollover-eligible"]);
+    // Legacy per-key invalidations removed — invalidateUltraFreshTouching in
+    // useSmartTransactions.executeBatch now handles cache eviction centrally.
+    expect(invalidateSpy).not.toHaveBeenCalled();
   });
 });
