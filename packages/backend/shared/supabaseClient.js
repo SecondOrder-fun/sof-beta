@@ -562,18 +562,44 @@ export class DatabaseService {
   }
 
   /**
-   * Update season active status
+   * Upsert a season_contracts row by season_id.
+   * Merges the given patch into the existing row (or creates it).
    * @param {number} seasonId - Season ID
-   * @param {boolean} isActive - New active status
-   * @returns {Promise<Object>} Updated season contract record
+   * @param {Object} patch - Columns to write (snake_case, matching DB schema)
+   * @returns {Promise<Object>} Upserted season contract record
    */
-  async updateSeasonStatus(seasonId, isActive) {
+  async upsertSeasonContractRow(seasonId, patch) {
+    const row = {
+      season_id: seasonId,
+      ...patch,
+    };
     const { data, error } = await this.client
       .from("season_contracts")
-      .update({
-        is_active: isActive,
-        updated_at: new Date().toISOString(),
-      })
+      .upsert(row, { onConflict: "season_id" })
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  /**
+   * Update season status and other mutable fields.
+   * @param {number} seasonId - Season ID
+   * @param {Object} statusPatch - Fields to update:
+   *   status, trading_locked, vrf_request_id,
+   *   total_tickets, total_participants, total_prize_pool,
+   *   is_active, etc.
+   * @returns {Promise<Object>} Updated season contract record
+   */
+  async updateSeasonStatus(seasonId, statusPatch) {
+    const patch =
+      typeof statusPatch === "boolean"
+        ? { is_active: statusPatch, updated_at: new Date().toISOString() }
+        : { ...statusPatch, updated_at: new Date().toISOString() };
+
+    const { data, error } = await this.client
+      .from("season_contracts")
+      .update(patch)
       .eq("season_id", seasonId)
       .select()
       .single();
