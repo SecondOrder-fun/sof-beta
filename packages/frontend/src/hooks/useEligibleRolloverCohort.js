@@ -1,7 +1,8 @@
 import { useCallback } from "react";
 import { usePublicClient } from "wagmi";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRaffleAccount } from "@/hooks/useRaffleAccount";
+import { useLiveSubscription } from "@/hooks/chain/useLiveSubscription";
 import { getStoredNetworkKey } from "@/lib/wagmi";
 import { getContractAddresses } from "@/config/contracts";
 import {
@@ -39,6 +40,7 @@ export function useEligibleRolloverCohort(currentSeasonId) {
 
   const { sma } = useRaffleAccount();
   const publicClient = usePublicClient();
+  const qc = useQueryClient();
   const netKey = getStoredNetworkKey();
   const contracts = getContractAddresses(netKey);
 
@@ -48,8 +50,10 @@ export function useEligibleRolloverCohort(currentSeasonId) {
     sma && publicClient && candidate && contracts.ROLLOVER_ESCROW
   );
 
+  const rolloverEligibleKey = ["rollover-eligible", sma, String(currentSeasonId), netKey];
+
   const { data, isLoading, error } = useQuery({
-    queryKey: ["rollover-eligible", sma, String(currentSeasonId), netKey],
+    queryKey: rolloverEligibleKey,
     queryFn: async () => {
       const [cohort, available] = await Promise.all([
         readCohortState({ publicClient, seasonId: candidate, networkKey: netKey }),
@@ -64,7 +68,16 @@ export function useEligibleRolloverCohort(currentSeasonId) {
     },
     enabled,
     staleTime: 30_000,
-    refetchInterval: 60_000,
+  });
+
+  // Invalidate cohort eligibility when the backend sees a rollover event for this SMA.
+  useLiveSubscription({
+    channel: "rollover",
+    enabled: !!sma,
+    filter: (e) =>
+      e.player?.toLowerCase() === sma?.toLowerCase() ||
+      e.type === "ConsolationFunded",
+    onEvent: () => qc.invalidateQueries({ queryKey: rolloverEligibleKey }),
   });
 
   const cohort = data?.cohort;

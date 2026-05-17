@@ -6,6 +6,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const mockReadContract = vi.fn();
 const mockSma = vi.fn();
 
+// Stub out SSE so useLiveSubscription doesn't call EventSource in jsdom
+vi.mock("@/hooks/chain/useLiveSubscription", () => ({
+  useLiveSubscription: () => ({ status: "connecting", lastEvent: null }),
+}));
+
 vi.mock("wagmi", () => ({
   usePublicClient: () => ({ readContract: mockReadContract }),
 }));

@@ -1,6 +1,6 @@
-import { useReadContract } from "wagmi";
 import { useRafflePrizes } from "@/hooks/useRafflePrizes";
 import { useRaffleAccount } from "@/hooks/useRaffleAccount";
+import { useUltraFreshRead } from "@/hooks/chain/useUltraFreshRead";
 import { RafflePrizeDistributorAbi } from "@/utils/abis";
 
 /**
@@ -17,6 +17,9 @@ import { RafflePrizeDistributorAbi } from "@/utils/abis";
  * viewer's eligibility/claim status. Wraps useRafflePrizes (which already
  * holds the distributor's getSeason snapshot) and adds two extra reads.
  *
+ * Uses useUltraFreshRead so both reads automatically refetch after any
+ * tx that touches the distributor contract (e.g. claim consolation).
+ *
  * @param {number} seasonId
  * @returns {ConsolationStatus}
  */
@@ -30,20 +33,25 @@ export function useConsolationStatus(seasonId) {
     distributorAddress && viewerAddress && seasonId !== undefined && seasonId !== null,
   );
 
-  const { data: eligible, isLoading: isLoadingEligible } = useReadContract({
+  const distributorContract = {
     address: distributorAddress,
     abi: RafflePrizeDistributorAbi,
-    functionName: "isEligibleForConsolation",
+  };
+
+  const { data: eligible, isLoading: isLoadingEligible } = useUltraFreshRead({
+    contract: distributorContract,
+    fn: "isEligibleForConsolation",
     args: [BigInt(seasonId ?? 0), viewerAddress],
-    query: { enabled },
+    touches: distributorAddress ? [distributorAddress] : [],
+    enabled,
   });
 
-  const { data: claimed, isLoading: isLoadingClaimed } = useReadContract({
-    address: distributorAddress,
-    abi: RafflePrizeDistributorAbi,
-    functionName: "hasClaimedConsolation",
+  const { data: claimed, isLoading: isLoadingClaimed } = useUltraFreshRead({
+    contract: distributorContract,
+    fn: "hasClaimedConsolation",
     args: [BigInt(seasonId ?? 0), viewerAddress],
-    query: { enabled },
+    touches: distributorAddress ? [distributorAddress] : [],
+    enabled,
   });
 
   const totalPoolWei = seasonPayouts?.consolationAmount ?? 0n;

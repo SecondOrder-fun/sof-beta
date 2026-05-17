@@ -6,6 +6,11 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 
+// Stub out SSE so useLiveSubscription doesn't call EventSource in jsdom
+vi.mock("@/hooks/chain/useLiveSubscription", () => ({
+  useLiveSubscription: () => ({ status: "connecting", lastEvent: null }),
+}));
+
 // Mock wagmi
 vi.mock("wagmi", () => ({
   useAccount: () => ({
