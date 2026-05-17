@@ -20,6 +20,9 @@ vi.mock("@/hooks/usePlatform", () => ({
 
 vi.mock("wagmi", () => ({
   useAccount: () => ({ address: "0xabc", isConnected: true }),
+  usePublicClient: () => ({
+    readContract: vi.fn(async () => 0n),
+  }),
   useWriteContract: () => ({
     writeContractAsync: vi.fn(),
     data: undefined,
