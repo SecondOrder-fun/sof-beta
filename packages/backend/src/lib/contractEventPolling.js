@@ -1,4 +1,4 @@
-import { updateChainTimeCache } from "./viemClient.js";
+import { updateChainTimeCache } from "./chainTimeCache.js";
 
 /**
  * @typedef {Object} ContractEventPollingParams
