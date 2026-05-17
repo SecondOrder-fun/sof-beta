@@ -104,7 +104,6 @@ export function useRafflePrizes(seasonId) {
     onSuccess: () => {
       // Invalidate relevant queries
       queryClient.invalidateQueries({ queryKey: ["raffle_claims"] });
-      queryClient.invalidateQueries({ queryKey: ["sofBalance"] });
     },
     onError: (error) => {
       setClaimStatus("unclaimed");

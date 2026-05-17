@@ -222,7 +222,6 @@ export function useRaffle(seasonId) {
     onSuccess: () => {
       // Invalidate queries to refresh data
       queryClient.invalidateQueries({ queryKey: ['userPosition'] });
-      queryClient.invalidateQueries({ queryKey: ['sofBalance'] });
     },
     onError: (err) => {
       setError(err.message || 'Failed to buy tickets');

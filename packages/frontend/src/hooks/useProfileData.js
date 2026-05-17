@@ -3,12 +3,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useViemClient } from "./useViemClient";
 import { getContractAddresses } from "@/config/contracts";
 import {
-  ERC20Abi,
   SOFBondingCurveAbi,
+  ERC20Abi,
   RaffleAbi,
   RafflePrizeDistributorAbi as PrizeDistributorAbi,
 } from "@/utils/abis";
 import { useAllSeasons } from "./useAllSeasons";
+import { useSOFBalance } from "@/hooks/useSOFBalance";
 import { getPrizeDistributor } from "@/services/onchainRaffleDistributor";
 
 /**
@@ -27,21 +28,15 @@ export function useProfileData(address) {
   const allSeasonsQuery = useAllSeasons();
   const seasons = allSeasonsQuery.data || [];
 
-  // SOF balance query
-  const sofBalanceQuery = useQuery({
-    queryKey: ["sofBalance", netKey, contracts.SOF, address],
-    enabled: !!client && !!contracts.SOF && !!address,
-    queryFn: async () => {
-      const bal = await client.readContract({
-        address: contracts.SOF,
-        abi: ERC20Abi,
-        functionName: "balanceOf",
-        args: [address],
-      });
-      return bal; // BigInt
-    },
-    staleTime: 15_000,
-  });
+  // SOF balance — useSOFBalance is canonical (ultra-fresh, central invalidation).
+  // Exposed as sofBalanceQuery shim for backward compat with callers that
+  // destructure { data, isLoading, refetch }.
+  const _sofBalance = useSOFBalance();
+  const sofBalanceQuery = {
+    data: _sofBalance.balanceRaw,
+    isLoading: _sofBalance.isLoading,
+    refetch: _sofBalance.refetch,
+  };
 
   // Raffle ticket balances across seasons
   const seasonBalancesQuery = useQuery({

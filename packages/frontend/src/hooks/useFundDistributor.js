@@ -316,13 +316,8 @@ const useFundDistributor = ({
       updateStatus("Done! Season fully resolved and funded.");
       allSeasonsQuery.refetch();
 
-      // Invalidate SOF balance query to refresh the user's balance
+      // Invalidate raffle token balances query
       if (address) {
-        queryClient.invalidateQueries({
-          queryKey: ["sofBalance", netKey, contractAddresses.SOF, address],
-        });
-
-        // Also invalidate raffle token balances query
         queryClient.invalidateQueries({
           queryKey: ["raffleTokenBalances", netKey, address],
         });

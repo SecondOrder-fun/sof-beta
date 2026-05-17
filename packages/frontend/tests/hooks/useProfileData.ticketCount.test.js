@@ -27,6 +27,15 @@ vi.mock("@/services/onchainRaffleDistributor", () => ({
   getPrizeDistributor: vi.fn(),
 }));
 
+// useSOFBalance added to useProfileData (D18 migration)
+vi.mock("@/hooks/useSOFBalance", () => ({
+  useSOFBalance: () => ({
+    balanceRaw: 0n,
+    isLoading: false,
+    refetch: () => {},
+  }),
+}));
+
 vi.mock("@/utils/abis", () => ({
   ERC20Abi: [],
   SOFBondingCurveAbi: [],
