@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { buildPublicClient } from "@/lib/viemClient";
+import { usePublicClient } from "wagmi";
 import { getAddress } from "viem";
 import { SOFBondingCurveAbi, ERC20Abi } from "@/utils/abis";
 import { useSeasonDetailsQuery } from "@/hooks/useRaffleRead";
@@ -10,12 +10,7 @@ import { useSeasonDetailsQuery } from "@/hooks/useRaffleRead";
  * Extracts data fetching logic from InfoFiMarketCard
  */
 export function useMarketCardData(market, seasonId) {
-  const netKey = (
-    import.meta.env.VITE_NETWORK || "LOCAL"
-  ).toUpperCase();
-  const publicClient = useMemo(() => {
-    return buildPublicClient(netKey);
-  }, [netKey]);
+  const publicClient = usePublicClient();
 
   const isWinnerPrediction =
     market.market_type === "WINNER_PREDICTION" &&
