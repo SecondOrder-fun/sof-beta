@@ -59,13 +59,29 @@ async function processSeasonStartedLog(
         ? Number(log.blockNumber)
         : log.blockNumber;
 
-    await db.createSeasonContracts({
-      season_id: seasonIdNum,
-      bonding_curve_address: bondingCurve,
-      raffle_token_address: raffleToken,
-      raffle_address: raffleAddress,
+    // result tuple: [config, status, totalParticipants, totalTickets, totalPrizePool]
+    const statusFromChain = result[1];
+    const totalParticipants = result[2];
+    const totalTickets = result[3];
+    const totalPrizePool = result[4];
+
+    await db.upsertSeasonContractRow(seasonIdNum, {
+      bonding_curve_address: bondingCurve?.toLowerCase() ?? null,
+      raffle_token_address: raffleToken?.toLowerCase() ?? null,
+      raffle_address: raffleAddress?.toLowerCase() ?? null,
       is_active: true,
       created_block: createdBlock,
+      // Full season config (available from getSeasonDetails)
+      name: config.name ?? null,
+      start_time: config.startTime != null ? Number(config.startTime) : null,
+      end_time: config.endTime != null ? Number(config.endTime) : null,
+      winner_count: config.winnerCount != null ? Number(config.winnerCount) : null,
+      grand_prize_bps: config.grandPrizeBps != null ? Number(config.grandPrizeBps) : null,
+      // On-chain status (SeasonStatus enum: 1 = Active)
+      status: statusFromChain != null ? Number(statusFromChain) : 1,
+      total_participants: totalParticipants != null ? totalParticipants.toString() : '0',
+      total_tickets: totalTickets != null ? totalTickets.toString() : '0',
+      total_prize_pool: totalPrizePool != null ? totalPrizePool.toString() : '0',
     });
 
     // 3. Log success
