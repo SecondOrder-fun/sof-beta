@@ -234,7 +234,7 @@ const EVENT_HANDLERS = [
 // Historical scan (shared helper)
 // ---------------------------------------------------------------------------
 
-async function scanHistoricalEvents(raffleAddress, raffleAbi, eventName, handler, logger, sseService) {
+async function scanHistoricalEvents(raffleAddress, raffleAbi, eventName, handler, logger, _sseService) {
   try {
     const currentBlock = await publicClient.getBlockNumber();
     const chain = getChainByKey(process.env.NETWORK);
