@@ -14,7 +14,6 @@ vi.mock('@/hooks/chain/sseRegistry', () => ({
 }));
 
 const ADDR = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-const LOWER = ADDR.toLowerCase();
 
 function makeWrapper() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });

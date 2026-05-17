@@ -109,6 +109,10 @@ vi.mock("@/hooks/useCurveState", () => ({
   }),
 }));
 
+vi.mock("@/hooks/useCurveEvents", () => ({
+  useCurveEvents: () => {},
+}));
+
 // RaffleDetails renders BuySellSheet in mobile mode; stub it to keep this test focused
 // on the "Your Tickets" refresh path.
 vi.mock("@/components/mobile/BuySellSheet", () => ({
