@@ -1,18 +1,18 @@
 import { useReadContract, useWatchContractEvent } from "wagmi";
 import { useEffect, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { formatEther } from "viem";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { formatEther, createPublicClient, http } from "viem";
 import { getStoredNetworkKey } from "@/lib/wagmi";
 import { getContractAddresses } from "@/config/contracts";
 import { RafflePrizeDistributorAbi as PrizeDistributorAbi, RaffleAbi } from "@/utils/abis";
-import { getPrizeDistributor } from "@/services/onchainRaffleDistributor";
 import { buildClaimCalls } from "@/services/claimService";
 import { useToast } from "@/hooks/useToast";
-import { createPublicClient, http } from "viem";
 import { getNetworkByKey } from "@/config/networks";
 import { useSmartTransactions } from "./useSmartTransactions";
 import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 
+// D11: No backend HTTP endpoint exists for prize distributor data — data lives
+// on-chain only. useReadContract is the appropriate abstraction here.
 export function useRafflePrizes(seasonId) {
   const netKey = getStoredNetworkKey();
   // SMA-bound read per spec §4.3 — winners are recorded at the SMA.
@@ -24,25 +24,20 @@ export function useRafflePrizes(seasonId) {
   const [claimStatus, setClaimStatus] = useState("unclaimed"); // 'unclaimed', 'claiming', 'completed'
   const { toast } = useToast();
 
-  const distributorQuery = useQuery({
-    queryKey: ["prize_distributor_addr", netKey],
-    queryFn: () => getPrizeDistributor({ networkKey: netKey }),
-    staleTime: 10_000,
-  });
-
-  // On-chain fallback: read prizeDistributor() from configured RAFFLE if service is unavailable
+  // Read prizeDistributor address directly from the RAFFLE contract via wagmi.
+  // Previously used a separate useQuery wrapping a manual viem read; wagmi's
+  // useReadContract is simpler and avoids a redundant client construction.
   const { RAFFLE } = getContractAddresses(netKey);
-  const { data: distributorFromChain } = useReadContract({
-    address: distributorQuery.data ? undefined : RAFFLE,
+  const { data: distributorAddress } = useReadContract({
+    address: RAFFLE,
     abi: RaffleAbi,
     functionName: "prizeDistributor",
     args: [],
     query: {
-      enabled: !distributorQuery.data && Boolean(RAFFLE),
+      enabled: Boolean(RAFFLE),
+      staleTime: 60_000,
     },
   });
-
-  const distributorAddress = distributorQuery.data || distributorFromChain;
 
   // Read distributor payouts snapshot
   const { data: seasonPayouts, isLoading: isLoadingPayouts } = useReadContract({
