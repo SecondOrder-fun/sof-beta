@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { usePublicClient } from "wagmi";
 import { getAddress } from "viem";
 import { SOFBondingCurveAbi, ERC20Abi } from "@/utils/abis";
-import { useSeasonDetailsQuery } from "@/hooks/useRaffleRead";
+import { useWarmRead } from "@/hooks/chain/useWarmRead";
 
 /**
  * Custom hook for market card data
@@ -36,11 +36,15 @@ export function useMarketCardData(market, seasonId) {
     market?.current_probability_bps ?? market?.current_probability,
   );
 
-  // Get season details for bonding curve
-  const seasonDetailsQuery = useSeasonDetailsQuery(seasonId);
-  const bondingCurveAddressRaw =
-    seasonDetailsQuery?.data?.[0]?.[2] ||
-    seasonDetailsQuery?.data?.config?.bondingCurve;
+  // Get season details for bonding curve via warm read
+  const seasonDetailsQuery = useWarmRead({
+    path: '/seasons/:seasonId',
+    params: { seasonId },
+    staleTime: 20_000,
+    refetchInterval: 30_000,
+    enabled: seasonId != null,
+  });
+  const bondingCurveAddressRaw = seasonDetailsQuery?.data?.bonding_curve_address ?? null;
   const bondingCurveAddress = useMemo(() => {
     if (!bondingCurveAddressRaw) return null;
     const addr = getAddress

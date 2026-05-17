@@ -11,7 +11,7 @@ import BuySellWidget from "@/components/infofi/BuySellWidget";
 import UsernameDisplay from "@/components/user/UsernameDisplay";
 import ExplorerLink from "@/components/common/ExplorerLink";
 import { useQuery } from "@tanstack/react-query";
-import { useRaffleRead } from "@/hooks/useRaffleRead";
+import { useAllSeasons } from "@/hooks/useAllSeasons";
 import { formatDistanceToNow, format } from "date-fns";
 import { usePlatform } from "@/hooks/usePlatform";
 import MobileMarketDetail from "@/components/mobile/MobileMarketDetail";
@@ -44,12 +44,12 @@ const InfoFiMarketDetail = () => {
 
   const market = marketData;
 
-  const { currentSeasonQuery } = useRaffleRead();
+  const allSeasonsQuery = useAllSeasons();
   const seasonId =
     market?.raffle_id ??
     market?.seasonId ??
     market?.season_id ??
-    currentSeasonQuery?.data;
+    allSeasonsQuery.data?.[0]?.id;
 
   if (isLoading) {
     return (
