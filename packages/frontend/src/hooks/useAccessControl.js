@@ -1,60 +1,30 @@
 // src/hooks/useAccessControl.js
-// Access control helpers for role-gated UI. Uses viem read client (no wallet).
+// Reactive role check via ultra-fresh reads. Refetches automatically when
+// executeBatch touches the contract.
 
-import { useMemo } from "react";
-import { getAddress } from "viem";
-import { getStoredNetworkKey } from "@/lib/wagmi";
-import { getNetworkByKey } from "@/config/networks";
-import { getContractAddresses, RAFFLE_ABI } from "@/config/contracts";
-import { buildPublicClient } from "@/lib/viemClient";
+import { useUltraFreshRead } from '@/hooks/chain/useUltraFreshRead';
 
 /**
- * Roles can be provided as hex or computed in app. Placeholder until ABI wired.
+ * Reactive role check on any contract.
+ * Refetches when executeBatch touches the contract address.
+ *
+ * @param {{ contract: { address: string, abi: Array }, role: `0x${string}`, account: string, enabled?: boolean }} params
+ * @returns {{ hasRole: boolean, isLoading: boolean, refetch: function }}
  */
-export function useAccessControl() {
-  const netKey = getStoredNetworkKey();
-  const net = getNetworkByKey(netKey);
-  const addr = getContractAddresses(netKey);
+export function useAccessControl({ contract, role, account, enabled = true }) {
+  const query = useUltraFreshRead({
+    contract,
+    fn: 'hasRole',
+    args: role && account ? [role, account] : undefined,
+    touches: contract?.address ? [contract.address] : [],
+    enabled: enabled && !!contract?.address && !!role && !!account,
+  });
 
-  const client = useMemo(() => {
-    return buildPublicClient(netKey);
-  }, [netKey]);
-
-  /**
-   * Check if `account` has `role` on the raffle contract.
-   * Currently returns false until ABI + function are wired.
-   */
-  async function hasRole(roleHex, account) {
-    try {
-      // If no RPC client (e.g., TESTNET rpc unset), default to false to keep UI stable
-      if (!client) return false;
-      if (!addr.RAFFLE) return false;
-      const normalized = getAddress(account);
-      const has = await client.readContract({
-        address: addr.RAFFLE,
-        abi: RAFFLE_ABI,
-        functionName: "hasRole",
-        args: [roleHex, normalized],
-      });
-      return Boolean(has);
-    } catch {
-      // Fallback: on LOCAL network, treat default Anvil deployer as admin
-      try {
-        const anvilDeployer = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
-        if (
-          String(net.name || "")
-            .toLowerCase()
-            .includes("anvil") ||
-          net.id === 31337
-        ) {
-          return getAddress(account) === getAddress(anvilDeployer);
-        }
-      } catch {
-        /* ignore */
-      }
-      return false;
-    }
-  }
-
-  return { hasRole };
+  return {
+    hasRole: !!query.data,
+    isLoading: query.isLoading,
+    refetch: query.refetch,
+  };
 }
+
+export default useAccessControl;

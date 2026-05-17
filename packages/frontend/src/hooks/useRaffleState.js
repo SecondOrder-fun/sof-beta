@@ -2,11 +2,10 @@
 // Consolidates raffle read-only state into a single hook.
 
 import { useRaffleRead, useSeasonDetailsQuery } from './useRaffleRead';
-import { useAccessControl } from './useAccessControl';
 
 /**
  * @notice A unified hook to manage all read-only state for the raffle.
- * @returns {object} An object containing queries and role-checking functions.
+ * @returns {object} An object containing queries.
  */
 export function useRaffleState(overrideSeasonId) {
   // Read hooks
@@ -27,15 +26,9 @@ export function useRaffleState(overrideSeasonId) {
       : null,
   };
 
-  // Access control
-  const { hasRole } = useAccessControl();
-
   return {
     // Queries
     currentSeasonQuery,
     seasonDetailsQuery,
-
-    // Functions
-    hasRole,
   };
 }
