@@ -194,12 +194,37 @@ async function processSeasonCompletedLog(
       return;
     }
 
-    // Mark season as inactive
+    // Mark season as inactive (legacy boolean form kept for compatibility)
     await db.updateSeasonStatus(seasonIdNum, false);
 
     logger.info(
       `✅ SeasonCompleted Event: Season ${seasonId} marked as inactive`,
     );
+
+    // Refresh final totals + set status=Completed (5) in season_contracts
+    try {
+      const { RaffleABI } = await import('@sof/contracts');
+      const details = await publicClient.readContract({
+        address: raffleAddress,
+        abi: RaffleABI,
+        functionName: 'getSeasonDetails',
+        args: [BigInt(seasonIdNum)],
+      });
+      // [config, status, totalParticipants, totalTickets, totalPrizePool]
+      const totalParticipants = details?.[2];
+      const totalTickets = details?.[3];
+      const totalPrizePool = details?.[4];
+      await db.updateSeasonStatus(seasonIdNum, {
+        status: 5, // Completed
+        is_active: false,
+        total_participants: totalParticipants != null ? totalParticipants.toString() : '0',
+        total_tickets: totalTickets != null ? totalTickets.toString() : '0',
+        total_prize_pool: totalPrizePool != null ? totalPrizePool.toString() : '0',
+      });
+      logger.info(`[SEASON_COMPLETED_LISTENER] season_contracts status=Completed + totals written for season ${seasonIdNum}`);
+    } catch (e) {
+      logger.warn(`[SEASON_COMPLETED_LISTENER] season_contracts update failed: ${e.message}`);
+    }
 
     // Populate the consolation eligibility map on-chain. Permissionless +
     // idempotent (warm-SSTORE on re-run), so racing other callers is safe.
