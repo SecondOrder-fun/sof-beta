@@ -6,6 +6,7 @@ import process from "node:process";
 import { hasSupabase, db } from "../shared/supabaseClient.js";
 import { startSeasonStartedListener } from "../src/listeners/seasonStartedListener.js";
 import { startSeasonCompletedListener } from "../src/listeners/seasonCompletedListener.js";
+import { startSeasonStatusListener } from "../src/listeners/seasonStatusListener.js";
 import { startSeasonLifecycleService, getSeasonLifecycleService } from "../src/services/seasonLifecycleService.js";
 import { startPositionUpdateListener } from "../src/listeners/positionUpdateListener.js";
 import { startMarketCreatedListener } from "../src/listeners/marketCreatedListener.js";
@@ -355,6 +356,7 @@ app.setNotFoundHandler((_request, reply) => {
 // Initialize listeners
 let unwatchSeasonStarted;
 let unwatchSeasonCompleted;
+let unwatchSeasonStatusListeners = []; // array returned by startSeasonStatusListener
 let unwatchMarketCreated;
 let unwatchRollover;
 let unwatchAccountCreated;
@@ -437,6 +439,19 @@ async function startListeners() {
       app.log,
       onSeasonCreated,
     );
+
+    // Start SeasonStatus listener (handles SeasonCreated, SeasonLocked,
+    // SeasonEndRequested, SeasonReadyToFinalize, SeasonCancelled)
+    try {
+      unwatchSeasonStatusListeners = await startSeasonStatusListener(
+        raffleAddress,
+        raffleAbi,
+        app.log,
+      );
+      app.log.info("✅ SeasonStatusListener started (5 events)");
+    } catch (error) {
+      app.log.error(`❌ Failed to start SeasonStatusListener: ${error.message}`);
+    }
 
     // Callback to clean up per-season listeners when a season completes
     const onSeasonCompleted = async ({ seasonId }) => {
@@ -773,6 +788,9 @@ async function shutdown(signal) {
     safeStep("SeasonStarted listener", unwatchSeasonStarted);
   if (unwatchSeasonCompleted)
     safeStep("SeasonCompleted listener", unwatchSeasonCompleted);
+  for (const [i, unwatch] of unwatchSeasonStatusListeners.entries()) {
+    safeStep(`SeasonStatus listener[${i}]`, unwatch);
+  }
   if (unwatchMarketCreated)
     safeStep("MarketCreated listener", unwatchMarketCreated);
   if (unwatchRollover) safeStep("Rollover listener", unwatchRollover);
