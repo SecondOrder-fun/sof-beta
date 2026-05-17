@@ -199,7 +199,6 @@ const ClaimCenter = ({ address, title, description }) => {
           participant.toLowerCase() === address.toLowerCase()
         ) {
           qc.invalidateQueries({ queryKey: ["raffle_claims"] });
-          qc.invalidateQueries({ queryKey: ["sofBalance"] });
           const amount = log?.args?.amount;
           toast({
             title: t("raffle:prizeClaimed"),
@@ -232,7 +231,6 @@ const ClaimCenter = ({ address, title, description }) => {
           winner.toLowerCase() === address.toLowerCase()
         ) {
           qc.invalidateQueries({ queryKey: ["raffle_claims"] });
-          qc.invalidateQueries({ queryKey: ["sofBalance"] });
           const amount = log?.args?.amount;
           toast({
             title: t("raffle:prizeClaimed"),
