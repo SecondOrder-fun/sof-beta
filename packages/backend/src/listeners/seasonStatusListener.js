@@ -96,6 +96,52 @@ async function processSeasonCreated(log, raffleAddress, raffleAbi, logger, sseSe
 
     logger.info(`[SEASON_STATUS_LISTENER] SeasonCreated: season ${seasonIdNum} written to DB`);
 
+    // Seed curve_state for the freshly-deployed bonding curve. Without this
+    // the frontend's useCurveState would 404 on every Upcoming/NotStarted
+    // season until a Trade or SeasonStarted event fires.
+    if (bondingCurve && bondingCurve !== '0x0000000000000000000000000000000000000000') {
+      try {
+        const { SOFBondingCurveABI } = await import('@sof/contracts');
+        const results = await publicClient.multicall({
+          contracts: [
+            { address: bondingCurve, abi: SOFBondingCurveABI, functionName: 'curveConfig' },
+            { address: bondingCurve, abi: SOFBondingCurveABI, functionName: 'getCurrentStep' },
+            { address: bondingCurve, abi: SOFBondingCurveABI, functionName: 'accumulatedFees' },
+            { address: bondingCurve, abi: SOFBondingCurveABI, functionName: 'getBondSteps' },
+            { address: bondingCurve, abi: SOFBondingCurveABI, functionName: 'treasuryAddress' },
+          ],
+          allowFailure: true,
+        });
+        const curveCfg = results[0]?.status === 'success' ? results[0].result : null;
+        const currentStep = results[1]?.status === 'success' ? results[1].result : null;
+        const accumulatedFees = results[2]?.status === 'success' ? results[2].result : null;
+        const bondSteps = results[3]?.status === 'success' ? results[3].result : null;
+        const treasuryAddr = results[4]?.status === 'success' ? results[4].result : null;
+
+        const stepsJson = Array.isArray(bondSteps)
+          ? bondSteps.map((s) => ({
+              rangeTo: s.rangeTo?.toString?.() ?? s[0]?.toString?.() ?? '0',
+              price: s.price?.toString?.() ?? s[1]?.toString?.() ?? '0',
+            }))
+          : null;
+
+        await db.upsertCurveState(bondingCurve, {
+          current_supply: curveCfg ? (curveCfg[0]?.toString?.() ?? '0') : '0',
+          sof_reserves: curveCfg ? (curveCfg[1]?.toString?.() ?? '0') : '0',
+          accumulated_fees: accumulatedFees != null ? accumulatedFees.toString() : '0',
+          current_step_index: currentStep ? Number(currentStep[0]) : null,
+          current_step_price: currentStep ? currentStep[1].toString() : null,
+          current_step_range_to: currentStep ? currentStep[2].toString() : null,
+          bond_steps: stepsJson,
+          treasury_address: treasuryAddr?.toLowerCase() ?? null,
+          last_updated_block: Number(log.blockNumber),
+        });
+        logger.info(`[SEASON_STATUS_LISTENER] curve_state seeded for ${bondingCurve}`);
+      } catch (curveErr) {
+        logger.warn(`[SEASON_STATUS_LISTENER] curve_state seed failed for season ${seasonIdNum}: ${curveErr.message}`);
+      }
+    }
+
     if (sseService) {
       sseService.broadcast('raffle', {
         type: 'SeasonStatusChanged',
