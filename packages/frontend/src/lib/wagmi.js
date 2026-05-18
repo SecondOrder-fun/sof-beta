@@ -76,14 +76,15 @@ export function getChainConfig(networkKey) {
   // useReadContract becomes its own request and burns through Tenderly free
   // tier rate limits within seconds of mounting a busy page.
   //
-  // retryCount/retryDelay tame viem's default retry behavior, which turns a
-  // single 429 into four rapid-fire bursts (default retryCount=3 with
-  // exponential backoff, all of which 429 again under sustained load).
+  // retryCount: 0 disables viem's transport-level retry entirely. The
+  // default behavior (3 retries with backoff) turns a single 429 into
+  // multiple rapid-fire 429s inside the same rate-limit window. react-query
+  // handles retries at the application layer with its own backoff when a
+  // failed query actually needs to be retried.
   const httpTransports = rpcUrls.map((url) =>
     http(url, {
       batch: true,
-      retryCount: 1,
-      retryDelay: 1500,
+      retryCount: 0,
     }),
   );
 

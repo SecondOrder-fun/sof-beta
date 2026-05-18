@@ -115,11 +115,17 @@ export function buildPublicClient(networkKey) {
         // batch: true coalesces RPC calls issued in the same microtask into
         // a single HTTP POST. Without it every readContract / multicall is
         // its own request and a busy page exhausts Tenderly rate limits in
-        // seconds. retryCount caps viem's default-3 retries that turn one
-        // 429 into four rapid-fire bursts.
+        // seconds.
+        //
+        // retryCount: 0 disables viem's transport-level retry entirely.
+        // viem retries on 4xx/5xx by default, but for our use case 429 is
+        // the dominant failure mode and an automatic retry just doubles
+        // the rate-limit pressure on the gateway — the second attempt
+        // lands inside the same rolling window and 429s again. react-query
+        // sits above this and applies its own retry with exponential
+        // backoff if a query really needs a second try.
         batch: true,
-        retryCount: 1,
-        retryDelay: 1500,
+        retryCount: 0,
         onFetchResponse(response) {
           if (response.status === 403 || response.status === 429) {
             markRpcBad(url, Date.now());
