@@ -28,10 +28,12 @@ async function processSeasonStartedLog(
   const { seasonId } = log.args;
 
   try {
-    // Check if season already exists in database
+    // Skip only if the row is already at Active or beyond. seasonStatusListener
+    // may have written a NotStarted (status=0) row from SeasonCreated; we still
+    // need to advance it to Active here.
     const existing = await db.getSeasonContracts(Number(seasonId));
-    if (existing) {
-      logger.debug(`Season ${seasonId} already exists in database, skipping`);
+    if (existing && Number(existing.status ?? 0) >= 1) {
+      logger.debug(`Season ${seasonId} already at status ${existing.status}, skipping`);
       return;
     }
 

@@ -7,8 +7,10 @@ const ULTRA_FRESH_DEFAULT_STALE = 5_000;
 // React-Query JSON.stringifies queryKeys for cache lookup; BigInt args
 // (common when passing seasonId or token amounts) crash the stringifier.
 // Normalize bigints in the key only — the contract call still receives
-// the original BigInt-typed args.
+// the original BigInt-typed args. Defensive: callers sometimes pass
+// `undefined` for args when gating on enabled, which would crash .map.
 function serializeArgsForKey(args) {
+  if (!Array.isArray(args)) return [];
   return args.map((a) => (typeof a === 'bigint' ? `${a.toString()}n` : a));
 }
 

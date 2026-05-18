@@ -194,14 +194,10 @@ async function processSeasonCompletedLog(
       return;
     }
 
-    // Mark season as inactive (legacy boolean form kept for compatibility)
-    await db.updateSeasonStatus(seasonIdNum, false);
-
-    logger.info(
-      `✅ SeasonCompleted Event: Season ${seasonId} marked as inactive`,
-    );
-
-    // Refresh final totals + set status=Completed (5) in season_contracts
+    // Refresh final totals + set status=Completed (5) in season_contracts.
+    // Single write — the legacy `updateSeasonStatus(id, false)` call was
+    // dropped because the object form below already sets is_active: false
+    // and the intermediate transient state was observable to readers.
     try {
       const { RaffleABI } = await import('@sof/contracts');
       const details = await publicClient.readContract({

@@ -53,7 +53,7 @@ export function useRollover(seasonId) {
     channel: "rollover",
     enabled: !!address,
     filter: (e) =>
-      e.player?.toLowerCase() === address?.toLowerCase() ||
+      e.user?.toLowerCase() === address?.toLowerCase() ||
       e.type === "ConsolationFunded",
     onEvent: () => qc.invalidateQueries({ queryKey }),
   });

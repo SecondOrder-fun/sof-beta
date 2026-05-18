@@ -77,18 +77,28 @@ async function processSeasonCreated(log, raffleAddress, raffleAbi, logger, sseSe
       logger.warn(`[SEASON_STATUS_LISTENER] getSeasonDetails failed for SeasonCreated ${seasonIdNum}: ${readErr.message}`);
     }
 
+    // Don't downgrade status. If seasonStartedListener already wrote Active
+    // (or beyond), preserve it — SeasonCreated replay must not regress state.
+    let existing = null;
+    try {
+      existing = await db.getSeasonContracts(seasonIdNum);
+    } catch (_) { /* row may not exist yet; that's fine */ }
+    const existingStatus = Number(existing?.status ?? 0);
+    const finalStatus = existingStatus > status ? existingStatus : status;
+    const finalIsActive = finalStatus === 1;
+
     await db.upsertSeasonContractRow(seasonIdNum, {
       bonding_curve_address: bondingCurve?.toLowerCase() ?? null,
       raffle_token_address: raffleToken?.toLowerCase() ?? null,
       raffle_address: raffleAddress?.toLowerCase() ?? null,
-      is_active: false,
+      is_active: finalIsActive,
       created_block: Number(log.blockNumber),
       name: name ?? null,
       start_time: startTime != null ? Number(startTime) : null,
       end_time: endTime != null ? Number(endTime) : null,
       winner_count: winnerCount,
       grand_prize_bps: grandPrizeBps,
-      status,
+      status: finalStatus,
       total_participants: totalParticipants,
       total_tickets: totalTickets,
       total_prize_pool: totalPrizePool,

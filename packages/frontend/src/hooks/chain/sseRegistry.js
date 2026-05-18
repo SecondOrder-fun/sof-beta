@@ -17,6 +17,9 @@ function open(channel) {
   entry.es = es;
 
   es.addEventListener('message', (ev) => {
+    // Reset backoff on any successful message — a healthy connection means
+    // future reconnects should start fast again, not stay at the cap.
+    entry.reconnectMs = RECONNECT_BASE_MS;
     let payload;
     try { payload = JSON.parse(ev.data); } catch { return; }
     if (payload?.type === 'connected') return;
@@ -29,8 +32,9 @@ function open(channel) {
     if (entry.subscribers.size === 0) return;
     es.close();
     entry.es = null;
-    setTimeout(() => open(channel), entry.reconnectMs);
+    const delay = entry.reconnectMs;
     entry.reconnectMs = Math.min(entry.reconnectMs * 2, RECONNECT_MAX_MS);
+    setTimeout(() => open(channel), delay);
   });
 }
 

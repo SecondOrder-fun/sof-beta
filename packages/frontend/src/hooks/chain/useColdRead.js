@@ -3,6 +3,17 @@ import { buildApiUrl, bumpTelemetry, normalizeFetchError, API_BASE } from './int
 
 const COLD_DEFAULT_STALE = 5 * 60_000;
 
+// Same BigInt-safe serialization as useWarmRead — see that file for rationale.
+function serializeParamsForKey(params) {
+  if (!params || typeof params !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(params).map(([k, v]) => [
+      k,
+      typeof v === 'bigint' ? `${v.toString()}n` : v,
+    ]),
+  );
+}
+
 export function useColdRead({
   endpoint,
   params = {},
@@ -10,7 +21,7 @@ export function useColdRead({
   enabled = true,
 }) {
   return useQuery({
-    queryKey: ['cold', endpoint, params],
+    queryKey: ['cold', endpoint, serializeParamsForKey(params)],
     enabled,
     staleTime,
     retry: 1,

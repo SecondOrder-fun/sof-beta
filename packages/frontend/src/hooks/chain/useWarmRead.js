@@ -3,6 +3,19 @@ import { buildApiUrl, bumpTelemetry, normalizeFetchError } from './internal';
 
 const WARM_DEFAULT_STALE = 20_000;
 
+// BigInt params crash JSON.stringify (which react-query uses to compare
+// queryKeys). Stringify bigints with an `n` suffix so different bigint
+// values don't collide with same-valued plain numbers/strings.
+function serializeParamsForKey(params) {
+  if (!params || typeof params !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(params).map(([k, v]) => [
+      k,
+      typeof v === 'bigint' ? `${v.toString()}n` : v,
+    ]),
+  );
+}
+
 export function useWarmRead({
   path,
   params = {},
@@ -11,7 +24,7 @@ export function useWarmRead({
   enabled = true,
 }) {
   return useQuery({
-    queryKey: ['warm', path, params],
+    queryKey: ['warm', path, serializeParamsForKey(params)],
     enabled,
     staleTime,
     refetchInterval,

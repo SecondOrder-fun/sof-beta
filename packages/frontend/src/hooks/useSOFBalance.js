@@ -24,7 +24,7 @@ export function useSOFBalance() {
   const query = useUltraFreshRead({
     contract: { address: sofAddress, abi: ERC20Abi },
     fn: 'balanceOf',
-    args: address ? [address] : undefined,
+    args: address ? [address] : [],
     touches: sofAddress ? [sofAddress] : [],
     enabled: !!(isReady && address && sofAddress),
   });

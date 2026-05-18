@@ -75,7 +75,7 @@ export function useEligibleRolloverCohort(currentSeasonId) {
     channel: "rollover",
     enabled: !!sma,
     filter: (e) =>
-      e.player?.toLowerCase() === sma?.toLowerCase() ||
+      e.user?.toLowerCase() === sma?.toLowerCase() ||
       e.type === "ConsolationFunded",
     onEvent: () => qc.invalidateQueries({ queryKey: rolloverEligibleKey }),
   });
