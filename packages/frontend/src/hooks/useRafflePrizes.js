@@ -185,13 +185,18 @@ export function useRafflePrizes(seasonId) {
     staleTime: 60_000,
   });
 
-  // Watch for GrandClaimed events
+  // Watch for the connected user's own GrandClaimed event so we can flip
+  // claimStatus to "completed" and show a toast when the chain confirms.
+  // Only enabled while a claim is in flight (claimStatus === "claiming") —
+  // before the user submits a claim the watcher has nothing to watch for,
+  // and polling getLogs on an Active raffle was firing eth_getBlockNumber
+  // every 12s for the entire page lifetime, steadily feeding Tenderly
+  // burst-limit 429s.
   useWatchContractLogs({
     address: distributorAddress,
     abi: PrizeDistributorAbi,
     eventName: "GrandClaimed",
     onLogs: (logs) => {
-      // Check if this event is for our season and address
       logs.forEach((log) => {
         if (
           log.args &&
@@ -212,7 +217,7 @@ export function useRafflePrizes(seasonId) {
       });
     },
     enabled: Boolean(
-      distributorAddress && address && seasonId && claimStatus !== "completed"
+      distributorAddress && address && seasonId && claimStatus === "claiming"
     ),
   });
 

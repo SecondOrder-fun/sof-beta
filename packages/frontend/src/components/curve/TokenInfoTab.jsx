@@ -2,6 +2,7 @@
 import PropTypes from "prop-types";
 import { useMemo, useState, useEffect } from "react";
 import { formatUnits } from "viem";
+import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useSofDecimals } from "@/hooks/useSofDecimals";
 import { useRaffleHolders } from "@/hooks/useRaffleHolders";
@@ -23,7 +24,6 @@ const TokenInfoTab = ({
 }) => {
   const { t } = useTranslation("common");
   const sofDecimals = useSofDecimals();
-  const [raffleTokenAddress, setRaffleTokenAddress] = useState(null);
   const [raffleTokenSymbol, setRaffleTokenSymbol] = useState("TIX");
   const [walletToast, setWalletToast] = useState(null);
   const [walletToastVisible, setWalletToastVisible] = useState(false);
@@ -75,56 +75,48 @@ const TokenInfoTab = ({
 
   // Fetch raffle/ticket token address from the bonding curve.
   //
-  // Older curve implementations exposed the ticket-token getter under
-  // different names (token / raffleToken / ticketToken / tickets / asset).
-  // We probe in parallel and take the first valid address — viem's
-  // batch.multicall aggregator (enabled on buildPublicClient) collapses
-  // the five reads into one aggregate3 call, so this costs one RPC
-  // round-trip even though four of the probes always revert. The legacy
-  // sequential per-keystroke loop was firing five separate eth_call
-  // requests, four of which got rate-limited as reverted noise.
-  useEffect(() => {
-    let cancelled = false;
-    async function fetchCurveData() {
-      if (!bondingCurveAddress) return;
-      try {
-        const client = buildPublicClient(getStoredNetworkKey());
-        if (!client) return;
+  // The address is set once at season creation and never changes, so this
+  // query carries staleTime: Infinity — the result lives in react-query's
+  // cache for the rest of the session. Older curve implementations
+  // exposed the getter under different names (token / raffleToken /
+  // ticketToken / tickets / asset); we probe in parallel and take the
+  // first valid address. viem's batch.multicall aggregator collapses the
+  // five reads into a single aggregate3 call, so the cold-load cost is
+  // one RPC round-trip even though four of the probes revert.
+  const netKey = getStoredNetworkKey();
+  const raffleTokenQuery = useQuery({
+    queryKey: ["raffleTokenAddress", netKey, bondingCurveAddress?.toLowerCase?.()],
+    enabled: !!bondingCurveAddress,
+    staleTime: Infinity,
+    queryFn: async () => {
+      const client = buildPublicClient(netKey);
+      if (!client) return null;
 
-        const candidateFns = ["token", "raffleToken", "ticketToken", "tickets", "asset"];
-        const results = await Promise.allSettled(
-          candidateFns.map((fn) =>
-            client.readContract({
-              address: bondingCurveAddress,
-              abi: SOFBondingCurveAbi,
-              functionName: fn,
-              args: [],
-            }),
-          ),
+      const candidateFns = ["token", "raffleToken", "ticketToken", "tickets", "asset"];
+      const results = await Promise.allSettled(
+        candidateFns.map((fn) =>
+          client.readContract({
+            address: bondingCurveAddress,
+            abi: SOFBondingCurveAbi,
+            functionName: fn,
+            args: [],
+          }),
+        ),
+      );
+
+      const validAddr = results
+        .map((r) => (r.status === "fulfilled" ? r.value : null))
+        .find(
+          (addr) =>
+            typeof addr === "string" &&
+            /^0x[a-fA-F0-9]{40}$/.test(addr) &&
+            addr !== "0x0000000000000000000000000000000000000000",
         );
 
-        const validAddr = results
-          .map((r) => (r.status === "fulfilled" ? r.value : null))
-          .find(
-            (addr) =>
-              typeof addr === "string" &&
-              /^0x[a-fA-F0-9]{40}$/.test(addr) &&
-              addr !== "0x0000000000000000000000000000000000000000",
-          );
-
-        if (!cancelled) {
-          setRaffleTokenAddress(validAddr ?? bondingCurveAddress);
-        }
-      } catch {
-        if (!cancelled) setRaffleTokenAddress(null);
-      }
-    }
-
-    fetchCurveData();
-    return () => {
-      cancelled = true;
-    };
-  }, [bondingCurveAddress]);
+      return validAddr ?? bondingCurveAddress;
+    },
+  });
+  const raffleTokenAddress = raffleTokenQuery.data ?? null;
 
   // Calculate prize distribution (65% grand prize, 35% consolation by default)
   // Note: grandPrizeBps can be configured per season, defaulting to 6500 (65%)
