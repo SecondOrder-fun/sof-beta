@@ -20,6 +20,7 @@ import { getStoredNetworkKey } from "@/lib/wagmi";
 import { getContractAddresses } from "@/config/contracts";
 import { RaffleAbi, RafflePrizeDistributorAbi } from "@/utils/abis";
 import { useWarmRead } from "@/hooks/chain/useWarmRead";
+import { getPrizeDistributor } from "@/services/onchainRaffleDistributor";
 
 /**
  * @typedef {Object} SeasonWinnerSummary
@@ -76,13 +77,19 @@ export function useSeasonWinnerSummaries(seasons) {
       /** @type {Record<number, { winnerAddress: string; grandPrizeWei: bigint }>} */
       const raw = {};
 
-      // Discover distributor address once via RAFFLE
-      const distributor = await client.readContract({
-        address: addr.RAFFLE,
-        abi: RaffleAbi,
-        functionName: "prizeDistributor",
-        args: [],
-      });
+      // Discover distributor via the module-cached helper (single RPC read
+      // per network for the entire app lifetime — not once per mount).
+      let distributor;
+      try {
+        distributor = await getPrizeDistributor({ networkKey: netKey });
+      } catch {
+        distributor = await client.readContract({
+          address: addr.RAFFLE,
+          abi: RaffleAbi,
+          functionName: "prizeDistributor",
+          args: [],
+        });
+      }
 
       if (
         !distributor ||

@@ -93,35 +93,44 @@ async function reconcileSeason(client, raffleAddress, seasonId) {
   }
 
   // ----- curve_state upsert -----
+  // Use individual reads instead of multicall. Multicall3 deployment varies
+  // across chains and we've seen the multicall path silently throw, leaving
+  // curve_state empty even when the individual reads would have succeeded.
+  // Sequential reads are slower but observable on failure.
   let curveOk = false;
+  const safeRead = async (fn, args = []) => {
+    try {
+      return await client.readContract({
+        address: bondingCurve,
+        abi: SOFBondingCurveABI,
+        functionName: fn,
+        args,
+      });
+    } catch (err) {
+      console.warn(`    [season ${seasonIdNum}] ${fn}() failed: ${err.message}`);
+      return null;
+    }
+  };
+
+  const curveCfg = await safeRead('curveConfig');
+  const currentStep = await safeRead('getCurrentStep');
+  const accumulatedFees = await safeRead('accumulatedFees');
+  const bondSteps = await safeRead('getBondSteps');
+  const treasuryAddr = await safeRead('treasuryAddress');
+
+  const stepsJson = Array.isArray(bondSteps)
+    ? bondSteps.map((s) => ({
+        rangeTo: s.rangeTo?.toString?.() ?? s[0]?.toString?.() ?? '0',
+        price: s.price?.toString?.() ?? s[1]?.toString?.() ?? '0',
+      }))
+    : null;
+
+  // curveConfig returns: [totalSupply, sofReserves, currentStep, buyFee, sellFee,
+  // tradingPaused, initialized, initialPrice]
+  const currentSupply = curveCfg ? (curveCfg[0]?.toString?.() ?? '0') : '0';
+  const sofReserves = curveCfg ? (curveCfg[1]?.toString?.() ?? '0') : '0';
+
   try {
-    const results = await client.multicall({
-      contracts: [
-        { address: bondingCurve, abi: SOFBondingCurveABI, functionName: 'curveConfig' },
-        { address: bondingCurve, abi: SOFBondingCurveABI, functionName: 'getCurrentStep' },
-        { address: bondingCurve, abi: SOFBondingCurveABI, functionName: 'accumulatedFees' },
-        { address: bondingCurve, abi: SOFBondingCurveABI, functionName: 'getBondSteps' },
-        { address: bondingCurve, abi: SOFBondingCurveABI, functionName: 'treasuryAddress' },
-      ],
-      allowFailure: true,
-    });
-
-    const curveCfg = results[0]?.status === 'success' ? results[0].result : null;
-    const currentStep = results[1]?.status === 'success' ? results[1].result : null;
-    const accumulatedFees = results[2]?.status === 'success' ? results[2].result : null;
-    const bondSteps = results[3]?.status === 'success' ? results[3].result : null;
-    const treasuryAddr = results[4]?.status === 'success' ? results[4].result : null;
-
-    const stepsJson = Array.isArray(bondSteps)
-      ? bondSteps.map((s) => ({
-          rangeTo: s.rangeTo?.toString?.() ?? s[0]?.toString?.() ?? '0',
-          price: s.price?.toString?.() ?? s[1]?.toString?.() ?? '0',
-        }))
-      : null;
-
-    const currentSupply = curveCfg ? (curveCfg[0]?.toString?.() ?? '0') : '0';
-    const sofReserves = curveCfg ? (curveCfg[1]?.toString?.() ?? '0') : '0';
-
     await db.upsertCurveState(bondingCurve, {
       current_supply: currentSupply,
       sof_reserves: sofReserves,
@@ -134,7 +143,8 @@ async function reconcileSeason(client, raffleAddress, seasonId) {
     });
     curveOk = true;
   } catch (err) {
-    console.error(`  [season ${seasonIdNum}] curve_state upsert failed: ${err.message}`);
+    console.error(`  [season ${seasonIdNum}] db.upsertCurveState threw: ${err.message}`);
+    console.error(`    bondingCurve=${bondingCurve} supply=${currentSupply} sof=${sofReserves}`);
   }
 
   const statusLabel = ['NotStarted', 'Active', 'EndRequested', 'VRFPending', 'Distributing', 'Completed', 'Cancelled'][status] ?? `status=${status}`;
