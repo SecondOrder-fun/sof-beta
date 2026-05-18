@@ -3,13 +3,27 @@
  * Fetches and calculates buy/sell price estimates from bonding curve
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { SOFBondingCurveAbi } from "@/utils/abis";
 import {
   calculateAmountWithFees,
   calculateAmountAfterFees,
 } from "@/utils/buysell/slippage";
+
+const PRICE_INPUT_DEBOUNCE_MS = 250;
+
+// useDebouncedValue — defer rapid input changes so the price-estimate
+// queryKey doesn't churn one new RPC call per keystroke. Each unique
+// debounced value is still cached for 5s by react-query (staleTime).
+function useDebouncedValue(value, delayMs) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(id);
+  }, [value, delayMs]);
+  return debounced;
+}
 
 /**
  * Hook to estimate prices for buy/sell operations
@@ -34,8 +48,12 @@ export function usePriceEstimation(
   // RPC call. Now both estimates run through react-query so identical
   // amounts dedupe across renders, and the queryKey caches results for
   // 5 seconds (curve config is read-only between trades on testnet).
-  const buyKey = String(buyAmount ?? "0");
-  const sellKey = String(sellAmount ?? "0");
+  // Inputs are debounced so typing "1000" doesn't fire 4 separate
+  // readContract calls — only the final settled value queries the chain.
+  const buyKeyRaw = String(buyAmount ?? "0");
+  const sellKeyRaw = String(sellAmount ?? "0");
+  const buyKey = useDebouncedValue(buyKeyRaw, PRICE_INPUT_DEBOUNCE_MS);
+  const sellKey = useDebouncedValue(sellKeyRaw, PRICE_INPUT_DEBOUNCE_MS);
 
   const { data: buyEstBase = 0n } = useQuery({
     queryKey: ["priceEstimate", "buy", bondingCurveAddress, buyKey],
