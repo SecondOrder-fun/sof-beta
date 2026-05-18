@@ -17,8 +17,18 @@ import { RafflePrizeDistributorAbi } from "@/utils/abis";
  * viewer's eligibility/claim status. Wraps useRafflePrizes (which already
  * holds the distributor's getSeason snapshot) and adds two extra reads.
  *
- * Uses useUltraFreshRead so both reads automatically refetch after any
- * tx that touches the distributor contract (e.g. claim consolation).
+ * Cache semantics (per Raffle Detail spec):
+ *  - Active season: data is functionally stable for the lifetime of the
+ *    view (eligibility flips only when the user buys/sells tickets, and
+ *    nothing on the page reads it until VRF lands). Fetch once on mount.
+ *  - Completed season: data is immutable. Fetch once on mount and cache
+ *    for the rest of the session.
+ *
+ * Both cases collapse to staleTime: Infinity — react-query will reuse
+ * the cached value across remounts in the same session. The two reads
+ * still get invalidated by the existing `touches: [distributorAddress]`
+ * post-tx invalidation in executeBatch, so a successful claim immediately
+ * refreshes claim status without a poll loop.
  *
  * @param {number} seasonId
  * @returns {ConsolationStatus}
@@ -44,6 +54,7 @@ export function useConsolationStatus(seasonId) {
     args: [BigInt(seasonId ?? 0), viewerAddress],
     touches: distributorAddress ? [distributorAddress] : [],
     enabled,
+    staleTime: Infinity,
   });
 
   const { data: claimed, isLoading: isLoadingClaimed } = useUltraFreshRead({
@@ -52,6 +63,7 @@ export function useConsolationStatus(seasonId) {
     args: [BigInt(seasonId ?? 0), viewerAddress],
     touches: distributorAddress ? [distributorAddress] : [],
     enabled,
+    staleTime: Infinity,
   });
 
   const totalPoolWei = seasonPayouts?.consolationAmount ?? 0n;
