@@ -147,11 +147,14 @@ export function buildPublicClient(networkKey) {
   // usePlayerPosition.refreshNow) goes out as its own POST and a busy page
   // burns the Tenderly free-tier 25-rps burst limit on mount. wagmi's
   // built-in public client gets multicall by default; this standalone client
-  // does not, so set it explicitly. wait: 16ms ≈ one React frame, big enough
-  // to catch async readContract chains across multiple effects.
+  // does not, so set it explicitly. wait: 50ms covers ~3 React render passes
+  // — initial mount + first dependent re-renders typically land within that
+  // envelope (e.g. usePlayerPosition's playerTickets fires on mount, then
+  // curveConfig fires once SMA resolves a tick later). Smaller windows
+  // (16ms) leaked into separate POSTs and tripped 429s.
   return createPublicClient({
     chain,
     transport,
-    batch: { multicall: { wait: 16 } },
+    batch: { multicall: { wait: 50 } },
   });
 }

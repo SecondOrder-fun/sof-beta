@@ -64,8 +64,11 @@ export const config = createConfig({
   // wagmi v2 defaults batch.multicall to `true` (0ms wait), which only catches
   // calls in the same microtask. Across separate effects / hook mounts, the
   // calls fall outside that window and each goes out as its own POST — the
-  // Tenderly free-tier 25-rps burst gets blown on initial mount. wait: 16ms
-  // ≈ one frame, large enough to coalesce concurrent useReadContract calls
-  // into one aggregate3 request without any user-perceptible delay.
-  batch: { multicall: { wait: 16 } },
+  // Tenderly free-tier 25-rps burst gets blown on initial mount. wait: 50ms
+  // ≈ 3 React render passes — large enough to coalesce the chained ultra-
+  // fresh reads (playerTickets → curveConfig once SMA resolves, etc.) into
+  // one aggregate3 request without any user-perceptible delay. 16ms was
+  // observed leaking into separate POSTs when reads were chained across
+  // dependent renders.
+  batch: { multicall: { wait: 50 } },
 });
