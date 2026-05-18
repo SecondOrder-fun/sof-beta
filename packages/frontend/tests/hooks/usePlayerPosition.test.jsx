@@ -98,11 +98,13 @@ describe("usePlayerPosition", () => {
   }
 
   it("fetches position via playerTickets (primary path)", async () => {
-    readContractMock.mockImplementation(async ({ functionName }) => {
-      if (functionName === "playerTickets") return 500n;
-      if (functionName === "curveConfig") return [2000n, 100n];
-      return 0n;
-    });
+    // Happy path is now driven by useUltraFreshRead, not the imperative
+    // refreshNow. Mock the ultra-fresh hook so the sync effect inside
+    // usePlayerPosition populates localPosition.
+    const { useUltraFreshRead } = await import("@/hooks/chain/useUltraFreshRead");
+    useUltraFreshRead
+      .mockReturnValueOnce({ data: 500n, isLoading: false, refetch: vi.fn() })          // playerTickets
+      .mockReturnValueOnce({ data: [2000n, 100n], isLoading: false, refetch: vi.fn() }); // curveConfig
 
     const usePlayerPosition = await setup();
 
@@ -120,11 +122,13 @@ describe("usePlayerPosition", () => {
     expect(result.current.position.probBps).toBe(2500);
   });
 
-  it("falls back to ERC20 when playerTickets throws", async () => {
+  it("falls back to ERC20 when playerTickets throws (via refreshNow)", async () => {
+    // The ERC20 fallback lives inside the imperative refreshNow path —
+    // it is no longer fired automatically on mount, so the test must
+    // invoke it explicitly.
     readContractMock.mockImplementation(async ({ functionName }) => {
       if (functionName === "playerTickets") throw new Error("not found");
       if (functionName === "curveConfig") throw new Error("not found");
-      // Token discovery — first function name "token" returns a valid address
       if (functionName === "token")
         return "0x3333333333333333333333333333333333333333";
       if (functionName === "balanceOf") return 100n;
@@ -138,8 +142,8 @@ describe("usePlayerPosition", () => {
       wrapper: createWrapper(),
     });
 
-    await waitFor(() => {
-      expect(result.current.position).not.toBeNull();
+    await act(async () => {
+      await result.current.refreshNow();
     });
 
     expect(result.current.position.tickets).toBe(100n);
@@ -189,13 +193,16 @@ describe("usePlayerPosition", () => {
       wrapper: createWrapper(),
     });
 
-    await waitFor(() => {
-      expect(result.current.position?.tickets).toBe(100n);
+    // No on-mount auto-call: position is null until refreshNow runs.
+    expect(result.current.position).toBeNull();
+
+    await act(async () => {
+      await result.current.refreshNow();
     });
+    expect(result.current.position.tickets).toBe(100n);
 
-    // Simulate a tx that changed the on-chain balance
+    // Simulate a tx that changed the on-chain balance and refresh again.
     ticketCount = 200n;
-
     await act(async () => {
       await result.current.refreshNow();
     });

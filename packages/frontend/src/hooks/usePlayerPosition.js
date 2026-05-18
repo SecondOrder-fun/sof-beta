@@ -33,7 +33,7 @@ const erc20Abi = Array.isArray(ERC20Abi)
  */
 export function usePlayerPosition(bondingCurveAddress, { seasonDetails, playerAddress, seasonId } = {}) {
   // Position reads resolve at the user's smart account, not the EOA (spec §4.3).
-  const { sma, isReady } = useRaffleAccount();
+  const { sma } = useRaffleAccount();
 
   // Determine whether the query is for the connected user's own position.
   const isSelf =
@@ -197,16 +197,13 @@ export function usePlayerPosition(bondingCurveAddress, { seasonDetails, playerAd
     }
   }, [isSelf, sma, bondingCurveAddress, seasonDetails]);
 
-  // Initial load for self: fetch when wallet + curve address are available.
-  // Deliberately omit refreshNow from deps — it changes reference when
-  // seasonDetails changes (new object from React Query on every render),
-  // which would cause an infinite RPC polling loop → 429 rate limit.
-  useEffect(() => {
-    if (isSelf && isReady && sma && bondingCurveAddress) {
-      refreshNow();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSelf, isReady, sma, bondingCurveAddress]);
+  // Initial-load auto-call removed. The two useUltraFreshRead queries above
+  // (playerTickets + curveConfig) already cover the happy path and feed
+  // localPosition via the sync effect at line 83. refreshNow remains
+  // available as an imperative escape hatch for the ERC20 fallback path
+  // (when a curve doesn't expose playerTickets) — consumers should call
+  // it from tx-completion handlers, not on mount, to avoid the 4-8
+  // sequential RPC reads that overlapped with the ultra-fresh queries.
 
   return {
     position: localPosition,

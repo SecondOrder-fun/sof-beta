@@ -65,11 +65,17 @@ export function ContractAddressValidator() {
     }
   };
 
+  // Dev-only diagnostic — short-circuit in production. The previous check
+  // sat on the render path, so the useEffect below still fired 5 RPC
+  // getBytecode calls on every prod page load before the early-return
+  // suppressed rendering. Gate the effect on PROD too.
+  const isProd = import.meta.env.PROD;
+
   useEffect(() => {
-    // Validate on mount
+    if (isProd) return;
     validateAddresses();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isProd]);
 
   const hasIssues = Object.values(validationResults).some(
     (r) => r.status !== "valid",
@@ -78,8 +84,7 @@ export function ContractAddressValidator() {
     (r) => r.status !== "valid",
   ).length;
 
-  // Only show in development
-  if (import.meta.env.PROD) {
+  if (isProd) {
     return null;
   }
 
