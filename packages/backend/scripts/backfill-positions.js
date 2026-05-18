@@ -30,6 +30,7 @@ import { getPublicClient } from '../src/lib/viemClient.js';
 import { getChainByKey } from '../src/config/chain.js';
 import { getContractEventsInChunks } from '../src/lib/contractEventPolling.js';
 import { raffleTransactionService } from '../src/services/raffleTransactionService.js';
+import { db } from '../shared/supabaseClient.js';
 import { RaffleABI, SOFBondingCurveABI } from '@sof/contracts';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -43,19 +44,34 @@ const ZERO_ADDR = '0x0000000000000000000000000000000000000000';
 async function backfillSeason(client, raffleAddress, seasonId) {
   console.log(`\n━━━ Season ${seasonId} ━━━`);
 
-  let bondingCurve;
+  // Prefer DB-tracked addresses + created_block. created_block lets us scan
+  // a few thousand blocks instead of the full 41M+ chain history; the
+  // earlier 0..currentBlock scan was burning Tenderly quota for nothing.
+  let bondingCurve = null;
+  let fromBlock = 0n;
   try {
-    const details = await client.readContract({
-      address: raffleAddress,
-      abi: RaffleABI,
-      functionName: 'getSeasonDetails',
-      args: [BigInt(seasonId)],
-    });
-    const cfg = details?.[0] ?? {};
-    bondingCurve = cfg.bondingCurve ?? cfg[5] ?? null;
+    const row = await db.getSeasonContracts(seasonId);
+    if (row?.bonding_curve_address) bondingCurve = row.bonding_curve_address;
+    if (row?.created_block) fromBlock = BigInt(row.created_block);
   } catch (err) {
-    console.warn(`  getSeasonDetails(${seasonId}) failed: ${err.message}`);
-    return { found: 0, recorded: 0, skipped: 0, failed: 0 };
+    console.warn(`  db.getSeasonContracts(${seasonId}) failed: ${err.message}`);
+  }
+
+  // Fall back to chain read if DB doesn't have the address yet.
+  if (!bondingCurve) {
+    try {
+      const details = await client.readContract({
+        address: raffleAddress,
+        abi: RaffleABI,
+        functionName: 'getSeasonDetails',
+        args: [BigInt(seasonId)],
+      });
+      const cfg = details?.[0] ?? {};
+      bondingCurve = cfg.bondingCurve ?? cfg[5] ?? null;
+    } catch (err) {
+      console.warn(`  getSeasonDetails(${seasonId}) failed: ${err.message}`);
+      return { found: 0, recorded: 0, skipped: 0, failed: 0 };
+    }
   }
 
   if (!bondingCurve || bondingCurve.toLowerCase() === ZERO_ADDR) {
@@ -65,7 +81,7 @@ async function backfillSeason(client, raffleAddress, seasonId) {
   console.log(`  bonding curve: ${bondingCurve}`);
 
   const currentBlock = await client.getBlockNumber();
-  console.log(`  scanning blocks 0..${currentBlock}`);
+  console.log(`  scanning blocks ${fromBlock}..${currentBlock} (${currentBlock - fromBlock} blocks)`);
 
   let logs;
   try {
@@ -74,7 +90,7 @@ async function backfillSeason(client, raffleAddress, seasonId) {
       address: bondingCurve,
       abi: SOFBondingCurveABI,
       eventName: 'PositionUpdate',
-      fromBlock: 0n,
+      fromBlock,
       toBlock: currentBlock,
       maxBlockRange: 2_000n,
       maxRetries: 5,
