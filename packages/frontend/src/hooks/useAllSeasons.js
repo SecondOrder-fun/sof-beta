@@ -58,7 +58,13 @@ export function useAllSeasons() {
     staleTime: 20_000,
   });
 
-  const data = (query.data || []).map(normalizeSeasonRow);
+  // Filter out phantom/corrupt rows. A real season always has a non-zero
+  // startTime populated by createSeason. Rows with startTime=0 are either
+  // partially-failed creations on chain or stale entries from earlier
+  // schema versions — neither should appear in the UI.
+  const data = (query.data || [])
+    .map(normalizeSeasonRow)
+    .filter((s) => s && s.config?.startTime > 0n);
 
   return { ...query, data };
 }

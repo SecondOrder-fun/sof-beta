@@ -13,9 +13,17 @@ function buildClient(networkKey) {
   return client;
 }
 
+// PrizeDistributor address is a constant for the lifetime of the Raffle
+// contract — cache per-network so the dozens of callers across the app
+// don't repeatedly hit RPC for the same value.
+const _prizeDistributorCache = new Map();
+
 export async function getPrizeDistributor({
   networkKey = getStoredNetworkKey(),
 }) {
+  if (_prizeDistributorCache.has(networkKey)) {
+    return _prizeDistributorCache.get(networkKey);
+  }
   const client = buildClient(networkKey);
   const { RAFFLE } = getContractAddresses(networkKey);
   if (!RAFFLE) throw new Error("RAFFLE address missing");
@@ -24,6 +32,7 @@ export async function getPrizeDistributor({
     abi: RaffleAbi,
     functionName: "prizeDistributor",
   });
+  _prizeDistributorCache.set(networkKey, addr);
   return addr;
 }
 

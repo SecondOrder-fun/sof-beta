@@ -91,42 +91,49 @@ export function useSeasonWinnerSummaries(seasons) {
         return raw;
       }
 
-      for (const seasonId of completedSeasonIds) {
-        try {
-          // Winner address
-          // eslint-disable-next-line no-await-in-loop
-          const winners = await client.readContract({
-            address: addr.RAFFLE,
-            abi: RaffleAbi,
-            functionName: "getWinners",
-            args: [BigInt(seasonId)],
-          });
+      // Batch getWinners() and getSeason() across every completed season
+      // via two multicalls. Previously this loop did 2 sequential RPC reads
+      // per season — 2N reads total. Now 2 RPC HTTP requests total.
+      const winnersBatch = await client.multicall({
+        contracts: completedSeasonIds.map((sid) => ({
+          address: addr.RAFFLE,
+          abi: RaffleAbi,
+          functionName: "getWinners",
+          args: [BigInt(sid)],
+        })),
+        allowFailure: true,
+      });
 
-          const winnerAddress = Array.isArray(winners) ? winners[0] : undefined;
-          if (!winnerAddress) continue;
+      const payoutsBatch = await client.multicall({
+        contracts: completedSeasonIds.map((sid) => ({
+          address: distributor,
+          abi: RafflePrizeDistributorAbi,
+          functionName: "getSeason",
+          args: [BigInt(sid)],
+        })),
+        allowFailure: true,
+      });
 
-          // Prize amount
-          // eslint-disable-next-line no-await-in-loop
-          const payouts = await client.readContract({
-            address: distributor,
-            abi: RafflePrizeDistributorAbi,
-            functionName: "getSeason",
-            args: [BigInt(seasonId)],
-          });
+      for (let i = 0; i < completedSeasonIds.length; i++) {
+        const seasonId = completedSeasonIds[i];
+        const winnersRes = winnersBatch[i];
+        const payoutsRes = payoutsBatch[i];
+        if (winnersRes?.status !== "success") continue;
+        const winners = winnersRes.result;
+        const winnerAddress = Array.isArray(winners) ? winners[0] : undefined;
+        if (!winnerAddress) continue;
 
-          const grandPrizeWei =
-            payouts?.grandAmount ??
-            payouts?.[2] ??
-            payouts?.["grandAmount"] ??
-            0n;
+        const payouts = payoutsRes?.status === "success" ? payoutsRes.result : null;
+        const grandPrizeWei =
+          payouts?.grandAmount ??
+          payouts?.[2] ??
+          payouts?.["grandAmount"] ??
+          0n;
 
-          raw[seasonId] = {
-            winnerAddress,
-            grandPrizeWei: BigInt(grandPrizeWei || 0n),
-          };
-        } catch {
-          // Skip failures for individual seasons
-        }
+        raw[seasonId] = {
+          winnerAddress,
+          grandPrizeWei: BigInt(grandPrizeWei || 0n),
+        };
       }
 
       return raw;

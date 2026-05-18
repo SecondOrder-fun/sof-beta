@@ -47,26 +47,25 @@ import { useViemClient } from "@/hooks/useViemClient";
 import { useAllSeasons } from "@/hooks/useAllSeasons";
 
 /**
- * Route readContract calls based on functionName argument.
- * The hook calls readContract for SOF balanceOf, raffleToken, decimals, balanceOf.
+ * Mock client that supports both `readContract` (legacy single-call path)
+ * and `multicall` (the batched path used by seasonBalancesQuery). Routes
+ * each contract call by functionName.
  */
 function createMockClient({ sofBalance, raffleToken, decimals, ticketBalance }) {
+  function resolveCall({ functionName, address }) {
+    if (functionName === "balanceOf" && address === "0xSOF") return sofBalance ?? 0n;
+    if (functionName === "raffleToken") return raffleToken;
+    if (functionName === "decimals") return decimals;
+    if (functionName === "balanceOf") return ticketBalance;
+    return null;
+  }
   return {
-    readContract: vi.fn(({ functionName, address }) => {
-      if (functionName === "balanceOf" && address === "0xSOF") {
-        return Promise.resolve(sofBalance ?? 0n);
-      }
-      if (functionName === "raffleToken") {
-        return Promise.resolve(raffleToken);
-      }
-      if (functionName === "decimals") {
-        return Promise.resolve(decimals);
-      }
-      if (functionName === "balanceOf") {
-        return Promise.resolve(ticketBalance);
-      }
-      return Promise.resolve(null);
-    }),
+    readContract: vi.fn((args) => Promise.resolve(resolveCall(args))),
+    multicall: vi.fn(({ contracts }) =>
+      Promise.resolve(
+        contracts.map((c) => ({ status: "success", result: resolveCall(c) })),
+      ),
+    ),
   };
 }
 
