@@ -4,6 +4,14 @@ import { bumpTelemetry } from './internal';
 
 const ULTRA_FRESH_DEFAULT_STALE = 5_000;
 
+// React-Query JSON.stringifies queryKeys for cache lookup; BigInt args
+// (common when passing seasonId or token amounts) crash the stringifier.
+// Normalize bigints in the key only — the contract call still receives
+// the original BigInt-typed args.
+function serializeArgsForKey(args) {
+  return args.map((a) => (typeof a === 'bigint' ? `${a.toString()}n` : a));
+}
+
 export function useUltraFreshRead({
   contract,
   fn,
@@ -14,7 +22,7 @@ export function useUltraFreshRead({
 }) {
   const publicClient = usePublicClient();
   return useQuery({
-    queryKey: ['ultraFresh', contract?.address, fn, args],
+    queryKey: ['ultraFresh', contract?.address, fn, serializeArgsForKey(args)],
     enabled: enabled && !!publicClient && !!contract?.address && !!fn,
     staleTime,
     retry: 1,
