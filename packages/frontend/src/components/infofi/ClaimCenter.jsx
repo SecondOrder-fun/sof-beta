@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useAccount } from "wagmi";
+import { getAddress } from "viem";
 import { useWatchContractLogs } from "@/hooks/chain/useWatchContractLogs";
 import {
   Card,
@@ -15,19 +16,43 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getStoredNetworkKey } from "@/lib/wagmi";
 import { useAllSeasons } from "@/hooks/useAllSeasons";
-import { readFpmmPosition } from "@/services/onchainInfoFi";
+import { buildPublicClient } from "@/lib/viemClient";
+import { getContractAddresses } from "@/config/contracts";
+import { getPrizeDistributor } from "@/services/onchainRaffleDistributor";
 import {
-  getPrizeDistributor,
-  getSeasonPayouts,
-  isConsolationClaimed,
-  isSeasonParticipant,
-} from "@/services/onchainRaffleDistributor";
-import { RafflePrizeDistributorAbi as PrizeDistributorAbi } from "@/utils/abis";
+  RafflePrizeDistributorAbi as PrizeDistributorAbi,
+  RaffleAbi,
+} from "@/utils/abis";
 import { useToast } from "@/hooks/useToast";
 import { formatUnits } from "viem";
 import { useClaims } from "@/hooks/useClaims";
 import ClaimCenterRaffles from "./claim/ClaimCenterRaffles";
 import ClaimCenterMarkets from "./claim/ClaimCenterMarkets";
+
+// Position-id getter on the SimpleFPMM contract — outcome 0 = YES, 1 = NO.
+const FPMM_POSITION_IDS_ABI = [
+  {
+    type: "function",
+    name: "positionIds",
+    inputs: [{ name: "", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+];
+
+// ERC-1155 balanceOf on ConditionalTokens.
+const CONDITIONAL_TOKENS_BALANCE_OF_ABI = [
+  {
+    type: "function",
+    name: "balanceOf",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "positionId", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+];
 
 /**
  * ClaimCenter - Unified interface for claiming both InfoFi market winnings and raffle prizes
@@ -117,7 +142,20 @@ const ClaimCenter = ({ address, title, description }) => {
     staleTime: 30_000,
   });
 
-  // FPMM Claims
+  // FPMM Claims — batched via multicall.
+  //
+  // For each settled market we need (a) the YES/NO positionIds on the FPMM
+  // and (b) the user's balanceOf for the *winning* outcome on
+  // ConditionalTokens. The previous implementation called readFpmmPosition
+  // sequentially twice per market (YES then NO), which spun up a fresh
+  // viem client per call and meant 4 RPC reads per market with no
+  // aggregation. The poll cadence was 5s, so a Portfolio open with 3
+  // settled markets was running 12 reads every 5 seconds (~140/min).
+  //
+  // Now: one multicall for all positionIds across all settled markets,
+  // then one multicall for all balanceOfs. Two RPC round-trips total,
+  // mount-only (refetchInterval dropped — claim state flips on the
+  // FPMMClaimed event which the executeBatch invalidation handles).
   const fpmmClaimsQuery = useQuery({
     queryKey: [
       "claimcenter_fpmm_claimables",
@@ -127,56 +165,66 @@ const ClaimCenter = ({ address, title, description }) => {
     ],
     enabled: !!address && Array.isArray(discovery.data),
     queryFn: async () => {
-      const out = [];
       const settledMarkets = (discovery.data || []).filter(
-        (m) => m.isSettled && m.player,
+        (m) => m.isSettled && m.player && m.contractAddress,
       );
+      if (settledMarkets.length === 0) return [];
 
-      for (const market of settledMarkets) {
-        const { seasonId, player, winningOutcome, contractAddress } = market;
-        try {
-          const yesPosition = await readFpmmPosition({
-            seasonId,
-            player,
-            account: address,
-            prediction: true,
-            networkKey: netKey,
-            fpmmAddress: contractAddress,
-          });
+      const client = buildPublicClient(netKey);
+      const addrs = getContractAddresses(netKey);
+      if (!client || !addrs.CONDITIONAL_TOKENS) return [];
 
-          const noPosition = await readFpmmPosition({
-            seasonId,
-            player,
-            account: address,
-            prediction: false,
-            networkKey: netKey,
-            fpmmAddress: contractAddress,
-          });
+      // Step 1: positionIds(0) [YES] for every settled market.
+      const positionIdResults = await client.multicall({
+        contracts: settledMarkets.map((m) => ({
+          address: m.contractAddress,
+          abi: FPMM_POSITION_IDS_ABI,
+          functionName: "positionIds",
+          args: [m.winningOutcome === true ? 0n : 1n],
+        })),
+        allowFailure: true,
+      });
 
-          const hasClaimableYes =
-            winningOutcome === true && yesPosition.amount > 0n;
-          const hasClaimableNo =
-            winningOutcome === false && noPosition.amount > 0n;
+      // Step 2: ConditionalTokens.balanceOf(user, positionId) for every
+      // successful positionId from step 1.
+      const balanceCalls = [];
+      const marketMeta = [];
+      positionIdResults.forEach((r, i) => {
+        if (r.status !== "success" || r.result == null) return;
+        marketMeta.push({ market: settledMarkets[i], positionId: r.result });
+        balanceCalls.push({
+          address: addrs.CONDITIONAL_TOKENS,
+          abi: CONDITIONAL_TOKENS_BALANCE_OF_ABI,
+          functionName: "balanceOf",
+          args: [getAddress(address), r.result],
+        });
+      });
 
-          if (hasClaimableYes || hasClaimableNo) {
-            out.push({
-              seasonId,
-              player,
-              contractAddress,
-              yesAmount: hasClaimableYes ? yesPosition.amount : 0n,
-              noAmount: hasClaimableNo ? noPosition.amount : 0n,
-              winningOutcome,
-              type: "fpmm",
-            });
-          }
-        } catch (err) {
-          // Skip markets that error
-        }
-      }
+      if (balanceCalls.length === 0) return [];
+
+      const balanceResults = await client.multicall({
+        contracts: balanceCalls,
+        allowFailure: true,
+      });
+
+      const out = [];
+      balanceResults.forEach((r, i) => {
+        if (r.status !== "success" || !r.result || r.result === 0n) return;
+        const { market } = marketMeta[i];
+        const isYesWin = market.winningOutcome === true;
+        out.push({
+          seasonId: market.seasonId,
+          player: market.player,
+          contractAddress: market.contractAddress,
+          yesAmount: isYesWin ? r.result : 0n,
+          noAmount: isYesWin ? 0n : r.result,
+          winningOutcome: market.winningOutcome,
+          type: "fpmm",
+        });
+      });
       return out;
     },
-    staleTime: 5_000,
-    refetchInterval: 5_000,
+    staleTime: Infinity,
   });
 
   // Raffle Prize Claims
@@ -267,99 +315,147 @@ const ClaimCenter = ({ address, title, description }) => {
     },
   });
 
+  // Raffle prize claims — gated + batched.
+  //
+  // Only Completed (status 5) and Cancelled (status 6) seasons can have
+  // claimable prizes; Active/Upcoming/Settling get filtered out so we
+  // don't waste reads on seasons that can't possibly have anything to
+  // claim. The three per-season reads (getSeason payouts on distributor,
+  // getParticipantPosition on raffle, isConsolationClaimed on distributor)
+  // are batched into three multicalls instead of running 3N sequential
+  // awaits.
+  //
+  // Mount-only — claim state flips on the ConsolationClaimed / GrandClaimed
+  // watchers (gated to pendingClaims above) which invalidate ["raffle_claims"].
+  const claimEligibleSeasons = (allSeasonsQuery.data || []).filter((s) => {
+    const n = Number(s?.status);
+    return n === 5 || n === 6;
+  });
+
   const raffleClaimsQuery = useQuery({
     queryKey: [
       "raffle_claims",
       address,
       netKey,
-      (allSeasonsQuery.data || []).map((s) => s.id).join(","),
+      claimEligibleSeasons.map((s) => s.id).join(","),
     ],
     enabled:
       !!address &&
       !!distributorQuery.data &&
-      !!allSeasonsQuery.data &&
-      (allSeasonsQuery.data || []).length > 0,
+      claimEligibleSeasons.length > 0,
+    staleTime: Infinity,
     queryFn: async () => {
-      const out = [];
-      const seasons = allSeasonsQuery.data || [];
+      const distributor = distributorQuery.data;
+      if (!distributor) return [];
+      const addrs = getContractAddresses(netKey);
+      if (!addrs.RAFFLE) return [];
+      const client = buildPublicClient(netKey);
+      if (!client) return [];
 
-      for (const season of seasons) {
-        const seasonId = Number(season.id);
-        const payout = await getSeasonPayouts({
-          seasonId,
-          networkKey: netKey,
-        }).catch(() => null);
-        if (!payout || !payout.data?.funded) continue;
+      const seasonIds = claimEligibleSeasons.map((s) => Number(s.id));
+      const checksumAddr = getAddress(address);
 
-        const grandWinner = payout.data.grandWinner;
-        const isGrandWinner = Boolean(
-          grandWinner &&
-          address &&
-          grandWinner.toLowerCase() === address.toLowerCase(),
-        );
+      // Batch 1: PrizeDistributor.getSeason(seasonId) for every eligible season.
+      const payoutResults = await client.multicall({
+        contracts: seasonIds.map((sid) => ({
+          address: distributor,
+          abi: PrizeDistributorAbi,
+          functionName: "getSeason",
+          args: [BigInt(sid)],
+        })),
+        allowFailure: true,
+      });
 
-        // Grand prize claim for the single winner
-        if (isGrandWinner && !payout.data.grandClaimed) {
-          out.push({
-            seasonId,
-            type: "raffle-grand",
-            amount: payout.data.grandAmount,
-            claimed: payout.data.grandClaimed,
-          });
-          continue;
-        }
+      // Batch 2: Raffle.getParticipantPosition(seasonId, user) — only for
+      // seasons whose payouts came back funded.
+      const participantCalls = [];
+      const participantMeta = [];
+      payoutResults.forEach((r, i) => {
+        if (r.status !== "success" || !r.result?.funded) return;
+        participantMeta.push({ sid: seasonIds[i], payout: r.result });
+        participantCalls.push({
+          address: addrs.RAFFLE,
+          abi: RaffleAbi,
+          functionName: "getParticipantPosition",
+          args: [BigInt(seasonIds[i]), checksumAddr],
+        });
+      });
 
-        // Consolation prize claims for non-winning participants
-        try {
-          const totalParticipants = BigInt(payout.data.totalParticipants ?? 0n);
-          const consolationAmount = BigInt(payout.data.consolationAmount ?? 0n);
-
-          if (!address || totalParticipants <= 1n || consolationAmount === 0n) {
-            continue;
-          }
-
-          const wasParticipant = await isSeasonParticipant({
-            seasonId,
-            account: address,
-            networkKey: netKey,
-          });
-
-          if (!wasParticipant) {
-            continue;
-          }
-
-          const alreadyClaimed = await isConsolationClaimed({
-            seasonId,
-            account: address,
-            networkKey: netKey,
-          });
-          if (!alreadyClaimed && !isGrandWinner) {
-            const loserCount = totalParticipants - 1n;
-            if (loserCount > 0n) {
-              const perLoser = consolationAmount / loserCount;
-              if (perLoser > 0n) {
-                out.push({
-                  seasonId,
-                  type: "raffle-consolation",
-                  amount: perLoser,
-                  claimed: false,
-                });
-              }
-            }
-          }
-        } catch (err) {
-          // eslint-disable-next-line no-console
-          console.warn(
-            "Failed to evaluate consolation eligibility for season",
-            seasonId,
-            err,
-          );
-        }
+      let participantResults = [];
+      if (participantCalls.length > 0) {
+        participantResults = await client.multicall({
+          contracts: participantCalls,
+          allowFailure: true,
+        });
       }
+
+      // Batch 3: PrizeDistributor.isConsolationClaimed for every season
+      // where the user was a participant. (For grand-prize entries we read
+      // grandClaimed directly off the payout result from batch 1.)
+      const claimCheckCalls = [];
+      const claimCheckMeta = [];
+      participantMeta.forEach((meta, i) => {
+        const pos = participantResults[i];
+        const ticketCount =
+          pos?.status === "success" ? BigInt(pos.result?.ticketCount ?? 0n) : 0n;
+        const isParticipant = ticketCount > 0n;
+        const isGrandWinner = Boolean(
+          meta.payout.grandWinner &&
+            meta.payout.grandWinner.toLowerCase() === address.toLowerCase(),
+        );
+        meta.isParticipant = isParticipant;
+        meta.isGrandWinner = isGrandWinner;
+        if (!isParticipant || isGrandWinner) return;
+        claimCheckMeta.push(meta);
+        claimCheckCalls.push({
+          address: distributor,
+          abi: PrizeDistributorAbi,
+          functionName: "isConsolationClaimed",
+          args: [BigInt(meta.sid), checksumAddr],
+        });
+      });
+
+      let claimCheckResults = [];
+      if (claimCheckCalls.length > 0) {
+        claimCheckResults = await client.multicall({
+          contracts: claimCheckCalls,
+          allowFailure: true,
+        });
+      }
+
+      const out = [];
+      // Grand-prize entries first.
+      participantMeta.forEach((meta) => {
+        if (!meta.isGrandWinner) return;
+        if (meta.payout.grandClaimed) return;
+        out.push({
+          seasonId: meta.sid,
+          type: "raffle-grand",
+          amount: meta.payout.grandAmount,
+          claimed: meta.payout.grandClaimed,
+        });
+      });
+      // Consolation entries from batch 3.
+      claimCheckMeta.forEach((meta, i) => {
+        const claimRes = claimCheckResults[i];
+        const alreadyClaimed =
+          claimRes?.status === "success" ? Boolean(claimRes.result) : false;
+        if (alreadyClaimed) return;
+        const totalParticipants = BigInt(meta.payout.totalParticipants ?? 0n);
+        const consolationAmount = BigInt(meta.payout.consolationAmount ?? 0n);
+        if (totalParticipants <= 1n || consolationAmount === 0n) return;
+        const loserCount = totalParticipants - 1n;
+        const perLoser = consolationAmount / loserCount;
+        if (perLoser <= 0n) return;
+        out.push({
+          seasonId: meta.sid,
+          type: "raffle-consolation",
+          amount: perLoser,
+          claimed: false,
+        });
+      });
       return out;
     },
-    staleTime: 10000,
-    refetchInterval: 10000,
   });
 
   return (

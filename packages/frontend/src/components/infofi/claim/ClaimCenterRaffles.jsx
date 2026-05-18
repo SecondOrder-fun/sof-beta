@@ -54,7 +54,7 @@ const ClaimCenterRaffles = ({
   if (claims.length === 0) {
     return (
       <p className="text-muted-foreground">
-        {t("raffle:noActiveSeasons", { defaultValue: "No claimable raffle prizes" })}
+        {t("raffle:noClaimablePrizes", { defaultValue: "No claimable raffle prizes" })}
       </p>
     );
   }
