@@ -36,11 +36,18 @@ export function useRafflePrizes(seasonId) {
     args: [],
     query: {
       enabled: Boolean(RAFFLE),
-      staleTime: 60_000,
+      staleTime: Infinity,
     },
   });
 
-  // Read distributor payouts snapshot
+  // Read distributor payouts snapshot. No refetchInterval: this data only
+  // changes when someone claims, and the GrandClaimed / ConsolationClaimed
+  // watchers in this file and in ClaimCenter already invalidate the
+  // ["raffle_claims"] cache + drive the UI off the event payload. The
+  // previous 5s poll fired two readContract calls every 5 seconds for the
+  // lifetime of every Raffle Detail mount — ~24 RPC reads per minute per
+  // open tab, which steadily fed Tenderly burst-limit 429s as soon as the
+  // page sat idle long enough for another query to fire in the same window.
   const { data: seasonPayouts, isLoading: isLoadingPayouts } = useReadContract({
     address: distributorAddress,
     abi: PrizeDistributorAbi,
@@ -51,11 +58,13 @@ export function useRafflePrizes(seasonId) {
         !!seasonId &&
         !!distributorAddress &&
         distributorAddress !== "0x0000000000000000000000000000000000000000",
-      refetchInterval: 5000, // Poll for updates
+      staleTime: Infinity,
     },
   });
 
-  // Read raffle season details to compare status/winner against distributor snapshot
+  // Read raffle season details. Same reasoning: status flips on
+  // SeasonCompleted / SeasonCancelled, both watched by the listener
+  // pipeline that drives SSE invalidation. No reason to bang the chain.
   const { data: raffleDetails } = useReadContract({
     address: RAFFLE,
     abi: RaffleAbi,
@@ -63,7 +72,7 @@ export function useRafflePrizes(seasonId) {
     args: [BigInt(seasonId)],
     query: {
       enabled: Boolean(RAFFLE) && Boolean(seasonId),
-      refetchInterval: 5000,
+      staleTime: Infinity,
     },
   });
 
