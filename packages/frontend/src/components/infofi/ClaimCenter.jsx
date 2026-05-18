@@ -78,8 +78,11 @@ const ClaimCenter = ({ address, title, description }) => {
       }
       return allMarkets;
     },
+    // Discovery + winnings come from listener-driven SSE channels
+    // (MarketCreated / MarketResolved). Drop refetchInterval — the data
+    // gets invalidated when relevant events fire on the chain. Mount-only
+    // fetch with a 30s window for stale-while-revalidate on quick remounts.
     staleTime: 30_000,
-    refetchInterval: 30_000,
   });
 
   const claimsQuery = useQuery({
@@ -112,7 +115,6 @@ const ClaimCenter = ({ address, title, description }) => {
       return out;
     },
     staleTime: 30_000,
-    refetchInterval: 30_000,
   });
 
   // FPMM Claims
@@ -178,19 +180,32 @@ const ClaimCenter = ({ address, title, description }) => {
   });
 
   // Raffle Prize Claims
+  // getPrizeDistributor resolves from the contracts bundle (no RPC), so the
+  // value is constant for the lifetime of the network. Drop the 10s
+  // polling and cache forever — the queryFn is a synchronous lookup.
   const distributorQuery = useQuery({
     queryKey: ["rewards_distributor", netKey],
     queryFn: () => getPrizeDistributor({ networkKey: netKey }),
-    staleTime: 10000,
-    refetchInterval: 10000,
+    staleTime: Infinity,
   });
 
-  // Watch for ConsolationClaimed events
+  // Watch for ConsolationClaimed events ONLY while a claim is in flight.
+  // The watcher exists to flip pending → success and fire a toast when the
+  // user's own claim tx confirms; before the user clicks claim there's
+  // nothing to watch for. ClaimCenter mounts on every Profile / Portfolio
+  // view, so leaving this enabled persistently was polling getLogs every
+  // 12s for the entire page lifetime. Narrowed to pendingClaims.size > 0
+  // (mirrors useRafflePrizes' claimStatus === "claiming" pattern).
   useWatchContractLogs({
     address: distributorQuery.data,
     abi: PrizeDistributorAbi,
     eventName: "ConsolationClaimed",
-    enabled: Boolean(distributorQuery.data && address && connectedAddress),
+    enabled: Boolean(
+      distributorQuery.data &&
+        address &&
+        connectedAddress &&
+        pendingClaims.size > 0,
+    ),
     onLogs: (logs) => {
       logs.forEach((log) => {
         const participant = log?.args?.account || log?.args?.participant;
@@ -217,12 +232,18 @@ const ClaimCenter = ({ address, title, description }) => {
     },
   });
 
-  // Watch for GrandClaimed events
+  // Same gating as the ConsolationClaimed watcher above — only enabled
+  // while pendingClaims.size > 0.
   useWatchContractLogs({
     address: distributorQuery.data,
     abi: PrizeDistributorAbi,
     eventName: "GrandClaimed",
-    enabled: Boolean(distributorQuery.data && address && connectedAddress),
+    enabled: Boolean(
+      distributorQuery.data &&
+        address &&
+        connectedAddress &&
+        pendingClaims.size > 0,
+    ),
     onLogs: (logs) => {
       logs.forEach((log) => {
         const winner = log?.args?.winner;
