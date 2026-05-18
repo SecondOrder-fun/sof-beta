@@ -34,9 +34,15 @@ vi.mock("wagmi", async (importOriginal) => {
     useAccount: () => ({
       address: "0x1111111111111111111111111111111111111111",
     }),
-    useWatchContractEvent: () => {},
   };
 });
+
+// The component now polls eth_getLogs via useWatchContractLogs instead of
+// wagmi's useWatchContractEvent — stub it out in tests so we don't need
+// a real WagmiProvider for the public client.
+vi.mock("@/hooks/chain/useWatchContractLogs", () => ({
+  useWatchContractLogs: () => {},
+}));
 
 // Mock network key helper
 vi.mock("@/lib/wagmi", () => ({

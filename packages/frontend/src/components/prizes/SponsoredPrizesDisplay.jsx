@@ -20,6 +20,11 @@ function truncateAddress(addr) {
 
 export function SponsoredPrizesDisplay({ seasonId, isCompleted = false }) {
   const { t } = useTranslation("raffle");
+  // Only query for Completed/Cancelled seasons. Active and Upcoming raffles
+  // in the current beta have no sponsorship to display, and firing 3-4
+  // cold-load RPC reads to discover that fact burned through Tenderly burst
+  // limits on every raffle-detail mount. When sponsoring matures, gate this
+  // on a warm-backend index of `season.has_sponsored_prizes` instead.
   const {
     tierConfigs,
     sponsoredERC20,
@@ -27,8 +32,9 @@ export function SponsoredPrizesDisplay({ seasonId, isCompleted = false }) {
     tierWinners,
     hasSponsoredPrizes,
     isLoading,
-  } = useSponsoredPrizes(seasonId);
+  } = useSponsoredPrizes(seasonId, { enabled: isCompleted });
 
+  if (!isCompleted) return null;
   if (isLoading) return null;
   if (!hasSponsoredPrizes && tierConfigs.length === 0) return null;
 

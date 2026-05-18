@@ -1,4 +1,5 @@
-import { useReadContract, useWatchContractEvent } from "wagmi";
+import { useReadContract } from "wagmi";
+import { useWatchContractLogs } from "@/hooks/chain/useWatchContractLogs";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatEther, createPublicClient, http } from "viem";
@@ -176,7 +177,7 @@ export function useRafflePrizes(seasonId) {
   });
 
   // Watch for GrandClaimed events
-  useWatchContractEvent({
+  useWatchContractLogs({
     address: distributorAddress,
     abi: PrizeDistributorAbi,
     eventName: "GrandClaimed",

@@ -3,7 +3,8 @@ import PropTypes from "prop-types";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { useAccount, useWatchContractEvent } from "wagmi";
+import { useAccount } from "wagmi";
+import { useWatchContractLogs } from "@/hooks/chain/useWatchContractLogs";
 import {
   Card,
   CardContent,
@@ -185,7 +186,7 @@ const ClaimCenter = ({ address, title, description }) => {
   });
 
   // Watch for ConsolationClaimed events
-  useWatchContractEvent({
+  useWatchContractLogs({
     address: distributorQuery.data,
     abi: PrizeDistributorAbi,
     eventName: "ConsolationClaimed",
@@ -217,7 +218,7 @@ const ClaimCenter = ({ address, title, description }) => {
   });
 
   // Watch for GrandClaimed events
-  useWatchContractEvent({
+  useWatchContractLogs({
     address: distributorQuery.data,
     abi: PrizeDistributorAbi,
     eventName: "GrandClaimed",

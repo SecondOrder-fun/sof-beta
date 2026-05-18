@@ -2,7 +2,7 @@
 import { useMemo } from "react";
 import PropTypes from "prop-types";
 import { useTranslation } from "react-i18next";
-import { useWatchContractEvent } from "wagmi";
+import { useWatchContractLogs } from "@/hooks/chain/useWatchContractLogs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion } from "@/components/ui/accordion";
@@ -65,7 +65,7 @@ const ProfileContent = ({ address, isOwnProfile }) => {
   const winningSeasons = winningSeasonsQuery.data || [];
 
   // Live SOF refresh on ConsolationClaimed (own profile only)
-  useWatchContractEvent({
+  useWatchContractLogs({
     address: contracts.PRIZE_DISTRIBUTOR,
     abi: PrizeDistributorAbi,
     eventName: "ConsolationClaimed",
