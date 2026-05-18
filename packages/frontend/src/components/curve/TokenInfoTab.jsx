@@ -1,12 +1,12 @@
 // src/components/curve/TokenInfoTab.jsx
 import PropTypes from "prop-types";
 import { useMemo, useState, useEffect } from "react";
-import { formatUnits, createPublicClient, http } from "viem";
+import { formatUnits } from "viem";
 import { useTranslation } from "react-i18next";
 import { useSofDecimals } from "@/hooks/useSofDecimals";
 import { useRaffleHolders } from "@/hooks/useRaffleHolders";
 import { getStoredNetworkKey } from "@/lib/wagmi";
-import { getNetworkByKey } from "@/config/networks";
+import { buildPublicClient } from "@/lib/viemClient";
 import { SOFBondingCurveAbi } from "@/utils/abis";
 import AddTokenToMetamaskButton from "@/components/common/AddTokenToMetamaskButton";
 import SecondaryCard from "@/components/common/SecondaryCard";
@@ -73,70 +73,50 @@ const TokenInfoTab = ({
     }, 4500);
   };
 
-  // Fetch raffle/ticket token address and symbol from bonding curve
+  // Fetch raffle/ticket token address from the bonding curve.
+  //
+  // Older curve implementations exposed the ticket-token getter under
+  // different names (token / raffleToken / ticketToken / tickets / asset).
+  // We probe in parallel and take the first valid address — viem's
+  // batch.multicall aggregator (enabled on buildPublicClient) collapses
+  // the five reads into one aggregate3 call, so this costs one RPC
+  // round-trip even though four of the probes always revert. The legacy
+  // sequential per-keystroke loop was firing five separate eth_call
+  // requests, four of which got rate-limited as reverted noise.
   useEffect(() => {
     let cancelled = false;
     async function fetchCurveData() {
       if (!bondingCurveAddress) return;
-
       try {
-        const netKey = getStoredNetworkKey();
-        const net = getNetworkByKey(netKey);
-        if (!net?.rpcUrl) return;
+        const client = buildPublicClient(getStoredNetworkKey());
+        if (!client) return;
 
-        const client = createPublicClient({
-          chain: {
-            id: net.id,
-            name: net.name,
-            nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
-            rpcUrls: { default: { http: [net.rpcUrl] } },
-          },
-          transport: http(net.rpcUrl),
-        });
-
-        // Discover the underlying ticket token address. Not all bonding curve
-        // implementations expose the same getter, so we try several common
-        // function names before finally falling back to using the bonding
-        // curve address itself as the token address.
-        let tokenAddr = bondingCurveAddress;
-
-        // Prefer an explicit token from the curve if available
-        for (const fn of [
-          "token",
-          "raffleToken",
-          "ticketToken",
-          "tickets",
-          "asset",
-        ]) {
-          try {
-            // eslint-disable-next-line no-await-in-loop
-            const addr = await client.readContract({
+        const candidateFns = ["token", "raffleToken", "ticketToken", "tickets", "asset"];
+        const results = await Promise.allSettled(
+          candidateFns.map((fn) =>
+            client.readContract({
               address: bondingCurveAddress,
               abi: SOFBondingCurveAbi,
               functionName: fn,
               args: [],
-            });
+            }),
+          ),
+        );
 
-            if (
+        const validAddr = results
+          .map((r) => (r.status === "fulfilled" ? r.value : null))
+          .find(
+            (addr) =>
               typeof addr === "string" &&
               /^0x[a-fA-F0-9]{40}$/.test(addr) &&
-              addr !== "0x0000000000000000000000000000000000000000"
-            ) {
-              tokenAddr = addr;
-              break;
-            }
-          } catch {
-            // ignore and try the next candidate function name
-          }
-        }
+              addr !== "0x0000000000000000000000000000000000000000",
+          );
 
         if (!cancelled) {
-          setRaffleTokenAddress(tokenAddr);
+          setRaffleTokenAddress(validAddr ?? bondingCurveAddress);
         }
-      } catch (error) {
-        if (!cancelled) {
-          setRaffleTokenAddress(null);
-        }
+      } catch {
+        if (!cancelled) setRaffleTokenAddress(null);
       }
     }
 
