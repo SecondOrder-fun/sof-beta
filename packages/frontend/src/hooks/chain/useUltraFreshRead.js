@@ -28,6 +28,12 @@ export function useUltraFreshRead({
     enabled: enabled && !!publicClient && !!contract?.address && !!fn,
     staleTime,
     retry: 1,
+    // Ultra-fresh data is invalidated by executeBatch.onSuccess (centralized
+    // predicate via `touches`). Window focus / reconnect refetches are
+    // unnecessary RPC pressure on top of that — every tab return on the
+    // raffle detail page was re-firing every mounted ultra-fresh query.
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     meta: { tier: 'ultraFresh', touches },
     queryFn: async () => {
       bumpTelemetry('ultraFresh');
