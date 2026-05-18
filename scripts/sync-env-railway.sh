@@ -72,12 +72,16 @@ fi
 # tokens require Project-Access-Token (NOT Authorization: Bearer); account
 # and workspace tokens use Bearer. Source:
 # https://docs.railway.com/integrations/api/graphql-overview
-if [ -n "${RAILWAY_TOKEN:-}" ]; then
-  RAILWAY_AUTH_HEADER="Project-Access-Token: $RAILWAY_TOKEN"
-  RAILWAY_TOKEN_TYPE="project"
-else
+#
+# Prefer workspace token when both are set: project tokens can't write to
+# PR/ephemeral envs (variableCollectionUpsert returns Not Authorized), so
+# the workspace token is the strictly more-capable option for this script.
+if [ -n "${RAILWAY_API_TOKEN:-}" ]; then
   RAILWAY_AUTH_HEADER="Authorization: Bearer $RAILWAY_API_TOKEN"
   RAILWAY_TOKEN_TYPE="account/workspace"
+else
+  RAILWAY_AUTH_HEADER="Project-Access-Token: $RAILWAY_TOKEN"
+  RAILWAY_TOKEN_TYPE="project"
 fi
 
 # ── Validate token + locate production environment ─────────────────
