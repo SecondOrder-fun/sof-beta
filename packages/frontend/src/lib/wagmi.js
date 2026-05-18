@@ -51,7 +51,11 @@ export function getChainConfig(networkKey) {
     rpcUrls = rawRpcUrls;
   }
 
-  // Minimal chain object compatible with Wagmi custom chains
+  // Minimal chain object compatible with Wagmi custom chains.
+  // multicall3 is declared so wagmi's default batch.multicall aggregator
+  // (`createConfig({ batch: { multicall: true } })` — wagmi v2 default) can
+  // collapse concurrent useReadContract calls into a single aggregate3
+  // request. Universal Multicall3 address; same deployment on Base Sepolia.
   const chain = {
     id: cfg.id,
     name: cfg.name,
@@ -59,6 +63,11 @@ export function getChainConfig(networkKey) {
     rpcUrls: {
       default: { http: rpcUrls },
       public: { http: rpcUrls },
+    },
+    contracts: {
+      multicall3: {
+        address: "0xcA11bde05977b3631167028862bE2a173976CA11",
+      },
     },
   };
 

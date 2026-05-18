@@ -61,4 +61,11 @@ export const config = createConfig({
   transports: {
     [activeChainConfig.chain.id]: activeChainConfig.transport,
   },
+  // wagmi v2 defaults batch.multicall to `true` (0ms wait), which only catches
+  // calls in the same microtask. Across separate effects / hook mounts, the
+  // calls fall outside that window and each goes out as its own POST — the
+  // Tenderly free-tier 25-rps burst gets blown on initial mount. wait: 16ms
+  // ≈ one frame, large enough to coalesce concurrent useReadContract calls
+  // into one aggregate3 request without any user-perceptible delay.
+  batch: { multicall: { wait: 16 } },
 });

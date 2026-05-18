@@ -78,6 +78,15 @@ export function buildPublicClient(networkKey) {
       default: { http: [primaryUrl] },
       public: { http: [primaryUrl] },
     },
+    // Multicall3 is deployed at the universal address on every modern chain
+    // (Base Sepolia included). Declaring it lets viem's batch.multicall
+    // aggregator (enabled below in createPublicClient) collapse N concurrent
+    // readContract calls into one aggregate3 call against this contract.
+    contracts: {
+      multicall3: {
+        address: "0xcA11bde05977b3631167028862bE2a173976CA11",
+      },
+    },
   };
 
   const rawUrls = [primaryRpcUrl, ...fallbackUrls]
@@ -132,5 +141,17 @@ export function buildPublicClient(networkKey) {
       ? fallback(httpTransports, { rank: false })
       : httpTransports[0];
 
-  return createPublicClient({ chain, transport });
+  // batch.multicall collects readContract calls fired across the same render
+  // window into a single multicall3.aggregate3 — without this, every read
+  // from this client (onchainRaffleDistributor, BuySellWidget price-estimate,
+  // usePlayerPosition.refreshNow) goes out as its own POST and a busy page
+  // burns the Tenderly free-tier 25-rps burst limit on mount. wagmi's
+  // built-in public client gets multicall by default; this standalone client
+  // does not, so set it explicitly. wait: 16ms ≈ one React frame, big enough
+  // to catch async readContract chains across multiple effects.
+  return createPublicClient({
+    chain,
+    transport,
+    batch: { multicall: { wait: 16 } },
+  });
 }
