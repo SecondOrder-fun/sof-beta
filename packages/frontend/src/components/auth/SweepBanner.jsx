@@ -30,12 +30,18 @@ export const SweepBanner = () => {
   const enabled =
     isReady && walletType === "desktop-eoa" && !!eoa && !!sofAddress;
 
+  // SweepBanner is mounted globally in App.jsx. With refetchInterval: 15s
+  // it was firing a readContract every 15 seconds for the lifetime of the
+  // session — ~240 RPC reads per hour just from this banner, even when the
+  // EOA balance was zero (the common case). Drop the interval and let the
+  // query run once per page navigation. SOF arriving mid-session won't show
+  // until the next nav, which is fine for a one-time sweep prompt.
   const { data: eoaBalance } = useReadContract({
     abi: ERC20Abi,
     address: sofAddress,
     functionName: "balanceOf",
     args: eoa ? [eoa] : undefined,
-    query: { enabled, refetchInterval: 15_000 },
+    query: { enabled },
   });
 
   const { writeContract, data: hash, isPending } = useWriteContract();

@@ -4,7 +4,7 @@
 // served by /api/token/sof. Frontend hooks read this through the warm tier
 // instead of firing their own eth_call on every page mount.
 
-import { getDeployment } from "@sof/contracts";
+import { getDeployment } from "@sof/contracts/deployments";
 
 export const sofMetadataCache = {
   address: null,
