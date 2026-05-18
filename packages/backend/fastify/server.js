@@ -303,6 +303,15 @@ try {
 }
 
 try {
+  await app.register((await import("./routes/tokenRoutes.js")).default, {
+    prefix: "/api/token",
+  });
+  app.log.info("Mounted /api/token");
+} catch (err) {
+  app.log.error({ err }, "Failed to mount /api/token");
+}
+
+try {
   await app.register((await import("./routes/chainTimeRoutes.js")).default, {
     prefix: "/api/chain",
   });
@@ -369,6 +378,18 @@ async function startListeners() {
     const raffleAddress = chain.raffle;
 
     const infoFiFactoryAddress = chain.infofiFactory;
+
+    // Warm the SOF metadata cache so /api/token/sof serves immediately.
+    // One chain read at boot replaces a per-mount eth_call from every
+    // frontend page that needs sofDecimals (raffle list, raffle detail,
+    // profile, sponsor, etc.).
+    try {
+      const { fetchSofMetadata } = await import("../src/lib/sofMetadataCache.js");
+      const { publicClient } = await import("../src/lib/viemClient.js");
+      await fetchSofMetadata({ publicClient, network: NETWORK, logger: app.log });
+    } catch (err) {
+      app.log.error({ err }, "Failed to fetch SOF metadata at startup");
+    }
 
     if (!raffleAddress) {
       app.log.warn(

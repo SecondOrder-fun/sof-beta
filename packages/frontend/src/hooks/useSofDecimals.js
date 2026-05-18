@@ -1,36 +1,27 @@
 // src/hooks/useSofDecimals.js
-import { ERC20Abi } from '@/utils/abis';
-import { getContractAddresses } from '@/config/contracts';
-import { getStoredNetworkKey } from '@/lib/wagmi';
-import { useUltraFreshRead } from '@/hooks/chain/useUltraFreshRead';
+//
+// SOF token decimals are an immutable contract constant — served from
+// /api/token/sof, which the backend populates from a single chain read
+// at startup. This used to be an ultra-fresh on-chain read on every
+// page mount; every active page (Raffle List, Raffle Detail, Profile,
+// Sponsor) was firing its own eth_call against the gateway. The warm
+// tier collapses all of those into one cached HTTP fetch.
 
-/**
- * useSofDecimals
- *
- * Decimals never change for an ERC-20 token. Read once with infinite
- * staleTime; no tx will ever invalidate it (touches is empty).
- *
- * Returns the decimals as a plain number (18 fallback) for backward
- * compatibility with all existing consumers.
- */
+import { useWarmRead } from "@/hooks/chain/useWarmRead";
+
+const SOF_DECIMALS_FALLBACK = 18;
+
 export function useSofDecimals() {
-  const contracts = getContractAddresses(getStoredNetworkKey());
-  const sofAddress = contracts?.SOF;
-
-  const query = useUltraFreshRead({
-    contract: { address: sofAddress, abi: ERC20Abi },
-    fn: 'decimals',
-    args: [],
-    touches: [],
-    enabled: !!sofAddress,
-    staleTime: Infinity,
+  const query = useWarmRead({
+    path: "/token/sof",
+    enabled: true,
+    staleTime: Infinity, // decimals never change
   });
 
-  // Return plain number for backward compatibility — all consumers use
-  // `const sofDecimals = useSofDecimals()` and pass it directly to formatUnits.
-  return typeof query.data === 'bigint'
-    ? Number(query.data)
-    : (typeof query.data === 'number' ? query.data : 18);
+  const raw = query.data?.decimals;
+  if (typeof raw === "number") return raw;
+  if (typeof raw === "bigint") return Number(raw);
+  return SOF_DECIMALS_FALLBACK;
 }
 
 export default useSofDecimals;
