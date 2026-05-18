@@ -51,13 +51,11 @@ function registerChannelRoute(fastify, logger, sseService, channel) {
 /**
  * Register SSE routes (per-channel)
  * @async
- * @param {Object} fastify - Fastify instance
- * @param {Object} options - Route options
- * @param {Object} options.logger - Logger instance
+ * @param {Object} fastify - Fastify instance (its `.log` is used for logging)
  * @returns {Promise<void>}
  */
-export async function registerSSERoutes(fastify, options) {
-  const { logger } = options;
+export async function registerSSERoutes(fastify) {
+  const logger = fastify.log;
   const sseService = getSSEChannelService(logger);
 
   for (const channel of CHANNELS) {
