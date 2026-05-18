@@ -43,9 +43,14 @@ import { getPrizeDistributor } from "@/services/onchainRaffleDistributor";
  * season data is immutable. Username resolution uses useWarmRead (20 s stale).
  *
  * @param {{ id: number, status: number }[]} seasons
+ * @param {object} [options]
+ * @param {boolean} [options.enabled=true] — gate the on-chain + warm reads.
+ *   Callers viewing a non-Complete tab should pass `false` so the two
+ *   multicalls (winners + payouts) don't fire on every page mount when the
+ *   user may never open the Complete tab.
  * @returns {{ data: SeasonWinnerSummaryMap | undefined, isLoading: boolean, error: unknown }}
  */
-export function useSeasonWinnerSummaries(seasons) {
+export function useSeasonWinnerSummaries(seasons, { enabled = true } = {}) {
   const client = usePublicClient();
   const netKey = getStoredNetworkKey();
   const addr = getContractAddresses(netKey);
@@ -71,7 +76,9 @@ export function useSeasonWinnerSummaries(seasons) {
         .sort((a, b) => a - b)
         .join(","),
     ],
-    enabled: Boolean(addr.RAFFLE && client && completedSeasonIds.length > 0),
+    enabled:
+      Boolean(enabled) &&
+      Boolean(addr.RAFFLE && client && completedSeasonIds.length > 0),
     staleTime: Infinity, // Completed season data never changes — treat as cold.
     queryFn: async () => {
       /** @type {Record<number, { winnerAddress: string; grandPrizeWei: bigint }>} */

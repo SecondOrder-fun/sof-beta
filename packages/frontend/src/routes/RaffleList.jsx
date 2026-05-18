@@ -45,7 +45,15 @@ const RaffleList = () => {
   const chains = useChains();
   const { openLoginModal } = useLoginModal();
   const allSeasonsQuery = useAllSeasons();
-  const winnerSummariesQuery = useSeasonWinnerSummaries(allSeasonsQuery.data);
+  // Track which tab is active so winner-summary reads only fire when the
+  // user is actually looking at the Complete tab. Completed seasons hold
+  // immutable data, but the two multicalls (winners + payouts) still cost
+  // an RPC round-trip on every cold visit if we pre-fetch them.
+  const [activeTab, setActiveTab] = useState("active");
+  const winnerSummariesQuery = useSeasonWinnerSummaries(
+    allSeasonsQuery.data,
+    { enabled: activeTab === "complete" },
+  );
 
   // "My Raffles" filter — initialized from ?filter=mine URL param
   const [showMineOnly, setShowMineOnly] = useState(
@@ -337,7 +345,7 @@ const RaffleList = () => {
           <p>{t("noActiveSeasons")}</p>
         )}
         {!allSeasonsQuery.isLoading && displayedSeasons.length > 0 && (
-          <Tabs defaultValue="active">
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList>
               {["upcoming", "active", "settling", "complete"].map((g) => {
                 const count = grouped[g].length;
