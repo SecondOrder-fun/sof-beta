@@ -98,6 +98,7 @@ export function useTreasury(seasonId, bondingCurveAddress) {
     hasManagerRole,
     canExtractFees: hasManagerRole && accumulatedFees > 0n,
     extractFees: handleExtractFees,
+    extractMutation,
     isExtracting: extractMutation.isPending,
     isExtractConfirmed: extractMutation.isSuccess,
     extractError: extractMutation.error,

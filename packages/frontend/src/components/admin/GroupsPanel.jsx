@@ -43,7 +43,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Plus, Users, Trash2, UserPlus, UserMinus } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/useToast";
 import { useAppAuth } from "@/hooks/useAppAuth";
 
 export function GroupsPanel() {

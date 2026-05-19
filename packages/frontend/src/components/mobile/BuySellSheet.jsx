@@ -4,7 +4,7 @@
  */
 
 import PropTypes from "prop-types";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { X, Settings } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -41,8 +41,9 @@ import { useRollover } from "@/hooks/useRollover";
 import RolloverBanner from "@/components/curve/RolloverBanner";
 import { Button } from "@/components/ui/button";
 import { SOFBondingCurveAbi } from "@/utils/abis";
-import { useToast } from "@/hooks/useToast";
 import { useStaggeredRefresh } from "@/hooks/useStaggeredRefresh";
+import { useTransactionStatus } from "@/hooks/useTransactionStatus";
+import TransactionModal from "@/components/admin/TransactionModal";
 
 export const BuySellSheet = ({
   open,
@@ -54,7 +55,7 @@ export const BuySellSheet = ({
   bondingCurveAddress,
   maxSellable = 0n,
   onSuccess,
-  onNotify,
+  onTxSettled,
 }) => {
   const { t } = useTranslation(["common", "transactions"]);
   const sofDecimalsState = useSofDecimals();
@@ -80,7 +81,6 @@ export const BuySellSheet = ({
   const [slippagePct, setSlippagePct] = useState("1");
   const [showSettings, setShowSettings] = useState(false);
   const [ticketPosition, setTicketPosition] = useState(null);
-  const { toast } = useToast();
 
   // Rollover state
   const [rolloverEnabled, setRolloverEnabled] = useState(true);
@@ -189,17 +189,47 @@ export const BuySellSheet = ({
       : 0n
   );
 
-  const txSuccessCallback = useCallback(() => {
-    onSuccess?.({ mode: activeTab, quantity: parsedQuantity, seasonId });
-    onOpenChange(false);
-  }, [activeTab, parsedQuantity, seasonId, onSuccess, onOpenChange]);
-
-  const { executeBuy, executeSell } = useBuySellTransactions(
+  const { buyMutation, sellMutation } = useBuySellTransactions(
     bondingCurveAddress,
     client,
-    onNotify,
-    txSuccessCallback
   );
+  const buyStatus = useTransactionStatus(buyMutation);
+  const sellStatus = useTransactionStatus(sellMutation);
+
+  // Fire post-confirm side effects exactly once per tx hash. Without the
+  // ref guard, inline-arrow parent props (onSuccess, onTxSettled) re-trigger
+  // every parent render while isConfirmed stays true, double-firing the
+  // refresh and re-running onOpenChange(false).
+  const lastFiredBuyHashRef = useRef(null);
+  const lastFiredSellHashRef = useRef(null);
+
+  useEffect(() => {
+    if (
+      buyStatus.isConfirmed &&
+      buyStatus.receipt?.status === "success" &&
+      buyStatus.hash &&
+      lastFiredBuyHashRef.current !== buyStatus.hash
+    ) {
+      lastFiredBuyHashRef.current = buyStatus.hash;
+      onSuccess?.({ mode: "buy", quantity: parsedQuantity, seasonId });
+      onTxSettled?.();
+      onOpenChange(false);
+    }
+  }, [buyStatus.isConfirmed, buyStatus.receipt?.status, buyStatus.hash, onSuccess, onTxSettled, onOpenChange, parsedQuantity, seasonId]);
+
+  useEffect(() => {
+    if (
+      sellStatus.isConfirmed &&
+      sellStatus.receipt?.status === "success" &&
+      sellStatus.hash &&
+      lastFiredSellHashRef.current !== sellStatus.hash
+    ) {
+      lastFiredSellHashRef.current = sellStatus.hash;
+      onSuccess?.({ mode: "sell", quantity: parsedQuantity, seasonId });
+      onTxSettled?.();
+      onOpenChange(false);
+    }
+  }, [sellStatus.isConfirmed, sellStatus.receipt?.status, sellStatus.hash, onSuccess, onTxSettled, onOpenChange, parsedQuantity, seasonId]);
 
   const { handleBuy, handleSell, fetchMaxSellable } = useTransactionHandlers({
     client,
@@ -210,9 +240,8 @@ export const BuySellSheet = ({
     hasZeroBalance,
     hasInsufficientBalance,
     formatSOF,
-    onNotify,
-    executeBuy,
-    executeSell,
+    buyMutation,
+    sellMutation,
     estBuyWithFees,
     estSellAfterFees,
     slippagePct,
@@ -248,13 +277,8 @@ export const BuySellSheet = ({
       const result = await handleSell(BigInt(parsedQuantity), () => setQuantityInput("1"));
       if (result?.success) {
         triggerStaggeredRefresh();
-      } else if (result && !result.success) {
-        toast({
-          variant: "destructive",
-          title: t("transactions:sellFailed", { defaultValue: "Sale failed" }),
-          description: result.error || t("common:tryAgain", { defaultValue: "Please try again." }),
-        });
       }
+      // Failure is surfaced via TransactionModal reading sellStatus.
     } finally {
       setIsLoading(false);
     }
@@ -474,6 +498,14 @@ export const BuySellSheet = ({
           </TabsContent>
         </Tabs>
       </SheetContent>
+      <TransactionModal
+        mutation={buyStatus}
+        title={t("transactions:buyingTickets", { defaultValue: "Buying tickets" })}
+      />
+      <TransactionModal
+        mutation={sellStatus}
+        title={t("transactions:sellingTickets", { defaultValue: "Selling tickets" })}
+      />
     </Sheet>
   );
 };
@@ -488,7 +520,7 @@ BuySellSheet.propTypes = {
   bondingCurveAddress: PropTypes.string,
   maxSellable: PropTypes.bigint,
   onSuccess: PropTypes.func,
-  onNotify: PropTypes.func,
+  onTxSettled: PropTypes.func,
 };
 
 export default BuySellSheet;

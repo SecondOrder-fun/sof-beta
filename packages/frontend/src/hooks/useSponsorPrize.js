@@ -8,10 +8,10 @@ import { useSmartTransactions } from "@/hooks/useSmartTransactions";
 
 /**
  * Hook for claiming sponsored prizes (ERC-20 and ERC-721).
- * Uses executeBatch for ERC-5792 gas sponsorship.
- * Toast messages are handled by the component via onSuccess/onError callbacks.
+ * Uses executeBatch for ERC-5792 gas sponsorship. Consumers wrap the returned
+ * mutations with useTransactionStatus to drive TransactionModal for feedback.
  */
-export function useSponsorPrizeClaim(seasonId, { onSuccess, onError } = {}) {
+export function useSponsorPrizeClaim(seasonId) {
   const netKey = getStoredNetworkKey();
   const queryClient = useQueryClient();
   const { executeBatch } = useSmartTransactions();
@@ -23,10 +23,6 @@ export function useSponsorPrizeClaim(seasonId, { onSuccess, onError } = {}) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sponsoredERC20"] });
-      onSuccess?.("erc20");
-    },
-    onError: (error) => {
-      onError?.("erc20", error);
     },
   });
 
@@ -37,15 +33,11 @@ export function useSponsorPrizeClaim(seasonId, { onSuccess, onError } = {}) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sponsoredERC721"] });
-      onSuccess?.("erc721");
-    },
-    onError: (error) => {
-      onError?.("erc721", error);
     },
   });
 
   const claimAll = async () => {
-    // Run independently so one failure doesn't block the other
+    // Run independently so one failure doesn't block the other.
     const results = await Promise.allSettled([
       claimERC20Mutation.mutateAsync(),
       claimERC721Mutation.mutateAsync(),
@@ -54,6 +46,8 @@ export function useSponsorPrizeClaim(seasonId, { onSuccess, onError } = {}) {
   };
 
   return {
+    claimERC20Mutation,
+    claimERC721Mutation,
     claimERC20: claimERC20Mutation.mutate,
     claimERC721: claimERC721Mutation.mutate,
     claimAll,
