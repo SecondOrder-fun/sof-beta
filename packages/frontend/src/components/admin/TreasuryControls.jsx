@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { useTreasury } from "@/hooks/useTreasury";
 import { useCurveState } from "@/hooks/useCurveState";
 import { useTransactionStatus } from "@/hooks/useTransactionStatus";
@@ -23,6 +24,7 @@ import {
 import PropTypes from "prop-types";
 
 export function TreasuryControls({ seasonId, bondingCurveAddress }) {
+  const { t } = useTranslation(["transactions"]);
   const {
     accumulatedFees,
     accumulatedFeesRaw,
@@ -235,7 +237,9 @@ export function TreasuryControls({ seasonId, bondingCurveAddress }) {
       </CardContent>
       <TransactionModal
         mutation={extractStatus}
-        title="Extracting Fees to Treasury"
+        title={t("transactions:extractingFees", {
+          defaultValue: "Extracting Fees to Treasury",
+        })}
       />
     </Card>
   );

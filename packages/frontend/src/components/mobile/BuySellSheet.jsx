@@ -4,7 +4,7 @@
  */
 
 import PropTypes from "prop-types";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { X, Settings } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -196,9 +196,21 @@ export const BuySellSheet = ({
   const buyStatus = useTransactionStatus(buyMutation);
   const sellStatus = useTransactionStatus(sellMutation);
 
-  // Fire onSuccess + close sheet + trigger parent refresh once per confirmed buy/sell.
+  // Fire post-confirm side effects exactly once per tx hash. Without the
+  // ref guard, inline-arrow parent props (onSuccess, onTxSettled) re-trigger
+  // every parent render while isConfirmed stays true, double-firing the
+  // refresh and re-running onOpenChange(false).
+  const lastFiredBuyHashRef = useRef(null);
+  const lastFiredSellHashRef = useRef(null);
+
   useEffect(() => {
-    if (buyStatus.isConfirmed && buyStatus.receipt?.status === "success") {
+    if (
+      buyStatus.isConfirmed &&
+      buyStatus.receipt?.status === "success" &&
+      buyStatus.hash &&
+      lastFiredBuyHashRef.current !== buyStatus.hash
+    ) {
+      lastFiredBuyHashRef.current = buyStatus.hash;
       onSuccess?.({ mode: "buy", quantity: parsedQuantity, seasonId });
       onTxSettled?.();
       onOpenChange(false);
@@ -206,7 +218,13 @@ export const BuySellSheet = ({
   }, [buyStatus.isConfirmed, buyStatus.receipt?.status, buyStatus.hash, onSuccess, onTxSettled, onOpenChange, parsedQuantity, seasonId]);
 
   useEffect(() => {
-    if (sellStatus.isConfirmed && sellStatus.receipt?.status === "success") {
+    if (
+      sellStatus.isConfirmed &&
+      sellStatus.receipt?.status === "success" &&
+      sellStatus.hash &&
+      lastFiredSellHashRef.current !== sellStatus.hash
+    ) {
+      lastFiredSellHashRef.current = sellStatus.hash;
       onSuccess?.({ mode: "sell", quantity: parsedQuantity, seasonId });
       onTxSettled?.();
       onOpenChange(false);

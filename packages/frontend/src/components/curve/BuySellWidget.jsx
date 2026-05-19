@@ -1,6 +1,6 @@
 // src/components/curve/BuySellWidget.jsx
 import PropTypes from "prop-types";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -199,17 +199,34 @@ const BuySellWidget = ({
   const buyStatus = useTransactionStatus(buyMutation);
   const sellStatus = useTransactionStatus(sellMutation);
 
-  // Fire onTxSuccess once per confirmed receipt — preserves the old
-  // "refresh-after-confirm" behavior. Reads buyStatus.hash so the effect
-  // re-fires per tx, not per re-render.
+  // Fire onTxSuccess exactly once per confirmed tx hash. A ref is used
+  // because `onTxSuccess` and `isConfirmed` can both change identity on a
+  // parent re-render (inline arrow props + isConfirmed never resets until
+  // the mutation goes idle), which without the guard re-fires the refresh
+  // every render — `triggerStaggeredRefresh` runs many times per buy.
+  const lastFiredBuyHashRef = useRef(null);
+  const lastFiredSellHashRef = useRef(null);
+
   useEffect(() => {
-    if (buyStatus.isConfirmed && buyStatus.receipt?.status === "success") {
+    if (
+      buyStatus.isConfirmed &&
+      buyStatus.receipt?.status === "success" &&
+      buyStatus.hash &&
+      lastFiredBuyHashRef.current !== buyStatus.hash
+    ) {
+      lastFiredBuyHashRef.current = buyStatus.hash;
       onTxSuccess?.();
     }
   }, [buyStatus.isConfirmed, buyStatus.receipt?.status, buyStatus.hash, onTxSuccess]);
 
   useEffect(() => {
-    if (sellStatus.isConfirmed && sellStatus.receipt?.status === "success") {
+    if (
+      sellStatus.isConfirmed &&
+      sellStatus.receipt?.status === "success" &&
+      sellStatus.hash &&
+      lastFiredSellHashRef.current !== sellStatus.hash
+    ) {
+      lastFiredSellHashRef.current = sellStatus.hash;
       onTxSuccess?.();
     }
   }, [sellStatus.isConfirmed, sellStatus.receipt?.status, sellStatus.hash, onTxSuccess]);

@@ -100,6 +100,25 @@ describe('useTransactionStatus', () => {
     expect(mockWaitForReceipt).not.toHaveBeenCalled();
   });
 
+  it('mutationFn returning a non-string short-circuits receipt polling (string-hash contract)', async () => {
+    // Regression: useClaims previously returned { hash: batchId, claimKey }
+    // which caused all four claim modals in ClaimCenter to hang forever
+    // because typeof mutation.data === "object" → hash stays null → no poll.
+    const { result } = setup({
+      mutationImpl: async () => ({ hash: '0xhash', claimKey: 'infofi-1-true' }),
+    });
+
+    await act(async () => {
+      await result.current.mutation.mutateAsync();
+    });
+
+    // mutation.data is the object, but useTransactionStatus.hash MUST be null.
+    expect(result.current.status.hash).toBeNull();
+    expect(result.current.status.isConfirming).toBe(false);
+    expect(result.current.status.isConfirmed).toBe(false);
+    expect(mockWaitForReceipt).not.toHaveBeenCalled();
+  });
+
   it('waitForTransactionReceipt throw surfaces as isError with hash retained', async () => {
     const err = new Error('rpc dropped');
     mockWaitForReceipt.mockRejectedValue(err);

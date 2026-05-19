@@ -48,10 +48,13 @@ export function useClaims() {
       });
       if (result.error) throw new Error(result.error);
       const batchId = await executeBatch(result.calls);
-      return { hash: batchId, claimKey };
+      // Return the hash as a plain string — useTransactionStatus requires
+      // `typeof mutation.data === "string"` to start receipt polling, and
+      // claimKey is re-derived in onSuccess/onError from the mutation variables.
+      return batchId;
     },
-    onSuccess: (data) => {
-      const { claimKey } = data;
+    onSuccess: (_data, variables) => {
+      const claimKey = getClaimKey("infofi", variables);
       setPendingClaims((prev) => {
         const next = new Set(prev);
         next.delete(claimKey);
@@ -84,10 +87,13 @@ export function useClaims() {
       });
       if (result.error) throw new Error(result.error);
       const batchId = await executeBatch(result.calls);
-      return { hash: batchId, claimKey };
+      // Return the hash as a plain string — useTransactionStatus requires
+      // `typeof mutation.data === "string"` to start receipt polling, and
+      // claimKey is re-derived in onSuccess/onError from the mutation variables.
+      return batchId;
     },
-    onSuccess: (data) => {
-      const { claimKey } = data;
+    onSuccess: (_data, variables) => {
+      const claimKey = getClaimKey("fpmm", variables);
       setPendingClaims((prev) => {
         const next = new Set(prev);
         next.delete(claimKey);
@@ -121,10 +127,13 @@ export function useClaims() {
       });
       if (result.error) throw new Error(result.error);
       const batchId = await executeBatch(result.calls);
-      return { hash: batchId, claimKey };
+      // Return the hash as a plain string — useTransactionStatus requires
+      // `typeof mutation.data === "string"` to start receipt polling, and
+      // claimKey is re-derived in onSuccess/onError from the mutation variables.
+      return batchId;
     },
-    onSuccess: (data) => {
-      const { claimKey } = data;
+    onSuccess: (_data, variables) => {
+      const claimKey = getClaimKey("raffle-consolation", variables);
       setPendingClaims((prev) => {
         const next = new Set(prev);
         next.delete(claimKey);
@@ -157,10 +166,13 @@ export function useClaims() {
       });
       if (result.error) throw new Error(result.error);
       const batchId = await executeBatch(result.calls);
-      return { hash: batchId, claimKey };
+      // Return the hash as a plain string — useTransactionStatus requires
+      // `typeof mutation.data === "string"` to start receipt polling, and
+      // claimKey is re-derived in onSuccess/onError from the mutation variables.
+      return batchId;
     },
-    onSuccess: (data) => {
-      const { claimKey } = data;
+    onSuccess: (_data, variables) => {
+      const claimKey = getClaimKey("raffle-grand", variables);
       setPendingClaims((prev) => {
         const next = new Set(prev);
         next.delete(claimKey);

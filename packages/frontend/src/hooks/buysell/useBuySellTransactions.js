@@ -49,10 +49,18 @@ export function useBuySellTransactions(bondingCurveAddress, client) {
     }) => {
       // Pre-flight validation — throw so the modal surfaces the reason.
       if (validation?.seasonTimeNotActive) {
-        throw new Error("Season is not active");
+        throw new Error(
+          t("transactions:seasonNotActive", {
+            defaultValue: "Season is not active",
+          }),
+        );
       }
       if (validation?.tradingLocked) {
-        throw new Error("Trading is locked — Season has ended");
+        throw new Error(
+          t("transactions:tradingLocked", {
+            defaultValue: "Trading is locked — Season has ended",
+          }),
+        );
       }
       if (validation?.hasZeroBalance) {
         throw new Error(
@@ -160,10 +168,18 @@ export function useBuySellTransactions(bondingCurveAddress, client) {
       validation,
     }) => {
       if (validation?.seasonTimeNotActive) {
-        throw new Error("Season is not active");
+        throw new Error(
+          t("transactions:seasonNotActive", {
+            defaultValue: "Season is not active",
+          }),
+        );
       }
       if (validation?.tradingLocked) {
-        throw new Error("Trading is locked — Season has ended");
+        throw new Error(
+          t("transactions:tradingLocked", {
+            defaultValue: "Trading is locked — Season has ended",
+          }),
+        );
       }
 
       const floor = applyMinSlippage(minSofAmount, slippagePct);
@@ -178,7 +194,9 @@ export function useBuySellTransactions(bondingCurveAddress, client) {
         });
         if (cfg[1] /* sofReserves */ < minSofAmount) {
           throw new Error(
-            "Insufficient curve reserves — cannot sell this amount",
+            t("transactions:insufficientCurveReserves", {
+              defaultValue: "Insufficient curve reserves — cannot sell this amount",
+            }),
           );
         }
       }

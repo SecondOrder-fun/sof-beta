@@ -197,7 +197,10 @@ describe("useBuySellTransactions.buyMutation — pre-flight validation", () => {
         });
       } catch (e) { caught = e; }
     });
-    expect(caught?.message).toMatch(/Season is not active/);
+    // The test's i18n mock returns the key (t: (k) => k), so the thrown
+    // message is the t() key — proof that the throw is routed through i18n
+    // rather than a hardcoded English string.
+    expect(caught?.message).toBe("transactions:seasonNotActive");
     expect(mockExecuteBatch).not.toHaveBeenCalled();
   });
 
@@ -216,7 +219,7 @@ describe("useBuySellTransactions.buyMutation — pre-flight validation", () => {
         });
       } catch (e) { caught = e; }
     });
-    expect(caught?.message).toMatch(/Trading is locked/);
+    expect(caught?.message).toBe("transactions:tradingLocked");
     expect(mockExecuteBatch).not.toHaveBeenCalled();
   });
 
@@ -282,7 +285,7 @@ describe("useBuySellTransactions.sellMutation — pre-flight reserves check", ()
         });
       } catch (e) { caught = e; }
     });
-    expect(caught?.message).toMatch(/Insufficient curve reserves/);
+    expect(caught?.message).toBe("transactions:insufficientCurveReserves");
     expect(mockExecuteBatch).not.toHaveBeenCalled();
   });
 
