@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useTreasury } from "@/hooks/useTreasury";
 import { useCurveState } from "@/hooks/useCurveState";
+import { useTransactionStatus } from "@/hooks/useTransactionStatus";
+import TransactionModal from "@/components/admin/TransactionModal";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -19,7 +21,6 @@ import {
   Info,
 } from "lucide-react";
 import PropTypes from "prop-types";
-import { useToast } from "@/hooks/useToast";
 
 export function TreasuryControls({ seasonId, bondingCurveAddress }) {
   const {
@@ -29,10 +30,11 @@ export function TreasuryControls({ seasonId, bondingCurveAddress }) {
     treasuryAddress,
     hasManagerRole,
     extractFees,
+    extractMutation,
     isExtracting,
     isExtractConfirmed,
-    extractError,
   } = useTreasury(seasonId, bondingCurveAddress);
+  const extractStatus = useTransactionStatus(extractMutation);
 
   const { curveReserves, curveFees } = useCurveState(bondingCurveAddress, {
     isActive: true,
@@ -70,33 +72,9 @@ export function TreasuryControls({ seasonId, bondingCurveAddress }) {
     [liveAccumulatedFees, liveReserves]
   );
 
-  const [lastExtractAmount, setLastExtractAmount] = useState(null);
-  const { toast } = useToast();
-
   const handleExtract = async () => {
-    setLastExtractAmount(liveAccumulatedFees);
     await extractFees();
   };
-
-  useEffect(() => {
-    if (isExtractConfirmed && lastExtractAmount !== null) {
-      toast({
-        title: "Fees extracted",
-        description: `Sent ${lastExtractAmount.toFixed(2)} SOF to the treasury address.`,
-      });
-      setLastExtractAmount(null);
-    }
-  }, [isExtractConfirmed, lastExtractAmount, toast]);
-
-  useEffect(() => {
-    if (extractError) {
-      toast({
-        title: "Extraction failed",
-        description: extractError?.shortMessage || extractError?.message || "Transaction reverted.",
-        variant: "destructive",
-      });
-    }
-  }, [extractError, toast]);
 
   if (!hasManagerRole) {
     return null;
@@ -218,15 +196,6 @@ export function TreasuryControls({ seasonId, bondingCurveAddress }) {
             </Alert>
           )}
 
-          {extractError && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>
-                {extractError.message || "Failed to extract fees"}
-              </AlertDescription>
-            </Alert>
-          )}
-
           {pendingFeesRaw === 0n && (
             <p className="text-sm text-muted-foreground">
               No fees to extract. Fees accumulate as users buy/sell tickets.
@@ -264,6 +233,10 @@ export function TreasuryControls({ seasonId, bondingCurveAddress }) {
           </p>
         </div>
       </CardContent>
+      <TransactionModal
+        mutation={extractStatus}
+        title="Extracting Fees to Treasury"
+      />
     </Card>
   );
 }
