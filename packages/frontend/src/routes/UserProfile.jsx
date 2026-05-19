@@ -34,6 +34,14 @@ const UserProfile = () => {
   // but counterfactual peers are rare on a profile page (you got here from
   // a username link or a leaderboard, both of which already resolve to
   // the deployed SMA).
+  // Fast-path: if the route param is the connected user's own SMA, we
+  // already know it's a contract (the connected user wouldn't have a
+  // working session without their SMA being resolvable). Skip the
+  // eth_getCode RPC entirely.
+  const isOwnSma =
+    Boolean(addressParam && mySma) &&
+    addressParam.toLowerCase() === mySma.toLowerCase();
+
   const codeProbe = useQuery({
     queryKey: ["addressCode", netKey, addressParam],
     queryFn: async () => {
@@ -41,8 +49,12 @@ const UserProfile = () => {
       const code = await publicClient.getCode({ address: addressParam });
       return code && code !== "0x" ? "contract" : "eoa";
     },
-    enabled: Boolean(publicClient && addressParam),
-    staleTime: 60_000,
+    enabled: Boolean(publicClient && addressParam) && !isOwnSma,
+    // staleTime: Infinity — "is this address a contract" is monotonic
+    // once true; once deployed, it stays deployed. The previous 60s
+    // window forced a re-fetch on every Portfolio mount after the first
+    // minute, which served no purpose.
+    staleTime: Infinity,
   });
 
   const needsDerive =
@@ -59,12 +71,15 @@ const UserProfile = () => {
   });
 
   // Resolution priority:
+  //  - param == my SMA → fast-path, skip codeProbe (known to be a contract)
   //  - param + contract code → use param as-is (already an SMA)
   //  - param + EOA → derived SMA via factory
   //  - no param → use my own SMA (own profile)
   let resolvedAddress;
   if (addressParam) {
-    if (codeProbe.data === "contract") {
+    if (isOwnSma) {
+      resolvedAddress = addressParam;
+    } else if (codeProbe.data === "contract") {
       resolvedAddress = addressParam;
     } else if (derivedSma) {
       resolvedAddress = derivedSma;
