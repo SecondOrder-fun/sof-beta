@@ -127,6 +127,19 @@ function buildManifest(env) {
       // instead of mid-initialization after the port is bound.
       required: isProduction,
     },
+    {
+      key: "BLOCKSCOUT_BASE_URL",
+      // Required on TESTNET/MAINNET; on LOCAL we usually have no Blockscout
+      // instance and the proxy stays disabled.
+      required: requireOnNonLocal,
+      validate: (v) => (isUrl(v) ? null : "must be a valid URL"),
+    },
+    {
+      key: "BLOCKSCOUT_API_KEY",
+      required: requireOnNonLocal,
+      // Length sanity only; Blockscout will validate the key itself.
+      validate: (v) => (v.length >= 10 ? null : "looks too short"),
+    },
   ];
 }
 

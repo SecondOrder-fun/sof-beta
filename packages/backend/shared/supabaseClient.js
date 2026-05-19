@@ -562,18 +562,44 @@ export class DatabaseService {
   }
 
   /**
-   * Update season active status
+   * Upsert a season_contracts row by season_id.
+   * Merges the given patch into the existing row (or creates it).
    * @param {number} seasonId - Season ID
-   * @param {boolean} isActive - New active status
-   * @returns {Promise<Object>} Updated season contract record
+   * @param {Object} patch - Columns to write (snake_case, matching DB schema)
+   * @returns {Promise<Object>} Upserted season contract record
    */
-  async updateSeasonStatus(seasonId, isActive) {
+  async upsertSeasonContractRow(seasonId, patch) {
+    const row = {
+      season_id: seasonId,
+      ...patch,
+    };
     const { data, error } = await this.client
       .from("season_contracts")
-      .update({
-        is_active: isActive,
-        updated_at: new Date().toISOString(),
-      })
+      .upsert(row, { onConflict: "season_id" })
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  /**
+   * Update season status and other mutable fields.
+   * @param {number} seasonId - Season ID
+   * @param {Object} statusPatch - Fields to update:
+   *   status, trading_locked, vrf_request_id,
+   *   total_tickets, total_participants, total_prize_pool,
+   *   is_active, etc.
+   * @returns {Promise<Object>} Updated season contract record
+   */
+  async updateSeasonStatus(seasonId, statusPatch) {
+    const patch =
+      typeof statusPatch === "boolean"
+        ? { is_active: statusPatch, updated_at: new Date().toISOString() }
+        : { ...statusPatch, updated_at: new Date().toISOString() };
+
+    const { data, error } = await this.client
+      .from("season_contracts")
+      .update(patch)
       .eq("season_id", seasonId)
       .select()
       .single();
@@ -592,6 +618,20 @@ export class DatabaseService {
       .select("*")
       .eq("is_active", true)
       .order("created_at", { ascending: false });
+
+    if (error) throw new Error(error.message);
+    return data || [];
+  }
+
+  /**
+   * Get all season contracts (active + completed)
+   * @returns {Promise<Array>} Array of all season contract records, sorted by season_id descending
+   */
+  async getAllSeasonContracts() {
+    const { data, error } = await this.client
+      .from("season_contracts")
+      .select("*")
+      .order("season_id", { ascending: false });
 
     if (error) throw new Error(error.message);
     return data || [];
@@ -817,6 +857,55 @@ export class DatabaseService {
     } catch (error) {
       throw new Error(`Error fetching active FPMM addresses: ${error.message}`);
     }
+  }
+
+  /**
+   * Get curve state for a bonding curve address
+   * @param {string} bondingCurveAddress - Bonding curve contract address
+   * @returns {Promise<Object|null>} Curve state record or null if not found
+   */
+  async getCurveState(bondingCurveAddress) {
+    const { data, error } = await this.client
+      .from("curve_state")
+      .select("*")
+      .eq("bonding_curve_address", bondingCurveAddress.toLowerCase())
+      .maybeSingle();
+    if (error) throw error;
+    return data;
+  }
+
+  /**
+   * Create or update curve state for a bonding curve
+   * @param {string} bondingCurveAddress - Bonding curve contract address
+   * @param {Object} patch - Fields to upsert
+   * @returns {Promise<Object>} Upserted curve state record
+   */
+  async upsertCurveState(bondingCurveAddress, patch) {
+    const row = {
+      bonding_curve_address: bondingCurveAddress.toLowerCase(),
+      ...patch,
+    };
+    const { data, error } = await this.client
+      .from("curve_state")
+      .upsert(row, { onConflict: "bonding_curve_address" })
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  /**
+   * Update bond steps and treasury address for a bonding curve
+   * @param {string} bondingCurveAddress - Bonding curve contract address
+   * @param {Array} bondSteps - Bond steps array
+   * @param {string|null} treasuryAddress - Treasury address (optional)
+   * @returns {Promise<Object>} Updated curve state record
+   */
+  async setCurveBondSteps(bondingCurveAddress, bondSteps, treasuryAddress) {
+    return await this.upsertCurveState(bondingCurveAddress, {
+      bond_steps: bondSteps,
+      treasury_address: treasuryAddress?.toLowerCase() ?? null,
+    });
   }
 }
 

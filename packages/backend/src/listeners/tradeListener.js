@@ -17,6 +17,7 @@ import { startContractEventPolling } from "../lib/contractEventPolling.js";
 import { createBlockCursor } from "../lib/blockCursor.js";
 import { db } from "../../shared/supabaseClient.js";
 import { historicalOddsService } from "../../shared/historicalOddsService.js";
+import { getSSEChannelService } from "../services/sseChannelService.js";
 
 /**
  * Starts listening for Trade events from SimpleFPMM contracts
@@ -44,6 +45,8 @@ export async function startTradeListener(fpmmAddresses, fpmmAbi, logger) {
   if (!logger) {
     throw new Error("logger instance is required");
   }
+
+  const sseService = getSSEChannelService(logger);
 
   const unwatchFunctions = [];
 
@@ -199,6 +202,20 @@ export async function startTradeListener(fpmmAddresses, fpmmAbi, logger) {
                   logger.info(
                     `[TRADE_LISTENER] ✅ SUCCESS: Position recorded (id: ${recordResult.data?.id})`,
                   );
+                }
+
+                if (!recordResult.alreadyRecorded) {
+                  sseService.broadcast('infofi', {
+                    type: 'Trade',
+                    fpmmAddress,
+                    trader,
+                    buyYes: Boolean(buyYes),
+                    amountIn: amountIn.toString(),
+                    amountOut: amountOut.toString(),
+                    sentimentBps: sentiment,
+                    txHash,
+                    blockNumber: Number(blockNum),
+                  });
                 }
               } catch (positionError) {
                 logger.error(

@@ -1,4 +1,5 @@
 import { useMemo, useCallback, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAccount, useChainId, useCapabilities, useSendCalls, useCallsStatus, usePublicClient, useWalletClient } from 'wagmi';
 import { waitForCallsStatus } from '@wagmi/core';
 import { encodeFunctionData, http } from 'viem';
@@ -94,6 +95,20 @@ async function normalizeBatchResult(result) {
  */
 const SOF_FEE_BPS = 5n; // 0.05% (5 basis points)
 
+export function invalidateUltraFreshTouching(queryClient, callTargets) {
+  if (!Array.isArray(callTargets) || callTargets.length === 0) return;
+  const targetsLower = callTargets.map((t) => String(t).toLowerCase());
+  queryClient.invalidateQueries({
+    predicate: (q) => {
+      if (q.meta?.tier !== 'ultraFresh') return false;
+      if (!Array.isArray(q.meta.touches)) return false;
+      return q.meta.touches.some((addr) =>
+        targetsLower.includes(String(addr).toLowerCase()),
+      );
+    },
+  });
+}
+
 export async function fetchPaymasterSession(apiBase, jwt) {
   try {
     const res = await fetch(`${apiBase}/paymaster/session`, {
@@ -113,6 +128,7 @@ export async function fetchPaymasterSession(apiBase, jwt) {
 }
 
 export function useSmartTransactions() {
+  const queryClient = useQueryClient();
   const { address, connector } = useAccount();
   const chainId = useChainId();
   const { data: capabilities } = useCapabilities({ account: address });
@@ -284,6 +300,7 @@ export function useSmartTransactions() {
 
       const userOpHash = await bundlerClient.sendUserOperation({ calls });
       const receipt = await bundlerClient.waitForUserOperationReceipt({ hash: userOpHash });
+      invalidateUltraFreshTouching(queryClient, calls.map((c) => c.to));
       return receipt.receipt.transactionHash;
     }
 
@@ -312,6 +329,7 @@ export function useSmartTransactions() {
           await publicClient.waitForTransactionReceipt({ hash: lastHash });
         }
       }
+      invalidateUltraFreshTouching(queryClient, calls.map((c) => c.to));
       return lastHash;
     }
 
@@ -372,8 +390,10 @@ export function useSmartTransactions() {
     // sendCallsAsync resolves with { id } in wagmi v2 — resolve to a tx hash
     // before returning so callers can feed the value to useWaitForTransactionReceipt
     // and render it in the UI.
-    return await normalizeBatchResult(sendResult);
-  }, [address, apiBase, backendJwt, chainId, connector, sendCallsAsync, buildFeeCall, chainCaps.atomicStatus, walletClient, publicClient, walletType]);
+    const finalHash = await normalizeBatchResult(sendResult);
+    invalidateUltraFreshTouching(queryClient, finalCalls.map((c) => c.to));
+    return finalHash;
+  }, [address, apiBase, backendJwt, chainId, connector, sendCallsAsync, buildFeeCall, chainCaps.atomicStatus, walletClient, publicClient, walletType, queryClient]);
 
   return {
     ...chainCaps,

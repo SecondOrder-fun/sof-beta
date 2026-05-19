@@ -1,18 +1,9 @@
 // src/hooks/useSOFBalance.js
-import { useReadContract } from "wagmi";
-import { getContractAddresses } from "@/config/contracts";
-import { getStoredNetworkKey } from "@/lib/wagmi";
-import { useRaffleAccount } from "@/hooks/useRaffleAccount";
-
-const ERC20_BALANCE_ABI = [
-  {
-    type: "function",
-    name: "balanceOf",
-    inputs: [{ name: "account", type: "address" }],
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view",
-  },
-];
+import { ERC20Abi } from '@/utils/abis';
+import { getContractAddresses } from '@/config/contracts';
+import { getStoredNetworkKey } from '@/lib/wagmi';
+import { useRaffleAccount } from '@/hooks/useRaffleAccount';
+import { useUltraFreshRead } from '@/hooks/chain/useUltraFreshRead';
 
 /**
  * Hook to get the connected user's $SOF balance.
@@ -20,26 +11,32 @@ const ERC20_BALANCE_ABI = [
  * Resolves at the user's smart account (spec §4.3) — gameplay balances
  * live at the SMA, not the connected EOA.
  *
- * @returns {{ balance: bigint, isLoading: boolean, refetch: function }}
+ * Uses ultra-fresh reads so balances auto-update after any tx that
+ * touches the SOF token contract.
+ *
+ * @returns {{ balance: bigint, balanceRaw: bigint, isLoading: boolean, refetch: function }}
  */
 export function useSOFBalance() {
   const { sma: address, isReady } = useRaffleAccount();
-  const sofAddress = getContractAddresses(getStoredNetworkKey()).SOF;
+  const contracts = getContractAddresses(getStoredNetworkKey());
+  const sofAddress = contracts?.SOF;
 
-  const { data, isLoading, refetch } = useReadContract({
-    address: sofAddress,
-    abi: ERC20_BALANCE_ABI,
-    functionName: "balanceOf",
-    args: [address],
-    query: {
-      enabled: isReady && !!address && !!sofAddress,
-    },
+  const query = useUltraFreshRead({
+    contract: { address: sofAddress, abi: ERC20Abi },
+    fn: 'balanceOf',
+    args: address ? [address] : [],
+    touches: sofAddress ? [sofAddress] : [],
+    enabled: !!(isReady && address && sofAddress),
   });
 
+  const raw = query.data ?? 0n;
   return {
-    balance: data ?? BigInt(0),
-    isLoading,
-    refetch,
+    // Legacy: bigint for backward compat with existing consumers
+    balance: raw,
+    // New: formatted string for display
+    balanceRaw: raw,
+    isLoading: query.isLoading,
+    refetch: query.refetch,
   };
 }
 

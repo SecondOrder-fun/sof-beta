@@ -3,12 +3,27 @@
  * Fetches and calculates buy/sell price estimates from bonding curve
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { SOFBondingCurveAbi } from "@/utils/abis";
 import {
   calculateAmountWithFees,
   calculateAmountAfterFees,
 } from "@/utils/buysell/slippage";
+
+const PRICE_INPUT_DEBOUNCE_MS = 250;
+
+// useDebouncedValue — defer rapid input changes so the price-estimate
+// queryKey doesn't churn one new RPC call per keystroke. Each unique
+// debounced value is still cached for 5s by react-query (staleTime).
+function useDebouncedValue(value, delayMs) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(id);
+  }, [value, delayMs]);
+  return debounced;
+}
 
 /**
  * Hook to estimate prices for buy/sell operations
@@ -28,51 +43,57 @@ export function usePriceEstimation(
   buyFeeBps,
   sellFeeBps
 ) {
-  const [buyEstBase, setBuyEstBase] = useState(0n);
-  const [sellEstBase, setSellEstBase] = useState(0n);
+  // Previously fired one fresh readContract per buy/sell input change with
+  // useState+useEffect — every keystroke when typing an amount was a fresh
+  // RPC call. Now both estimates run through react-query so identical
+  // amounts dedupe across renders, and the queryKey caches results for
+  // 5 seconds (curve config is read-only between trades on testnet).
+  // Inputs are debounced so typing "1000" doesn't fire 4 separate
+  // readContract calls — only the final settled value queries the chain.
+  const buyKeyRaw = String(buyAmount ?? "0");
+  const sellKeyRaw = String(sellAmount ?? "0");
+  const buyKey = useDebouncedValue(buyKeyRaw, PRICE_INPUT_DEBOUNCE_MS);
+  const sellKey = useDebouncedValue(sellKeyRaw, PRICE_INPUT_DEBOUNCE_MS);
 
-  const loadEstimate = useCallback(
-    async (fnName, amount) => {
+  const { data: buyEstBase = 0n } = useQuery({
+    queryKey: ["priceEstimate", "buy", bondingCurveAddress, buyKey],
+    enabled: !!client && !!bondingCurveAddress,
+    staleTime: 5_000,
+    retry: 0,
+    refetchOnWindowFocus: false,
+    queryFn: async () => {
       try {
-        if (!client) return 0n;
         return await client.readContract({
           address: bondingCurveAddress,
           abi: SOFBondingCurveAbi,
-          functionName: fnName,
-          args: [BigInt(amount || "0")],
+          functionName: "calculateBuyPrice",
+          args: [BigInt(buyKey)],
         });
       } catch {
         return 0n;
       }
     },
-    [client, bondingCurveAddress]
-  );
+  });
 
-  // Update buy estimate when amount changes
-  useEffect(() => {
-    let stop = false;
-    (async () => {
-      if (!bondingCurveAddress) return;
-      const est = await loadEstimate("calculateBuyPrice", buyAmount);
-      if (!stop) setBuyEstBase(est);
-    })();
-    return () => {
-      stop = true;
-    };
-  }, [bondingCurveAddress, buyAmount, loadEstimate]);
-
-  // Update sell estimate when amount changes
-  useEffect(() => {
-    let stop = false;
-    (async () => {
-      if (!bondingCurveAddress) return;
-      const est = await loadEstimate("calculateSellPrice", sellAmount);
-      if (!stop) setSellEstBase(est);
-    })();
-    return () => {
-      stop = true;
-    };
-  }, [bondingCurveAddress, sellAmount, loadEstimate]);
+  const { data: sellEstBase = 0n } = useQuery({
+    queryKey: ["priceEstimate", "sell", bondingCurveAddress, sellKey],
+    enabled: !!client && !!bondingCurveAddress,
+    staleTime: 5_000,
+    retry: 0,
+    refetchOnWindowFocus: false,
+    queryFn: async () => {
+      try {
+        return await client.readContract({
+          address: bondingCurveAddress,
+          abi: SOFBondingCurveAbi,
+          functionName: "calculateSellPrice",
+          args: [BigInt(sellKey)],
+        });
+      } catch {
+        return 0n;
+      }
+    },
+  });
 
   const estBuyWithFees = useMemo(
     () => calculateAmountWithFees(buyEstBase, buyFeeBps),

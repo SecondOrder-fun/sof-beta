@@ -94,7 +94,6 @@ export function useClaims() {
       });
       setSuccessfulClaims((prev) => new Set(prev).add(claimKey));
       qc.invalidateQueries({ queryKey: ["claimcenter_claimables"] });
-      qc.invalidateQueries({ queryKey: ["sofBalance"] });
     },
     onError: (error, variables) => {
       const claimKey = getClaimKey("infofi", variables);
@@ -138,7 +137,6 @@ export function useClaims() {
       setSuccessfulClaims((prev) => new Set(prev).add(claimKey));
       qc.invalidateQueries({ queryKey: ["claimcenter_fpmm_claimables"] });
       qc.invalidateQueries({ queryKey: ["infoFiPositions"] });
-      qc.invalidateQueries({ queryKey: ["sofBalance"] });
     },
     onError: (error, variables) => {
       const claimKey = getClaimKey("fpmm", variables);
@@ -181,7 +179,6 @@ export function useClaims() {
       });
       setSuccessfulClaims((prev) => new Set(prev).add(claimKey));
       qc.invalidateQueries({ queryKey: ["raffle_claims"] });
-      qc.invalidateQueries({ queryKey: ["sofBalance"] });
     },
     onError: (error, variables) => {
       const claimKey = getClaimKey("raffle-consolation", variables);
@@ -224,7 +221,6 @@ export function useClaims() {
       });
       setSuccessfulClaims((prev) => new Set(prev).add(claimKey));
       qc.invalidateQueries({ queryKey: ["raffle_claims"] });
-      qc.invalidateQueries({ queryKey: ["sofBalance"] });
     },
     onError: (error, variables) => {
       const claimKey = getClaimKey("raffle-grand", variables);

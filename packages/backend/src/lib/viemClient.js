@@ -119,3 +119,7 @@ export const walletClient = new Proxy(
     },
   },
 );
+
+// Chain time cache lives in its own module so it can be imported by
+// contractEventPolling without forcing the NETWORK env check at module load.
+export { chainTimeCache, updateChainTimeCache } from "./chainTimeCache.js";

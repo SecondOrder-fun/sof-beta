@@ -1,7 +1,8 @@
 import { useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
-import { createPublicClient, http, formatUnits } from "viem";
+import { formatUnits } from "viem";
+import { buildPublicClient } from "@/lib/viemClient";
 import {
   Sun,
   Moon,
@@ -61,6 +62,11 @@ const SettingsMenu = ({ address, username, farcasterUser, onDisconnect }) => {
   // Per-target copy state so the SMA + EOA copy buttons don't collide.
   const [copiedTarget, setCopiedTarget] = useState(null);
   const [isUsernameDialogOpen, setIsUsernameDialogOpen] = useState(false);
+  // Track the dropdown's open state so the SOF balance only queries when
+  // the user actually opens the menu. The component is mounted globally
+  // in the header — without this gate the balance read fires on every
+  // page load whether or not anyone wants to see the balance.
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   // Network configuration
   const netKey = getStoredNetworkKey();
@@ -72,23 +78,16 @@ const SettingsMenu = ({ address, username, farcasterUser, onDisconnect }) => {
   // copyable address that the user sees in the menu.
   const { eoa, sma, walletType, isReady } = useRaffleAccount();
 
-  // Create viem client for balance query
-  const client = useMemo(() => {
-    return createPublicClient({
-      chain: {
-        id: net.id,
-        name: net.name,
-        nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
-        rpcUrls: { default: { http: [net.rpcUrl] } },
-      },
-      transport: http(net.rpcUrl),
-    });
-  }, [net.id, net.name, net.rpcUrl]);
+  // Use the shared public-client factory — gets multicall aggregation,
+  // RPC fallback / demotion, and the retryCount: 0 setting that keeps
+  // 429s from doubling into retried bursts.
+  const client = useMemo(() => buildPublicClient(netKey), [netKey]);
 
-  // SOF balance query — keyed on SMA
+  // SOF balance query — keyed on SMA. Only enabled while the dropdown
+  // is open; closing the menu suspends the query until the next open.
   const sofBalanceQuery = useQuery({
     queryKey: ["sofBalance", netKey, contracts.SOF, sma],
-    enabled: !!client && !!contracts.SOF && !!sma,
+    enabled: isMenuOpen && !!client && !!contracts.SOF && !!sma,
     queryFn: async () => {
       const bal = await client.readContract({
         address: contracts.SOF,
@@ -147,7 +146,7 @@ const SettingsMenu = ({ address, username, farcasterUser, onDisconnect }) => {
 
   return (
     <TooltipProvider>
-      <DropdownMenu>
+      <DropdownMenu open={isMenuOpen} onOpenChange={setIsMenuOpen}>
         <DropdownMenuTrigger asChild>
           <Button variant="outline" className="gap-2">
             <Settings className="h-4 w-4" />

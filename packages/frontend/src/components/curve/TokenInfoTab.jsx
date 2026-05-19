@@ -1,12 +1,13 @@
 // src/components/curve/TokenInfoTab.jsx
 import PropTypes from "prop-types";
 import { useMemo, useState, useEffect } from "react";
-import { formatUnits, createPublicClient, http } from "viem";
+import { formatUnits } from "viem";
+import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useSofDecimals } from "@/hooks/useSofDecimals";
 import { useRaffleHolders } from "@/hooks/useRaffleHolders";
 import { getStoredNetworkKey } from "@/lib/wagmi";
-import { getNetworkByKey } from "@/config/networks";
+import { buildPublicClient } from "@/lib/viemClient";
 import { SOFBondingCurveAbi } from "@/utils/abis";
 import AddTokenToMetamaskButton from "@/components/common/AddTokenToMetamaskButton";
 import SecondaryCard from "@/components/common/SecondaryCard";
@@ -23,7 +24,6 @@ const TokenInfoTab = ({
 }) => {
   const { t } = useTranslation("common");
   const sofDecimals = useSofDecimals();
-  const [raffleTokenAddress, setRaffleTokenAddress] = useState(null);
   const [raffleTokenSymbol, setRaffleTokenSymbol] = useState("TIX");
   const [walletToast, setWalletToast] = useState(null);
   const [walletToastVisible, setWalletToastVisible] = useState(false);
@@ -73,78 +73,50 @@ const TokenInfoTab = ({
     }, 4500);
   };
 
-  // Fetch raffle/ticket token address and symbol from bonding curve
-  useEffect(() => {
-    let cancelled = false;
-    async function fetchCurveData() {
-      if (!bondingCurveAddress) return;
+  // Fetch raffle/ticket token address from the bonding curve.
+  //
+  // The address is set once at season creation and never changes, so this
+  // query carries staleTime: Infinity — the result lives in react-query's
+  // cache for the rest of the session. Older curve implementations
+  // exposed the getter under different names (token / raffleToken /
+  // ticketToken / tickets / asset); we probe in parallel and take the
+  // first valid address. viem's batch.multicall aggregator collapses the
+  // five reads into a single aggregate3 call, so the cold-load cost is
+  // one RPC round-trip even though four of the probes revert.
+  const netKey = getStoredNetworkKey();
+  const raffleTokenQuery = useQuery({
+    queryKey: ["raffleTokenAddress", netKey, bondingCurveAddress?.toLowerCase?.()],
+    enabled: !!bondingCurveAddress,
+    staleTime: Infinity,
+    queryFn: async () => {
+      const client = buildPublicClient(netKey);
+      if (!client) return null;
 
-      try {
-        const netKey = getStoredNetworkKey();
-        const net = getNetworkByKey(netKey);
-        if (!net?.rpcUrl) return;
+      const candidateFns = ["token", "raffleToken", "ticketToken", "tickets", "asset"];
+      const results = await Promise.allSettled(
+        candidateFns.map((fn) =>
+          client.readContract({
+            address: bondingCurveAddress,
+            abi: SOFBondingCurveAbi,
+            functionName: fn,
+            args: [],
+          }),
+        ),
+      );
 
-        const client = createPublicClient({
-          chain: {
-            id: net.id,
-            name: net.name,
-            nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
-            rpcUrls: { default: { http: [net.rpcUrl] } },
-          },
-          transport: http(net.rpcUrl),
-        });
+      const validAddr = results
+        .map((r) => (r.status === "fulfilled" ? r.value : null))
+        .find(
+          (addr) =>
+            typeof addr === "string" &&
+            /^0x[a-fA-F0-9]{40}$/.test(addr) &&
+            addr !== "0x0000000000000000000000000000000000000000",
+        );
 
-        // Discover the underlying ticket token address. Not all bonding curve
-        // implementations expose the same getter, so we try several common
-        // function names before finally falling back to using the bonding
-        // curve address itself as the token address.
-        let tokenAddr = bondingCurveAddress;
-
-        // Prefer an explicit token from the curve if available
-        for (const fn of [
-          "token",
-          "raffleToken",
-          "ticketToken",
-          "tickets",
-          "asset",
-        ]) {
-          try {
-            // eslint-disable-next-line no-await-in-loop
-            const addr = await client.readContract({
-              address: bondingCurveAddress,
-              abi: SOFBondingCurveAbi,
-              functionName: fn,
-              args: [],
-            });
-
-            if (
-              typeof addr === "string" &&
-              /^0x[a-fA-F0-9]{40}$/.test(addr) &&
-              addr !== "0x0000000000000000000000000000000000000000"
-            ) {
-              tokenAddr = addr;
-              break;
-            }
-          } catch {
-            // ignore and try the next candidate function name
-          }
-        }
-
-        if (!cancelled) {
-          setRaffleTokenAddress(tokenAddr);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setRaffleTokenAddress(null);
-        }
-      }
-    }
-
-    fetchCurveData();
-    return () => {
-      cancelled = true;
-    };
-  }, [bondingCurveAddress]);
+      return validAddr ?? bondingCurveAddress;
+    },
+  });
+  const raffleTokenAddress = raffleTokenQuery.data ?? null;
 
   // Calculate prize distribution (65% grand prize, 35% consolation by default)
   // Note: grandPrizeBps can be configured per season, defaulting to 6500 (65%)

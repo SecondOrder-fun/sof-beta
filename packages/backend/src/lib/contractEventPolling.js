@@ -1,3 +1,5 @@
+import { updateChainTimeCache } from "./chainTimeCache.js";
+
 /**
  * @typedef {Object} ContractEventPollingParams
  * @property {import('viem').PublicClient} client
@@ -75,6 +77,16 @@ export async function startContractEventPolling(params) {
 
     try {
       const currentBlock = await client.getBlockNumber();
+
+      // Update chain time cache with the latest block (non-fatal if it fails)
+      try {
+        const block = await client.getBlock({ blockNumber: currentBlock });
+        if (block?.timestamp != null) {
+          updateChainTimeCache(Number(currentBlock), Number(block.timestamp));
+        }
+      } catch (e) {
+        // non-fatal — cache stays stale, endpoint will return what it has
+      }
 
       if (currentBlock < lastProcessedBlock) {
         // Chain rewound below our cursor — almost always a local-dev Anvil

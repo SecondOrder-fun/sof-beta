@@ -1,18 +1,19 @@
-import { useReadContract, useWatchContractEvent } from "wagmi";
+import { useReadContract } from "wagmi";
+import { useWatchContractLogs } from "@/hooks/chain/useWatchContractLogs";
 import { useEffect, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { formatEther } from "viem";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { formatEther, createPublicClient, http } from "viem";
 import { getStoredNetworkKey } from "@/lib/wagmi";
 import { getContractAddresses } from "@/config/contracts";
 import { RafflePrizeDistributorAbi as PrizeDistributorAbi, RaffleAbi } from "@/utils/abis";
-import { getPrizeDistributor } from "@/services/onchainRaffleDistributor";
 import { buildClaimCalls } from "@/services/claimService";
 import { useToast } from "@/hooks/useToast";
-import { createPublicClient, http } from "viem";
 import { getNetworkByKey } from "@/config/networks";
 import { useSmartTransactions } from "./useSmartTransactions";
 import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 
+// D11: No backend HTTP endpoint exists for prize distributor data — data lives
+// on-chain only. useReadContract is the appropriate abstraction here.
 export function useRafflePrizes(seasonId) {
   const netKey = getStoredNetworkKey();
   // SMA-bound read per spec §4.3 — winners are recorded at the SMA.
@@ -24,27 +25,29 @@ export function useRafflePrizes(seasonId) {
   const [claimStatus, setClaimStatus] = useState("unclaimed"); // 'unclaimed', 'claiming', 'completed'
   const { toast } = useToast();
 
-  const distributorQuery = useQuery({
-    queryKey: ["prize_distributor_addr", netKey],
-    queryFn: () => getPrizeDistributor({ networkKey: netKey }),
-    staleTime: 10_000,
-  });
-
-  // On-chain fallback: read prizeDistributor() from configured RAFFLE if service is unavailable
+  // Read prizeDistributor address directly from the RAFFLE contract via wagmi.
+  // Previously used a separate useQuery wrapping a manual viem read; wagmi's
+  // useReadContract is simpler and avoids a redundant client construction.
   const { RAFFLE } = getContractAddresses(netKey);
-  const { data: distributorFromChain } = useReadContract({
-    address: distributorQuery.data ? undefined : RAFFLE,
+  const { data: distributorAddress } = useReadContract({
+    address: RAFFLE,
     abi: RaffleAbi,
     functionName: "prizeDistributor",
     args: [],
     query: {
-      enabled: !distributorQuery.data && Boolean(RAFFLE),
+      enabled: Boolean(RAFFLE),
+      staleTime: Infinity,
     },
   });
 
-  const distributorAddress = distributorQuery.data || distributorFromChain;
-
-  // Read distributor payouts snapshot
+  // Read distributor payouts snapshot. No refetchInterval: this data only
+  // changes when someone claims, and the GrandClaimed / ConsolationClaimed
+  // watchers in this file and in ClaimCenter already invalidate the
+  // ["raffle_claims"] cache + drive the UI off the event payload. The
+  // previous 5s poll fired two readContract calls every 5 seconds for the
+  // lifetime of every Raffle Detail mount — ~24 RPC reads per minute per
+  // open tab, which steadily fed Tenderly burst-limit 429s as soon as the
+  // page sat idle long enough for another query to fire in the same window.
   const { data: seasonPayouts, isLoading: isLoadingPayouts } = useReadContract({
     address: distributorAddress,
     abi: PrizeDistributorAbi,
@@ -55,11 +58,13 @@ export function useRafflePrizes(seasonId) {
         !!seasonId &&
         !!distributorAddress &&
         distributorAddress !== "0x0000000000000000000000000000000000000000",
-      refetchInterval: 5000, // Poll for updates
+      staleTime: Infinity,
     },
   });
 
-  // Read raffle season details to compare status/winner against distributor snapshot
+  // Read raffle season details. Same reasoning: status flips on
+  // SeasonCompleted / SeasonCancelled, both watched by the listener
+  // pipeline that drives SSE invalidation. No reason to bang the chain.
   const { data: raffleDetails } = useReadContract({
     address: RAFFLE,
     abi: RaffleAbi,
@@ -67,7 +72,7 @@ export function useRafflePrizes(seasonId) {
     args: [BigInt(seasonId)],
     query: {
       enabled: Boolean(RAFFLE) && Boolean(seasonId),
-      refetchInterval: 5000,
+      staleTime: Infinity,
     },
   });
 
@@ -109,7 +114,6 @@ export function useRafflePrizes(seasonId) {
     onSuccess: () => {
       // Invalidate relevant queries
       queryClient.invalidateQueries({ queryKey: ["raffle_claims"] });
-      queryClient.invalidateQueries({ queryKey: ["sofBalance"] });
     },
     onError: (error) => {
       setClaimStatus("unclaimed");
@@ -181,13 +185,18 @@ export function useRafflePrizes(seasonId) {
     staleTime: 60_000,
   });
 
-  // Watch for GrandClaimed events
-  useWatchContractEvent({
+  // Watch for the connected user's own GrandClaimed event so we can flip
+  // claimStatus to "completed" and show a toast when the chain confirms.
+  // Only enabled while a claim is in flight (claimStatus === "claiming") —
+  // before the user submits a claim the watcher has nothing to watch for,
+  // and polling getLogs on an Active raffle was firing eth_getBlockNumber
+  // every 12s for the entire page lifetime, steadily feeding Tenderly
+  // burst-limit 429s.
+  useWatchContractLogs({
     address: distributorAddress,
     abi: PrizeDistributorAbi,
     eventName: "GrandClaimed",
     onLogs: (logs) => {
-      // Check if this event is for our season and address
       logs.forEach((log) => {
         if (
           log.args &&
@@ -208,7 +217,7 @@ export function useRafflePrizes(seasonId) {
       });
     },
     enabled: Boolean(
-      distributorAddress && address && seasonId && claimStatus !== "completed"
+      distributorAddress && address && seasonId && claimStatus === "claiming"
     ),
   });
 

@@ -13,18 +13,19 @@ function buildClient(networkKey) {
   return client;
 }
 
+// The PrizeDistributor address is fixed at deployment time and shipped in
+// the contracts package's deployment JSON — exposed via getContractAddresses
+// as PRIZE_DISTRIBUTOR. Older code paths read it back through Raffle's
+// prizeDistributor() view; that's a wasted RPC since the address is in the
+// bundle. Resolving from static config makes the function synchronous from
+// the caller's perspective and removes one of the cold-load reads that
+// every sponsor-prize / claim hook used to fire.
 export async function getPrizeDistributor({
   networkKey = getStoredNetworkKey(),
-}) {
-  const client = buildClient(networkKey);
-  const { RAFFLE } = getContractAddresses(networkKey);
-  if (!RAFFLE) throw new Error("RAFFLE address missing");
-  const addr = await client.readContract({
-    address: RAFFLE,
-    abi: RaffleAbi,
-    functionName: "prizeDistributor",
-  });
-  return addr;
+} = {}) {
+  const { PRIZE_DISTRIBUTOR } = getContractAddresses(networkKey);
+  if (!PRIZE_DISTRIBUTOR) throw new Error("PRIZE_DISTRIBUTOR address missing");
+  return PRIZE_DISTRIBUTOR;
 }
 
 export async function getSeasonPayouts({

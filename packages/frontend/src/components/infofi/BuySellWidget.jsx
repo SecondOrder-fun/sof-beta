@@ -31,13 +31,12 @@ const BuySellWidget = ({ marketId, market }) => {
   const [outcome, setOutcome] = React.useState('YES');
   const [amount, setAmount] = React.useState('');
 
-  // Read user's current positions
+  // Read user's current positions — invalidated explicitly in placeBet.onSuccess
   const yesPosition = useQuery({
     queryKey: ['infofiBet', marketId, address, true],
     enabled: !!address && !!marketId,
     queryFn: () => readBet({ marketId, account: address, prediction: true }),
     staleTime: 5_000,
-    refetchInterval: 5_000,
   });
 
   const noPosition = useQuery({
@@ -45,7 +44,6 @@ const BuySellWidget = ({ marketId, market }) => {
     enabled: !!address && !!marketId,
     queryFn: () => readBet({ marketId, account: address, prediction: false }),
     staleTime: 5_000,
-    refetchInterval: 5_000,
   });
 
   // Place bet mutation

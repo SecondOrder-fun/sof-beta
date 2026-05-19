@@ -7,13 +7,14 @@ import {
   createSponsorPrize,
   saveTierConfigs,
 } from "../../shared/sponsorPrizeService.js";
+import { getSSEChannelService } from "../services/sseChannelService.js";
 
 const TAG = "[SPONSOR_PRIZE_LISTENER]";
 
 /**
  * Process an ERC20Sponsored event log.
  */
-async function processERC20Sponsored(log, logger) {
+async function processERC20Sponsored(log, logger, sseService) {
   const { seasonId, sponsor, token, amount } = log.args;
 
   try {
@@ -55,6 +56,20 @@ async function processERC20Sponsored(log, logger) {
     });
 
     logger.info(`${TAG} Indexed ERC20 sponsorship: ${tokenSymbol || token} amount=${amountStr} for season ${seasonIdNum}`);
+
+    // Broadcast SponsorPrizeAdded to raffle SSE channel (after DB write)
+    if (sseService) {
+      sseService.broadcast('raffle', {
+        type: 'SponsorPrizeAdded',
+        seasonId: seasonIdNum,
+        sponsor,
+        prizeTokenAddress: token,
+        amount: amountStr,
+        label: null,
+        blockNumber: Number(log.blockNumber),
+        txHash: log.transactionHash,
+      });
+    }
   } catch (error) {
     logger.error(`${TAG} Failed to process ERC20Sponsored: ${error.message}`);
   }
@@ -63,7 +78,7 @@ async function processERC20Sponsored(log, logger) {
 /**
  * Process an ERC721Sponsored event log.
  */
-async function processERC721Sponsored(log, logger) {
+async function processERC721Sponsored(log, logger, sseService) {
   const { seasonId, sponsor, token, tokenId } = log.args;
 
   try {
@@ -100,6 +115,20 @@ async function processERC721Sponsored(log, logger) {
     });
 
     logger.info(`${TAG} Indexed ERC721 sponsorship: ${tokenName || token}#${tokenIdStr} for season ${seasonIdNum}`);
+
+    // Broadcast SponsorPrizeAdded to raffle SSE channel (after DB write)
+    if (sseService) {
+      sseService.broadcast('raffle', {
+        type: 'SponsorPrizeAdded',
+        seasonId: seasonIdNum,
+        sponsor,
+        prizeTokenAddress: token,
+        amount: null,
+        label: null,
+        blockNumber: Number(log.blockNumber),
+        txHash: log.transactionHash,
+      });
+    }
   } catch (error) {
     logger.error(`${TAG} Failed to process ERC721Sponsored: ${error.message}`);
   }
@@ -150,6 +179,7 @@ export async function startSponsorPrizeListener(distributorAddress, distributorA
     throw new Error("logger instance is required");
   }
 
+  const sseService = getSSEChannelService(logger);
   const unwatchers = [];
 
   // Listen for ERC20Sponsored events
@@ -164,7 +194,7 @@ export async function startSponsorPrizeListener(distributorAddress, distributorA
     blockCursor: erc20Cursor,
     onLogs: async (logs) => {
       for (const log of logs) {
-        await processERC20Sponsored(log, logger);
+        await processERC20Sponsored(log, logger, sseService);
       }
     },
     onError: (error) => {
@@ -185,7 +215,7 @@ export async function startSponsorPrizeListener(distributorAddress, distributorA
     blockCursor: erc721Cursor,
     onLogs: async (logs) => {
       for (const log of logs) {
-        await processERC721Sponsored(log, logger);
+        await processERC721Sponsored(log, logger, sseService);
       }
     },
     onError: (error) => {

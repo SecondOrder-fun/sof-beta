@@ -4,6 +4,7 @@ import { SOFBondingCurveABI as SOFBondingCurveAbi } from '@sof/contracts';
 import { startContractEventPolling } from "../lib/contractEventPolling.js";
 import { createBlockCursor } from "../lib/blockCursor.js";
 import { historicalOddsService } from "../../shared/historicalOddsService.js";
+import { getSSEChannelService } from "../services/sseChannelService.js";
 
 // Market type hash mapping (matches contract constants)
 // These are keccak256 hashes of the market type strings
@@ -129,6 +130,8 @@ export async function startMarketCreatedListener(
   if (!logger) {
     throw new Error("logger instance is required");
   }
+
+  const sseService = getSSEChannelService(logger);
 
   // Create persistent block cursor for this listener
   const blockCursor = await createBlockCursor(
@@ -276,6 +279,16 @@ export async function startMarketCreatedListener(
             logger.debug(`   Full error:`, dbError);
             // Don't throw - continue listening even if database update fails
           }
+
+          // Broadcast MarketCreated to infofi SSE channel (after DB writes)
+          sseService.broadcast('infofi', {
+            type: 'MarketCreated',
+            fpmmAddress,
+            seasonId: seasonIdNum,
+            player,
+            blockNumber: Number(log.blockNumber),
+            txHash: log.transactionHash,
+          });
         } catch (error) {
           logger.error(
             `❌ Failed to process MarketCreated event for season ${seasonId}, player ${player}`,

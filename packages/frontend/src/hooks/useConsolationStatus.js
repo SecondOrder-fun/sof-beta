@@ -1,6 +1,6 @@
-import { useReadContract } from "wagmi";
 import { useRafflePrizes } from "@/hooks/useRafflePrizes";
 import { useRaffleAccount } from "@/hooks/useRaffleAccount";
+import { useUltraFreshRead } from "@/hooks/chain/useUltraFreshRead";
 import { RafflePrizeDistributorAbi } from "@/utils/abis";
 
 /**
@@ -17,6 +17,19 @@ import { RafflePrizeDistributorAbi } from "@/utils/abis";
  * viewer's eligibility/claim status. Wraps useRafflePrizes (which already
  * holds the distributor's getSeason snapshot) and adds two extra reads.
  *
+ * Cache semantics (per Raffle Detail spec):
+ *  - Active season: data is functionally stable for the lifetime of the
+ *    view (eligibility flips only when the user buys/sells tickets, and
+ *    nothing on the page reads it until VRF lands). Fetch once on mount.
+ *  - Completed season: data is immutable. Fetch once on mount and cache
+ *    for the rest of the session.
+ *
+ * Both cases collapse to staleTime: Infinity — react-query will reuse
+ * the cached value across remounts in the same session. The two reads
+ * still get invalidated by the existing `touches: [distributorAddress]`
+ * post-tx invalidation in executeBatch, so a successful claim immediately
+ * refreshes claim status without a poll loop.
+ *
  * @param {number} seasonId
  * @returns {ConsolationStatus}
  */
@@ -30,20 +43,27 @@ export function useConsolationStatus(seasonId) {
     distributorAddress && viewerAddress && seasonId !== undefined && seasonId !== null,
   );
 
-  const { data: eligible, isLoading: isLoadingEligible } = useReadContract({
+  const distributorContract = {
     address: distributorAddress,
     abi: RafflePrizeDistributorAbi,
-    functionName: "isEligibleForConsolation",
+  };
+
+  const { data: eligible, isLoading: isLoadingEligible } = useUltraFreshRead({
+    contract: distributorContract,
+    fn: "isEligibleForConsolation",
     args: [BigInt(seasonId ?? 0), viewerAddress],
-    query: { enabled },
+    touches: distributorAddress ? [distributorAddress] : [],
+    enabled,
+    staleTime: Infinity,
   });
 
-  const { data: claimed, isLoading: isLoadingClaimed } = useReadContract({
-    address: distributorAddress,
-    abi: RafflePrizeDistributorAbi,
-    functionName: "hasClaimedConsolation",
+  const { data: claimed, isLoading: isLoadingClaimed } = useUltraFreshRead({
+    contract: distributorContract,
+    fn: "hasClaimedConsolation",
     args: [BigInt(seasonId ?? 0), viewerAddress],
-    query: { enabled },
+    touches: distributorAddress ? [distributorAddress] : [],
+    enabled,
+    staleTime: Infinity,
   });
 
   const totalPoolWei = seasonPayouts?.consolationAmount ?? 0n;

@@ -6,6 +6,7 @@ import process from "node:process";
 import { hasSupabase, db } from "../shared/supabaseClient.js";
 import { startSeasonStartedListener } from "../src/listeners/seasonStartedListener.js";
 import { startSeasonCompletedListener } from "../src/listeners/seasonCompletedListener.js";
+import { startSeasonStatusListener } from "../src/listeners/seasonStatusListener.js";
 import { startSeasonLifecycleService, getSeasonLifecycleService } from "../src/services/seasonLifecycleService.js";
 import { startPositionUpdateListener } from "../src/listeners/positionUpdateListener.js";
 import { startMarketCreatedListener } from "../src/listeners/marketCreatedListener.js";
@@ -283,6 +284,77 @@ try {
   app.log.error({ err }, "Failed to mount /api/rollover");
 }
 
+try {
+  await app.register((await import("./routes/sseRoutes.js")).default, {
+    prefix: "/sse",
+  });
+  app.log.info("Mounted /sse");
+} catch (err) {
+  app.log.error({ err }, "Failed to mount /sse");
+}
+
+try {
+  await app.register((await import("./routes/curveRoutes.js")).default, {
+    prefix: "/api/curve",
+  });
+  app.log.info("Mounted /api/curve");
+} catch (err) {
+  app.log.error({ err }, "Failed to mount /api/curve");
+}
+
+// Build the Blockscout client up-front so multiple routes (the proxy
+// itself + /api/token/sof/transactions/:user) can share one instance
+// with its LRU cache and endpoint whitelist. Null when not configured;
+// routes that need it return 503 rather than crashing.
+let sharedBlockscoutClient = null;
+if (process.env.BLOCKSCOUT_BASE_URL && process.env.BLOCKSCOUT_API_KEY) {
+  try {
+    const { createBlockscoutClient } = await import(
+      "../src/services/blockscoutClient.js"
+    );
+    sharedBlockscoutClient = createBlockscoutClient({
+      baseUrl: process.env.BLOCKSCOUT_BASE_URL,
+      apiKey: process.env.BLOCKSCOUT_API_KEY,
+      logger: app.log,
+    });
+  } catch (err) {
+    app.log.error({ err }, "Failed to initialize Blockscout client");
+  }
+} else {
+  app.log.warn("⚠️  BLOCKSCOUT_BASE_URL/API_KEY missing; cold reads disabled");
+}
+
+try {
+  await app.register((await import("./routes/tokenRoutes.js")).default, {
+    prefix: "/api/token",
+    blockscoutClient: sharedBlockscoutClient,
+  });
+  app.log.info("Mounted /api/token");
+} catch (err) {
+  app.log.error({ err }, "Failed to mount /api/token");
+}
+
+try {
+  await app.register((await import("./routes/chainTimeRoutes.js")).default, {
+    prefix: "/api/chain",
+  });
+  app.log.info("Mounted /api/chain");
+} catch (err) {
+  app.log.error({ err }, "Failed to mount /api/chain");
+}
+
+try {
+  if (sharedBlockscoutClient) {
+    await app.register((await import("./routes/blockscoutRoutes.js")).default, {
+      prefix: "/api/blockscout",
+      blockscoutClient: sharedBlockscoutClient,
+    });
+    app.log.info("✅ Blockscout proxy registered at /api/blockscout");
+  }
+} catch (err) {
+  app.log.error({ err }, "Failed to mount /api/blockscout");
+}
+
 // Debug: print all mounted routes
 // app.ready(() => {
 //   try {
@@ -308,6 +380,7 @@ app.setNotFoundHandler((_request, reply) => {
 // Initialize listeners
 let unwatchSeasonStarted;
 let unwatchSeasonCompleted;
+let unwatchSeasonStatusListeners = []; // array returned by startSeasonStatusListener
 let unwatchMarketCreated;
 let unwatchRollover;
 let unwatchAccountCreated;
@@ -320,6 +393,18 @@ async function startListeners() {
     const raffleAddress = chain.raffle;
 
     const infoFiFactoryAddress = chain.infofiFactory;
+
+    // Warm the SOF metadata cache so /api/token/sof serves immediately.
+    // One chain read at boot replaces a per-mount eth_call from every
+    // frontend page that needs sofDecimals (raffle list, raffle detail,
+    // profile, sponsor, etc.).
+    try {
+      const { fetchSofMetadata } = await import("../src/lib/sofMetadataCache.js");
+      const { publicClient } = await import("../src/lib/viemClient.js");
+      await fetchSofMetadata({ publicClient, network: NETWORK, logger: app.log });
+    } catch (err) {
+      app.log.error({ err }, "Failed to fetch SOF metadata at startup");
+    }
 
     if (!raffleAddress) {
       app.log.warn(
@@ -390,6 +475,19 @@ async function startListeners() {
       app.log,
       onSeasonCreated,
     );
+
+    // Start SeasonStatus listener (handles SeasonCreated, SeasonLocked,
+    // SeasonEndRequested, SeasonReadyToFinalize, SeasonCancelled)
+    try {
+      unwatchSeasonStatusListeners = await startSeasonStatusListener(
+        raffleAddress,
+        raffleAbi,
+        app.log,
+      );
+      app.log.info("✅ SeasonStatusListener started (5 events)");
+    } catch (error) {
+      app.log.error(`❌ Failed to start SeasonStatusListener: ${error.message}`);
+    }
 
     // Callback to clean up per-season listeners when a season completes
     const onSeasonCompleted = async ({ seasonId }) => {
@@ -726,6 +824,9 @@ async function shutdown(signal) {
     safeStep("SeasonStarted listener", unwatchSeasonStarted);
   if (unwatchSeasonCompleted)
     safeStep("SeasonCompleted listener", unwatchSeasonCompleted);
+  for (const [i, unwatch] of unwatchSeasonStatusListeners.entries()) {
+    safeStep(`SeasonStatus listener[${i}]`, unwatch);
+  }
   if (unwatchMarketCreated)
     safeStep("MarketCreated listener", unwatchMarketCreated);
   if (unwatchRollover) safeStep("Rollover listener", unwatchRollover);

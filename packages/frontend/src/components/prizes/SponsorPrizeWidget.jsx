@@ -27,7 +27,14 @@ export function SponsorPrizeWidget({ seasonId }) {
   const { t } = useTranslation("raffle");
   const { address } = useAccount();
   const publicClient = usePublicClient();
-  const { tierConfigs } = useSponsoredPrizes(seasonId);
+  // The widget defaults to a collapsed CTA. Until the user opts in, we
+  // don't fire any sponsored-prize reads — most active raffles in beta
+  // have no sponsorship activity, so unconditionally fetching tier
+  // configs / ERC-20 / ERC-721 lists on every raffle-detail mount was
+  // pure RPC waste. Expanding the form is the explicit signal that
+  // those reads are needed (to populate the tier dropdown).
+  const [expanded, setExpanded] = useState(false);
+  const { tierConfigs } = useSponsoredPrizes(seasonId, { enabled: expanded });
   const { executeBatch } = useSmartTransactions();
 
   const [tab, setTab] = useState("erc20");
@@ -172,6 +179,28 @@ export function SponsorPrizeWidget({ seasonId }) {
   };
 
   if (!address) return null;
+
+  if (!expanded) {
+    return (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Gift className="h-4 w-4" />
+            {t("sponsorPrizeBtn")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Button
+            variant="outline"
+            onClick={() => setExpanded(true)}
+            className="w-full"
+          >
+            {t("sponsorPrizeBtn")}
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>

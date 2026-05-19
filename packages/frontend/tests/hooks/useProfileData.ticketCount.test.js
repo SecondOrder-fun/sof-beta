@@ -27,6 +27,15 @@ vi.mock("@/services/onchainRaffleDistributor", () => ({
   getPrizeDistributor: vi.fn(),
 }));
 
+// useSOFBalance added to useProfileData (D18 migration)
+vi.mock("@/hooks/useSOFBalance", () => ({
+  useSOFBalance: () => ({
+    balanceRaw: 0n,
+    isLoading: false,
+    refetch: () => {},
+  }),
+}));
+
 vi.mock("@/utils/abis", () => ({
   ERC20Abi: [],
   SOFBondingCurveAbi: [],
@@ -38,26 +47,25 @@ import { useViemClient } from "@/hooks/useViemClient";
 import { useAllSeasons } from "@/hooks/useAllSeasons";
 
 /**
- * Route readContract calls based on functionName argument.
- * The hook calls readContract for SOF balanceOf, raffleToken, decimals, balanceOf.
+ * Mock client that supports both `readContract` (legacy single-call path)
+ * and `multicall` (the batched path used by seasonBalancesQuery). Routes
+ * each contract call by functionName.
  */
 function createMockClient({ sofBalance, raffleToken, decimals, ticketBalance }) {
+  function resolveCall({ functionName, address }) {
+    if (functionName === "balanceOf" && address === "0xSOF") return sofBalance ?? 0n;
+    if (functionName === "raffleToken") return raffleToken;
+    if (functionName === "decimals") return decimals;
+    if (functionName === "balanceOf") return ticketBalance;
+    return null;
+  }
   return {
-    readContract: vi.fn(({ functionName, address }) => {
-      if (functionName === "balanceOf" && address === "0xSOF") {
-        return Promise.resolve(sofBalance ?? 0n);
-      }
-      if (functionName === "raffleToken") {
-        return Promise.resolve(raffleToken);
-      }
-      if (functionName === "decimals") {
-        return Promise.resolve(decimals);
-      }
-      if (functionName === "balanceOf") {
-        return Promise.resolve(ticketBalance);
-      }
-      return Promise.resolve(null);
-    }),
+    readContract: vi.fn((args) => Promise.resolve(resolveCall(args))),
+    multicall: vi.fn(({ contracts }) =>
+      Promise.resolve(
+        contracts.map((c) => ({ status: "success", result: resolveCall(c) })),
+      ),
+    ),
   };
 }
 
@@ -87,9 +95,19 @@ describe("useProfileData - ticketCount and bondingCurve", () => {
     });
 
     useViemClient.mockReturnValue({ client: mockClient, netKey: "testnet" });
+    // raffleToken comes from the warm season_contracts row now (no longer
+    // read from chain), so the fixture must include it.
     useAllSeasons.mockReturnValue({
       data: [
-        { id: 1, config: { name: "Season 1", bondingCurve: "0xCurve1" } },
+        {
+          id: 1,
+          status: 1,
+          config: {
+            name: "Season 1",
+            bondingCurve: "0xCurve1",
+            raffleToken: "0xRaffleToken",
+          },
+        },
       ],
     });
 
@@ -123,7 +141,15 @@ describe("useProfileData - ticketCount and bondingCurve", () => {
     useViemClient.mockReturnValue({ client: mockClient, netKey: "testnet" });
     useAllSeasons.mockReturnValue({
       data: [
-        { id: 2, config: { name: "Season 2", bondingCurve: "0xCurve2" } },
+        {
+          id: 2,
+          status: 5,
+          config: {
+            name: "Season 2",
+            bondingCurve: "0xCurve2",
+            raffleToken: "0xRaffleToken2",
+          },
+        },
       ],
     });
 

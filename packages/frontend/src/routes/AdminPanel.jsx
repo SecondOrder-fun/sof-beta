@@ -8,7 +8,7 @@ import { useAllSeasons } from "@/hooks/useAllSeasons";
 import { useAccessControl } from "@/hooks/useAccessControl";
 import { getStoredNetworkKey } from "@/lib/wagmi";
 import { getNetworkByKey } from "@/config/networks";
-import { getContractAddresses } from "@/config/contracts";
+import { getContractAddresses, RAFFLE_ABI } from "@/config/contracts";
 import {
   Card,
   CardContent,
@@ -45,7 +45,6 @@ function AdminPanelInner() {
   const { createSeason, startSeason, requestSeasonEnd, finalizeSeason } = useRaffleWrite();
   const allSeasonsQuery = useAllSeasons();
   const { address } = useAccount();
-  const { hasRole } = useAccessControl();
   const chainId = useChainId();
   const publicClient = usePublicClient();
   const { status: authStatus, error: authError } = useAppAuth();
@@ -69,7 +68,26 @@ function AdminPanelInner() {
   const { accessLevel, isLoading: isAdminLoading } = useAllowlist();
   const isAdmin = accessLevel >= ACCESS_LEVELS.ADMIN;
 
-  // Check if user can create seasons (role OR Sponsor hat via Hats Protocol)
+  // Reactive role checks — ultra-fresh reads; auto-invalidated by executeBatch
+  const raffleContract = contracts.RAFFLE
+    ? { address: contracts.RAFFLE, abi: RAFFLE_ABI }
+    : null;
+
+  const { hasRole: hasCreatorRoleCheck, isLoading: _isCreatorRoleLoading } = useAccessControl({
+    contract: raffleContract,
+    role: SEASON_CREATOR_ROLE,
+    account: address,
+    enabled: !!address && !!contracts.RAFFLE,
+  });
+
+  const { hasRole: hasEmergencyRole, isLoading: isEmergencyLoading } = useAccessControl({
+    contract: raffleContract,
+    role: EMERGENCY_ROLE,
+    account: address,
+    enabled: !!address && !!contracts.RAFFLE,
+  });
+
+  // Check if user can create seasons (canCreateSeason on-chain, falls back to role check)
   const { data: hasCreatorRole, isLoading: isCreatorLoading } = useQuery({
     queryKey: ["canCreateSeason", address, contracts.RAFFLE],
     queryFn: async () => {
@@ -87,19 +105,12 @@ function AdminPanelInner() {
           functionName: "canCreateSeason",
           args: [address],
         });
-      } catch (e) {
-        // Fallback to old role check if contract doesn't have canCreateSeason
-        return hasRole(SEASON_CREATOR_ROLE, address);
+      } catch {
+        // Fallback to role check if contract doesn't have canCreateSeason
+        return hasCreatorRoleCheck;
       }
     },
     enabled: !!address && !!publicClient,
-  });
-
-  // Check if user has emergency role
-  const { data: hasEmergencyRole, isLoading: isEmergencyLoading } = useQuery({
-    queryKey: ["hasEmergencyRole", address],
-    queryFn: () => hasRole(EMERGENCY_ROLE, address),
-    enabled: !!address,
   });
 
   // Shared chain time hook (React Query cache keyed by netKey)

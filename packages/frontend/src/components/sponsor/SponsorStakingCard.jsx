@@ -1,6 +1,7 @@
 // src/components/sponsor/SponsorStakingCard.jsx
 import { useState } from "react";
-import { useAccount, useWatchContractEvent } from "wagmi";
+import { useAccount } from "wagmi";
+import { useWatchContractLogs } from "@/hooks/chain/useWatchContractLogs";
 import { encodeFunctionData } from "viem";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -81,7 +82,7 @@ export function SponsorStakingCard() {
   const { executeBatch } = useSmartTransactions();
 
   // Watch for staking events to auto-refresh
-  useWatchContractEvent({
+  useWatchContractLogs({
     address: HATS_CONFIG.STAKING_ELIGIBILITY_ADDRESS,
     abi: StakingEligibilityAbi,
     eventName: "StakingEligibility_Staked",
@@ -93,7 +94,7 @@ export function SponsorStakingCard() {
     enabled: isConnected && !!address,
   });
 
-  useWatchContractEvent({
+  useWatchContractLogs({
     address: HATS_CONFIG.STAKING_ELIGIBILITY_ADDRESS,
     abi: StakingEligibilityAbi,
     eventName: "StakingEligibility_UnstakeBegun",

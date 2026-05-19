@@ -41,6 +41,10 @@ vi.mock("@/hooks/useCurveState", () => ({
   }),
 }));
 
+vi.mock("@/hooks/useCurveEvents", () => ({
+  useCurveEvents: () => {},
+}));
+
 vi.mock("@/hooks/useRaffleTracker", () => ({
   useRaffleTracker: () => ({
     usePlayerSnapshot: () => ({

@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useSmartTransactions } from "./useSmartTransactions";
 import { useRaffleAccount } from "@/hooks/useRaffleAccount";
+import { useLiveSubscription } from "@/hooks/chain/useLiveSubscription";
 import { getStoredNetworkKey } from "@/lib/wagmi";
 import { getContractAddresses } from "@/config/contracts";
 import {
@@ -45,7 +46,16 @@ export function useRollover(seasonId) {
     },
     enabled: Boolean(address && publicClient && seasonId && contracts.ROLLOVER_ESCROW),
     staleTime: 30_000,
-    refetchInterval: 60_000,
+  });
+
+  // Invalidate on-chain rollover state when the backend sees a relevant event.
+  useLiveSubscription({
+    channel: "rollover",
+    enabled: !!address,
+    filter: (e) =>
+      e.user?.toLowerCase() === address?.toLowerCase() ||
+      e.type === "ConsolationFunded",
+    onEvent: () => qc.invalidateQueries({ queryKey }),
   });
 
   // --- Computed ---
@@ -82,7 +92,6 @@ export function useRollover(seasonId) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["raffle_claims"] });
-      qc.invalidateQueries({ queryKey: ["sofBalance"] });
       qc.invalidateQueries({ queryKey });
       toast({ title: t("raffle:rolloverSuccess", { defaultValue: "Rollover confirmed" }) });
     },
@@ -104,7 +113,6 @@ export function useRollover(seasonId) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey });
-      qc.invalidateQueries({ queryKey: ["sofBalance"] });
       qc.invalidateQueries({ queryKey: ["sofTransactions"] });
     },
     onError: (err) => {
@@ -119,7 +127,6 @@ export function useRollover(seasonId) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey });
-      qc.invalidateQueries({ queryKey: ["sofBalance"] });
       toast({ title: t("raffle:refundSuccess", { defaultValue: "Refund confirmed" }) });
     },
     onError: (err) => {

@@ -1,118 +1,163 @@
 /*
   @vitest-environment jsdom
+  Tests for useCurveState warm-read + SSE pattern.
+  The old multicall/readContract path has been replaced by backend REST endpoints.
 */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { renderHook, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-vi.mock("@/lib/wagmi", () => ({
-  getStoredNetworkKey: () => "TESTNET",
+// --- minimal SSE registry mock so useLiveSubscription doesn't open real connections ---
+vi.mock('@/hooks/chain/sseRegistry', () => ({
+  subscribe: vi.fn(() => () => {}),
 }));
 
-vi.mock("@/contracts/abis/SOFBondingCurve.json", () => ({
-  default: {
-    abi: [],
-  },
-}));
+const ADDR = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
-describe("useCurveState multicall fallback", () => {
+function makeWrapper() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // eslint-disable-next-line react/display-name
+  return ({ children }) => (
+    <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+  );
+}
+
+describe('useCurveState — warm-read + SSE pattern', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.resetModules();
+    vi.restoreAllMocks();
   });
 
-  it("falls back to readContract when multicall is unavailable", async () => {
-    const readContractMock = vi.fn(async ({ functionName }) => {
-      if (functionName === "curveConfig") return [123n, 456n];
-      if (functionName === "getCurrentStep")
-        return [0n, 10_000000000000000000n, 10_000n];
-      if (functionName === "getBondSteps") {
-        return [
-          { rangeTo: 10_000n, price: 10_000000000000000000n },
-          { rangeTo: 20_000n, price: 11_000000000000000000n },
-        ];
+  it('returns BigInt fields from /api/curve/:addr/state response', async () => {
+    const statePayload = {
+      currentSupply: '500',
+      sofReserves: '1000',
+      accumulatedFees: '50',
+      currentStep: { index: '2', price: '1500000000000000000', rangeTo: '1000' },
+    };
+    const stepsPayload = [
+      { rangeTo: '500', price: '1000000000000000000' },
+      { rangeTo: '1000', price: '1500000000000000000' },
+    ];
+
+    global.fetch = vi.fn().mockImplementation((url) => {
+      if (url.includes('/state')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(statePayload) });
       }
-      if (functionName === "accumulatedFees") return 0n;
-      return 0n;
+      if (url.includes('/steps')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(stepsPayload) });
+      }
+      return Promise.reject(new Error('unexpected fetch: ' + url));
     });
 
-    vi.doMock("@/lib/viemClient", () => ({
-      buildPublicClient: () => ({
-        multicall: undefined,
-        readContract: readContractMock,
-      }),
-    }));
+    const { useCurveState } = await import('@/hooks/useCurveState');
 
-    const { useCurveState } = await import("@/hooks/useCurveState");
-
-    const { result, unmount } = renderHook(() =>
-      useCurveState("0x0000000000000000000000000000000000000001", {
-        isActive: true,
-        pollMs: 999999,
-        includeSteps: true,
-        includeFees: true,
-        enabled: true,
-      }),
+    const { result } = renderHook(
+      () =>
+        useCurveState(ADDR, {
+          isActive: false,
+          includeSteps: true,
+          includeFees: true,
+          enabled: true,
+        }),
+      { wrapper: makeWrapper() },
     );
 
     await waitFor(() => {
-      expect(readContractMock).toHaveBeenCalledWith(
-        expect.objectContaining({ functionName: "getBondSteps" }),
-      );
+      expect(result.current.curveSupply).toBe(500n);
     });
 
-    expect(result.current.curveSupply).toBe(123n);
-    expect(result.current.curveReserves).toBe(456n);
-    expect(result.current.curveStep?.price).toBe(10_000000000000000000n);
+    expect(result.current.curveReserves).toBe(1000n);
+    expect(result.current.curveFees).toBe(50n);
+    expect(result.current.curveStep?.step).toBe(2n);
+    expect(result.current.curveStep?.price).toBe(1500000000000000000n);
+    expect(result.current.curveStep?.rangeTo).toBe(1000n);
     expect(result.current.allBondSteps).toHaveLength(2);
-
-    unmount();
+    expect(result.current.allBondSteps[0].rangeTo).toBe(500n);
+    expect(result.current.bondStepsPreview).toHaveLength(2);
   });
 
-  it("falls back to readContract when multicall throws", async () => {
-    const readContractMock = vi.fn(async ({ functionName }) => {
-      if (functionName === "curveConfig") return [1n, 2n];
-      if (functionName === "getCurrentStep") return [1n, 12n, 100n];
-      if (functionName === "getBondSteps") return [{ rangeTo: 1n, price: 2n }];
-      if (functionName === "accumulatedFees") return 0n;
-      return 0n;
+  it('returns zero defaults when state endpoint returns no data', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: () => Promise.resolve({}),
     });
 
-    const multicallMock = vi.fn(() => {
-      throw new Error("multicall failed");
+    const { useCurveState } = await import('@/hooks/useCurveState');
+
+    const { result } = renderHook(
+      () => useCurveState(ADDR, { isActive: false, enabled: true }),
+      { wrapper: makeWrapper() },
+    );
+
+    // Before data resolves, defaults are returned
+    expect(result.current.curveSupply).toBe(0n);
+    expect(result.current.curveReserves).toBe(0n);
+    expect(result.current.curveFees).toBe(0n);
+    expect(result.current.curveStep).toBeNull();
+    expect(result.current.allBondSteps).toHaveLength(0);
+  });
+
+  it('exposes refreshCurveState and debouncedRefresh as functions', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({}),
     });
 
-    vi.doMock("@/lib/viemClient", () => ({
-      buildPublicClient: () => ({
-        multicall: multicallMock,
-        readContract: readContractMock,
-      }),
-    }));
+    const { useCurveState } = await import('@/hooks/useCurveState');
 
-    const { useCurveState } = await import("@/hooks/useCurveState");
+    const { result } = renderHook(
+      () => useCurveState(ADDR, { enabled: true }),
+      { wrapper: makeWrapper() },
+    );
 
-    const { result, unmount } = renderHook(() =>
-      useCurveState("0x0000000000000000000000000000000000000002", {
-        isActive: true,
-        pollMs: 999999,
-        includeSteps: true,
-        includeFees: true,
-        enabled: true,
-      }),
+    expect(typeof result.current.refreshCurveState).toBe('function');
+    expect(typeof result.current.debouncedRefresh).toBe('function');
+  });
+
+  it('respects enabled=false and skips fetch', async () => {
+    global.fetch = vi.fn();
+
+    const { useCurveState } = await import('@/hooks/useCurveState');
+
+    renderHook(
+      () => useCurveState(ADDR, { enabled: false }),
+      { wrapper: makeWrapper() },
+    );
+
+    // Allow any pending microtasks
+    await new Promise((r) => setTimeout(r, 50));
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('uses lowerAddr for query key so cache is address-normalised', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          currentSupply: '42',
+          sofReserves: '0',
+          accumulatedFees: '0',
+          currentStep: { index: '0', price: '0', rangeTo: '0' },
+        }),
+    });
+
+    const { useCurveState } = await import('@/hooks/useCurveState');
+    const MIXED = '0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+
+    const { result } = renderHook(
+      () => useCurveState(MIXED, { isActive: false, enabled: true, includeSteps: false }),
+      { wrapper: makeWrapper() },
     );
 
     await waitFor(() => {
-      expect(readContractMock).toHaveBeenCalledWith(
-        expect.objectContaining({ functionName: "curveConfig" }),
-      );
+      expect(result.current.curveSupply).toBe(42n);
     });
 
-    expect(multicallMock).toHaveBeenCalledTimes(1);
-
-    expect(result.current.curveSupply).toBe(1n);
-    expect(result.current.curveReserves).toBe(2n);
-    expect(result.current.allBondSteps).toHaveLength(1);
-
-    unmount();
+    // The fetch URL should contain the lowercase address
+    const calledUrl = global.fetch.mock.calls[0][0];
+    expect(calledUrl).toContain(MIXED.toLowerCase());
   });
 });

@@ -6,7 +6,6 @@ import {
   encodeFunctionData,
   getAddress,
   http,
-  webSocket,
   keccak256,
   encodePacked,
   parseUnits,
@@ -25,22 +24,69 @@ import {
   estimateBlockFromTimestamp,
 } from "@/utils/blockRangeQuery";
 
-// Build a public client (HTTP) and optional WS client for subscriptions
+// Build an HTTP public client. Event subscriptions used to optionally
+// upgrade to a WebSocket transport, but the WS path created log filters
+// (eth_newFilter) which the project no longer uses for any subscription —
+// callers poll eth_getLogs with locally-tracked block cursors instead.
 function buildClients(networkKey) {
   const chain = getNetworkByKey(networkKey);
   const transportHttp = http(chain.rpcUrl);
-
-  // Optional WS support - use wsUrl from chain config if available
-  const transportWs = chain.wsUrl ? webSocket(chain.wsUrl) : null;
-
   const publicClient = createPublicClient({
     chain: { id: chain.id },
     transport: transportHttp,
   });
-  const wsClient = transportWs
-    ? createPublicClient({ chain: { id: chain.id }, transport: transportWs })
+  return { publicClient };
+}
+
+const SUBSCRIBE_POLL_MS = 12_000;
+
+// Shared poll-based event subscription helper. Returns an unsubscribe
+// function. Seeds the cursor at the current block so we don't replay
+// history — callers that need backfill should do a one-shot
+// queryLogsInChunks first and then subscribe.
+function pollLogs({ client, address, abi, eventName, onEvent, pollMs = SUBSCRIBE_POLL_MS }) {
+  if (!client || !address || !eventName) return () => {};
+  const event = Array.isArray(abi)
+    ? abi.find((item) => item?.type === "event" && item?.name === eventName)
     : null;
-  return { publicClient, wsClient };
+  if (!event) return () => {};
+
+  let cancelled = false;
+  let timeoutId = null;
+  let cursor = null;
+
+  const tick = async () => {
+    if (cancelled) return;
+    try {
+      const tip = await client.getBlockNumber();
+      if (cursor == null) {
+        cursor = tip;
+      } else if (tip > cursor) {
+        const logs = await client.getLogs({
+          address,
+          event,
+          fromBlock: cursor + 1n,
+          toBlock: tip,
+        });
+        for (const log of logs) {
+          if (cancelled) break;
+          try { onEvent?.(log); } catch { /* ignore listener errors */ }
+        }
+        cursor = tip;
+      }
+    } catch {
+      // Swallow transient RPC errors — next tick retries.
+    } finally {
+      if (!cancelled) timeoutId = setTimeout(tick, pollMs);
+    }
+  };
+
+  tick();
+
+  return () => {
+    cancelled = true;
+    if (timeoutId) clearTimeout(timeoutId);
+  };
 }
 
 // Read full bet info including claimed/payout, preferring explicit prediction overload
@@ -259,23 +305,18 @@ export function buildCreateWinnerPredictionMarketCall({
   };
 }
 
-// Optional: subscribe to MarketCreated; falls back to polling if WS not available
+// Subscribe to MarketCreated via eth_getLogs polling. Returns an unsub
+// function; safe to call before/after the factory address is resolved.
 export function subscribeMarketCreated({ networkKey = "TESTNET", onEvent }) {
-  const { wsClient } = buildClients(networkKey);
+  const { publicClient } = buildClients(networkKey);
   const { factory } = getContracts(networkKey);
-  if (wsClient) {
-    const unwatch = wsClient.watchContractEvent({
-      address: factory.address,
-      abi: factory.abi,
-      eventName: "MarketCreated",
-      onLogs: (logs) => {
-        logs.forEach((log) => onEvent?.(log));
-      },
-    });
-    return () => unwatch?.();
-  }
-  // No WS → return noop; callers can refetch periodically
-  return () => {};
+  return pollLogs({
+    client: publicClient,
+    address: factory.address,
+    abi: factory.abi,
+    eventName: "MarketCreated",
+    onEvent,
+  });
 }
 
 // Helper to safely convert BigInt to Number for basis points
@@ -370,23 +411,20 @@ export async function readOraclePrice({ marketId, networkKey = "TESTNET" }) {
   }
 }
 
-// Oracle: subscribe to PriceUpdated
+// Oracle: subscribe to PriceUpdated via eth_getLogs polling.
 export function subscribeOraclePriceUpdated({
   networkKey = getDefaultNetworkKey(),
   onEvent,
 }) {
-  const { wsClient } = buildClients(networkKey);
+  const { publicClient } = buildClients(networkKey);
   const { oracle } = getContracts(networkKey);
-  if (wsClient) {
-    const unwatch = wsClient.watchContractEvent({
-      address: oracle.address,
-      abi: oracle.abi,
-      eventName: "PriceUpdated",
-      onLogs: (logs) => logs.forEach((log) => onEvent?.(log)),
-    });
-    return () => unwatch?.();
-  }
-  return () => {};
+  return pollLogs({
+    client: publicClient,
+    address: oracle.address,
+    abi: oracle.abi,
+    eventName: "PriceUpdated",
+    onEvent,
+  });
 }
 
 // Compute bytes32 marketId for WINNER_PREDICTION markets

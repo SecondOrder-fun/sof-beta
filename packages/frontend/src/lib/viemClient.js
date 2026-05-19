@@ -29,6 +29,7 @@ function isProblematicRpcUrl(url) {
 export function resetBadRpcUrls() {
   badRpcUrls.clear();
   lastResetAt = Date.now();
+  invalidateClientCache();
 }
 
 function maybeResetDemotions(now) {
@@ -39,6 +40,9 @@ function maybeResetDemotions(now) {
 
 function markRpcBad(url, now) {
   badRpcUrls.set(url, now + DEMOTION_WINDOW_MS);
+  // Bust the client cache so the next buildPublicClient call constructs
+  // a fresh client with the demoted URL stripped from its transport list.
+  invalidateClientCache();
 }
 
 function isRpcBad(url, now) {
@@ -51,15 +55,31 @@ function isRpcBad(url, now) {
   return true;
 }
 
+// Module-level client cache, keyed by (networkKey, active-URL set).
+// Critical: every caller of buildPublicClient(netKey) must get the SAME
+// client instance, otherwise each gets its own batch.multicall queue and
+// concurrent reads from different consumers can't share the aggregator —
+// they fire as parallel POSTs and saturate the gateway's burst limit.
+// The cache invalidates when the active URL set changes (e.g. after an
+// RPC gets demoted by markRpcBad), since transport state is baked in.
+const clientCache = new Map();
+
+function invalidateClientCache() {
+  clientCache.clear();
+}
+
 /**
- * Build a viem public client with RPC fallback support.
+ * Build (or reuse) the shared viem public client for the given network.
  * Returns null when the network has no rpcUrl configured.
+ *
  * @param {string} networkKey
  * @returns {import("viem").PublicClient | null}
  */
 export function buildPublicClient(networkKey) {
   const now = Date.now();
+  const willReset = now - lastResetAt >= RESET_INTERVAL_MS;
   maybeResetDemotions(now);
+  if (willReset) invalidateClientCache();
   const net = getNetworkByKey(networkKey);
   const fallbackUrls = net?.rpcFallbackUrls || [];
   const primaryRpcUrl = net?.rpcUrl || "";
@@ -77,6 +97,15 @@ export function buildPublicClient(networkKey) {
     rpcUrls: {
       default: { http: [primaryUrl] },
       public: { http: [primaryUrl] },
+    },
+    // Multicall3 is deployed at the universal address on every modern chain
+    // (Base Sepolia included). Declaring it lets viem's batch.multicall
+    // aggregator (enabled below in createPublicClient) collapse N concurrent
+    // readContract calls into one aggregate3 call against this contract.
+    contracts: {
+      multicall3: {
+        address: "0xcA11bde05977b3631167028862bE2a173976CA11",
+      },
     },
   };
 
@@ -100,17 +129,29 @@ export function buildPublicClient(networkKey) {
   const urlsToUse = activeUrls.length > 0 ? activeUrls : allUrls;
   if (urlsToUse.length === 0) return null;
 
+  // Cache hit when the same network + same active-URL set is requested.
+  // Active URL set is part of the key so a demotion forces a rebuild.
+  const cacheKey = `${networkKey}::${urlsToUse.join(",")}`;
+  const cached = clientCache.get(cacheKey);
+  if (cached) return cached;
+
   const httpTransports = urlsToUse
     .map((url) =>
       http(url, {
         // batch: true coalesces RPC calls issued in the same microtask into
         // a single HTTP POST. Without it every readContract / multicall is
         // its own request and a busy page exhausts Tenderly rate limits in
-        // seconds. retryCount caps viem's default-3 retries that turn one
-        // 429 into four rapid-fire bursts.
+        // seconds.
+        //
+        // retryCount: 0 disables viem's transport-level retry entirely.
+        // viem retries on 4xx/5xx by default, but for our use case 429 is
+        // the dominant failure mode and an automatic retry just doubles
+        // the rate-limit pressure on the gateway — the second attempt
+        // lands inside the same rolling window and 429s again. react-query
+        // sits above this and applies its own retry with exponential
+        // backoff if a query really needs a second try.
         batch: true,
-        retryCount: 1,
-        retryDelay: 1500,
+        retryCount: 0,
         onFetchResponse(response) {
           if (response.status === 403 || response.status === 429) {
             markRpcBad(url, Date.now());
@@ -132,5 +173,22 @@ export function buildPublicClient(networkKey) {
       ? fallback(httpTransports, { rank: false })
       : httpTransports[0];
 
-  return createPublicClient({ chain, transport });
+  // batch.multicall collects readContract calls fired across the same render
+  // window into a single multicall3.aggregate3 — without this, every read
+  // from this client (onchainRaffleDistributor, BuySellWidget price-estimate,
+  // usePlayerPosition.refreshNow) goes out as its own POST and a busy page
+  // burns the Tenderly free-tier 25-rps burst limit on mount. wagmi's
+  // built-in public client gets multicall by default; this standalone client
+  // does not, so set it explicitly. wait: 50ms covers ~3 React render passes
+  // — initial mount + first dependent re-renders typically land within that
+  // envelope (e.g. usePlayerPosition's playerTickets fires on mount, then
+  // curveConfig fires once SMA resolves a tick later). Smaller windows
+  // (16ms) leaked into separate POSTs and tripped 429s.
+  const client = createPublicClient({
+    chain,
+    transport,
+    batch: { multicall: { wait: 50 } },
+  });
+  clientCache.set(cacheKey, client);
+  return client;
 }

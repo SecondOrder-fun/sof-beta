@@ -26,6 +26,7 @@ import {
   startContractEventPolling,
 } from "../lib/contractEventPolling.js";
 import { createBlockCursor } from "../lib/blockCursor.js";
+import { getSSEChannelService } from "../services/sseChannelService.js";
 
 const ROLLOVER_DEPOSIT_EVENT = parseAbiItem(
   "event RolloverDeposit(address indexed user, uint256 indexed seasonId, uint256 amount)",
@@ -38,6 +39,13 @@ const ROLLOVER_SPEND_EVENT = parseAbiItem(
 const ROLLOVER_REFUND_EVENT = parseAbiItem(
   "event RolloverRefund(address indexed user, uint256 indexed seasonId, uint256 amount)",
 );
+
+// Map internal event types to SSE discriminator strings
+const SSE_TYPE_MAP = {
+  DEPOSIT: 'RolloverFunded',
+  SPEND: 'RolloverClaimed',
+  REFUND: 'ConsolationFunded',
+};
 
 /**
  * Build the upsert payload for one event type. Centralized so both the
@@ -174,6 +182,7 @@ export async function startRolloverEventListener(network, logger) {
   }
 
   // ── Live polling, one cursor per event type ─────────────────────────
+  const sseService = getSSEChannelService(logger);
   const unwatchers = [];
   for (const { event, eventType } of eventDefs) {
     const cursor = await createBlockCursor(
@@ -195,6 +204,24 @@ export async function startRolloverEventListener(network, logger) {
             logger.info(
               `[RolloverListener] ${eventType}: ${row.user_address} season=${row.season_id} (tx: ${log.transactionHash})`,
             );
+
+            // Broadcast to rollover SSE channel after DB write succeeds
+            const { user, seasonId, amount, baseAmount, bonusAmount, nextSeasonId } = log.args;
+            const ssePayload = {
+              type: SSE_TYPE_MAP[eventType],
+              user,
+              seasonId: Number(seasonId),
+              blockNumber: Number(log.blockNumber),
+              txHash: log.transactionHash,
+            };
+            if (eventType === 'SPEND') {
+              ssePayload.baseAmount = baseAmount.toString();
+              ssePayload.bonusAmount = bonusAmount.toString();
+              ssePayload.nextSeasonId = Number(nextSeasonId);
+            } else {
+              ssePayload.amount = amount.toString();
+            }
+            sseService.broadcast('rollover', ssePayload);
           }
         }
       },

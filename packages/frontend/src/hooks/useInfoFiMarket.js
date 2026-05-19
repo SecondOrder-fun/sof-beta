@@ -8,6 +8,7 @@ import { getStoredNetworkKey } from '@/lib/wagmi';
 import { InfoFiMarketFactoryAbi as InfoFiFactoryAbi, InfoFiMarketAbi, ERC20Abi } from '@/utils/abis';
 import { useSmartTransactions } from '@/hooks/useSmartTransactions';
 import { useRaffleAccount } from '@/hooks/useRaffleAccount';
+import { useLiveSubscription } from '@/hooks/chain/useLiveSubscription';
 
 /**
  * Hook for interacting with InfoFi prediction markets
@@ -170,7 +171,20 @@ export function useInfoFiMarket(marketId) {
     enabled: Boolean(marketDetails?.address),
     staleTime: 10000, // 10 seconds (prices change frequently)
   });
-  
+
+  // Invalidate market prices and user positions when a trade lands on this market.
+  useLiveSubscription({
+    channel: 'infofi',
+    enabled: !!marketDetails?.address,
+    filter: (e) =>
+      e.type === 'Trade' &&
+      e.marketAddress?.toLowerCase() === marketDetails?.address?.toLowerCase(),
+    onEvent: () => {
+      queryClient.invalidateQueries({ queryKey: ['userPositions', address, marketId, marketDetails?.address] });
+      queryClient.invalidateQueries({ queryKey: ['marketPrices', marketId, marketDetails?.address] });
+    },
+  });
+
   // Mutation for placing a bet (approve + placeBet batched in one ERC-5792 call)
   const placeBetMutation = useMutation({
     mutationFn: async ({ outcome, amount }) => {
@@ -207,7 +221,6 @@ export function useInfoFiMarket(marketId) {
       // Invalidate queries to refresh data
       queryClient.invalidateQueries({ queryKey: ['userPositions'] });
       queryClient.invalidateQueries({ queryKey: ['marketPrices'] });
-      queryClient.invalidateQueries({ queryKey: ['sofBalance'] });
     },
     onError: (err) => {
       setError(err.message || 'Failed to place bet');
@@ -243,7 +256,6 @@ export function useInfoFiMarket(marketId) {
     onSuccess: () => {
       // Invalidate queries to refresh data
       queryClient.invalidateQueries({ queryKey: ['userPositions'] });
-      queryClient.invalidateQueries({ queryKey: ['sofBalance'] });
     },
     onError: (err) => {
       setError(err.message || 'Failed to claim winnings');

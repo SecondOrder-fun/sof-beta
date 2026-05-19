@@ -1,7 +1,8 @@
 // src/routes/Curve.jsx
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useRaffleRead, useSeasonDetailsQuery } from "@/hooks/useRaffleRead";
+import { useAllSeasons } from "@/hooks/useAllSeasons";
+import { useWarmRead } from "@/hooks/chain/useWarmRead";
 import { useCurveState } from "@/hooks/useCurveState";
 import CurveGraph from "@/components/curve/CurveGraph";
 import BuySellWidget from "@/components/curve/BuySellWidget";
@@ -25,11 +26,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
  */
 const Curve = () => {
   const { t } = useTranslation();
-  const { currentSeasonQuery } = useRaffleRead();
-  const seasonId = currentSeasonQuery.data ?? null;
-  const seasonDetailsQuery = useSeasonDetailsQuery(seasonId);
-  const bondingCurveAddress = seasonDetailsQuery?.data?.config?.bondingCurve;
-  const isActive = seasonDetailsQuery?.data?.status === 1;
+  const allSeasonsQuery = useAllSeasons();
+  const seasonId = allSeasonsQuery.data?.[0]?.id ?? null;
+  const seasonDetailsQuery = useWarmRead({
+    path: '/seasons/:seasonId',
+    params: { seasonId },
+    staleTime: 20_000,
+    refetchInterval: 30_000,
+    enabled: seasonId != null,
+  });
+  const bondingCurveAddress = seasonDetailsQuery?.data?.bonding_curve_address ?? allSeasonsQuery.data?.[0]?.config?.bondingCurve ?? null;
+  const isActive = (seasonDetailsQuery?.data?.status ?? allSeasonsQuery.data?.[0]?.status) === 1;
 
   const {
     curveSupply,

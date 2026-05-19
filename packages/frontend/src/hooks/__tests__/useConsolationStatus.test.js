@@ -4,7 +4,7 @@ import { useConsolationStatus } from '@/hooks/useConsolationStatus';
 
 const mockUseRafflePrizes = vi.fn();
 const mockUseRaffleAccount = vi.fn();
-const mockUseReadContract = vi.fn();
+const mockUseUltraFresh = vi.fn();
 
 vi.mock('@/hooks/useRafflePrizes', () => ({
   useRafflePrizes: (...args) => mockUseRafflePrizes(...args),
@@ -12,8 +12,8 @@ vi.mock('@/hooks/useRafflePrizes', () => ({
 vi.mock('@/hooks/useRaffleAccount', () => ({
   useRaffleAccount: (...args) => mockUseRaffleAccount(...args),
 }));
-vi.mock('wagmi', () => ({
-  useReadContract: (...args) => mockUseReadContract(...args),
+vi.mock('@/hooks/chain/useUltraFreshRead', () => ({
+  useUltraFreshRead: (...args) => mockUseUltraFresh(...args),
 }));
 vi.mock('@/utils/abis', () => ({
   RafflePrizeDistributorAbi: [],
@@ -22,7 +22,7 @@ vi.mock('@/utils/abis', () => ({
 describe('useConsolationStatus', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockUseReadContract.mockReturnValue({ data: undefined });
+    mockUseUltraFresh.mockReturnValue({ data: undefined, isLoading: false });
   });
 
   it('computes perLoserShareWei as totalPool / (totalParticipants - 1)', () => {
@@ -88,7 +88,7 @@ describe('useConsolationStatus', () => {
       seasonPayouts: { consolationAmount: 100n, totalParticipants: 5n },
     });
     // Order matters: hook calls isEligible first, then hasClaimed.
-    mockUseReadContract
+    mockUseUltraFresh
       .mockReturnValueOnce({ data: true, isLoading: false })
       .mockReturnValueOnce({ data: true, isLoading: false });
 
@@ -105,7 +105,7 @@ describe('useConsolationStatus', () => {
       seasonPayouts: { consolationAmount: 100n, totalParticipants: 5n },
     });
     // Eligible call still loading, claimed call settled
-    mockUseReadContract
+    mockUseUltraFresh
       .mockReturnValueOnce({ data: undefined, isLoading: true })
       .mockReturnValueOnce({ data: false, isLoading: false });
 

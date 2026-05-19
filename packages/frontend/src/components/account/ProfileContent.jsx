@@ -2,7 +2,6 @@
 import { useMemo } from "react";
 import PropTypes from "prop-types";
 import { useTranslation } from "react-i18next";
-import { useWatchContractEvent } from "wagmi";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion } from "@/components/ui/accordion";
@@ -23,7 +22,6 @@ import { useProfileData } from "@/hooks/useProfileData";
 import { useUsername } from "@/hooks/useUsername";
 import { useUsernameContext } from "@/context/UsernameContext";
 import { useRaffleAccount } from "@/hooks/useRaffleAccount";
-import { RafflePrizeDistributorAbi as PrizeDistributorAbi } from "@/utils/abis";
 import RolloverPortfolioCard from "@/components/user/RolloverPortfolioCard";
 
 /**
@@ -55,36 +53,20 @@ const ProfileContent = ({ address, isOwnProfile }) => {
   }, [isOwnProfile, eoa, sma]);
 
   const {
-    sofBalanceQuery,
     seasonBalancesQuery,
     winningSeasonsQuery,
-    contracts,
     allSeasonsQuery,
   } = useProfileData(address);
 
   const winningSeasons = winningSeasonsQuery.data || [];
 
-  // Live SOF refresh on ConsolationClaimed (own profile only)
-  useWatchContractEvent({
-    address: contracts.PRIZE_DISTRIBUTOR,
-    abi: PrizeDistributorAbi,
-    eventName: "ConsolationClaimed",
-    enabled: Boolean(
-      isOwnProfile && address && contracts.PRIZE_DISTRIBUTOR
-    ),
-    onLogs: (logs) => {
-      logs.forEach((log) => {
-        const participant = log?.args?.participant || log?.args?.account;
-        if (
-          participant &&
-          address &&
-          participant.toLowerCase() === address.toLowerCase()
-        ) {
-          sofBalanceQuery.refetch?.();
-        }
-      });
-    },
-  });
+  // Note: a ConsolationClaimed useWatchContractLogs that called
+  // sofBalanceQuery.refetch lived here previously. It only ever fired for
+  // the user's OWN claim (the participant === address gate filtered out
+  // everyone else), and the user's own claim tx already invalidates the
+  // ultra-fresh SOF balance read via executeBatch's touches mechanism.
+  // The watcher was polling getLogs every 12s for the lifetime of every
+  // Portfolio view to handle a case that's already handled — dropped.
 
   return (
     <div>

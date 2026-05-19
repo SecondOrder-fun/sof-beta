@@ -8,6 +8,7 @@ import {
 } from "../lib/contractEventPolling.js";
 import { createBlockCursor } from "../lib/blockCursor.js";
 import { pokeConsolationEligibleChunked } from "../services/pokeConsolationEligible.js";
+import { getSSEChannelService } from "../services/sseChannelService.js";
 
 /**
  * Resolve InfoFi markets onchain via InfoFiMarketFactory.resolveSeasonMarkets()
@@ -167,6 +168,7 @@ async function settleInfoFiMarkets(seasonId, raffleAddress, raffleAbi, logger) {
  * @param {object} raffleAbi - Raffle contract ABI
  * @param {object} logger - Logger instance
  * @param {function} [onSeasonCompleted] - Callback when season completes (for listener cleanup)
+ * @param {object} [sseService] - SSE channel service instance
  */
 async function processSeasonCompletedLog(
   log,
@@ -174,6 +176,7 @@ async function processSeasonCompletedLog(
   raffleAbi,
   logger,
   onSeasonCompleted,
+  sseService,
 ) {
   const { seasonId } = log.args;
 
@@ -191,12 +194,33 @@ async function processSeasonCompletedLog(
       return;
     }
 
-    // Mark season as inactive
-    await db.updateSeasonStatus(seasonIdNum, false);
-
-    logger.info(
-      `✅ SeasonCompleted Event: Season ${seasonId} marked as inactive`,
-    );
+    // Refresh final totals + set status=Completed (5) in season_contracts.
+    // Single write — the legacy `updateSeasonStatus(id, false)` call was
+    // dropped because the object form below already sets is_active: false
+    // and the intermediate transient state was observable to readers.
+    try {
+      const { RaffleABI } = await import('@sof/contracts');
+      const details = await publicClient.readContract({
+        address: raffleAddress,
+        abi: RaffleABI,
+        functionName: 'getSeasonDetails',
+        args: [BigInt(seasonIdNum)],
+      });
+      // [config, status, totalParticipants, totalTickets, totalPrizePool]
+      const totalParticipants = details?.[2];
+      const totalTickets = details?.[3];
+      const totalPrizePool = details?.[4];
+      await db.updateSeasonStatus(seasonIdNum, {
+        status: 5, // Completed
+        is_active: false,
+        total_participants: totalParticipants != null ? totalParticipants.toString() : '0',
+        total_tickets: totalTickets != null ? totalTickets.toString() : '0',
+        total_prize_pool: totalPrizePool != null ? totalPrizePool.toString() : '0',
+      });
+      logger.info(`[SEASON_COMPLETED_LISTENER] season_contracts status=Completed + totals written for season ${seasonIdNum}`);
+    } catch (e) {
+      logger.warn(`[SEASON_COMPLETED_LISTENER] season_contracts update failed: ${e.message}`);
+    }
 
     // Populate the consolation eligibility map on-chain. Permissionless +
     // idempotent (warm-SSTORE on re-run), so racing other callers is safe.
@@ -227,6 +251,16 @@ async function processSeasonCompletedLog(
           `❌ Failed to run onSeasonCompleted cleanup for season ${seasonIdNum}: ${cleanupError.message}`,
         );
       }
+    }
+
+    // Broadcast SeasonCompleted to raffle SSE channel (after all DB writes)
+    if (sseService) {
+      sseService.broadcast('raffle', {
+        type: 'SeasonCompleted',
+        seasonId: seasonIdNum,
+        blockNumber: Number(log.blockNumber),
+        txHash: log.transactionHash,
+      });
     }
   } catch (error) {
     logger.error(`❌ Failed to process SeasonCompleted for season ${seasonId}`);
@@ -278,7 +312,8 @@ async function scanHistoricalSeasonCompletedEvents(
       );
 
       for (const log of logs) {
-        await processSeasonCompletedLog(log, raffleAddress, raffleAbi, logger);
+        // No SSE broadcast for historical events — clients aren't connected yet
+        await processSeasonCompletedLog(log, raffleAddress, raffleAbi, logger, undefined, undefined);
       }
     } else {
       logger.info("   No historical SeasonCompleted events found");
@@ -315,6 +350,8 @@ export async function startSeasonCompletedListener(
     throw new Error("logger instance is required");
   }
 
+  const sseService = getSSEChannelService(logger);
+
   // First, scan for any historical events we may have missed
   await scanHistoricalSeasonCompletedEvents(raffleAddress, raffleAbi, logger);
 
@@ -339,6 +376,7 @@ export async function startSeasonCompletedListener(
           raffleAbi,
           logger,
           onSeasonCompleted,
+          sseService,
         );
       }
     },

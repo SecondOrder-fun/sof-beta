@@ -1,57 +1,30 @@
 // src/hooks/useCurveEvents.js
-// Listen to SOFBondingCurve PositionUpdate events and invoke a callback.
-
-import { useEffect } from "react";
-import { usePublicClient } from "wagmi";
+import { useLiveSubscription } from '@/hooks/chain/useLiveSubscription';
 
 /**
- * Subscribes to PositionUpdate events on a bonding curve and calls the handler.
- * @param {string} bondingCurveAddress
- * @param {{ onPositionUpdate?: (log: any) => void }} opts
+ * Subscribes to PositionUpdate events on a bonding curve via the raffle
+ * SSE channel. The handler receives an event object whose shape mirrors the
+ * backend broadcast payload rather than a viem log. Consumers that
+ * previously read log.args should read event fields directly.
+ *
+ *   event = {
+ *     type: 'PositionUpdate',
+ *     bondingCurveAddress,
+ *     seasonId, player,
+ *     oldTickets, newTickets, totalTickets,
+ *     blockNumber, txHash,
+ *   }
  */
 export function useCurveEvents(bondingCurveAddress, { onPositionUpdate } = {}) {
-  const client = usePublicClient();
-
-  useEffect(() => {
-    if (!bondingCurveAddress) return;
-    if (!client) return;
-
-    let unwatch = null;
-
-    let mounted = true;
-    (async () => {
-      try {
-        const { SOFBondingCurveABI: SOFBondingCurveAbi } =
-          await import("@sof/contracts");
-        // watch for PositionUpdate(seasonId, player, oldTickets, newTickets, totalTickets)
-        unwatch = client.watchContractEvent({
-          address: bondingCurveAddress,
-          abi: SOFBondingCurveAbi,
-          eventName: "PositionUpdate",
-          poll: true,
-          onLogs: (logs) => {
-            if (!mounted || !logs?.length) return;
-            for (const log of logs) {
-              try {
-                onPositionUpdate && onPositionUpdate(log);
-              } catch (_) {
-                /* swallow */
-              }
-            }
-          },
-        });
-      } catch (_e) {
-        // non-fatal
-      }
-    })();
-
-    return () => {
-      mounted = false;
-      try {
-        unwatch && unwatch();
-      } catch (_) {
-        /* noop */
-      }
-    };
-  }, [bondingCurveAddress, client, onPositionUpdate]);
+  const lowerAddr = bondingCurveAddress ? bondingCurveAddress.toLowerCase() : '';
+  useLiveSubscription({
+    channel: 'raffle',
+    enabled: !!bondingCurveAddress,
+    filter: (e) =>
+      e.type === 'PositionUpdate' &&
+      e.bondingCurveAddress?.toLowerCase() === lowerAddr,
+    onEvent: (e) => {
+      onPositionUpdate?.(e);
+    },
+  });
 }

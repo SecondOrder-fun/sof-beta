@@ -1,68 +1,78 @@
 // tests/hooks/useAllSeasons.test.jsx
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import PropTypes from "prop-types";
 
-// Mocks
-vi.mock("@/lib/wagmi", () => ({ getStoredNetworkKey: () => "LOCAL" }));
-vi.mock("@/config/contracts", () => ({
-  getContractAddresses: () => ({
-    RAFFLE: "0x0000000000000000000000000000000000000002",
-  }),
-  RAFFLE_ABI: [],
-}));
+// Stub VITE_API_BASE_URL env var (used by buildApiUrl inside useWarmRead)
+vi.stubEnv("VITE_API_BASE_URL", "http://localhost:3001/api");
 
-const readContractMock = vi.fn();
-
-// Mock wagmi usePublicClient
-vi.mock("wagmi", () => ({
-  usePublicClient: () => ({ readContract: readContractMock }),
-}));
-
-// Mock useRaffleRead to provide currentSeasonId
-vi.mock("@/hooks/useRaffleRead", () => ({
-  useRaffleRead: () => ({ currentSeasonQuery: { isSuccess: true, data: 2 } }),
+// Mock the internal telemetry so it doesn't throw
+vi.mock("@/hooks/chain/internal", () => ({
+  buildApiUrl: (path) => `http://localhost:3001/api${path}`,
+  bumpTelemetry: vi.fn(),
+  normalizeFetchError: (_e, res) =>
+    new Error(res ? `HTTP ${res.status}` : "fetch error"),
 }));
 
 import { useAllSeasons } from "@/hooks/useAllSeasons";
 
 function withClient() {
-  const client = new QueryClient();
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   const Wrapper = ({ children }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   );
   Wrapper.displayName = "UseAllSeasonsTestWrapper";
-  Wrapper.propTypes = {
-    children: PropTypes.node.isRequired,
-  };
+  Wrapper.propTypes = { children: PropTypes.node.isRequired };
   return Wrapper;
 }
 
 describe("useAllSeasons", () => {
   beforeEach(() => {
-    readContractMock.mockReset();
+    vi.resetAllMocks();
   });
 
-  it("returns normalized seasons and filters ghost/default ones", async () => {
-    // The hook loops from 1 to currentSeasonId (which is 2)
-    // So it will call readContract for season 1 and season 2
-    readContractMock
-      .mockResolvedValueOnce([
-        { startTime: 100, endTime: 200, bondingCurve: "0xBEEF" },
-        1,
-        10n,
-        100n,
-        1000n,
-      ])
-      .mockResolvedValueOnce([
-        { startTime: 150, endTime: 300, bondingCurve: "0xCAFE" },
-        1,
-        20n,
-        200n,
-        2000n,
-      ]);
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("normalizes backend rows into consumer-compatible shape", async () => {
+    const backendRows = [
+      {
+        id: 1,
+        season_id: 2,
+        bonding_curve_address: "0xBondingCurve2",
+        raffle_token_address: "0xRaffleToken2",
+        raffle_address: "0xRaffle",
+        is_active: true,
+        created_block: 200,
+        start_time: 1700000000,
+        end_time: 1700100000,
+        created_at: "2025-01-01T00:00:00Z",
+        updated_at: "2025-01-01T00:00:00Z",
+      },
+      {
+        id: 2,
+        season_id: 1,
+        bonding_curve_address: "0xBondingCurve1",
+        raffle_token_address: "0xRaffleToken1",
+        raffle_address: "0xRaffle",
+        is_active: false,
+        created_block: 100,
+        start_time: 1699000000,
+        end_time: 1699100000,
+        created_at: "2025-01-01T00:00:00Z",
+        updated_at: "2025-01-01T00:00:00Z",
+      },
+    ];
+
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => backendRows,
+    });
 
     const wrapper = withClient();
     const { result } = renderHook(() => useAllSeasons(), { wrapper });
@@ -70,23 +80,47 @@ describe("useAllSeasons", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     const seasons = result.current.data;
 
-    // Should include only season ids 1 and 2
-    expect(seasons.map((s) => s.id)).toEqual([1, 2]);
-    expect(seasons[0]).toMatchObject({
-      totalParticipants: 10n,
-      totalTickets: 100n,
-      totalPrizePool: 1000n,
-    });
-    expect(readContractMock).toHaveBeenCalledTimes(2);
+    // Both rows should be present
+    expect(seasons).toHaveLength(2);
+
+    // Active row: season_id 2
+    const active = seasons.find((s) => s.id === 2);
+    expect(active).toBeDefined();
+    expect(active.status).toBe(1); // is_active=true → status 1 (Active)
+    expect(active.config.bondingCurve).toBe("0xBondingCurve2");
+    expect(active.config.raffleToken).toBe("0xRaffleToken2");
+    expect(active.totalTickets).toBe(0n);
+    expect(active.season_id).toBe(2);
+
+    // Inactive row: season_id 1
+    const completed = seasons.find((s) => s.id === 1);
+    expect(completed).toBeDefined();
+    expect(completed.status).toBe(5); // is_active=false → status 5 (Completed)
+    expect(completed.config.bondingCurve).toBe("0xBondingCurve1");
   });
 
-  it("returns empty when RAFFLE missing (edge)", async () => {
-    vi.doMock("@/config/contracts", () => ({
-      getContractAddresses: () => ({ RAFFLE: "" }),
-      RAFFLE_ABI: [],
-    }));
+  it("returns empty array when fetch returns empty list", async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => [],
+    });
+
     const wrapper = withClient();
     const { result } = renderHook(() => useAllSeasons(), { wrapper });
+
+    // Before success, data defaults to []
     await waitFor(() => expect(result.current.data).toEqual([]));
+  });
+
+  it("returns empty array on fetch error", async () => {
+    global.fetch = vi.fn().mockRejectedValueOnce(new Error("network error"));
+
+    const wrapper = withClient();
+    const { result } = renderHook(() => useAllSeasons(), { wrapper });
+
+    // After error, data defaults to []
+    await waitFor(() =>
+      expect(result.current.data).toEqual([]),
+    );
   });
 });

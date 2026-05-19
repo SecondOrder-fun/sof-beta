@@ -3,55 +3,47 @@
  * Monitors trading lock status and fee configuration from bonding curve
  */
 
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { SOFBondingCurveAbi } from "@/utils/abis";
 
 /**
- * Hook to check trading lock status and fees
+ * Hook to check trading lock status and fees.
+ *
+ * Wrapped in react-query so multiple components reading the same curve
+ * share a single cached RPC call instead of each firing a fresh
+ * readContract. The previous useState+useEffect implementation fired
+ * one RPC per mount — easy to multiply into Tenderly 429s.
+ *
  * @param {Object} client - Viem public client
- * @param {string} bondingCurveAddress - Address of the bonding curve contract
- * @returns {Object} Trading status { tradingLocked, buyFeeBps, sellFeeBps }
+ * @param {string} bondingCurveAddress
+ * @returns {Object} { tradingLocked, buyFeeBps, sellFeeBps }
  */
 export function useTradingLockStatus(client, bondingCurveAddress) {
-  const [tradingLocked, setTradingLocked] = useState(false);
-  const [buyFeeBps, setBuyFeeBps] = useState(0);
-  const [sellFeeBps, setSellFeeBps] = useState(0);
+  const { data } = useQuery({
+    queryKey: ["tradingLockStatus", bondingCurveAddress?.toLowerCase()],
+    enabled: !!client && !!bondingCurveAddress,
+    staleTime: 30_000,
+    retry: 1,
+    queryFn: async () => {
+      const config = await client.readContract({
+        address: bondingCurveAddress,
+        abi: SOFBondingCurveAbi,
+        functionName: "curveConfig",
+        args: [],
+      });
+      // curveConfig returns: [totalSupply, sofReserves, currentStep, buyFee,
+      // sellFee, tradingLocked, initialized, initialPrice]
+      return {
+        tradingLocked: Boolean(config[5]),
+        buyFeeBps: Number(config[3] ?? 0),
+        sellFeeBps: Number(config[4] ?? 0),
+      };
+    },
+  });
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const checkTradingStatus = async () => {
-      if (!client || !bondingCurveAddress) return;
-
-      try {
-        const config = await client.readContract({
-          address: bondingCurveAddress,
-          abi: SOFBondingCurveAbi,
-          functionName: "curveConfig",
-          args: [],
-        });
-
-        // curveConfig returns: [totalSupply, sofReserves, currentStep, buyFee, sellFee, tradingLocked, initialized]
-        const isLocked = config[5]; // tradingLocked is at index 5
-        const buyFee = Number(config[3] ?? 0);
-        const sellFee = Number(config[4] ?? 0);
-
-        if (!cancelled) {
-          setTradingLocked(isLocked);
-          setBuyFeeBps(buyFee);
-          setSellFeeBps(sellFee);
-        }
-      } catch {
-        // Silent fail - keep default values
-      }
-    };
-
-    void checkTradingStatus();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [client, bondingCurveAddress]);
-
-  return { tradingLocked, buyFeeBps, sellFeeBps };
+  return {
+    tradingLocked: data?.tradingLocked ?? false,
+    buyFeeBps: data?.buyFeeBps ?? 0,
+    sellFeeBps: data?.sellFeeBps ?? 0,
+  };
 }

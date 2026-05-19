@@ -1,6 +1,6 @@
 // src/hooks/useSOFToken.js
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { useAccount, usePublicClient } from 'wagmi';
 import { formatUnits, parseUnits, encodeFunctionData } from 'viem';
 import { getContractAddresses } from '@/config/contracts';
@@ -21,7 +21,6 @@ export function useSOFToken() {
   const { sma: address, isReady: accountReady } = useRaffleAccount();
   const publicClient = usePublicClient();
   const { executeBatch } = useSmartTransactions();
-  const queryClient = useQueryClient();
   const netKey = getStoredNetworkKey();
   const contracts = getContractAddresses(netKey);
 
@@ -141,10 +140,6 @@ export function useSOFToken() {
       }], { sofAmount: parsedAmount });
 
       return { hash };
-    },
-    onSuccess: () => {
-      // Invalidate queries to refresh data
-      queryClient.invalidateQueries({ queryKey: ['sofBalance'] });
     },
     onError: (err) => {
       setError(err.message || 'Failed to transfer tokens');

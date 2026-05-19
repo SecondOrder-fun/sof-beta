@@ -1,34 +1,17 @@
 /**
  * @file sseRoutes.js
  * @description Fastify routes for Server-Sent Events (SSE)
- * Provides real-time market creation updates to connected clients
+ * Provides per-domain real-time updates (raffle, infofi, rollover)
  * @author SecondOrder.fun
  */
 
-import { getSSEService } from '../../src/services/sseService.js';
+import { getSSEChannelService, CHANNELS } from '../../src/services/sseChannelService.js';
 
-/**
- * Register SSE routes
- * @async
- * @param {Object} fastify - Fastify instance
- * @param {Object} options - Route options
- * @param {Object} options.logger - Logger instance
- * @returns {Promise<void>}
- */
-export async function registerSSERoutes(fastify, options) {
-  const { logger } = options;
-  const sseService = getSSEService(logger);
+const HEARTBEAT_MS = 30_000;
 
-  /**
-   * GET /market-events
-   * Server-Sent Events endpoint for real-time market creation updates
-   * Clients connect here to receive live updates
-   */
-  fastify.get('/market-events', async (request, reply) => {
-    // Generate unique connection ID
-    const connectionId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
-    // Set SSE headers
+function registerChannelRoute(fastify, logger, sseService, channel) {
+  fastify.get(`/${channel}`, async (request, reply) => {
+    const connectionId = `${channel}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     reply.raw.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
@@ -36,60 +19,58 @@ export async function registerSSERoutes(fastify, options) {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Headers': 'Cache-Control',
     });
-
-    // Add connection to service
-    sseService.addConnection(connectionId, reply);
-
-    // Send initial connection confirmation
+    sseService.addConnection(channel, connectionId, reply);
     reply.raw.write(
       `data: ${JSON.stringify({
-        event: 'connected',
-        data: { connectionId },
+        type: 'connected',
+        channel,
+        connectionId,
         timestamp: new Date().toISOString(),
-      })}\n\n`
+      })}\n\n`,
     );
-
-    // Send heartbeat every 30 seconds to keep connection alive
-    const heartbeatInterval = setInterval(() => {
+    const heartbeat = setInterval(() => {
       try {
         reply.raw.write(': heartbeat\n\n');
-      } catch (error) {
-        logger.debug(`Heartbeat failed for ${connectionId}, closing connection`);
-        clearInterval(heartbeatInterval);
-        sseService.removeConnection(connectionId);
+      } catch {
+        clearInterval(heartbeat);
+        sseService.removeConnection(channel, connectionId);
       }
-    }, 30000);
-
-    // Handle client disconnect
+    }, HEARTBEAT_MS);
     request.raw.on('close', () => {
-      clearInterval(heartbeatInterval);
-      sseService.removeConnection(connectionId);
-      logger.debug(`Client disconnected: ${connectionId}`);
+      clearInterval(heartbeat);
+      sseService.removeConnection(channel, connectionId);
     });
-
-    // Handle errors
-    request.raw.on('error', (error) => {
-      logger.error(`SSE connection error for ${connectionId}: ${error.message}`);
-      clearInterval(heartbeatInterval);
-      sseService.removeConnection(connectionId);
+    request.raw.on('error', (err) => {
+      logger.error(`SSE ${channel}/${connectionId} error: ${err.message}`);
+      clearInterval(heartbeat);
+      sseService.removeConnection(channel, connectionId);
     });
   });
+}
 
-  /**
-   * GET /market-events/health
-   * Health check endpoint for SSE service
-   * Returns current connection count and status
-   */
-  fastify.get('/market-events/health', async () => {
-    return {
-      status: 'ok',
-      connections: sseService.getConnectionCount(),
-      connectionIds: sseService.getConnectionIds(),
-      timestamp: new Date().toISOString(),
-    };
-  });
+/**
+ * Register SSE routes (per-channel)
+ * @async
+ * @param {Object} fastify - Fastify instance (its `.log` is used for logging)
+ * @returns {Promise<void>}
+ */
+export async function registerSSERoutes(fastify) {
+  const logger = fastify.log;
+  const sseService = getSSEChannelService(logger);
 
-  logger.info('✅ SSE routes registered');
+  for (const channel of CHANNELS) {
+    registerChannelRoute(fastify, logger, sseService, channel);
+  }
+
+  fastify.get('/health', async () => ({
+    status: 'ok',
+    channels: Object.fromEntries(
+      CHANNELS.map((c) => [c, sseService.getConnectionCount(c)]),
+    ),
+    timestamp: new Date().toISOString(),
+  }));
+
+  logger.info(`✅ SSE routes registered: ${CHANNELS.map((c) => `/${c}`).join(', ')}, /health`);
 }
 
 export default registerSSERoutes;

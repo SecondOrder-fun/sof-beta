@@ -12,7 +12,7 @@ import { buildPlaceBetCalls } from "@/services/onchainInfoFi";
 import { useSmartTransactions } from "@/hooks/useSmartTransactions";
 import { buildMarketTitleParts } from "@/lib/marketTitle";
 import UsernameDisplay from "@/components/user/UsernameDisplay";
-import { useRaffleRead } from "@/hooks/useRaffleRead";
+import { useAllSeasons } from "@/hooks/useAllSeasons";
 import { useUserMarketPosition, useMarketInfo } from "@/hooks/useUserMarketPosition";
 import { useMarketCardData } from "@/hooks/useMarketCardData";
 import MarketOutcomeButtons from "./market/MarketOutcomeButtons";
@@ -25,8 +25,8 @@ import MarketTradeForm from "./market/MarketTradeForm";
  */
 const InfoFiMarketCard = ({ market, marketInfo: batchMarketInfo, userPosition: batchUserPosition }) => {
   const { t } = useTranslation("market");
-  const { currentSeasonQuery } = useRaffleRead();
-  const fallbackSeasonId = currentSeasonQuery?.data ?? null;
+  const allSeasonsQuery = useAllSeasons();
+  const fallbackSeasonId = allSeasonsQuery.data?.[0]?.id ?? null;
   const seasonId = market?.raffle_id ?? market?.seasonId ?? fallbackSeasonId;
   const isWinnerPrediction =
     market.market_type === "WINNER_PREDICTION" &&

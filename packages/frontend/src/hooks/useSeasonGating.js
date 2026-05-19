@@ -15,11 +15,14 @@
 //    - Faster than arbitrary delays: responds as soon as verification is confirmed
 //    - More reliable: dual verification (event + on-chain state)
 //    - Secure: fails loudly on any verification failure
+//
+// D11: No backend HTTP endpoint exists for gating data — gates and verification
+// status are on-chain only. Read queries migrated from manual createPublicClient
+// + useQuery to wagmi's useReadContract for simpler managed subscriptions.
 
 import { useMemo, useCallback } from "react";
 import { createPublicClient, http, keccak256, toHex, getAddress, encodeFunctionData } from "viem";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useAccount } from "wagmi";
+import { useReadContract, useAccount } from "wagmi";
 import { getStoredNetworkKey } from "@/lib/wagmi";
 import { getNetworkByKey } from "@/config/networks";
 import { getContractAddresses, SEASON_GATING_ABI } from "@/config/contracts";
@@ -68,8 +71,63 @@ export function useSeasonGating(seasonId, options = {}) {
   const addr = getContractAddresses(netKey);
   const { address: connectedAddress } = useAccount();
   const { executeBatch } = useSmartTransactions();
-  const queryClient = useQueryClient();
 
+  // Ensure address is properly checksummed (viem requires strict EIP-55 validation)
+  const gatingAddress = addr.SEASON_GATING ? getAddress(addr.SEASON_GATING) : null;
+  const sid = seasonId != null ? BigInt(seasonId) : null;
+
+  const readEnabled = Boolean(gatingAddress && sid != null && isGatedHint);
+
+  // ── Read gate count via wagmi useReadContract (replaces manual useQuery + createPublicClient) ──
+  const { data: gateCountRaw, isLoading: isGateCountLoading, refetch: refetchGateCount } = useReadContract({
+    address: gatingAddress ?? undefined,
+    abi: SEASON_GATING_ABI,
+    functionName: "getGateCount",
+    args: sid != null ? [sid] : undefined,
+    query: {
+      enabled: readEnabled,
+      staleTime: 30_000,
+      retry: false,
+    },
+  });
+
+  // ── Read gates array via wagmi useReadContract ──
+  const { data: gatesRaw, isLoading: isGatesLoading, refetch: refetchGates } = useReadContract({
+    address: gatingAddress ?? undefined,
+    abi: SEASON_GATING_ABI,
+    functionName: "getSeasonGates",
+    args: sid != null ? [sid] : undefined,
+    query: {
+      enabled: readEnabled,
+      staleTime: 30_000,
+      retry: false,
+    },
+  });
+
+  // ── Read user verification status via wagmi useReadContract ──
+  // Once verified, stop polling — verification never reverts on-chain.
+  const {
+    data: verifiedData,
+    isLoading: isVerifiedLoading,
+    refetch: refetchVerified,
+  } = useReadContract({
+    address: gatingAddress ?? undefined,
+    abi: SEASON_GATING_ABI,
+    functionName: "isUserVerified",
+    args: sid != null && connectedAddress ? [sid, connectedAddress] : undefined,
+    query: {
+      enabled: Boolean(readEnabled && connectedAddress),
+      staleTime: 10_000,
+      retry: false,
+      refetchInterval: (query) => {
+        if (!isGatedHint) return false;
+        if (query.state.data === true) return false;
+        return 15_000;
+      },
+    },
+  });
+
+  // ── Manual viem client — still needed for write-path: waitForTransactionReceipt + polling ──
   const client = useMemo(() => {
     if (!net?.rpcUrl) return null;
     return createPublicClient({
@@ -82,73 +140,6 @@ export function useSeasonGating(seasonId, options = {}) {
       transport: http(net.rpcUrl),
     });
   }, [net?.id, net?.name, net?.rpcUrl]);
-
-  // Ensure address is properly checksummed (viem requires strict EIP-55 validation)
-  const gatingAddress = addr.SEASON_GATING ? getAddress(addr.SEASON_GATING) : null;
-  const sid = seasonId != null ? BigInt(seasonId) : null;
-
-  // ── Read gate count + gates ──
-  const gatesQuery = useQuery({
-    queryKey: ["seasonGating", netKey, "gates", String(seasonId), gatingAddress],
-    queryFn: async () => {
-      if (!client || !gatingAddress || sid == null) return null;
-      const [count, gates] = await Promise.all([
-        client.readContract({
-          address: gatingAddress,
-          abi: SEASON_GATING_ABI,
-          functionName: "getGateCount",
-          args: [sid],
-        }),
-        client.readContract({
-          address: gatingAddress,
-          abi: SEASON_GATING_ABI,
-          functionName: "getSeasonGates",
-          args: [sid],
-        }),
-      ]);
-      return { count: Number(count), gates };
-    },
-    enabled: Boolean(client && gatingAddress && sid != null && isGatedHint),
-    staleTime: 30_000,
-    retry: false,
-  });
-
-  // ── Read user verification status ──
-  // Once verified, stop polling — verification never reverts on-chain.
-  // Also skip polling entirely for non-gated seasons.
-  const verifiedQuery = useQuery({
-    queryKey: [
-      "seasonGating",
-      netKey,
-      "isVerified",
-      String(seasonId),
-      connectedAddress,
-      gatingAddress,
-    ],
-    queryFn: async () => {
-      if (!client || !gatingAddress || sid == null || !connectedAddress)
-        return null;
-      const result = await client.readContract({
-        address: gatingAddress,
-        abi: SEASON_GATING_ABI,
-        functionName: "isUserVerified",
-        args: [sid, connectedAddress],
-      });
-      return Boolean(result);
-    },
-    enabled: Boolean(
-      client && gatingAddress && sid != null && connectedAddress && isGatedHint,
-    ),
-    staleTime: 10_000,
-    // React Query supports a function for refetchInterval that receives the query.
-    // Stop polling when: season is not gated, or user is already verified.
-    refetchInterval: (query) => {
-      if (!isGatedHint) return false;
-      if (query.state.data === true) return false;
-      return 15_000;
-    },
-    retry: false,
-  });
 
   // ── verifyPassword write ──
   const verifyPassword = useCallback(
@@ -173,11 +164,11 @@ export function useSeasonGating(seasonId, options = {}) {
 
       // Wait for tx confirmation and verify UserVerified event was emitted
       if (client && hash) {
-        const receipt = await client.waitForTransactionReceipt({ 
-          hash, 
-          confirmations: 1 
+        const receipt = await client.waitForTransactionReceipt({
+          hash,
+          confirmations: 1
         });
-        
+
         // Verify that the UserVerified event was emitted in this transaction
         // Event signature: UserVerified(uint256 indexed seasonId, uint256 indexed gateIndex, address indexed user, GateType gateType)
         const userVerifiedEvent = receipt.logs.find(log => {
@@ -185,13 +176,13 @@ export function useSeasonGating(seasonId, options = {}) {
           if (log.address.toLowerCase() !== gatingAddress.toLowerCase()) {
             return false;
           }
-          
+
           // Check topics: [eventSignature, seasonId, gateIndex, user]
           // UserVerified has 3 indexed parameters (seasonId, gateIndex, user)
           if (log.topics.length !== 4) {
             return false;
           }
-          
+
           // Verify this is for the correct user (topic[3] is the indexed user address)
           const eventUser = `0x${log.topics[3].slice(26)}`.toLowerCase();
           return eventUser === connectedAddress.toLowerCase();
@@ -245,29 +236,8 @@ export function useSeasonGating(seasonId, options = {}) {
         // Safe to proceed with cache invalidation
       }
 
-      // Invalidate and refetch verification query to ensure UI has latest state
-      await queryClient.invalidateQueries({
-        queryKey: [
-          "seasonGating",
-          netKey,
-          "isVerified",
-          String(seasonId),
-          connectedAddress,
-          gatingAddress,
-        ],
-      });
-      
-      // Force an immediate refetch to ensure cache is updated
-      await queryClient.refetchQueries({
-        queryKey: [
-          "seasonGating",
-          netKey,
-          "isVerified",
-          String(seasonId),
-          connectedAddress,
-          gatingAddress,
-        ],
-      });
+      // Invalidate wagmi read cache so useReadContract picks up the new state
+      await refetchVerified();
 
       return hash;
     },
@@ -276,9 +246,7 @@ export function useSeasonGating(seasonId, options = {}) {
       sid,
       executeBatch,
       client,
-      queryClient,
-      netKey,
-      seasonId,
+      refetchVerified,
       connectedAddress,
     ],
   );
@@ -351,32 +319,28 @@ export function useSeasonGating(seasonId, options = {}) {
         }
       }
 
-      // Invalidate and refetch cache
-      await queryClient.invalidateQueries({
-        queryKey: ["seasonGating", netKey, "isVerified", String(seasonId), connectedAddress, gatingAddress],
-      });
-      await queryClient.refetchQueries({
-        queryKey: ["seasonGating", netKey, "isVerified", String(seasonId), connectedAddress, gatingAddress],
-      });
+      // Invalidate wagmi read cache
+      await refetchVerified();
 
       return hash;
     },
-    [gatingAddress, sid, executeBatch, client, queryClient, netKey, seasonId, connectedAddress],
+    [gatingAddress, sid, executeBatch, client, refetchVerified, connectedAddress],
   );
 
   const refetch = useCallback(async () => {
     await Promise.all([
-      verifiedQuery.refetch(),
-      gatesQuery.refetch(),
+      refetchVerified(),
+      refetchGateCount(),
+      refetchGates(),
     ]);
-  }, [verifiedQuery, gatesQuery]);
+  }, [refetchVerified, refetchGateCount, refetchGates]);
 
   return {
     isGated: Boolean(isGatedHint),
-    isVerified: verifiedQuery.data ?? null,
-    gateCount: gatesQuery.data?.count ?? 0,
-    gates: gatesQuery.data?.gates ?? [],
-    isLoading: verifiedQuery.isLoading || gatesQuery.isLoading,
+    isVerified: verifiedData ?? null,
+    gateCount: gateCountRaw != null ? Number(gateCountRaw) : 0,
+    gates: gatesRaw ?? [],
+    isLoading: isVerifiedLoading || isGateCountLoading || isGatesLoading,
     verifyPassword,
     verifySignature,
     refetch,

@@ -37,6 +37,19 @@ vi.mock("@/components/curve/CurveGraph", () => ({
   default: () => <div />,
 }));
 
+vi.mock("@/hooks/useCurveState", () => ({
+  useCurveState: () => ({
+    curveSupply: 0n,
+    curveReserves: 0n,
+    curveFees: 0n,
+    curveStep: null,
+    bondStepsPreview: [],
+    allBondSteps: [],
+    refreshCurveState: () => {},
+    debouncedRefresh: () => {},
+  }),
+}));
+
 import SeasonCard from "@/components/mobile/SeasonCard.jsx";
 
 describe("SeasonCard completed winner display", () => {
