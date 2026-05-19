@@ -27,12 +27,13 @@ import {
 import { useEligibleRolloverCohort } from "@/hooks/useEligibleRolloverCohort";
 import { computeBuySplit } from "@/hooks/buysell/computeBuySplit";
 import { applyMaxSlippage } from "@/utils/buysell/slippage";
+import { useTransactionStatus } from "@/hooks/useTransactionStatus";
+import TransactionModal from "@/components/admin/TransactionModal";
 import RolloverBanner from "./RolloverBanner";
 
 const BuySellWidget = ({
   bondingCurveAddress,
   onTxSuccess,
-  onNotify,
   initialTab,
   isGated = false,
   isVerified = null,
@@ -190,12 +191,28 @@ const BuySellWidget = ({
     rolloverEffectiveAmount,
   );
 
-  const { executeBuy, executeSell, isPending } = useBuySellTransactions(
+  const { buyMutation, sellMutation } = useBuySellTransactions(
     bondingCurveAddress,
     client,
-    onNotify,
-    onTxSuccess
   );
+  const isPending = buyMutation.isPending || sellMutation.isPending;
+  const buyStatus = useTransactionStatus(buyMutation);
+  const sellStatus = useTransactionStatus(sellMutation);
+
+  // Fire onTxSuccess once per confirmed receipt — preserves the old
+  // "refresh-after-confirm" behavior. Reads buyStatus.hash so the effect
+  // re-fires per tx, not per re-render.
+  useEffect(() => {
+    if (buyStatus.isConfirmed && buyStatus.receipt?.status === "success") {
+      onTxSuccess?.();
+    }
+  }, [buyStatus.isConfirmed, buyStatus.receipt?.status, buyStatus.hash, onTxSuccess]);
+
+  useEffect(() => {
+    if (sellStatus.isConfirmed && sellStatus.receipt?.status === "success") {
+      onTxSuccess?.();
+    }
+  }, [sellStatus.isConfirmed, sellStatus.receipt?.status, sellStatus.hash, onTxSuccess]);
 
   const { handleBuy, handleSell, fetchMaxSellable } = useTransactionHandlers({
     client,
@@ -205,9 +222,8 @@ const BuySellWidget = ({
     hasZeroBalance,
     hasInsufficientBalance,
     formatSOF,
-    onNotify,
-    executeBuy,
-    executeSell,
+    buyMutation,
+    sellMutation,
     estBuyWithFees,
     estSellAfterFees,
     slippagePct,
@@ -453,6 +469,14 @@ const BuySellWidget = ({
           </form>
         </TabsContent>
       </Tabs>
+      <TransactionModal
+        mutation={buyStatus}
+        title={t("transactions:buyingTickets", { defaultValue: "Buying tickets" })}
+      />
+      <TransactionModal
+        mutation={sellStatus}
+        title={t("transactions:sellingTickets", { defaultValue: "Selling tickets" })}
+      />
     </div>
   );
 };
@@ -460,7 +484,6 @@ const BuySellWidget = ({
 BuySellWidget.propTypes = {
   bondingCurveAddress: PropTypes.string,
   onTxSuccess: PropTypes.func,
-  onNotify: PropTypes.func,
   initialTab: PropTypes.oneOf(["buy", "sell"]),
   isGated: PropTypes.bool,
   isVerified: PropTypes.bool,
