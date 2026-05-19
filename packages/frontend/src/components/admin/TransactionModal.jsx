@@ -12,44 +12,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-
-/**
- * Walk a viem error's cause chain to find the most-actionable revert reason.
- * viem wraps ContractFunctionRevertedError inside ContractFunctionExecutionError
- * inside the wagmi mutation error, so the headline `shortMessage` is usually a
- * generic "The contract function 'X' reverted" with the real reason ~2 layers
- * down. Returns { headline, reason, contractContext, fullMessage }.
- */
-function extractErrorDetails(err) {
-  if (!err) return null;
-  const headline = err.shortMessage || err.message || "Transaction failed";
-  let reason = null;
-  let contractContext = null;
-  // Walk up to 6 levels of .cause looking for the revert details
-  let cur = err;
-  for (let i = 0; i < 6 && cur; i++) {
-    // viem ContractFunctionRevertedError exposes the decoded custom error
-    // via cur.data: { errorName, args }
-    if (cur.data?.errorName && !reason) {
-      const args = Array.isArray(cur.data.args) && cur.data.args.length
-        ? `(${cur.data.args.map(String).join(", ")})`
-        : "()";
-      reason = `${cur.data.errorName}${args}`;
-    }
-    // metaMessages on a ContractFunctionExecutionError carry the
-    // "Contract Call: address / function / args" context block
-    if (Array.isArray(cur.metaMessages) && cur.metaMessages.length && !contractContext) {
-      contractContext = cur.metaMessages.join("\n");
-    }
-    // If we still don't have a reason, the deepest shortMessage is
-    // usually more descriptive than the outer wrapper
-    if (!reason && cur !== err && cur.shortMessage && cur.shortMessage !== headline) {
-      reason = cur.shortMessage;
-    }
-    cur = cur.cause;
-  }
-  return { headline, reason, contractContext, fullMessage: err.message || "" };
-}
+import { extractErrorDetails } from "@/lib/contractErrors";
 
 const TransactionModal = ({ mutation, title = "Transaction Status" }) => {
   const [isOpen, setIsOpen] = useState(false);
