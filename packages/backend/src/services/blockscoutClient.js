@@ -12,6 +12,10 @@ const DEFAULT_CACHE_TTLS_MS = {
   'tokens/:address/holders': 5 * 60_000,
   'tokens/:address/transfers': 30_000,
   'addresses/:address/transactions': 30_000,
+  // Per-user token transfers — used by /api/sof/transactions/:user to
+  // serve the Portfolio SOF Holdings tab without forcing the browser to
+  // run its own ERC-20 transfer indexer.
+  'addresses/:address/token-transfers': 30_000,
   'transactions/:hash': 5_000,
   'addresses/:address': 60_000,
 };

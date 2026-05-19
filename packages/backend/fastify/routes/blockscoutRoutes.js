@@ -39,6 +39,13 @@ export default async function blockscoutRoutes(fastify, options) {
     })),
   );
 
+  fastify.get('/addresses/:address/token-transfers', async (req, reply) =>
+    h(req, reply, 'addresses/:address/token-transfers', (r) => ({
+      address: r.params.address,
+      ...r.query,
+    })),
+  );
+
   fastify.get('/transactions/:hash', async (req, reply) =>
     h(req, reply, 'transactions/:hash', (r) => ({
       hash: r.params.hash,

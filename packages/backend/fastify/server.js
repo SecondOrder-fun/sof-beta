@@ -302,9 +302,32 @@ try {
   app.log.error({ err }, "Failed to mount /api/curve");
 }
 
+// Build the Blockscout client up-front so multiple routes (the proxy
+// itself + /api/token/sof/transactions/:user) can share one instance
+// with its LRU cache and endpoint whitelist. Null when not configured;
+// routes that need it return 503 rather than crashing.
+let sharedBlockscoutClient = null;
+if (process.env.BLOCKSCOUT_BASE_URL && process.env.BLOCKSCOUT_API_KEY) {
+  try {
+    const { createBlockscoutClient } = await import(
+      "../src/services/blockscoutClient.js"
+    );
+    sharedBlockscoutClient = createBlockscoutClient({
+      baseUrl: process.env.BLOCKSCOUT_BASE_URL,
+      apiKey: process.env.BLOCKSCOUT_API_KEY,
+      logger: app.log,
+    });
+  } catch (err) {
+    app.log.error({ err }, "Failed to initialize Blockscout client");
+  }
+} else {
+  app.log.warn("⚠️  BLOCKSCOUT_BASE_URL/API_KEY missing; cold reads disabled");
+}
+
 try {
   await app.register((await import("./routes/tokenRoutes.js")).default, {
     prefix: "/api/token",
+    blockscoutClient: sharedBlockscoutClient,
   });
   app.log.info("Mounted /api/token");
 } catch (err) {
@@ -321,20 +344,12 @@ try {
 }
 
 try {
-  if (process.env.BLOCKSCOUT_BASE_URL && process.env.BLOCKSCOUT_API_KEY) {
-    const { createBlockscoutClient } = await import("../src/services/blockscoutClient.js");
-    const blockscoutClient = createBlockscoutClient({
-      baseUrl: process.env.BLOCKSCOUT_BASE_URL,
-      apiKey: process.env.BLOCKSCOUT_API_KEY,
-      logger: app.log,
-    });
+  if (sharedBlockscoutClient) {
     await app.register((await import("./routes/blockscoutRoutes.js")).default, {
       prefix: "/api/blockscout",
-      blockscoutClient,
+      blockscoutClient: sharedBlockscoutClient,
     });
     app.log.info("✅ Blockscout proxy registered at /api/blockscout");
-  } else {
-    app.log.warn("⚠️  BLOCKSCOUT_BASE_URL/API_KEY missing; cold reads disabled");
   }
 } catch (err) {
   app.log.error({ err }, "Failed to mount /api/blockscout");
