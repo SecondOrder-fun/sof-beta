@@ -37,6 +37,7 @@ import {
   SlippageSettings,
   TradingStatusOverlay,
 } from "@/components/buysell";
+import SignInRequiredOverlay from "@/components/auth/SignInRequiredOverlay";
 import { useRollover } from "@/hooks/useRollover";
 import RolloverBanner from "@/components/curve/RolloverBanner";
 import { Button } from "@/components/ui/button";
@@ -374,6 +375,7 @@ export const BuySellSheet = ({
           walletNotConnected={walletNotConnected}
           variant="mobile"
         />
+        <SignInRequiredOverlay variant="mobile" />
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="w-full mb-2">

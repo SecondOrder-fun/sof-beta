@@ -12,6 +12,7 @@ import { buildPlaceBetCalls, readBet } from '@/services/onchainInfoFi';
 import { useSmartTransactions } from '@/hooks/useSmartTransactions';
 import { useTransactionStatus } from '@/hooks/useTransactionStatus';
 import TransactionModal from '@/components/admin/TransactionModal';
+import SignInRequiredOverlay from '@/components/auth/SignInRequiredOverlay';
 
 import { useFormatSOF } from '@/hooks/buysell';
 import { TrendingUp, TrendingDown } from 'lucide-react';
@@ -94,7 +95,8 @@ const BuySellWidget = ({ marketId, market }) => {
   const noAmount = formatSOF(noPosition.data?.amount ?? 0n);
 
   return (
-    <Card className="sticky top-6">
+    <Card className="sticky top-6 relative">
+      <SignInRequiredOverlay variant="desktop" />
       <CardHeader className="pb-3">
         <CardTitle className="text-lg">{t('trade')}</CardTitle>
       </CardHeader>

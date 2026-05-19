@@ -24,6 +24,7 @@ import {
   SlippageSettings,
   TradingStatusOverlay,
 } from "@/components/buysell";
+import SignInRequiredOverlay from "@/components/auth/SignInRequiredOverlay";
 import { useEligibleRolloverCohort } from "@/hooks/useEligibleRolloverCohort";
 import { computeBuySplit } from "@/hooks/buysell/computeBuySplit";
 import { applyMaxSlippage } from "@/utils/buysell/slippage";
@@ -319,6 +320,7 @@ const BuySellWidget = ({
         walletNotConnected={walletNotConnected}
         variant="desktop"
       />
+      <SignInRequiredOverlay variant="desktop" />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <div className="w-full mb-3 mt-2 grid grid-cols-[2fr,2fr,0.6fr] gap-2 items-center">

@@ -17,7 +17,6 @@
  */
 
 import {
-  createContext,
   useState,
   useEffect,
   useRef,
@@ -30,6 +29,7 @@ import { signMessage } from "@wagmi/core";
 import { config } from "@/lib/wagmiConfig";
 import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import { API_BASE } from "@/lib/apiBase";
+import { AppAuthContext } from "@/context/AppAuthContext";
 
 const STORAGE_JWT_KEY = "sof:auth_jwt";
 const STORAGE_USER_KEY = "sof:auth_user";
@@ -41,7 +41,7 @@ const PERSIST_WALLET_TYPES = new Set(["desktop-eoa", "coinbase-smart"]);
 // Wallet types that auto-fire SIWE on connect.
 const AUTO_FIRE_WALLET_TYPES = new Set(["desktop-eoa", "coinbase-smart"]);
 
-export const AppAuthContext = createContext(null);
+export { AppAuthContext };
 
 function decodeJwtPayload(token) {
   try {

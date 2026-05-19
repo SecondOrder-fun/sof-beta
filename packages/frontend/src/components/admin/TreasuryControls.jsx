@@ -4,6 +4,7 @@ import { useTreasury } from "@/hooks/useTreasury";
 import { useCurveState } from "@/hooks/useCurveState";
 import { useTransactionStatus } from "@/hooks/useTransactionStatus";
 import TransactionModal from "@/components/admin/TransactionModal";
+import SignInRequiredOverlay from "@/components/auth/SignInRequiredOverlay";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -83,7 +84,8 @@ export function TreasuryControls({ seasonId, bondingCurveAddress }) {
   }
 
   return (
-    <Card className="mt-4 border-warning" data-testid="treasury-controls">
+    <Card className="mt-4 border-warning relative" data-testid="treasury-controls">
+      <SignInRequiredOverlay variant="desktop" />
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Wallet className="h-5 w-5" />
