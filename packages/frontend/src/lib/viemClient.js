@@ -29,6 +29,7 @@ function isProblematicRpcUrl(url) {
 export function resetBadRpcUrls() {
   badRpcUrls.clear();
   lastResetAt = Date.now();
+  invalidateClientCache();
 }
 
 function maybeResetDemotions(now) {
@@ -39,6 +40,9 @@ function maybeResetDemotions(now) {
 
 function markRpcBad(url, now) {
   badRpcUrls.set(url, now + DEMOTION_WINDOW_MS);
+  // Bust the client cache so the next buildPublicClient call constructs
+  // a fresh client with the demoted URL stripped from its transport list.
+  invalidateClientCache();
 }
 
 function isRpcBad(url, now) {
@@ -51,15 +55,31 @@ function isRpcBad(url, now) {
   return true;
 }
 
+// Module-level client cache, keyed by (networkKey, active-URL set).
+// Critical: every caller of buildPublicClient(netKey) must get the SAME
+// client instance, otherwise each gets its own batch.multicall queue and
+// concurrent reads from different consumers can't share the aggregator —
+// they fire as parallel POSTs and saturate the gateway's burst limit.
+// The cache invalidates when the active URL set changes (e.g. after an
+// RPC gets demoted by markRpcBad), since transport state is baked in.
+const clientCache = new Map();
+
+function invalidateClientCache() {
+  clientCache.clear();
+}
+
 /**
- * Build a viem public client with RPC fallback support.
+ * Build (or reuse) the shared viem public client for the given network.
  * Returns null when the network has no rpcUrl configured.
+ *
  * @param {string} networkKey
  * @returns {import("viem").PublicClient | null}
  */
 export function buildPublicClient(networkKey) {
   const now = Date.now();
+  const willReset = now - lastResetAt >= RESET_INTERVAL_MS;
   maybeResetDemotions(now);
+  if (willReset) invalidateClientCache();
   const net = getNetworkByKey(networkKey);
   const fallbackUrls = net?.rpcFallbackUrls || [];
   const primaryRpcUrl = net?.rpcUrl || "";
@@ -108,6 +128,12 @@ export function buildPublicClient(networkKey) {
   const activeUrls = allUrls.filter((url) => !isRpcBad(url, now));
   const urlsToUse = activeUrls.length > 0 ? activeUrls : allUrls;
   if (urlsToUse.length === 0) return null;
+
+  // Cache hit when the same network + same active-URL set is requested.
+  // Active URL set is part of the key so a demotion forces a rebuild.
+  const cacheKey = `${networkKey}::${urlsToUse.join(",")}`;
+  const cached = clientCache.get(cacheKey);
+  if (cached) return cached;
 
   const httpTransports = urlsToUse
     .map((url) =>
@@ -158,9 +184,11 @@ export function buildPublicClient(networkKey) {
   // envelope (e.g. usePlayerPosition's playerTickets fires on mount, then
   // curveConfig fires once SMA resolves a tick later). Smaller windows
   // (16ms) leaked into separate POSTs and tripped 429s.
-  return createPublicClient({
+  const client = createPublicClient({
     chain,
     transport,
     batch: { multicall: { wait: 50 } },
   });
+  clientCache.set(cacheKey, client);
+  return client;
 }
