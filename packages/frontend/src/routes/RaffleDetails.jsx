@@ -128,7 +128,6 @@ const RaffleDetails = () => {
     position: localPosition,
     isRefreshing,
     setIsRefreshing,
-    setPosition: setLocalPosition,
     refreshNow: refreshPositionNow,
   } = usePlayerPosition(bondingCurveAddress, {
     seasonDetails: seasonDetailsQuery?.data,
