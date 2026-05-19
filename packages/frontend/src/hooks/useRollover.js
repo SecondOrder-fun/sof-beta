@@ -1,7 +1,6 @@
 import { useCallback } from "react";
 import { usePublicClient } from "wagmi";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useTranslation } from "react-i18next";
 import { useSmartTransactions } from "./useSmartTransactions";
 import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import { useLiveSubscription } from "@/hooks/chain/useLiveSubscription";
@@ -15,7 +14,6 @@ import {
   buildRefundCall,
 } from "@/services/onchainRolloverEscrow";
 import { buildClaimConsolationCall } from "@/services/onchainRaffleDistributor";
-import { useToast } from "@/hooks/useToast";
 
 export function useRollover(seasonId) {
   // SMA-bound read per spec §4.3 — rollover deposits live at the SMA.
@@ -23,8 +21,6 @@ export function useRollover(seasonId) {
   const publicClient = usePublicClient();
   const { executeBatch } = useSmartTransactions();
   const qc = useQueryClient();
-  const { t } = useTranslation(["raffle", "common"]);
-  const { toast } = useToast();
   const netKey = getStoredNetworkKey();
   const contracts = getContractAddresses(netKey);
 
@@ -93,10 +89,6 @@ export function useRollover(seasonId) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["raffle_claims"] });
       qc.invalidateQueries({ queryKey });
-      toast({ title: t("raffle:rolloverSuccess", { defaultValue: "Rollover confirmed" }) });
-    },
-    onError: (err) => {
-      toast({ title: t("common:error"), description: err.message, variant: "destructive" });
     },
   });
 
@@ -115,9 +107,6 @@ export function useRollover(seasonId) {
       qc.invalidateQueries({ queryKey });
       qc.invalidateQueries({ queryKey: ["sofTransactions"] });
     },
-    onError: (err) => {
-      toast({ title: t("common:error"), description: err.message, variant: "destructive" });
-    },
   });
 
   const refundRollover = useMutation({
@@ -127,10 +116,6 @@ export function useRollover(seasonId) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey });
-      toast({ title: t("raffle:refundSuccess", { defaultValue: "Refund confirmed" }) });
-    },
-    onError: (err) => {
-      toast({ title: t("common:error"), description: err.message, variant: "destructive" });
     },
   });
 

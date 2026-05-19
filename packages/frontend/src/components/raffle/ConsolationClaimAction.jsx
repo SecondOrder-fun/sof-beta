@@ -3,6 +3,8 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { formatUnits } from "viem";
 import { useRollover } from "@/hooks/useRollover";
+import { useTransactionStatus } from "@/hooks/useTransactionStatus";
+import TransactionModal from "@/components/admin/TransactionModal";
 
 /**
  * ConsolationClaimAction — renders the rollover/claim UI for a consolation prize.
@@ -18,6 +20,7 @@ const ConsolationClaimAction = ({ seasonId, amount, isPending, onClaimToWallet }
   const { t } = useTranslation(["raffle", "transactions"]);
   const { hasClaimableRollover, bonusBps, bonusAmount, claimToRollover } =
     useRollover(seasonId);
+  const claimToRolloverStatus = useTransactionStatus(claimToRollover);
 
   if (!hasClaimableRollover) {
     return (
@@ -73,6 +76,10 @@ const ConsolationClaimAction = ({ seasonId, amount, isPending, onClaimToWallet }
           {t("raffle:claimToWalletInstead")}
         </button>
       </div>
+      <TransactionModal
+        mutation={claimToRolloverStatus}
+        title={t("raffle:rollingOver", { defaultValue: "Rolling over to next season" })}
+      />
     </div>
   );
 };
