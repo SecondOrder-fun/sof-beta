@@ -11,11 +11,8 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import PageTitle from "@/components/layout/PageTitle";
 // removed inline buy/sell form controls
-import { getStoredNetworkKey } from "@/lib/wagmi";
-import { getNetworkByKey } from "@/config/networks";
 import { useChainTime } from "@/hooks/useChainTime";
 import { useCurveState } from "@/hooks/useCurveState";
 import BondingCurvePanel from "@/components/curve/CurveGraph";
@@ -31,7 +28,6 @@ import { useAccount } from "wagmi";
 import { RaffleAdminControls } from "@/components/admin/RaffleAdminControls";
 import { TreasuryControls } from "@/components/admin/TreasuryControls";
 import SecondaryCard from "@/components/common/SecondaryCard";
-import ExplorerLink from "@/components/common/ExplorerLink";
 import CountdownTimer from "@/components/common/CountdownTimer";
 import { formatTimestamp } from "@/lib/utils";
 import { usePlatform } from "@/hooks/usePlatform";
@@ -132,7 +128,6 @@ const RaffleDetails = () => {
     position: localPosition,
     isRefreshing,
     setIsRefreshing,
-    setPosition: setLocalPosition,
     refreshNow: refreshPositionNow,
   } = usePlayerPosition(bondingCurveAddress, {
     seasonDetails: seasonDetailsQuery?.data,
@@ -160,22 +155,6 @@ const RaffleDetails = () => {
       onEnd: () => setIsRefreshing(false),
     },
   );
-
-  // Toasts state for tx updates (component scope)
-  const [toasts, setToasts] = useState([]);
-  const netKeyOuter = getStoredNetworkKey();
-  const netOuter = getNetworkByKey(netKeyOuter);
-  const addToast = ({ type = "success", message, hash }) => {
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const url =
-      hash && netOuter?.explorer
-        ? `${netOuter.explorer.replace(/\/$/, "")}/tx/${hash}`
-        : undefined;
-    setToasts((t) => [{ id, type, message, hash, url }, ...t]);
-    setTimeout(() => {
-      setToasts((t) => t.filter((x) => x.id !== id));
-    }, 120000); // 2 minutes
-  };
 
   // Live pricing rendered via InfoFiPricingTicker component (SSE)
 
@@ -335,15 +314,7 @@ const RaffleDetails = () => {
               debouncedRefresh(0);
             }, 3000);
           }}
-          onNotify={(evt) => {
-            // Handle position updates from sheet (don't close sheet)
-            if (evt.type === "position_update" && evt.positionData) {
-              setLocalPosition(evt.positionData);
-              return;
-            }
-
-            // Handle other notifications
-            addToast(evt);
+          onTxSettled={() => {
             setIsRefreshing(true);
             debouncedRefresh(0);
             refreshPositionNow();
@@ -630,10 +601,6 @@ const RaffleDetails = () => {
                               setGateModalOpen(true);
                             }}
                             onTxSuccess={() => triggerStaggeredRefresh()}
-                            onNotify={(evt) => {
-                              addToast(evt);
-                              triggerStaggeredRefresh();
-                            }}
                           />
                         )}
                         {/* Player position display - only visible when a wallet is connected */}
@@ -686,29 +653,6 @@ const RaffleDetails = () => {
                               </span>
                             )}
                           </SecondaryCard>
-                        )}
-                        {/* Toasts container (inline under position) */}
-                        {toasts.length > 0 && (
-                          <div className="mt-3 space-y-2">
-                            {toasts.map((toast) => (
-                              <Alert
-                                key={toast.id}
-                                variant={toast.type === "error" ? "destructive" : "success"}
-                              >
-                                <AlertTitle>{toast.message}</AlertTitle>
-                                {toast.hash && (
-                                  <AlertDescription>
-                                    <ExplorerLink
-                                      value={toast.hash}
-                                      type="tx"
-                                      text="View Transaction"
-                                      className="underline text-primary font-mono break-all"
-                                    />
-                                  </AlertDescription>
-                                )}
-                              </Alert>
-                            ))}
-                          </div>
                         )}
                       </CardContent>
                     </Card>

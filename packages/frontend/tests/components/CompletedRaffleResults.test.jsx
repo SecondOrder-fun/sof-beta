@@ -27,6 +27,14 @@ vi.mock("@/hooks/useRollover", () => ({
   useRollover: vi.fn(),
 }));
 
+// ConsolationClaimAction (rendered by this component) mounts TransactionModal
+// which calls useTransactionStatus → usePublicClient. The test has no
+// WagmiProvider, so stub usePublicClient out — receipt polling isn't exercised
+// here.
+vi.mock("wagmi", () => ({
+  usePublicClient: () => ({ waitForTransactionReceipt: vi.fn() }),
+}));
+
 import { useRollover } from "@/hooks/useRollover";
 import CompletedRaffleResults from "@/components/raffle/CompletedRaffleResults";
 

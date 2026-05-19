@@ -42,3 +42,34 @@ export function buildFriendlyContractError(abi, err, fallback = 'Transaction fai
   if (err?.message) return err.message;
   return fallback;
 }
+
+/**
+ * Walk a viem error's cause chain to find the most-actionable revert reason.
+ * viem wraps ContractFunctionRevertedError inside ContractFunctionExecutionError
+ * inside the wagmi mutation error, so the headline `shortMessage` is usually a
+ * generic "The contract function 'X' reverted" with the real reason ~2 layers
+ * down. Returns { headline, reason, contractContext, fullMessage } or null.
+ */
+export function extractErrorDetails(err) {
+  if (!err) return null;
+  const headline = err.shortMessage || err.message || 'Transaction failed';
+  let reason = null;
+  let contractContext = null;
+  let cur = err;
+  for (let i = 0; i < 6 && cur; i++) {
+    if (cur.data?.errorName && !reason) {
+      const args = Array.isArray(cur.data.args) && cur.data.args.length
+        ? `(${cur.data.args.map(String).join(', ')})`
+        : '()';
+      reason = `${cur.data.errorName}${args}`;
+    }
+    if (Array.isArray(cur.metaMessages) && cur.metaMessages.length && !contractContext) {
+      contractContext = cur.metaMessages.join('\n');
+    }
+    if (!reason && cur !== err && cur.shortMessage && cur.shortMessage !== headline) {
+      reason = cur.shortMessage;
+    }
+    cur = cur.cause;
+  }
+  return { headline, reason, contractContext, fullMessage: err.message || '' };
+}

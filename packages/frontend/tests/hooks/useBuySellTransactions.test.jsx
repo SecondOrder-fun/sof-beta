@@ -29,14 +29,14 @@ import { useBuySellTransactions } from "@/hooks/buysell/useBuySellTransactions";
 
 const ONE_SOF = 10n ** 18n;
 
-describe("useBuySellTransactions.executeBuy mixed-batch", () => {
+describe("useBuySellTransactions.buyMutation — call building", () => {
   let queryClient;
 
   beforeEach(() => {
     vi.clearAllMocks();
     mockExecuteBatch.mockResolvedValue("0xtxhash");
     queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
   });
 
@@ -48,8 +48,8 @@ describe("useBuySellTransactions.executeBuy mixed-batch", () => {
 
   function setup() {
     const { result } = renderHook(
-      () => useBuySellTransactions(ADDR_CURVE, null, vi.fn(), vi.fn()),
-      { wrapper }
+      () => useBuySellTransactions(ADDR_CURVE, null),
+      { wrapper },
     );
     return result;
   }
@@ -57,7 +57,7 @@ describe("useBuySellTransactions.executeBuy mixed-batch", () => {
   it("submits wallet-only batch when rolloverAmount = 0", async () => {
     const result = setup();
     await act(async () => {
-      await result.current.executeBuy({
+      await result.current.buyMutation.mutateAsync({
         tokenAmount: 1000n,
         maxSofAmount: 1000n * ONE_SOF,
         slippagePct: "1",
@@ -76,7 +76,7 @@ describe("useBuySellTransactions.executeBuy mixed-batch", () => {
   it("submits rollover-only batch when rolloverAmount covers the full buy", async () => {
     const result = setup();
     await act(async () => {
-      await result.current.executeBuy({
+      await result.current.buyMutation.mutateAsync({
         tokenAmount: 1000n,
         maxSofAmount: 1000n * ONE_SOF,
         slippagePct: "1",
@@ -95,7 +95,7 @@ describe("useBuySellTransactions.executeBuy mixed-batch", () => {
   it("submits 3-call mixed batch when rolloverAmount < estBuyWithFees", async () => {
     const result = setup();
     await act(async () => {
-      await result.current.executeBuy({
+      await result.current.buyMutation.mutateAsync({
         tokenAmount: 1000n,
         maxSofAmount: 1000n * ONE_SOF,
         slippagePct: "1",
@@ -119,7 +119,7 @@ describe("useBuySellTransactions.executeBuy mixed-batch", () => {
   it("computes rolloverTickets in the mixed branch by tokenAmount − walletTopupTickets", async () => {
     const result = setup();
     await act(async () => {
-      await result.current.executeBuy({
+      await result.current.buyMutation.mutateAsync({
         tokenAmount: 1000n,
         maxSofAmount: 1000n * ONE_SOF,
         slippagePct: "1",
@@ -138,7 +138,7 @@ describe("useBuySellTransactions.executeBuy mixed-batch", () => {
   it("falls through to wallet-only when rolloverTickets would be 0 (1-ticket edge)", async () => {
     const result = setup();
     await act(async () => {
-      await result.current.executeBuy({
+      await result.current.buyMutation.mutateAsync({
         tokenAmount: 1n,
         maxSofAmount: 100n * ONE_SOF,
         slippagePct: "1",
@@ -157,21 +157,15 @@ describe("useBuySellTransactions.executeBuy mixed-batch", () => {
   });
 });
 
-describe("useBuySellTransactions.executeBuy — query invalidation on success", () => {
+describe("useBuySellTransactions.buyMutation — pre-flight validation", () => {
   let queryClient;
-  let mockClient;
-  let invalidateSpy;
 
   beforeEach(() => {
     vi.clearAllMocks();
     mockExecuteBatch.mockResolvedValue("0xtxhash");
-    mockClient = {
-      waitForTransactionReceipt: vi.fn(),
-    };
     queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
-    invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
   });
 
   function wrapper({ children }) {
@@ -180,103 +174,133 @@ describe("useBuySellTransactions.executeBuy — query invalidation on success", 
     );
   }
 
-  function setupWithClient() {
+  function setup() {
     const { result } = renderHook(
-      () => useBuySellTransactions(ADDR_CURVE, mockClient, vi.fn(), vi.fn()),
-      { wrapper }
+      () => useBuySellTransactions(ADDR_CURVE, null),
+      { wrapper },
     );
     return result;
   }
 
-  it("does not call invalidateQueries in finishWithReceipt on confirmed success (central invalidator handles it)", async () => {
-    mockClient.waitForTransactionReceipt.mockResolvedValue({
-      status: "success",
-      blockNumber: 1n,
-    });
-
-    const result = setupWithClient();
+  it("throws when validation.seasonTimeNotActive is true; no batch submitted", async () => {
+    const result = setup();
+    let caught;
     await act(async () => {
-      await result.current.executeBuy({
-        tokenAmount: 1000n,
-        maxSofAmount: 1000n * ONE_SOF,
-        slippagePct: "1",
-        rolloverSeasonId: null,
-        rolloverAmount: 0n,
-        walletTopupTickets: 1000n,
-        walletTopupMaxSof: 1010n * ONE_SOF,
-      });
+      try {
+        await result.current.buyMutation.mutateAsync({
+          tokenAmount: 1n,
+          maxSofAmount: 1n,
+          slippagePct: "1",
+          walletTopupTickets: 1n,
+          walletTopupMaxSof: 1n,
+          validation: { seasonTimeNotActive: true },
+        });
+      } catch (e) { caught = e; }
     });
-
-    // Legacy per-key invalidations removed — invalidateUltraFreshTouching in
-    // useSmartTransactions.executeBatch now handles cache eviction centrally.
-    expect(invalidateSpy).not.toHaveBeenCalled();
+    // The test's i18n mock returns the key (t: (k) => k), so the thrown
+    // message is the t() key — proof that the throw is routed through i18n
+    // rather than a hardcoded English string.
+    expect(caught?.message).toBe("transactions:seasonNotActive");
+    expect(mockExecuteBatch).not.toHaveBeenCalled();
   });
 
-  it("does NOT invalidate caches when the tx receipt is reverted", async () => {
-    mockClient.waitForTransactionReceipt.mockResolvedValue({
-      status: "reverted",
-      blockNumber: 1n,
-    });
-
-    const result = setupWithClient();
+  it("throws when validation.tradingLocked is true; no batch submitted", async () => {
+    const result = setup();
+    let caught;
     await act(async () => {
-      await result.current.executeBuy({
-        tokenAmount: 1000n,
-        maxSofAmount: 1000n * ONE_SOF,
-        slippagePct: "1",
-        rolloverSeasonId: null,
-        rolloverAmount: 0n,
-        walletTopupTickets: 1000n,
-        walletTopupMaxSof: 1010n * ONE_SOF,
-      });
+      try {
+        await result.current.buyMutation.mutateAsync({
+          tokenAmount: 1n,
+          maxSofAmount: 1n,
+          slippagePct: "1",
+          walletTopupTickets: 1n,
+          walletTopupMaxSof: 1n,
+          validation: { tradingLocked: true },
+        });
+      } catch (e) { caught = e; }
     });
-
-    expect(invalidateSpy).not.toHaveBeenCalled();
+    expect(caught?.message).toBe("transactions:tradingLocked");
+    expect(mockExecuteBatch).not.toHaveBeenCalled();
   });
 
-  it("does NOT invalidate caches when waitForTransactionReceipt throws", async () => {
-    mockClient.waitForTransactionReceipt.mockRejectedValue(
-      new Error("rpc blip")
+  it("throws on hasInsufficientBalance with formatted needed amount", async () => {
+    const result = setup();
+    let caught;
+    await act(async () => {
+      try {
+        await result.current.buyMutation.mutateAsync({
+          tokenAmount: 1n,
+          maxSofAmount: 1n,
+          slippagePct: "1",
+          walletTopupTickets: 1n,
+          walletTopupMaxSof: 1n,
+          validation: { hasInsufficientBalance: true, needed: "12.34" },
+        });
+      } catch (e) { caught = e; }
+    });
+    // i18n mock returns the key, so the message is the t() key, not the rendered string.
+    expect(caught?.message).toMatch(/insufficientSOFWithAmount/);
+    expect(mockExecuteBatch).not.toHaveBeenCalled();
+  });
+});
+
+describe("useBuySellTransactions.sellMutation — pre-flight reserves check", () => {
+  let queryClient;
+  let mockClient;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExecuteBatch.mockResolvedValue("0xselltx");
+    mockClient = { readContract: vi.fn() };
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+  });
+
+  function wrapper({ children }) {
+    return (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
+  }
 
-    const result = setupWithClient();
+  function setup() {
+    const { result } = renderHook(
+      () => useBuySellTransactions(ADDR_CURVE, mockClient),
+      { wrapper },
+    );
+    return result;
+  }
+
+  it("throws Insufficient curve reserves when curveConfig sofReserves < minSofAmount", async () => {
+    // curveConfig returns [totalSupply, sofReserves, ...]; mock with sofReserves=100
+    mockClient.readContract.mockResolvedValue([0n, 100n]);
+    const result = setup();
+    let caught;
     await act(async () => {
-      await result.current.executeBuy({
-        tokenAmount: 1000n,
-        maxSofAmount: 1000n * ONE_SOF,
-        slippagePct: "1",
-        rolloverSeasonId: null,
-        rolloverAmount: 0n,
-        walletTopupTickets: 1000n,
-        walletTopupMaxSof: 1010n * ONE_SOF,
-      });
+      try {
+        await result.current.sellMutation.mutateAsync({
+          tokenAmount: 1n,
+          minSofAmount: 1000n,
+          slippagePct: "1",
+        });
+      } catch (e) { caught = e; }
     });
-
-    expect(invalidateSpy).not.toHaveBeenCalled();
+    expect(caught?.message).toBe("transactions:insufficientCurveReserves");
+    expect(mockExecuteBatch).not.toHaveBeenCalled();
   });
 
-  it("does not call invalidateQueries on a rollover-only buy either (central invalidator handles it)", async () => {
-    mockClient.waitForTransactionReceipt.mockResolvedValue({
-      status: "success",
-      blockNumber: 1n,
-    });
-
-    const result = setupWithClient();
+  it("submits sell batch when reserves are sufficient", async () => {
+    mockClient.readContract.mockResolvedValue([0n, 10_000n * ONE_SOF]);
+    const result = setup();
     await act(async () => {
-      await result.current.executeBuy({
-        tokenAmount: 1000n,
-        maxSofAmount: 1000n * ONE_SOF,
+      await result.current.sellMutation.mutateAsync({
+        tokenAmount: 1n,
+        minSofAmount: 100n * ONE_SOF,
         slippagePct: "1",
-        rolloverSeasonId: 1n,
-        rolloverAmount: 1000n * ONE_SOF,
-        walletTopupTickets: 0n,
-        walletTopupMaxSof: 0n,
-        rolloverMaxTotalSof: 1060n * ONE_SOF,
       });
     });
-
-    // Legacy per-key invalidations removed — invalidateUltraFreshTouching in
-    // useSmartTransactions.executeBatch now handles cache eviction centrally.
-    expect(invalidateSpy).not.toHaveBeenCalled();
+    const calls = mockExecuteBatch.mock.calls[0][0];
+    expect(calls).toHaveLength(1);
+    expect(calls[0].to).toBe(ADDR_CURVE);
   });
 });

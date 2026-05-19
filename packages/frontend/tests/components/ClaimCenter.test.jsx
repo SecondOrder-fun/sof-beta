@@ -35,6 +35,12 @@ vi.mock("wagmi", async (importOriginal) => {
     useAccount: () => ({
       address: "0x1111111111111111111111111111111111111111",
     }),
+    // useTransactionStatus (mounted via ClaimCenter's TransactionModal wiring)
+    // calls usePublicClient. The test has no WagmiProvider, so stub it out —
+    // the tests don't exercise the receipt-polling path.
+    usePublicClient: () => ({
+      waitForTransactionReceipt: vi.fn(),
+    }),
   };
 });
 

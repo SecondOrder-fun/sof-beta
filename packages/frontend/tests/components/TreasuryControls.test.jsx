@@ -14,6 +14,11 @@ vi.mock("@/hooks/useCurveState", () => ({
 vi.mock("@/hooks/useToast", () => ({
   useToast: vi.fn(),
 }));
+// TreasuryControls now mounts TransactionModal → useTransactionStatus →
+// usePublicClient. No WagmiProvider in tests; stub it out.
+vi.mock("wagmi", () => ({
+  usePublicClient: () => ({ waitForTransactionReceipt: vi.fn() }),
+}));
 
 const mockTreasury = "0x5555555555555555555555555555555555555555";
 
@@ -121,35 +126,9 @@ describe("TreasuryControls", () => {
       ).toBeInTheDocument();
     });
 
-    it("renders error alert when extraction fails", () => {
-      useTreasury.mockReturnValue({
-        ...defaultTreasuryState,
-        extractError: new Error("Reverted: missing role"),
-      });
-      render(<TreasuryControls seasonId="1" />);
-      expect(screen.getByText(/Reverted: missing role/i)).toBeInTheDocument();
-    });
-  });
-
-  describe("Toasts", () => {
-    it("fires error toast on extraction failure", async () => {
-      const toast = vi.fn();
-      useToast.mockReturnValue({ toast });
-
-      useTreasury.mockReturnValue({
-        ...defaultTreasuryState,
-        extractError: new Error("Reverted"),
-      });
-      render(<TreasuryControls seasonId="1" />);
-
-      await waitFor(() =>
-        expect(toast).toHaveBeenCalledWith(
-          expect.objectContaining({
-            title: "Extraction failed",
-            variant: "destructive",
-          })
-        )
-      );
-    });
+    // The inline-Alert error display and the destructive toast were both
+    // removed when TreasuryControls migrated to TransactionModal — errors
+    // now flow through the centered modal via useTransactionStatus. Tests
+    // for the deleted code paths were removed alongside the implementation.
   });
 });

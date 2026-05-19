@@ -8,9 +8,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useToast } from '@/hooks/useToast';
 import { buildPlaceBetCalls, readBet } from '@/services/onchainInfoFi';
 import { useSmartTransactions } from '@/hooks/useSmartTransactions';
+import { useTransactionStatus } from '@/hooks/useTransactionStatus';
+import TransactionModal from '@/components/admin/TransactionModal';
 
 import { useFormatSOF } from '@/hooks/buysell';
 import { TrendingUp, TrendingDown } from 'lucide-react';
@@ -23,7 +24,6 @@ import { TrendingUp, TrendingDown } from 'lucide-react';
 const BuySellWidget = ({ marketId, market }) => {
   const { t } = useTranslation('market');
   const { isConnected, address } = useAccount();
-  const { toast } = useToast();
   const qc = useQueryClient();
   const { executeBatch } = useSmartTransactions();
 
@@ -58,29 +58,16 @@ const BuySellWidget = ({ marketId, market }) => {
       });
       return executeBatch(calls);
     },
-    onSuccess: (hash) => {
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['infofiBet', marketId, address, true] });
       qc.invalidateQueries({ queryKey: ['infofiBet', marketId, address, false] });
       yesPosition.refetch?.();
       noPosition.refetch?.();
       setAmount('');
-      toast({ 
-        title: t('betConfirmed'), 
-        description: t('betDetails', { 
-          side: outcome, 
-          amount, 
-          hash: String(hash) 
-        }) 
-      });
     },
-    onError: (e) => {
-      toast({ 
-        title: t('tradeFailed'), 
-        description: e?.message || t('transactionError'), 
-        variant: 'destructive' 
-      });
-    }
   });
+
+  const placeBetStatus = useTransactionStatus(placeBet);
 
   // Calculate current odds
   const yesOdds = ((market?.current_probability || 0) / 100).toFixed(1);
@@ -250,6 +237,10 @@ const BuySellWidget = ({ marketId, market }) => {
           </a>
         </div>
       </CardContent>
+      <TransactionModal
+        mutation={placeBetStatus}
+        title={t('placingBet', { defaultValue: 'Placing bet' })}
+      />
     </Card>
   );
 };

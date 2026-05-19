@@ -2,7 +2,8 @@ import { useTranslation } from "react-i18next";
 import { useRafflePrizes } from "@/hooks/useRafflePrizes";
 import { useSponsoredPrizes } from "@/hooks/useSponsoredPrizes";
 import { useSponsorPrizeClaim } from "@/hooks/useSponsorPrize";
-import { useToast } from "@/hooks/useToast";
+import { useTransactionStatus } from "@/hooks/useTransactionStatus";
+import TransactionModal from "@/components/admin/TransactionModal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -40,20 +41,14 @@ export function ClaimPrizeWidget({ seasonId }) {
     hasSponsoredPrizes,
   } = useSponsoredPrizes(seasonId);
 
-  const { toast } = useToast();
   const {
     claimAll: claimSponsoredAll,
     isClaiming: isClaimingSponsored,
-  } = useSponsorPrizeClaim(seasonId, {
-    onSuccess: (type) => {
-      const title = type === "erc20" ? t("raffle:sponsoredERC20Claimed") : t("raffle:sponsoredNFTClaimed");
-      toast({ title, variant: "success" });
-    },
-    onError: (type, error) => {
-      const desc = type === "erc20" ? t("raffle:claimERC20Failed") : t("raffle:claimNFTFailed");
-      toast({ title: t("raffle:claimFailed"), description: error?.message || desc, variant: "destructive" });
-    },
-  });
+    claimERC20Mutation,
+    claimERC721Mutation,
+  } = useSponsorPrizeClaim(seasonId);
+  const claimERC20Status = useTransactionStatus(claimERC20Mutation);
+  const claimERC721Status = useTransactionStatus(claimERC721Mutation);
 
   if (isLoading) {
     return <div>{t("common:loading")}</div>;
@@ -173,6 +168,14 @@ export function ClaimPrizeWidget({ seasonId }) {
           )}
         </div>
       </CardContent>
+      <TransactionModal
+        mutation={claimERC20Status}
+        title={t("raffle:claimingSponsoredERC20", { defaultValue: "Claiming sponsored tokens" })}
+      />
+      <TransactionModal
+        mutation={claimERC721Status}
+        title={t("raffle:claimingSponsoredNFT", { defaultValue: "Claiming sponsored NFT" })}
+      />
     </Card>
   );
 }

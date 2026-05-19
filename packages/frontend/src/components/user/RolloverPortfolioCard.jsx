@@ -3,6 +3,8 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { formatUnits } from "viem";
 import { useRollover } from "@/hooks/useRollover";
+import { useTransactionStatus } from "@/hooks/useTransactionStatus";
+import TransactionModal from "@/components/admin/TransactionModal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,6 +26,7 @@ export default function RolloverPortfolioCard({ seasonId }) {
     refundRollover,
     isLoading,
   } = useRollover(seasonId);
+  const refundStatus = useTransactionStatus(refundRollover);
 
   if (isLoading || rolloverBalance === 0n || cohortPhase === "none") return null;
 
@@ -85,6 +88,10 @@ export default function RolloverPortfolioCard({ seasonId }) {
                 : t("account:refundToWallet", { defaultValue: "Refund to Wallet" })}
             </Button>
           )}
+        <TransactionModal
+          mutation={refundStatus}
+          title={t("account:refundingToWallet", { defaultValue: "Refunding rollover to wallet" })}
+        />
       </CardContent>
     </Card>
   );

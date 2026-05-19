@@ -23,9 +23,9 @@ import {
   RafflePrizeDistributorAbi as PrizeDistributorAbi,
   RaffleAbi,
 } from "@/utils/abis";
-import { useToast } from "@/hooks/useToast";
-import { formatUnits } from "viem";
 import { useClaims } from "@/hooks/useClaims";
+import { useTransactionStatus } from "@/hooks/useTransactionStatus";
+import TransactionModal from "@/components/admin/TransactionModal";
 import ClaimCenterRaffles from "./claim/ClaimCenterRaffles";
 import ClaimCenterMarkets from "./claim/ClaimCenterMarkets";
 
@@ -64,7 +64,6 @@ const ClaimCenter = ({ address, title, description }) => {
   const [tabValue, setTabValue] = useState("raffles");
   const allSeasonsQuery = useAllSeasons();
   const { address: connectedAddress } = useAccount();
-  const { toast } = useToast();
 
   // Use extracted claim hooks
   const {
@@ -76,6 +75,12 @@ const ClaimCenter = ({ address, title, description }) => {
     claimRaffleConsolation,
     claimRaffleGrand,
   } = useClaims();
+
+  // Modal status adapters for each claim mutation.
+  const claimInfoFiStatus = useTransactionStatus(claimInfoFiOne);
+  const claimFPMMStatus = useTransactionStatus(claimFPMMOne);
+  const claimConsolationStatus = useTransactionStatus(claimRaffleConsolation);
+  const claimGrandStatus = useTransactionStatus(claimRaffleGrand);
 
   // InfoFi Market Claims - fetch from backend API
   const API_BASE = import.meta.env.VITE_API_BASE_URL;
@@ -263,18 +268,6 @@ const ClaimCenter = ({ address, title, description }) => {
           participant.toLowerCase() === address.toLowerCase()
         ) {
           qc.invalidateQueries({ queryKey: ["raffle_claims"] });
-          const amount = log?.args?.amount;
-          toast({
-            title: t("raffle:prizeClaimed"),
-            description:
-              typeof amount === "bigint"
-                ? `${t("raffle:consolationPrize")}: ${formatUnits(
-                    amount,
-                    18,
-                  )} SOF`
-                : t("transactions:confirmed"),
-            variant: "success",
-          });
         }
       });
     },
@@ -301,15 +294,6 @@ const ClaimCenter = ({ address, title, description }) => {
           winner.toLowerCase() === address.toLowerCase()
         ) {
           qc.invalidateQueries({ queryKey: ["raffle_claims"] });
-          const amount = log?.args?.amount;
-          toast({
-            title: t("raffle:prizeClaimed"),
-            description:
-              typeof amount === "bigint"
-                ? `${t("raffle:grandPrize")}: ${formatUnits(amount, 18)} SOF`
-                : t("transactions:confirmed"),
-            variant: "success",
-          });
         }
       });
     },
@@ -506,6 +490,22 @@ const ClaimCenter = ({ address, title, description }) => {
           </Tabs>
         )}
       </CardContent>
+      <TransactionModal
+        mutation={claimInfoFiStatus}
+        title={t("market:claimingInfoFi", { defaultValue: "Claiming InfoFi payout" })}
+      />
+      <TransactionModal
+        mutation={claimFPMMStatus}
+        title={t("market:claimingFPMM", { defaultValue: "Claiming market position" })}
+      />
+      <TransactionModal
+        mutation={claimConsolationStatus}
+        title={t("raffle:claimingConsolation", { defaultValue: "Claiming consolation prize" })}
+      />
+      <TransactionModal
+        mutation={claimGrandStatus}
+        title={t("raffle:claimingGrand", { defaultValue: "Claiming grand prize" })}
+      />
     </Card>
   );
 };

@@ -1,10 +1,15 @@
 /**
  * Transaction Handlers Hook
- * Consolidates buy/sell transaction validation and execution logic
+ *
+ * Orchestrates buy/sell validation + invocation. Pre-flight checks are bundled
+ * into a `validation` object passed to the mutation, which throws inside its
+ * mutationFn so the modal can surface the reason via mutation.error.
+ *
+ * Gating checks remain a special early return because they trigger a separate
+ * modal (SignatureGateModal / PasswordGateModal), not an error display.
  */
 
 import { useCallback } from "react";
-import { useTranslation } from "react-i18next";
 import { SOFBondingCurveAbi } from "@/utils/abis";
 
 export function useTransactionHandlers({
@@ -16,9 +21,8 @@ export function useTransactionHandlers({
   hasZeroBalance,
   hasInsufficientBalance,
   formatSOF,
-  onNotify,
-  executeBuy,
-  executeSell,
+  buyMutation,
+  sellMutation,
   estBuyWithFees,
   estSellAfterFees,
   slippagePct,
@@ -32,80 +36,37 @@ export function useTransactionHandlers({
   walletTopupMaxSof = 0n,
   rolloverMaxTotalSof = 0n,
 }) {
-  const { t } = useTranslation(["common", "transactions"]);
-
   /**
-   * Handle buy transaction with validation
+   * Handle buy transaction. Gating bails early; everything else flows through
+   * the mutation, which surfaces validation + execution errors via mutation.error.
    */
   const handleBuy = useCallback(
     async (tokenAmount, onComplete) => {
       if (!tokenAmount || !bondingCurveAddress) return { success: false };
 
-      // Gating check
+      // Gating bails out without firing the mutation.
       if (isGated && isVerified !== true) {
-        if (onGatingRequired) {
-          onGatingRequired("buy");
-        }
+        onGatingRequired?.("buy");
         return { success: false };
       }
 
-      // Season time validation
-      if (seasonTimeNotActive) {
-        onNotify?.({
-          type: "error",
-          message: "Season is not active",
-          hash: "",
-        });
-        return { success: false };
-      }
+      const validation = {
+        seasonTimeNotActive,
+        tradingLocked,
+        hasZeroBalance,
+        hasInsufficientBalance,
+        needed: hasInsufficientBalance ? formatSOF(estBuyWithFees) : null,
+      };
 
-      // Trading lock validation
-      if (tradingLocked) {
-        onNotify?.({
-          type: "error",
-          message: "Trading is locked - Season has ended",
-          hash: "",
-        });
-        return { success: false };
-      }
+      const params = {
+        tokenAmount,
+        maxSofAmount: estBuyWithFees,
+        slippagePct,
+        validation,
+      };
 
-      // Balance validations
-      if (hasZeroBalance) {
-        onNotify?.({
-          type: "error",
-          message: t("transactions:insufficientSOF", {
-            defaultValue:
-              "You need $SOF to buy tickets. Visit the faucet or acquire tokens first.",
-          }),
-          hash: "",
-        });
-        return { success: false };
-      }
-
-      if (hasInsufficientBalance) {
-        const needed = formatSOF(estBuyWithFees);
-        onNotify?.({
-          type: "error",
-          message: t("transactions:insufficientSOFWithAmount", {
-            defaultValue:
-              "You need at least {{amount}} $SOF to complete this purchase.",
-            amount: needed,
-          }),
-          hash: "",
-        });
-        return { success: false };
-      }
-
-      // Execute transaction — route through rollover if enabled.
-      // executeBuy picks the right branch based on (rolloverAmount, walletTopupTickets):
-      //   - rollover-only when walletTopupTickets is 0
-      //   - mixed batch when walletTopupTickets > 0 (rollover + wallet top-up)
       if (rolloverEnabled && rolloverAmount > 0n && rolloverSeasonId) {
-        return await executeBuy({
-          tokenAmount,
-          maxSofAmount: estBuyWithFees,
-          slippagePct,
-          onComplete,
+        Object.assign(params, {
           rolloverSeasonId,
           rolloverAmount,
           walletTopupTickets,
@@ -114,12 +75,13 @@ export function useTransactionHandlers({
         });
       }
 
-      return await executeBuy({
-        tokenAmount,
-        maxSofAmount: estBuyWithFees,
-        slippagePct,
-        onComplete,
-      });
+      try {
+        const hash = await buyMutation.mutateAsync(params);
+        onComplete?.();
+        return { success: true, hash };
+      } catch (err) {
+        return { success: false, error: err?.message || "Buy failed" };
+      }
     },
     [
       bondingCurveAddress,
@@ -132,9 +94,7 @@ export function useTransactionHandlers({
       hasInsufficientBalance,
       formatSOF,
       estBuyWithFees,
-      onNotify,
-      t,
-      executeBuy,
+      buyMutation,
       slippagePct,
       rolloverEnabled,
       rolloverAmount,
@@ -142,51 +102,32 @@ export function useTransactionHandlers({
       walletTopupTickets,
       walletTopupMaxSof,
       rolloverMaxTotalSof,
-    ]
+    ],
   );
 
-  /**
-   * Handle sell transaction with validation
-   */
   const handleSell = useCallback(
     async (tokenAmount, onComplete) => {
       if (!tokenAmount || !bondingCurveAddress) return { success: false };
 
-      // Gating check
       if (isGated && isVerified !== true) {
-        if (onGatingRequired) {
-          onGatingRequired("sell");
-        }
+        onGatingRequired?.("sell");
         return { success: false };
       }
 
-      // Season time validation
-      if (seasonTimeNotActive) {
-        onNotify?.({
-          type: "error",
-          message: "Season is not active",
-          hash: "",
+      const validation = { seasonTimeNotActive, tradingLocked };
+
+      try {
+        const hash = await sellMutation.mutateAsync({
+          tokenAmount,
+          minSofAmount: estSellAfterFees,
+          slippagePct,
+          validation,
         });
-        return { success: false };
+        onComplete?.();
+        return { success: true, hash };
+      } catch (err) {
+        return { success: false, error: err?.message || "Sell failed" };
       }
-
-      // Trading lock validation
-      if (tradingLocked) {
-        onNotify?.({
-          type: "error",
-          message: "Trading is locked - Season has ended",
-          hash: "",
-        });
-        return { success: false };
-      }
-
-      // Execute transaction
-      return await executeSell({
-        tokenAmount,
-        minSofAmount: estSellAfterFees,
-        slippagePct,
-        onComplete,
-      });
     },
     [
       bondingCurveAddress,
@@ -195,15 +136,16 @@ export function useTransactionHandlers({
       onGatingRequired,
       seasonTimeNotActive,
       tradingLocked,
-      onNotify,
-      executeSell,
+      sellMutation,
       estSellAfterFees,
       slippagePct,
-    ]
+    ],
   );
 
   /**
-   * Fetch max sellable amount from contract
+   * Fetch max sellable amount from contract.
+   * Failure here is benign (returns 0); no modal needed — the MAX button just
+   * stays at 0 and the user can still type a manual amount.
    */
   const fetchMaxSellable = useCallback(async () => {
     try {
@@ -215,13 +157,10 @@ export function useTransactionHandlers({
         args: [connectedAddress],
       });
       return bal ?? 0n;
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Unable to fetch ticket balance";
-      onNotify?.({ type: "error", message, hash: "" });
+    } catch {
       return 0n;
     }
-  }, [client, connectedAddress, bondingCurveAddress, onNotify]);
+  }, [client, connectedAddress, bondingCurveAddress]);
 
   return {
     handleBuy,
