@@ -1,4 +1,5 @@
 // src/hooks/useProfileData.js
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useViemClient } from "./useViemClient";
 import { getContractAddresses } from "@/config/contracts";
@@ -38,77 +39,137 @@ export function useProfileData(address) {
     refetch: _sofBalance.refetch,
   };
 
-  // Raffle ticket balances across seasons. Previously this fired 3 RPC
-  // reads per season serially (raffleToken → decimals + balanceOf). On a
-  // network with N seasons that's 3N reads on every list/profile page
-  // load — the main source of the Tenderly 429s. Now batched: one
-  // multicall for all raffleToken() reads, then one multicall for the
-  // matched (decimals, balanceOf) pairs. Two RPC HTTP requests total.
-  const seasonsWithCurves = seasons.filter((s) => s?.config?.bondingCurve);
-  const seasonBalancesQuery = useQuery({
+  // Raffle ticket balances. Split by season lifecycle so completed
+  // raffles (immutable) cache forever, active/settling raffles refetch
+  // on every Portfolio mount, and upcoming raffles (no possible balance)
+  // are skipped entirely:
+  //
+  //   Upcoming  (0)     → skipped
+  //   Active    (1)     → mount-only, staleTime: 0
+  //   Settling  (2/3/4) → mount-only, staleTime: 0
+  //   Completed (5/6)   → cached forever, staleTime: Infinity
+  //
+  // Each tier is one query firing two multicalls (raffleToken → then
+  // decimals + balanceOf). Cache key is the sorted season-id list, so
+  // completed-tier cache survives across navigations within a session.
+  // Buys/sells happen on Raffle Detail (not Portfolio), so users always
+  // see fresh balances on the next Portfolio mount via the active tier.
+  const seasonsWithCurves = seasons.filter(
+    (s) => s?.config?.bondingCurve && Number(s?.status) !== 0,
+  );
+  const activeSeasonsForBalance = seasonsWithCurves.filter((s) => {
+    const n = Number(s.status);
+    return n >= 1 && n <= 4;
+  });
+  const completedSeasonsForBalance = seasonsWithCurves.filter((s) => {
+    const n = Number(s.status);
+    return n === 5 || n === 6;
+  });
+
+  const ticketBalancesQueryFn = (bucket) => async () => {
+    if (!bucket || bucket.length === 0) return [];
+    const tokenResults = await client.multicall({
+      contracts: bucket.map((s) => ({
+        address: s.config.bondingCurve,
+        abi: SOFBondingCurveAbi,
+        functionName: "raffleToken",
+      })),
+      allowFailure: true,
+    });
+
+    const balanceCalls = [];
+    const seasonMeta = [];
+    tokenResults.forEach((r, i) => {
+      if (r.status !== "success" || !r.result) return;
+      const s = bucket[i];
+      seasonMeta.push({ season: s, token: r.result });
+      balanceCalls.push(
+        { address: r.result, abi: ERC20Abi, functionName: "decimals" },
+        { address: r.result, abi: ERC20Abi, functionName: "balanceOf", args: [address] },
+      );
+    });
+
+    if (balanceCalls.length === 0) return [];
+
+    const balanceResults = await client.multicall({
+      contracts: balanceCalls,
+      allowFailure: true,
+    });
+
+    const results = [];
+    for (let i = 0; i < seasonMeta.length; i++) {
+      const decRes = balanceResults[i * 2];
+      const balRes = balanceResults[i * 2 + 1];
+      if (decRes?.status !== "success" || balRes?.status !== "success") continue;
+      const bal = balRes.result;
+      if (!bal || bal === 0n) continue;
+      const decimals = Number(decRes.result);
+      const base = 10n ** BigInt(decimals);
+      const { season: s, token } = seasonMeta[i];
+      results.push({
+        seasonId: s.id,
+        name: s?.config?.name,
+        token,
+        bondingCurve: s.config.bondingCurve,
+        balance: bal,
+        decimals,
+        ticketCount: (bal / base).toString(),
+      });
+    }
+    return results;
+  };
+
+  const activeBalancesQuery = useQuery({
     queryKey: [
       "raffleTokenBalances",
+      "active",
       netKey,
       address,
-      seasonsWithCurves.map((s) => s.id).join(","),
+      activeSeasonsForBalance.map((s) => s.id).join(","),
     ],
-    enabled: !!client && !!address && seasonsWithCurves.length > 0,
-    queryFn: async () => {
-      // Step 1: batch raffleToken() across all curves
-      const tokenResults = await client.multicall({
-        contracts: seasonsWithCurves.map((s) => ({
-          address: s.config.bondingCurve,
-          abi: SOFBondingCurveAbi,
-          functionName: "raffleToken",
-        })),
-        allowFailure: true,
-      });
-
-      // Build (decimals, balanceOf) calls for curves that resolved to a token
-      const balanceCalls = [];
-      const seasonMeta = [];
-      tokenResults.forEach((r, i) => {
-        if (r.status !== "success" || !r.result) return;
-        const s = seasonsWithCurves[i];
-        seasonMeta.push({ season: s, token: r.result });
-        balanceCalls.push(
-          { address: r.result, abi: ERC20Abi, functionName: "decimals" },
-          { address: r.result, abi: ERC20Abi, functionName: "balanceOf", args: [address] },
-        );
-      });
-
-      if (balanceCalls.length === 0) return [];
-
-      // Step 2: batch (decimals, balanceOf) for every resolved token
-      const balanceResults = await client.multicall({
-        contracts: balanceCalls,
-        allowFailure: true,
-      });
-
-      const results = [];
-      for (let i = 0; i < seasonMeta.length; i++) {
-        const decRes = balanceResults[i * 2];
-        const balRes = balanceResults[i * 2 + 1];
-        if (decRes?.status !== "success" || balRes?.status !== "success") continue;
-        const bal = balRes.result;
-        if (!bal || bal === 0n) continue;
-        const decimals = Number(decRes.result);
-        const base = 10n ** BigInt(decimals);
-        const { season: s, token } = seasonMeta[i];
-        results.push({
-          seasonId: s.id,
-          name: s?.config?.name,
-          token,
-          bondingCurve: s.config.bondingCurve,
-          balance: bal,
-          decimals,
-          ticketCount: (bal / base).toString(),
-        });
-      }
-      return results;
-    },
-    staleTime: 15_000,
+    enabled: !!client && !!address && activeSeasonsForBalance.length > 0,
+    queryFn: ticketBalancesQueryFn(activeSeasonsForBalance),
+    // staleTime: 0 — every Portfolio mount refetches. Buys/sells on
+    // Raffle Detail unmount this query; the next nav back fetches
+    // fresh balances.
+    staleTime: 0,
   });
+
+  const completedBalancesQuery = useQuery({
+    queryKey: [
+      "raffleTokenBalances",
+      "completed",
+      netKey,
+      address,
+      completedSeasonsForBalance.map((s) => s.id).join(","),
+    ],
+    enabled: !!client && !!address && completedSeasonsForBalance.length > 0,
+    queryFn: ticketBalancesQueryFn(completedSeasonsForBalance),
+    // staleTime: Infinity — ticket balances for completed seasons are
+    // frozen at finalize time. Subsequent mounts within the session
+    // reuse the cached result.
+    staleTime: Infinity,
+  });
+
+  // Combined shape so existing consumers (RaffleList, ProfileContent)
+  // keep working without changes. data is the concatenated array;
+  // loading/error reflect whichever sub-query is still in flight or
+  // has errored.
+  const seasonBalancesData = useMemo(() => {
+    const a = activeBalancesQuery.data || [];
+    const c = completedBalancesQuery.data || [];
+    return [...a, ...c];
+  }, [activeBalancesQuery.data, completedBalancesQuery.data]);
+
+  const seasonBalancesQuery = {
+    data: seasonBalancesData,
+    isLoading: activeBalancesQuery.isLoading || completedBalancesQuery.isLoading,
+    error: activeBalancesQuery.error || completedBalancesQuery.error,
+    refetch: () => {
+      activeBalancesQuery.refetch?.();
+      completedBalancesQuery.refetch?.();
+    },
+  };
 
   // Winning seasons for Completed Season Prizes carousel. Only fire when
   // there's actually at least one completed season — otherwise we'd burn
