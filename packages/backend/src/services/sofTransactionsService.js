@@ -110,7 +110,10 @@ function classify(side, other, { bondingCurveMap, knownContracts }) {
 
 function rowAmount(tx) {
   const raw = tx.total?.value ?? tx.value ?? "0";
-  const decimals = Number(tx.total?.decimals ?? 18);
+  // `?? 18` only catches null/undefined; a Blockscout response with
+  // decimals: 0 or "0" would otherwise produce malformed output. SOF is
+  // always 18 decimals on our chains, so this is defensive but cheap.
+  const decimals = Number(tx.total?.decimals ?? 18) || 18;
   // Blockscout returns base-units; the UI wants a human string (4-decimal
   // display happens in TransactionRow). formatUnits with the right
   // decimals.
