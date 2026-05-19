@@ -95,10 +95,19 @@ describe("useProfileData - ticketCount and bondingCurve", () => {
     });
 
     useViemClient.mockReturnValue({ client: mockClient, netKey: "testnet" });
-    // status: 1 exercises the Active-tier balances query.
+    // raffleToken comes from the warm season_contracts row now (no longer
+    // read from chain), so the fixture must include it.
     useAllSeasons.mockReturnValue({
       data: [
-        { id: 1, status: 1, config: { name: "Season 1", bondingCurve: "0xCurve1" } },
+        {
+          id: 1,
+          status: 1,
+          config: {
+            name: "Season 1",
+            bondingCurve: "0xCurve1",
+            raffleToken: "0xRaffleToken",
+          },
+        },
       ],
     });
 
@@ -130,10 +139,17 @@ describe("useProfileData - ticketCount and bondingCurve", () => {
     });
 
     useViemClient.mockReturnValue({ client: mockClient, netKey: "testnet" });
-    // status: 5 exercises the Completed-tier balances query (cached forever).
     useAllSeasons.mockReturnValue({
       data: [
-        { id: 2, status: 5, config: { name: "Season 2", bondingCurve: "0xCurve2" } },
+        {
+          id: 2,
+          status: 5,
+          config: {
+            name: "Season 2",
+            bondingCurve: "0xCurve2",
+            raffleToken: "0xRaffleToken2",
+          },
+        },
       ],
     });
 

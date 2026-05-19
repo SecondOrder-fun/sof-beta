@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useViemClient } from "./useViemClient";
 import { getContractAddresses } from "@/config/contracts";
 import {
-  SOFBondingCurveAbi,
   ERC20Abi,
   RaffleAbi,
   RafflePrizeDistributorAbi as PrizeDistributorAbi,
@@ -38,26 +37,30 @@ export function useProfileData(address) {
     refetch: _sofBalance.refetch,
   };
 
-  // Raffle ticket balances across non-Upcoming seasons. One useQuery that
-  // fires two multicalls (raffleToken across every curve, then
-  // decimals + balanceOf for the matched tokens). Upcoming raffles (status 0)
-  // are filtered out — they can't have a balance yet, so there's no point
-  // including them in the multicall.
+  // Raffle ticket balances across non-Upcoming seasons. The raffle-token
+  // address per season is already in the warm-tier season_contracts table
+  // (surfaced as season.config.raffleToken by useAllSeasons), so we skip
+  // the on-chain raffleToken probe entirely and go straight to a single
+  // multicall for (decimals, balanceOf) per resolved token.
   //
-  // The previous active/completed tier split fired two queries × two
-  // multicalls = four POSTs per Portfolio mount. client.multicall() bypasses
-  // viem's batch.multicall aggregator (it's the explicit-batch API), so
-  // those four POSTs landed in Tenderly's burst window with no aggregation
-  // between them. Re-collapsing to one query halves the POSTs and keeps
-  // every relevant balance in a single cache entry, so the synthetic
-  // partial-loading states that confused the empty-state UI go away.
+  // The previous impl fired TWO multicalls per Portfolio mount: one to
+  // read raffleToken() on every curve, then one for the balances. The
+  // first multicall was redundant — the value it returned never changes
+  // and we already had it from the backend. Dropping it halves the POST
+  // count and, more importantly, removes the multicall that was sometimes
+  // 429ing first and leaving the balances query in a perpetually-empty
+  // state (the token resolution never completed, balanceCalls stayed
+  // empty, the query "succeeded" with [] data — hence "No ticket balances
+  // found" even when the user did hold tickets).
   //
-  // staleTime: 0 — every Portfolio mount refetches. Buys/sells happen on
-  // Raffle Detail (a different mount), so users always see fresh balances
-  // on return. Completed-season balances refetch too, but they re-resolve
-  // to the same multicall result; the cost is one round-trip per mount.
+  // staleTime: 0 — every Portfolio mount fetches fresh. Buys/sells happen
+  // on Raffle Detail (different mount); completed balances re-resolve to
+  // the same multicall result so the cost is one round-trip per mount.
   const seasonsForBalance = seasons.filter(
-    (s) => s?.config?.bondingCurve && Number(s?.status) !== 0,
+    (s) =>
+      s?.config?.raffleToken &&
+      s.config.raffleToken !== "0x0000000000000000000000000000000000000000" &&
+      Number(s?.status) !== 0,
   );
   const seasonBalancesQuery = useQuery({
     queryKey: [
@@ -69,24 +72,14 @@ export function useProfileData(address) {
     enabled: !!client && !!address && seasonsForBalance.length > 0,
     staleTime: 0,
     queryFn: async () => {
-      const tokenResults = await client.multicall({
-        contracts: seasonsForBalance.map((s) => ({
-          address: s.config.bondingCurve,
-          abi: SOFBondingCurveAbi,
-          functionName: "raffleToken",
-        })),
-        allowFailure: true,
-      });
-
       const balanceCalls = [];
       const seasonMeta = [];
-      tokenResults.forEach((r, i) => {
-        if (r.status !== "success" || !r.result) return;
-        const s = seasonsForBalance[i];
-        seasonMeta.push({ season: s, token: r.result });
+      seasonsForBalance.forEach((s) => {
+        const token = s.config.raffleToken;
+        seasonMeta.push({ season: s, token });
         balanceCalls.push(
-          { address: r.result, abi: ERC20Abi, functionName: "decimals" },
-          { address: r.result, abi: ERC20Abi, functionName: "balanceOf", args: [address] },
+          { address: token, abi: ERC20Abi, functionName: "decimals" },
+          { address: token, abi: ERC20Abi, functionName: "balanceOf", args: [address] },
         );
       });
 
