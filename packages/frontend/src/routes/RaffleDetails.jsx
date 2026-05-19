@@ -315,9 +315,6 @@ const RaffleDetails = () => {
               debouncedRefresh(0);
             }, 3000);
           }}
-          onPositionUpdate={(positionData) => {
-            setLocalPosition(positionData);
-          }}
           onTxSettled={() => {
             setIsRefreshing(true);
             debouncedRefresh(0);
