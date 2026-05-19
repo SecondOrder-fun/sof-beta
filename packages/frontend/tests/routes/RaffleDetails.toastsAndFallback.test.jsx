@@ -278,42 +278,12 @@ function renderPage() {
   );
 }
 
-describe("RaffleDetails toasts and ERC20 fallback", () => {
+describe("RaffleDetails position display", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("shows a toast with hash and auto-expires after 2 minutes", async () => {
-    vi.useFakeTimers();
-
-    renderPage();
-
-    // BuySellWidget is gated on chainNow (async getBlock), so flush microtasks before asserting.
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(screen.getByText("Sim Tx")).toBeInTheDocument();
-
-    // Click to trigger toast
-    fireEvent.click(screen.getByText("Sim Tx"));
-
-    // Wait for React to process the state update
-    await act(async () => {
-      await Promise.resolve();
-    });
-
-    // toast should appear with message and hash
-    expect(screen.getByText(/Purchase complete/i)).toBeInTheDocument();
-    expect(screen.getByText(/View Transaction/i)).toBeInTheDocument();
-
-    // advance timers 2 minutes to trigger toast expiration
-    act(() => {
-      vi.advanceTimersByTime(120000);
-    });
-
-    // toast should be removed
-    expect(screen.queryByText(/View Transaction/i)).not.toBeInTheDocument();
-
-    vi.useRealTimers();
-  });
+  // The inline-Alert toast under the position card was removed when the
+  // page migrated to TransactionModal — its dedicated test was deleted
+  // alongside the addToast/inline-Alert plumbing.
 
   it("displays position data from usePlayerPosition hook", async () => {
     // The ERC20 fallback logic has been extracted to usePlayerPosition

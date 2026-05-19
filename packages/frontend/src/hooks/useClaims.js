@@ -1,52 +1,17 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useTranslation } from "react-i18next";
 import { useAccount } from "wagmi";
-import { useToast } from "@/hooks/useToast";
 import { buildClaimCalls } from "@/services/claimService";
 import { useSmartTransactions } from "@/hooks/useSmartTransactions";
 import { getStoredNetworkKey } from "@/lib/wagmi";
 
 /**
- * Parse claim errors into user-friendly messages
- */
-function parseClaimError(error) {
-  const msg = error?.message || error?.toString() || "Unknown error";
-
-  if (msg.includes("already claimed") || msg.includes("AlreadyClaimed")) {
-    return "This prize has already been claimed.";
-  }
-  if (msg.includes("not eligible") || msg.includes("NotEligible")) {
-    return "You are not eligible to claim this prize.";
-  }
-  if (msg.includes("not finalized") || msg.includes("SeasonNotFinalized")) {
-    return "The season has not been finalized yet. Please wait for the raffle to complete.";
-  }
-  if (msg.includes("not funded") || msg.includes("NotFunded")) {
-    return "The prize pool has not been funded yet.";
-  }
-  if (msg.includes("User rejected") || msg.includes("user rejected")) {
-    return "Transaction was cancelled.";
-  }
-  if (msg.includes("insufficient funds")) {
-    return "Insufficient funds for gas fees.";
-  }
-
-  if (msg.length > 150) {
-    return msg.substring(0, 150) + "...";
-  }
-
-  return msg;
-}
-
-/**
- * Custom hook for managing claim state and mutations
- * Tracks pending and successful claims, provides mutation functions
+ * Custom hook for managing claim state and mutations.
+ * Each returned mutation is wagmi-shaped — wrap with useTransactionStatus
+ * at the call site and feed TransactionModal for UI feedback.
  */
 export function useClaims() {
-  const { t } = useTranslation(["market", "raffle", "common"]);
   const qc = useQueryClient();
-  const { toast } = useToast();
   const { address } = useAccount();
   const { executeBatch } = useSmartTransactions();
   const netKey = getStoredNetworkKey();
@@ -95,18 +60,12 @@ export function useClaims() {
       setSuccessfulClaims((prev) => new Set(prev).add(claimKey));
       qc.invalidateQueries({ queryKey: ["claimcenter_claimables"] });
     },
-    onError: (error, variables) => {
+    onError: (_error, variables) => {
       const claimKey = getClaimKey("infofi", variables);
       setPendingClaims((prev) => {
         const next = new Set(prev);
         next.delete(claimKey);
         return next;
-      });
-      const message = parseClaimError(error);
-      toast({
-        title: t("common:error"),
-        description: message,
-        variant: "destructive",
       });
       qc.invalidateQueries({ queryKey: ["claimcenter_claimables"] });
     },
@@ -138,18 +97,12 @@ export function useClaims() {
       qc.invalidateQueries({ queryKey: ["claimcenter_fpmm_claimables"] });
       qc.invalidateQueries({ queryKey: ["infoFiPositions"] });
     },
-    onError: (error, variables) => {
+    onError: (_error, variables) => {
       const claimKey = getClaimKey("fpmm", variables);
       setPendingClaims((prev) => {
         const next = new Set(prev);
         next.delete(claimKey);
         return next;
-      });
-      const message = parseClaimError(error);
-      toast({
-        title: t("common:error"),
-        description: message,
-        variant: "destructive",
       });
       qc.invalidateQueries({ queryKey: ["claimcenter_fpmm_claimables"] });
     },
@@ -180,18 +133,12 @@ export function useClaims() {
       setSuccessfulClaims((prev) => new Set(prev).add(claimKey));
       qc.invalidateQueries({ queryKey: ["raffle_claims"] });
     },
-    onError: (error, variables) => {
+    onError: (_error, variables) => {
       const claimKey = getClaimKey("raffle-consolation", variables);
       setPendingClaims((prev) => {
         const next = new Set(prev);
         next.delete(claimKey);
         return next;
-      });
-      const message = parseClaimError(error);
-      toast({
-        title: t("common:error"),
-        description: message,
-        variant: "destructive",
       });
       qc.invalidateQueries({ queryKey: ["raffle_claims"] });
     },
@@ -222,18 +169,12 @@ export function useClaims() {
       setSuccessfulClaims((prev) => new Set(prev).add(claimKey));
       qc.invalidateQueries({ queryKey: ["raffle_claims"] });
     },
-    onError: (error, variables) => {
+    onError: (_error, variables) => {
       const claimKey = getClaimKey("raffle-grand", variables);
       setPendingClaims((prev) => {
         const next = new Set(prev);
         next.delete(claimKey);
         return next;
-      });
-      const message = parseClaimError(error);
-      toast({
-        title: t("common:error"),
-        description: message,
-        variant: "destructive",
       });
       qc.invalidateQueries({ queryKey: ["raffle_claims"] });
     },
