@@ -174,7 +174,7 @@ const TransactionModal = ({ mutation, title = "Transaction Status" }) => {
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => { setIsOpen(open); if (!open) setDismissed(true); }}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md max-h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center justify-between">
             {title}
@@ -200,7 +200,7 @@ const TransactionModal = ({ mutation, title = "Transaction Status" }) => {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col items-center gap-4 py-4">
+        <div className="flex flex-col items-center gap-4 py-4 overflow-y-auto flex-1 min-h-0">
           {status && (
             <>
               {status.icon}
@@ -220,7 +220,7 @@ const TransactionModal = ({ mutation, title = "Transaction Status" }) => {
                   <summary className="text-xs text-muted-foreground cursor-pointer">
                     Contract call details
                   </summary>
-                  <pre className="text-xs font-mono whitespace-pre-wrap break-all mt-2">
+                  <pre className="text-xs font-mono whitespace-pre-wrap break-all mt-2 max-h-48 overflow-auto">
                     {status.details.contractContext}
                   </pre>
                 </details>
@@ -230,7 +230,7 @@ const TransactionModal = ({ mutation, title = "Transaction Status" }) => {
                   <summary className="text-xs text-muted-foreground cursor-pointer">
                     Full error
                   </summary>
-                  <pre className="text-xs font-mono whitespace-pre-wrap break-all mt-2">
+                  <pre className="text-xs font-mono whitespace-pre-wrap break-all mt-2 max-h-48 overflow-auto">
                     {status.details.fullMessage}
                   </pre>
                 </details>
