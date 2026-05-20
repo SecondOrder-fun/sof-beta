@@ -357,7 +357,7 @@ const RaffleList = () => {
                   >
                     <span>{t(`tabs.${g}`)}</span>
                     <span
-                      className="rounded-full border border-border px-2 text-xs font-semibold leading-5 no-underline
+                      className="inline-flex items-center justify-center min-w-[1.5rem] rounded-full border border-border px-2 text-xs font-semibold leading-5 no-underline
                                  bg-secondary text-secondary-foreground
                                  [[data-state=active]_&]:bg-background
                                  [[data-state=active]_&]:text-primary"
