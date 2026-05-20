@@ -342,7 +342,7 @@ const SettingsMenu = ({ address, username, farcasterUser, onDisconnect }) => {
           <DropdownMenuSeparator />
 
           {/* Farcaster Link Status */}
-          {farcasterUser ? (
+          {farcasterUser?.fid ? (
             <div className="px-2 py-1.5">
               <div className="flex items-center gap-2">
                 {farcasterUser.pfpUrl && (
