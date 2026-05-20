@@ -324,7 +324,7 @@ const BondingCurvePanel = ({
               tickLine={false}
               axisLine={!mini}
               stroke="hsl(var(--border))"
-              domain={[0, "auto"]}
+              domain={[0, (dataMax) => (dataMax > 0 ? dataMax * 1.15 : 1)]}
               label={
                 !compact && !mini
                   ? {
