@@ -384,4 +384,61 @@ export default async function authRoutes(fastify) {
       });
     },
   );
+
+  /**
+   * POST /unlink-farcaster
+   * Body: {} (empty JSON)
+   * Requires: Authorization: Bearer <JWT>
+   *
+   * Idempotently clears fid/username from the wallet's allowlist row and
+   * issues a refreshed JWT without the fid/username claims.
+   */
+  fastify.post(
+    "/unlink-farcaster",
+    { preHandler: requireBearer },
+    async (request, reply) => {
+      const walletAddress = request.user.wallet_address;
+      if (!walletAddress) {
+        return reply
+          .code(400)
+          .send({ error: "JWT has no wallet_address claim" });
+      }
+
+      const result = await unlinkFarcasterFromWallet(walletAddress);
+      if (!result.success) {
+        fastify.log.error(
+          { error: result.error, walletAddress },
+          "Farcaster unlink DB write failed",
+        );
+        return reply
+          .code(500)
+          .send({ error: result.error || "Unlink failed" });
+      }
+
+      const tokenPayload = {
+        id: request.user.id,
+        wallet_address: walletAddress,
+        role: request.user.role || "user",
+      };
+      if (request.user.sma) tokenPayload.sma = request.user.sma;
+      if (request.user.is_admin) tokenPayload.is_admin = true;
+
+      const token = await AuthService.generateToken(tokenPayload);
+
+      return reply.send({
+        token,
+        user: {
+          address: walletAddress,
+          fid: null,
+          username: null,
+          displayName: null,
+          pfpUrl: null,
+          accessLevel: request.user.accessLevel ?? null,
+          role: request.user.role || "user",
+          sma: request.user.sma ?? null,
+          isAdmin: !!request.user.is_admin,
+        },
+      });
+    },
+  );
 }
