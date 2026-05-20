@@ -13,7 +13,11 @@ import { AuthService } from "../../shared/auth.js";
 import { getUserAccess, ACCESS_LEVEL_NAMES } from "../../shared/accessService.js";
 import { resolveFidToWallet } from "../../shared/fidResolverService.js";
 import { addToAllowlist } from "../../shared/allowlistService.js";
-import { getLinkedFidForWallet } from "../../shared/farcasterLinkService.js";
+import {
+  getLinkedFidForWallet,
+  linkFarcasterToWallet,
+  unlinkFarcasterFromWallet,
+} from "../../shared/farcasterLinkService.js";
 import { invalidateUserAccessCache } from "../../shared/accessCache.js";
 import { usernameService } from "../../shared/usernameService.js";
 import { ensureSmartAccount } from "../../shared/services/smartAccountService.js";
@@ -24,6 +28,19 @@ import { publicClient } from "../../src/lib/viemClient.js";
 
 const NONCE_TTL_SECONDS = 300; // 5 minutes
 const SIGN_IN_MESSAGE_PREFIX = "Sign in to SecondOrder.fun\nNonce: ";
+
+async function requireBearer(request, reply) {
+  const authHeader = request.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return reply.code(401).send({ error: "Missing bearer token" });
+  }
+  const token = authHeader.substring(7);
+  const result = await AuthService.verifyToken(token);
+  if (!result.valid) {
+    return reply.code(401).send({ error: "Invalid or expired token" });
+  }
+  request.user = result.user;
+}
 
 export default async function authRoutes(fastify) {
   /**
@@ -222,6 +239,7 @@ export default async function authRoutes(fastify) {
       role,
     };
     if (fid) tokenPayload.fid = fid;
+    if (username) tokenPayload.username = username;
     if (sma) tokenPayload.sma = sma;
     if (isAdmin) tokenPayload.is_admin = true;
 
@@ -242,4 +260,128 @@ export default async function authRoutes(fastify) {
       },
     });
   });
+
+  /**
+   * POST /link-farcaster
+   * Body: { message, signature, nonce }
+   * Requires: Authorization: Bearer <wallet JWT>
+   *
+   * Verifies SIWF, attaches fid/username to the JWT's wallet via
+   * allowlist_entries, issues a refreshed JWT. The Neynar-resolved
+   * walletAddress is intentionally ignored — the link binds the FID to
+   * the bearer JWT's wallet, not the FID's primary wallet.
+   */
+  fastify.post(
+    "/link-farcaster",
+    { preHandler: requireBearer },
+    async (request, reply) => {
+      const { message, signature, nonce } = request.body || {};
+      if (!message || !signature || !nonce) {
+        return reply
+          .code(400)
+          .send({ error: "message, signature, and nonce are required" });
+      }
+
+      const walletAddress = request.user.wallet_address;
+      if (!walletAddress) {
+        return reply
+          .code(400)
+          .send({ error: "JWT has no wallet_address claim" });
+      }
+
+      // Consume nonce (one-time use)
+      const redis = redisClient.getClient();
+      const nonceRedisKey = `auth:nonce:${nonce}`;
+      const storedNonce = await redis.get(nonceRedisKey);
+      if (!storedNonce) {
+        return reply
+          .code(401)
+          .send({ error: "Nonce expired or not found. Request a new one." });
+      }
+      await redis.del(nonceRedisKey);
+
+      // Verify SIWF
+      let fid;
+      try {
+        const result = await AuthService.authenticateFarcaster(
+          message,
+          signature,
+          nonce,
+        );
+        fid = result.fid;
+      } catch (err) {
+        fastify.log.error({ err }, "SIWF verification error during link");
+        return reply
+          .code(400)
+          .send({ error: "Farcaster signature verification failed" });
+      }
+      if (!fid) {
+        return reply
+          .code(400)
+          .send({ error: "Could not extract FID from SIWF message" });
+      }
+
+      // Resolve FID → username/displayName (ignore walletAddress — link binds
+      // to the JWT's wallet, not the FID's primary wallet).
+      let username = null;
+      let displayName = null;
+      let pfpUrl = null;
+      try {
+        const walletData = await resolveFidToWallet(fid);
+        username = walletData.username || null;
+        displayName = walletData.displayName || null;
+        pfpUrl = walletData.pfpUrl || null;
+      } catch (err) {
+        fastify.log.warn(
+          { err, fid },
+          "FID resolution failed during link — proceeding with fid only",
+        );
+      }
+
+      // Persist the link
+      const linkResult = await linkFarcasterToWallet({
+        walletAddress,
+        fid,
+        username,
+        displayName,
+      });
+      if (!linkResult.success) {
+        fastify.log.error(
+          { error: linkResult.error, fid, walletAddress },
+          "Farcaster link DB write failed",
+        );
+        return reply
+          .code(500)
+          .send({ error: linkResult.error || "Link failed" });
+      }
+
+      // Mint a refreshed JWT carrying the new identity claims
+      const tokenPayload = {
+        id: request.user.id,
+        wallet_address: walletAddress,
+        role: request.user.role || "user",
+        fid,
+      };
+      if (username) tokenPayload.username = username;
+      if (request.user.sma) tokenPayload.sma = request.user.sma;
+      if (request.user.is_admin) tokenPayload.is_admin = true;
+
+      const token = await AuthService.generateToken(tokenPayload);
+
+      return reply.send({
+        token,
+        user: {
+          address: walletAddress,
+          fid,
+          username,
+          displayName,
+          pfpUrl,
+          accessLevel: request.user.accessLevel ?? null,
+          role: request.user.role || "user",
+          sma: request.user.sma ?? null,
+          isAdmin: !!request.user.is_admin,
+        },
+      });
+    },
+  );
 }
