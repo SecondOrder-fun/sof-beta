@@ -18,6 +18,7 @@ import { useMarketCardData } from "@/hooks/useMarketCardData";
 import MarketOutcomeButtons from "./market/MarketOutcomeButtons";
 import MarketStats from "./market/MarketStats";
 import MarketTradeForm from "./market/MarketTradeForm";
+import SignInRequiredOverlay from "@/components/auth/SignInRequiredOverlay";
 
 /**
  * InfoFiMarketCard - Displays a single InfoFi market with live hybrid pricing
@@ -174,7 +175,8 @@ const InfoFiMarketCard = ({ market, marketInfo: batchMarketInfo, userPosition: b
   }
 
   return (
-    <Card className="group hover:shadow-lg transition-shadow duration-200 overflow-hidden">
+    <Card className="group hover:shadow-lg transition-shadow duration-200 overflow-hidden relative">
+      <SignInRequiredOverlay variant="desktop" />
       <CardHeader className="pb-3">
         <Link to={`/markets/${market.id}`} className="block">
           <CardTitle className="text-base font-medium leading-tight cursor-pointer hover:underline">

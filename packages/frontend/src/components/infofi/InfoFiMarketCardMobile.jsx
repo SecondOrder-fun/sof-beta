@@ -9,6 +9,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { buildPlaceBetCalls } from "@/services/onchainInfoFi";
 import { useSmartTransactions } from "@/hooks/useSmartTransactions";
 import { useToast } from "@/hooks/useToast";
+import SignInRequiredOverlay from "@/components/auth/SignInRequiredOverlay";
 
 /**
  * InfoFiMarketCardMobile - Mobile-optimized single market card with betting interface
@@ -73,7 +74,8 @@ const InfoFiMarketCardMobile = ({ market }) => {
   }
 
   return (
-    <Card className="w-full border-2 border-border bg-card">
+    <Card className="w-full border-2 border-border bg-card relative">
+      <SignInRequiredOverlay variant="mobile" />
       <CardContent className="p-4">
         {/* Betting Interface (includes dynamic market question + player) */}
         <BettingInterface

@@ -2,13 +2,21 @@
  * SignInRequiredOverlay
  *
  * Absolute-positioned card that covers a transaction surface (Buy/Sell,
- * Claims, Rollover, Sponsor, Treasury) when the user is connected but
- * AppAuth status landed on 'rejected' or 'error' — i.e. auto-fire SIWE
- * was denied or failed and the user needs a manual retry.
+ * InfoFi markets, Claims, Sponsor, Treasury) whenever the user has a
+ * wallet connected but AppAuth hasn't reached 'authenticated' yet —
+ * i.e. auto-fire SIWE was rejected, errored, never ran, or is in
+ * flight. Stays up until sign-in succeeds.
  *
- * Mounts inside a `relative` parent. Returns null in every other auth
- * state so the surface renders normally for authenticated users and
- * during the brief auto-fire signing window.
+ * Mounts inside a `relative` parent. Renders null when:
+ *   - no AppAuthContext is present (lightweight host-component tests)
+ *   - no wallet address is connected (the surface's own
+ *     walletNotConnected guard handles that case)
+ *   - status is 'authenticated'
+ *
+ * Button label tracks status:
+ *   idle              → "Sign in" (active)
+ *   signing/verifying → "Signing in…" (disabled)
+ *   rejected/error    → "Try again" (active)
  *
  * Mirrors TradingStatusOverlay's variant/rounding contract.
  */
@@ -16,26 +24,42 @@
 import { useContext } from "react";
 import PropTypes from "prop-types";
 import { useTranslation } from "react-i18next";
+import { useAccount } from "wagmi";
 import { AppAuthContext } from "@/context/AppAuthContext";
 
 export const SignInRequiredOverlay = ({ variant = "desktop" }) => {
   const { t } = useTranslation("auth");
-  // Read context directly (not via useAppAuth) so the overlay renders as a
-  // no-op outside an AppAuthProvider — keeps host-component tests from
-  // having to wire up an auth provider just to mount a transaction surface.
   const ctx = useContext(AppAuthContext);
-  if (!ctx) return null;
-  const { status, error, signIn } = ctx;
+  const { address } = useAccount();
 
-  if (status !== "rejected" && status !== "error") return null;
+  if (!ctx) return null;
+  if (!address) return null;
+
+  const { status, error, signIn } = ctx;
+  if (status === "authenticated") return null;
 
   const isRejected = status === "rejected";
-  const title = isRejected
-    ? t("signInRetry.rejectedTitle")
-    : t("signInRetry.errorTitle");
-  const body = isRejected
-    ? t("signInRetry.rejectedBody")
-    : t("signInRetry.errorBody", { reason: error || "Unknown error" });
+  const isError = status === "error";
+  const isInFlight = status === "signing" || status === "verifying";
+
+  let title;
+  let body;
+  let buttonLabel;
+  if (isRejected) {
+    title = t("signInRetry.rejectedTitle");
+    body = t("signInRetry.rejectedBody");
+    buttonLabel = t("signInRetry.button");
+  } else if (isError) {
+    title = t("signInRetry.errorTitle");
+    body = t("signInRetry.errorBody", { reason: error || "Unknown error" });
+    buttonLabel = t("signInRetry.button");
+  } else {
+    title = t("signInRequired.title");
+    body = t("signInRequired.body");
+    buttonLabel = isInFlight
+      ? t("signInRequired.signingButton")
+      : t("signInRequired.button");
+  }
 
   const baseClasses =
     "absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm";
@@ -52,9 +76,10 @@ export const SignInRequiredOverlay = ({ variant = "desktop" }) => {
         <button
           type="button"
           onClick={() => signIn()}
-          className="mt-4 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent"
+          disabled={isInFlight}
+          className="mt-4 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          {t("signInRetry.button")}
+          {buttonLabel}
         </button>
       </div>
     </div>

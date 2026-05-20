@@ -6,16 +6,29 @@ import SignInRequiredOverlay from "../SignInRequiredOverlay";
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key, opts) => {
-      if (key === "signInRetry.rejectedTitle") return "Sign-in declined";
-      if (key === "signInRetry.errorTitle") return "Sign-in failed";
-      if (key === "signInRetry.rejectedBody") return "Manual sign-in needed";
-      if (key === "signInRetry.errorBody")
-        return `Error: ${opts?.reason ?? ""}`;
-      if (key === "signInRetry.button") return "Try again";
-      return key;
+      const map = {
+        "signInRetry.rejectedTitle": "Sign-in declined",
+        "signInRetry.errorTitle": "Sign-in failed",
+        "signInRetry.rejectedBody": "Retry sign-in to continue",
+        "signInRetry.button": "Try again",
+        "signInRequired.title": "Sign in to continue",
+        "signInRequired.body": "Sign a one-time message",
+        "signInRequired.button": "Sign in",
+        "signInRequired.signingButton": "Signing in",
+      };
+      if (key === "signInRetry.errorBody") return `Error: ${opts?.reason ?? ""}`;
+      return map[key] ?? key;
     },
   }),
 }));
+
+// Default: mock useAccount to return a connected address. Individual tests
+// override via vi.mocked(useAccount).mockReturnValue(...).
+vi.mock("wagmi", () => ({
+  useAccount: vi.fn(() => ({ address: "0xabc" })),
+}));
+
+import { useAccount } from "wagmi";
 
 const renderWithAuth = (ctx) =>
   render(
@@ -26,50 +39,57 @@ const renderWithAuth = (ctx) =>
 
 describe("SignInRequiredOverlay", () => {
   it("renders nothing when authenticated", () => {
-    renderWithAuth({
-      status: "authenticated",
-      error: null,
-      signIn: vi.fn(),
-    });
+    renderWithAuth({ status: "authenticated", error: null, signIn: vi.fn() });
     expect(
       screen.queryByTestId("signin-required-overlay"),
     ).not.toBeInTheDocument();
   });
 
-  it("renders nothing during signing", () => {
-    renderWithAuth({ status: "signing", error: null, signIn: vi.fn() });
+  it("renders nothing when no wallet address is connected", () => {
+    vi.mocked(useAccount).mockReturnValueOnce({ address: undefined });
+    renderWithAuth({ status: "rejected", error: null, signIn: vi.fn() });
     expect(
       screen.queryByTestId("signin-required-overlay"),
     ).not.toBeInTheDocument();
   });
 
-  it("renders nothing when idle", () => {
+  it("renders nothing when AppAuthContext is missing", () => {
+    render(<SignInRequiredOverlay />);
+    expect(
+      screen.queryByTestId("signin-required-overlay"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows generic 'Sign in' CTA when status is idle", () => {
     renderWithAuth({ status: "idle", error: null, signIn: vi.fn() });
-    expect(
-      screen.queryByTestId("signin-required-overlay"),
-    ).not.toBeInTheDocument();
+    expect(screen.getByText("Sign in to continue")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeEnabled();
+  });
+
+  it("shows disabled 'Signing in' button while signing", () => {
+    renderWithAuth({ status: "signing", error: null, signIn: vi.fn() });
+    const btn = screen.getByRole("button", { name: "Signing in" });
+    expect(btn).toBeDisabled();
+  });
+
+  it("shows disabled 'Signing in' button while verifying", () => {
+    renderWithAuth({ status: "verifying", error: null, signIn: vi.fn() });
+    expect(screen.getByRole("button", { name: "Signing in" })).toBeDisabled();
   });
 
   it("renders rejection copy when status is rejected", () => {
     renderWithAuth({ status: "rejected", error: null, signIn: vi.fn() });
     expect(screen.getByText("Sign-in declined")).toBeInTheDocument();
-    expect(screen.getByText("Manual sign-in needed")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Try again" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
   });
 
   it("renders error copy with reason when status is error", () => {
-    renderWithAuth({
-      status: "error",
-      error: "boom",
-      signIn: vi.fn(),
-    });
+    renderWithAuth({ status: "error", error: "boom", signIn: vi.fn() });
     expect(screen.getByText("Sign-in failed")).toBeInTheDocument();
     expect(screen.getByText("Error: boom")).toBeInTheDocument();
   });
 
-  it("invokes signIn when the button is clicked", () => {
+  it("invokes signIn when the active button is clicked", () => {
     const signIn = vi.fn();
     renderWithAuth({ status: "rejected", error: null, signIn });
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
