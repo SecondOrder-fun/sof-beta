@@ -18,6 +18,9 @@ vi.mock("@/hooks/useToast", () => ({
 // usePublicClient. No WagmiProvider in tests; stub it out.
 vi.mock("wagmi", () => ({
   usePublicClient: () => ({ waitForTransactionReceipt: vi.fn() }),
+  // SignInRequiredOverlay calls useAccount() to gate on wallet-connected;
+  // returning no address keeps the overlay a no-op in these tests.
+  useAccount: () => ({ address: undefined }),
 }));
 
 const mockTreasury = "0x5555555555555555555555555555555555555555";

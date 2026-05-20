@@ -14,6 +14,7 @@ import BettingInterface from "@/components/infofi/BettingInterface";
 import UsernameDisplay from "@/components/user/UsernameDisplay";
 import { buildPlaceBetCalls } from "@/services/onchainInfoFi";
 import { useSmartTransactions } from "@/hooks/useSmartTransactions";
+import SignInRequiredOverlay from "@/components/auth/SignInRequiredOverlay";
 
 /**
  * MobileMarketDetail - Full market detail view for mobile.
@@ -89,9 +90,10 @@ const MobileMarketDetail = ({ market, marketId }) => {
       {/* Detail Card */}
       <Card
         ref={cardRef}
-        className="flex flex-col overflow-hidden"
+        className="flex flex-col overflow-hidden relative"
         style={cardHeight ? { height: cardHeight } : undefined}
       >
+        <SignInRequiredOverlay variant="mobile" />
         <CardContent className="p-4 flex-1 overflow-y-auto space-y-4">
           {/* Question + status dot */}
           <div className="flex items-start gap-2">

@@ -14,6 +14,7 @@ import { getStoredNetworkKey } from "@/lib/wagmi";
 import { API_BASE } from "@/lib/apiBase";
 import { RafflePrizeDistributorAbi } from "@/utils/abis";
 import { ERC20Abi, ERC721ApproveAbi } from "@/utils/abis";
+import SignInRequiredOverlay from "@/components/auth/SignInRequiredOverlay";
 import PropTypes from "prop-types";
 
 const TAB_KEYS = {
@@ -203,7 +204,8 @@ export function SponsorPrizeWidget({ seasonId }) {
   }
 
   return (
-    <Card>
+    <Card className="relative">
+      <SignInRequiredOverlay variant="desktop" />
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-base">
           <Gift className="h-4 w-4" />

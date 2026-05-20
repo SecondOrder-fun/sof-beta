@@ -26,6 +26,7 @@ import {
 import { useClaims } from "@/hooks/useClaims";
 import { useTransactionStatus } from "@/hooks/useTransactionStatus";
 import TransactionModal from "@/components/admin/TransactionModal";
+import SignInRequiredOverlay from "@/components/auth/SignInRequiredOverlay";
 import ClaimCenterRaffles from "./claim/ClaimCenterRaffles";
 import ClaimCenterMarkets from "./claim/ClaimCenterMarkets";
 
@@ -443,7 +444,8 @@ const ClaimCenter = ({ address, title, description }) => {
   });
 
   return (
-    <Card className="mb-4">
+    <Card className="mb-4 relative">
+      <SignInRequiredOverlay variant="desktop" />
       <CardHeader>
         <CardTitle>{title || t("market:claimWinnings")}</CardTitle>
         <CardDescription>

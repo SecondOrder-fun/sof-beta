@@ -18,6 +18,7 @@ import { useMarketCardData } from "@/hooks/useMarketCardData";
 import MarketOutcomeButtons from "./market/MarketOutcomeButtons";
 import MarketStats from "./market/MarketStats";
 import MarketTradeForm from "./market/MarketTradeForm";
+import SignInRequiredOverlay from "@/components/auth/SignInRequiredOverlay";
 
 /**
  * InfoFiMarketCard - Displays a single InfoFi market with live hybrid pricing
@@ -194,7 +195,8 @@ const InfoFiMarketCard = ({ market, marketInfo: batchMarketInfo, userPosition: b
         </Link>
       </CardHeader>
 
-      <CardContent className="pt-0 space-y-4">
+      <CardContent className="pt-0 space-y-4 relative">
+        <SignInRequiredOverlay variant="desktop" />
         {/* Warning when player has 0 raffle tickets */}
         {isWinnerPrediction && playerHasTickets === false && (
           <div className="bg-amber-50 border border-amber-300 rounded-lg p-3 text-xs">
