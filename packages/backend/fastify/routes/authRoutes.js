@@ -13,6 +13,7 @@ import { AuthService } from "../../shared/auth.js";
 import { getUserAccess, ACCESS_LEVEL_NAMES } from "../../shared/accessService.js";
 import { resolveFidToWallet } from "../../shared/fidResolverService.js";
 import { addToAllowlist } from "../../shared/allowlistService.js";
+import { getLinkedFidForWallet } from "../../shared/farcasterLinkService.js";
 import { invalidateUserAccessCache } from "../../shared/accessCache.js";
 import { usernameService } from "../../shared/usernameService.js";
 import { ensureSmartAccount } from "../../shared/services/smartAccountService.js";
@@ -100,6 +101,22 @@ export default async function authRoutes(fastify) {
       }
 
       walletAddress = address.toLowerCase();
+
+      // Embed any pre-linked Farcaster identity into the resulting JWT so the
+      // user's `fid`/`username` survive wallet reconnects without a re-SIWF.
+      try {
+        const link = await getLinkedFidForWallet(walletAddress);
+        if (link) {
+          fid = link.fid;
+          username = link.username;
+          displayName = link.displayName;
+        }
+      } catch (err) {
+        fastify.log.warn(
+          { err, walletAddress },
+          "Failed to read linked FID for wallet — continuing without",
+        );
+      }
 
     } else if (method === "farcaster") {
       const { message } = request.body;
