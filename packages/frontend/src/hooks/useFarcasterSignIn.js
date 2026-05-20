@@ -24,7 +24,7 @@ const RELAY_URL = "https://relay.farcaster.xyz/v1/channel/status";
 export const useFarcasterSignIn = ({ onSuccess, onError } = {}) => {
   const { t } = useTranslation("auth");
   const { fetchNonce } = useFarcaster();
-  const { signIn, status: appAuthStatus } = useAppAuth();
+  const { signIn, linkFarcaster, jwt, status: appAuthStatus } = useAppAuth();
   const isVerifying = appAuthStatus === "verifying";
   const { toast } = useToast();
 
@@ -142,7 +142,10 @@ export const useFarcasterSignIn = ({ onSuccess, onError } = {}) => {
         if (!data) return; // aborted
 
         const { message, signature } = data;
-        const nonce = nonceRef.current;
+        // nonceRef is populated by nonceGetter when useSignIn calls it during
+        // connect(). In tests (and any path where connect() is bypassed), we
+        // fetch it fresh here as a fallback.
+        const nonce = nonceRef.current ?? (await fetchNonce());
 
         if (!message || !signature || !nonce) {
           toast({
@@ -153,7 +156,11 @@ export const useFarcasterSignIn = ({ onSuccess, onError } = {}) => {
           return;
         }
 
-        await signIn({ method: "farcaster", message, signature, nonce });
+        if (jwt) {
+          await linkFarcaster({ message, signature, nonce });
+        } else {
+          await signIn({ method: "farcaster", message, signature, nonce });
+        }
         toast({
           title: t("siwfSuccess", "Signed In"),
           description: t("welcome", "Welcome"),

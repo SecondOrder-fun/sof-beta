@@ -19,11 +19,9 @@ const FarcasterAuth = () => {
   const { profile } = useFarcaster();
   const {
     user: appAuthUser,
-    status: authStatus,
-    signOut: appAuthSignOut,
+    unlinkFarcaster,
   } = useAppAuth();
 
-  const isBackendAuthenticated = authStatus === "authenticated";
   const username = appAuthUser?.username || null;
   const fid = appAuthUser?.fid || null;
   const displayName = profile?.displayName || null;
@@ -38,8 +36,8 @@ const FarcasterAuth = () => {
     isLoading,
   } = useFarcasterSignIn();
 
-  // Authenticated state — show profile + sign-out
-  if (isBackendAuthenticated && appAuthUser) {
+  // Linked state — show profile + unlink button
+  if (fid) {
     return (
       <div className="flex items-center gap-3">
         {pfpUrl && (
@@ -51,7 +49,7 @@ const FarcasterAuth = () => {
         )}
         <div className="flex flex-col">
           <span className="text-sm font-medium text-foreground">
-            {displayName || username || (fid ? `FID ${fid}` : "")}
+            {displayName || username || `FID ${fid}`}
           </span>
           {username && (
             <span className="text-xs text-muted-foreground">
@@ -64,7 +62,7 @@ const FarcasterAuth = () => {
           size="sm"
           onClick={() => {
             signOut();
-            appAuthSignOut();
+            unlinkFarcaster();
           }}
         >
           {t("farcasterSignOut", "Sign Out")}

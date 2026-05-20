@@ -147,7 +147,7 @@ const Header = () => {
               <SettingsMenu
                 address={sma || address}
                 username={username}
-                farcasterUser={isBackendAuthenticated ? backendUser : null}
+                farcasterUser={backendUser?.fid ? backendUser : null}
                 onDisconnect={() => {
                   farcasterLogout();
                   disconnect();
