@@ -19,6 +19,10 @@ export class AuthService {
       payload.fid = user.fid;
     }
 
+    if (user.username) {
+      payload.username = user.username;
+    }
+
     return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
   }
 
