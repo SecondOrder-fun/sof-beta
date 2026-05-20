@@ -23,6 +23,14 @@ export class AuthService {
       payload.username = user.username;
     }
 
+    if (user.sma) {
+      payload.sma = user.sma;
+    }
+
+    if (user.is_admin) {
+      payload.is_admin = true;
+    }
+
     return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
   }
 

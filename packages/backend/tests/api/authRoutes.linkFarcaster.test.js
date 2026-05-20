@@ -206,6 +206,8 @@ describe("POST /api/auth/link-farcaster", () => {
     expect(decoded.wallet_address).toBe("0xabc");
     expect(decoded.fid).toBe(42);
     expect(decoded.username).toBe("alice");
+    expect(body.user.accessLevel).toBe(1);
+    expect(body.user.role).toBe("user");
     expect(mockLinkFarcasterToWallet).toHaveBeenCalledWith(
       expect.objectContaining({
         walletAddress: "0xabc",
@@ -214,6 +216,33 @@ describe("POST /api/auth/link-farcaster", () => {
         displayName: "Alice",
       }),
     );
+  });
+
+  it("returns 500 when DB link write fails", async () => {
+    mockRedisGet.mockResolvedValue("1");
+    mockAuthenticateFarcaster.mockResolvedValue({ fid: 42 });
+    mockResolveFidToWallet.mockResolvedValue({
+      address: "0xirrelevant",
+      username: "alice",
+      displayName: "Alice",
+      pfpUrl: null,
+    });
+    mockLinkFarcasterToWallet.mockResolvedValue({
+      success: false,
+      error: "constraint violation",
+    });
+    const token = makeJwt({ wallet_address: "0xabc" });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/auth/link-farcaster",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { message: "m", signature: "s", nonce: "n" },
+    });
+
+    expect(res.statusCode).toBe(500);
+    const body = JSON.parse(res.body);
+    expect(body.error).toBe("constraint violation");
   });
 
   it("succeeds with fid only when Neynar resolution fails", async () => {
@@ -265,6 +294,8 @@ describe("POST /api/auth/unlink-farcaster", () => {
     const body = JSON.parse(res.body);
     expect(body.user.fid).toBeNull();
     expect(body.user.username).toBeNull();
+    expect(body.user.accessLevel).toBe(1);
+    expect(body.user.role).toBe("user");
     const decoded = jwt.decode(body.token);
     expect(decoded.wallet_address).toBe("0xabc");
     expect(decoded.fid).toBeUndefined();

@@ -355,11 +355,16 @@ export default async function authRoutes(fastify) {
           .send({ error: linkResult.error || "Link failed" });
       }
 
+      // Fresh access lookup — accessLevel is DB-derived and can change
+      // after token issuance, so don't try to carry it via the bearer JWT.
+      const accessInfo = await getUserAccess({ fid, wallet: walletAddress });
+      const role = ACCESS_LEVEL_NAMES[accessInfo.level] || "user";
+
       // Mint a refreshed JWT carrying the new identity claims
       const tokenPayload = {
-        id: request.user.id,
+        id: accessInfo.entry?.id || walletAddress || `fid:${fid}`,
         wallet_address: walletAddress,
-        role: request.user.role || "user",
+        role,
         fid,
       };
       if (username) tokenPayload.username = username;
@@ -376,8 +381,8 @@ export default async function authRoutes(fastify) {
           username,
           displayName,
           pfpUrl,
-          accessLevel: request.user.accessLevel ?? null,
-          role: request.user.role || "user",
+          accessLevel: accessInfo.level,
+          role,
           sma: request.user.sma ?? null,
           isAdmin: !!request.user.is_admin,
         },
@@ -415,10 +420,15 @@ export default async function authRoutes(fastify) {
           .send({ error: result.error || "Unlink failed" });
       }
 
+      // Fresh access lookup — accessLevel is DB-derived and can change
+      // after token issuance, so don't try to carry it via the bearer JWT.
+      const accessInfo = await getUserAccess({ wallet: walletAddress });
+      const role = ACCESS_LEVEL_NAMES[accessInfo.level] || "user";
+
       const tokenPayload = {
-        id: request.user.id,
+        id: accessInfo.entry?.id || walletAddress,
         wallet_address: walletAddress,
-        role: request.user.role || "user",
+        role,
       };
       if (request.user.sma) tokenPayload.sma = request.user.sma;
       if (request.user.is_admin) tokenPayload.is_admin = true;
@@ -433,8 +443,8 @@ export default async function authRoutes(fastify) {
           username: null,
           displayName: null,
           pfpUrl: null,
-          accessLevel: request.user.accessLevel ?? null,
-          role: request.user.role || "user",
+          accessLevel: accessInfo.level,
+          role,
           sma: request.user.sma ?? null,
           isAdmin: !!request.user.is_admin,
         },
