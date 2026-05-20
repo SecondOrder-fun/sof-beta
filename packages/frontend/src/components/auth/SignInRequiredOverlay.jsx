@@ -30,10 +30,15 @@ import { AppAuthContext } from "@/context/AppAuthContext";
 export const SignInRequiredOverlay = ({ variant = "desktop" }) => {
   const { t } = useTranslation("auth");
   const ctx = useContext(AppAuthContext);
-  const { address } = useAccount();
+  // Gate on walletStatus === 'connected', not just `address`: during wagmi's
+  // 'reconnecting' hydration window `address` is already truthy but the
+  // connector is still dehydrated, and calling signMessage in that window
+  // throws "connection.connector.getChainId is not a function" — the same
+  // failure mode AppAuthProvider's auto-fire effect guards against.
+  const { address, status: walletStatus } = useAccount();
 
   if (!ctx) return null;
-  if (!address) return null;
+  if (!address || walletStatus !== "connected") return null;
 
   const { status, error, signIn } = ctx;
   if (status === "authenticated") return null;

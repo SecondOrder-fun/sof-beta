@@ -22,10 +22,10 @@ vi.mock("react-i18next", () => ({
   }),
 }));
 
-// Default: mock useAccount to return a connected address. Individual tests
-// override via vi.mocked(useAccount).mockReturnValue(...).
+// Default: mock useAccount to return a fully-connected address. Individual
+// tests override via vi.mocked(useAccount).mockReturnValueOnce(...).
 vi.mock("wagmi", () => ({
-  useAccount: vi.fn(() => ({ address: "0xabc" })),
+  useAccount: vi.fn(() => ({ address: "0xabc", status: "connected" })),
 }));
 
 import { useAccount } from "wagmi";
@@ -46,8 +46,24 @@ describe("SignInRequiredOverlay", () => {
   });
 
   it("renders nothing when no wallet address is connected", () => {
-    vi.mocked(useAccount).mockReturnValueOnce({ address: undefined });
+    vi.mocked(useAccount).mockReturnValueOnce({
+      address: undefined,
+      status: "disconnected",
+    });
     renderWithAuth({ status: "rejected", error: null, signIn: vi.fn() });
+    expect(
+      screen.queryByTestId("signin-required-overlay"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders nothing during wagmi reconnecting hydration", () => {
+    // address is truthy during 'reconnecting' but the connector is dehydrated;
+    // signMessage would throw, so the overlay must stay hidden.
+    vi.mocked(useAccount).mockReturnValueOnce({
+      address: "0xabc",
+      status: "reconnecting",
+    });
+    renderWithAuth({ status: "idle", error: null, signIn: vi.fn() });
     expect(
       screen.queryByTestId("signin-required-overlay"),
     ).not.toBeInTheDocument();

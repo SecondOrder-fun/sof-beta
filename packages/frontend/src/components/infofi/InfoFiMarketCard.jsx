@@ -175,8 +175,7 @@ const InfoFiMarketCard = ({ market, marketInfo: batchMarketInfo, userPosition: b
   }
 
   return (
-    <Card className="group hover:shadow-lg transition-shadow duration-200 overflow-hidden relative">
-      <SignInRequiredOverlay variant="desktop" />
+    <Card className="group hover:shadow-lg transition-shadow duration-200 overflow-hidden">
       <CardHeader className="pb-3">
         <Link to={`/markets/${market.id}`} className="block">
           <CardTitle className="text-base font-medium leading-tight cursor-pointer hover:underline">
@@ -196,7 +195,8 @@ const InfoFiMarketCard = ({ market, marketInfo: batchMarketInfo, userPosition: b
         </Link>
       </CardHeader>
 
-      <CardContent className="pt-0 space-y-4">
+      <CardContent className="pt-0 space-y-4 relative">
+        <SignInRequiredOverlay variant="desktop" />
         {/* Warning when player has 0 raffle tickets */}
         {isWinnerPrediction && playerHasTickets === false && (
           <div className="bg-amber-50 border border-amber-300 rounded-lg p-3 text-xs">
