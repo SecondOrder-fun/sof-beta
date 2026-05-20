@@ -30,6 +30,7 @@ import { config } from "@/lib/wagmiConfig";
 import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import { API_BASE } from "@/lib/apiBase";
 import { AppAuthContext } from "@/context/AppAuthContext";
+import i18n from "@/i18n/config";
 
 const STORAGE_JWT_KEY = "sof:auth_jwt";
 const STORAGE_USER_KEY = "sof:auth_user";
@@ -153,7 +154,7 @@ export function AppAuthProvider({ children }) {
   const signIn = useCallback(async (opts = { method: "wallet" }) => {
     if (inflightRef.current) return;
     if (!addressLc && opts.method !== "farcaster") {
-      setError("Wallet not connected");
+      setError(i18n.t("auth:errors.walletNotConnected", "Wallet not connected"));
       setStatus("error");
       return;
     }
@@ -186,7 +187,7 @@ export function AppAuthProvider({ children }) {
             String(err?.message || "").includes("User rejected")
           ) {
             setStatus("rejected");
-            setError("User rejected sign-in");
+            setError(i18n.t("auth:errors.userRejected", "User rejected sign-in"));
             return;
           }
           throw err;
@@ -220,7 +221,7 @@ export function AppAuthProvider({ children }) {
       // eslint-disable-next-line no-console
       console.warn("[AppAuth] signIn failed:", err);
       setStatus("error");
-      setError(err?.message || "Sign-in failed");
+      setError(err?.message || i18n.t("auth:errors.signInFailed", "Sign-in failed"));
     } finally {
       inflightRef.current = false;
     }
@@ -229,7 +230,12 @@ export function AppAuthProvider({ children }) {
   const linkFarcaster = useCallback(async ({ message, signature, nonce }) => {
     if (inflightRef.current) return;
     if (!jwt) {
-      setError("Cannot link Farcaster — wallet not authenticated");
+      setError(
+        i18n.t(
+          "auth:errors.cannotLinkNoAuth",
+          "Cannot link Farcaster — wallet not authenticated",
+        ),
+      );
       setStatus("error");
       return;
     }
@@ -261,7 +267,7 @@ export function AppAuthProvider({ children }) {
       // eslint-disable-next-line no-console
       console.warn("[AppAuth] linkFarcaster failed:", err);
       setStatus("error");
-      setError(err?.message || "Link failed");
+      setError(err?.message || i18n.t("auth:errors.linkFailed", "Link failed"));
     } finally {
       inflightRef.current = false;
     }
@@ -297,7 +303,7 @@ export function AppAuthProvider({ children }) {
       // eslint-disable-next-line no-console
       console.warn("[AppAuth] unlinkFarcaster failed:", err);
       setStatus("error");
-      setError(err?.message || "Unlink failed");
+      setError(err?.message || i18n.t("auth:errors.unlinkFailed", "Unlink failed"));
     } finally {
       inflightRef.current = false;
     }
