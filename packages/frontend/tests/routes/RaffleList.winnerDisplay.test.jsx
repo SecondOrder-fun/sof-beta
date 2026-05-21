@@ -12,6 +12,13 @@ vi.mock("react-i18next", () => ({
     t: (k) => k,
     i18n: { language: "en" },
   }),
+  initReactI18next: { type: "3rdParty", init: vi.fn() },
+}));
+
+// AppAuthProvider loads @/i18n/config at module load — stub i18next so the
+// real backend/detector chain doesn't run in jsdom.
+vi.mock("@/i18n/config", () => ({
+  default: { t: (key) => key, language: "en" },
 }));
 
 // Platform
