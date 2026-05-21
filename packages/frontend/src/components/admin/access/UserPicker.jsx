@@ -120,6 +120,7 @@ export default function UserPicker({
   function commitSelection(idx) {
     const opt = options[idx];
     if (!opt) return;
+    clearTimeout(blurTimerRef.current);
     onSelect(opt.payload);
     setInputValue("");
     setIsOpen(false);
@@ -141,7 +142,10 @@ export default function UserPicker({
           setInputValue(e.target.value);
           setIsOpen(true);
         }}
-        onFocus={() => setIsOpen(true)}
+        onFocus={() => {
+          clearTimeout(blurTimerRef.current);
+          setIsOpen(true);
+        }}
         onBlur={() => {
           blurTimerRef.current = setTimeout(() => setIsOpen(false), 150);
         }}
