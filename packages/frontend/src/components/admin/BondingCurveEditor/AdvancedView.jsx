@@ -29,33 +29,33 @@ const StepCard = ({
     const raw = e.target.value;
     setDraftRangeTo(raw);
     const n = Number(raw);
-    if (raw !== "" && !Number.isNaN(n) && n > 0) onUpdate("rangeTo", n);
-  }, [onUpdate]);
+    if (raw !== "" && !Number.isNaN(n) && n > 0) onUpdate(index, "rangeTo", n);
+  }, [onUpdate, index]);
 
   const handleRangeToBlur = useCallback(() => {
     if (draftRangeTo === null) return;
     const n = Number(draftRangeTo);
     if (draftRangeTo === "" || Number.isNaN(n) || n <= 0) {
-      onUpdate("rangeTo", step.rangeTo); // reset to current
+      onUpdate(index, "rangeTo", step.rangeTo); // reset to current
     }
     setDraftRangeTo(null);
-  }, [draftRangeTo, onUpdate, step.rangeTo]);
+  }, [draftRangeTo, onUpdate, index, step.rangeTo]);
 
   const handlePriceChange = useCallback((e) => {
     const raw = e.target.value;
     setDraftPrice(raw);
     const n = Number(raw);
-    if (raw !== "" && !Number.isNaN(n) && n > 0) onUpdate("price", n);
-  }, [onUpdate]);
+    if (raw !== "" && !Number.isNaN(n) && n > 0) onUpdate(index, "price", n);
+  }, [onUpdate, index]);
 
   const handlePriceBlur = useCallback(() => {
     if (draftPrice === null) return;
     const n = Number(draftPrice);
     if (draftPrice === "" || Number.isNaN(n) || n <= 0) {
-      onUpdate("price", step.price); // reset to current
+      onUpdate(index, "price", step.price); // reset to current
     }
     setDraftPrice(null);
-  }, [draftPrice, onUpdate, step.price]);
+  }, [draftPrice, onUpdate, index, step.price]);
 
   return (
     <div className={`p-3 rounded-lg border ${validationError ? "border-destructive/50 bg-destructive/10" : "bg-card"}`}>
@@ -247,7 +247,7 @@ const AdvancedView = ({
               prevRangeTo={index === 0 ? 0 : steps[index - 1].rangeTo}
               isLast={index === steps.length - 1}
               maxTickets={maxTickets}
-              onUpdate={(field, value) => updateStep(index, field, value)}
+              onUpdate={updateStep}
               onRemove={() => removeStep(index)}
               canRemove={steps.length > 1}
               validationError={stepErrors[index]}
