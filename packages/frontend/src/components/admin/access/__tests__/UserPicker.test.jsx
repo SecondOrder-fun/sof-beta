@@ -155,4 +155,22 @@ describe("UserPicker", () => {
     fireEvent.keyDown(input, { key: "Escape" });
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
+
+  it("renders a fetch-error fallback message but still allows free-text", async () => {
+    global.fetch = vi.fn(() =>
+      Promise.resolve({ ok: false, json: () => Promise.resolve({}) }),
+    );
+    const onSelect = vi.fn();
+    renderWithClient(<UserPicker onSelect={onSelect} />);
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "0x1111111111111111111111111111111111111111" },
+    });
+    expect(await screen.findByText(/Couldn't load users/i)).toBeInTheDocument();
+    // Free-text row still selectable
+    const row = await screen.findByText(/Use 0x1111…1111/i);
+    fireEvent.mouseDown(row.closest("[role='option']"));
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ source: "freeText" }),
+    );
+  });
 });

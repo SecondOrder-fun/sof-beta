@@ -168,12 +168,17 @@ export default function UserPicker({
         disabled={disabled}
         autoFocus={autoFocus}
       />
-      {isOpen && trimmed && options.length > 0 && (
+      {isOpen && trimmed && (
         <ul
           id={listboxId}
           role="listbox"
           className="absolute z-10 mt-1 w-full bg-popover border rounded-md shadow-md max-h-72 overflow-auto"
         >
+          {entriesQuery.isError && (
+            <li className="px-3 py-2 text-xs text-destructive border-b">
+              Couldn't load users — type a full FID or 0x address
+            </li>
+          )}
           {options.map((opt, idx) => (
             <li
               key={opt.key}
@@ -224,17 +229,11 @@ export default function UserPicker({
               +{overflow} more — keep typing
             </li>
           )}
-        </ul>
-      )}
-      {isOpen && trimmed && options.length === 0 && (
-        <ul
-          id={listboxId}
-          role="listbox"
-          className="absolute z-10 mt-1 w-full bg-popover border rounded-md shadow-md"
-        >
-          <li className="px-3 py-2 text-sm text-muted-foreground">
-            No users found
-          </li>
+          {options.length === 0 && !entriesQuery.isError && (
+            <li className="px-3 py-2 text-sm text-muted-foreground">
+              No users found
+            </li>
+          )}
         </ul>
       )}
     </div>
