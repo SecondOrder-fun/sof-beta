@@ -16,8 +16,7 @@
 //
 // All hardening (bounded validUntil, gas caps, per-EOA quota) flows through
 // the existing createBundlerService factory — see
-// packages/backend/shared/aa/bundler.js and
-// docs/02-architecture/paymaster-signer-rotation.md.
+// packages/backend/shared/aa/bundler.js.
 
 import { defineChain, isAddress } from "viem";
 import { entryPoint08Address } from "viem/account-abstraction";
