@@ -163,12 +163,17 @@ const RaffleList = () => {
   };
 
   // Called from SeasonCard's Verify button (no pending buy/sell action)
-  const handleVerify = (seasonId) => {
+  const handleVerify = useCallback((seasonId) => {
     const season = allSeasonsQuery.data?.find((s) => s.id === seasonId);
     setSelectedSeason(season);
     setPendingAction(null);
     setGateModalOpen(true);
-  };
+  }, [allSeasonsQuery.data]);
+
+  // MobileRafflesList onVerify — fires Verify on the currently-active season.
+  const handleVerifyActive = useCallback(() => {
+    if (activeSeason) handleVerify(activeSeason.id);
+  }, [activeSeason, handleVerify]);
 
   // Fetch position and open sell sheet (bypasses gating check)
   const openSellSheet = useCallback(async (season) => {
@@ -269,7 +274,7 @@ const RaffleList = () => {
           onActiveSeasonChange={handleActiveSeasonChange}
           isVerified={isVerified}
           isGated={isActiveGated}
-          onVerify={() => activeSeason && handleVerify(activeSeason.id)}
+          onVerify={handleVerifyActive}
           isConnected={isConnected}
           onConnect={handleConnect}
           isFarcaster={isFarcaster}
