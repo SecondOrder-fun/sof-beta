@@ -604,7 +604,7 @@ const RaffleDetails = () => {
                               setPendingAction(mode);
                               setGateModalOpen(true);
                             }}
-                            onTxSuccess={() => triggerStaggeredRefresh()}
+                            onTxSuccess={triggerStaggeredRefresh}
                           />
                         )}
                         {/* Player position display - only visible when a wallet is connected */}
