@@ -86,9 +86,9 @@ vi.mock("@/services/onchainRaffleDistributor", () => ({
 }));
 
 // Mock the shared viem client factory — ClaimCenter's raffleClaimsQuery
-// drives everything through three multicalls now. Each test below
-// stubs mockMulticall to return the appropriate payout / participant /
-// claimed sequences.
+// now collapses (getSeason, getParticipantPosition, isConsolationClaimed)
+// into a single multicall per mount. Each test stubs mockMulticall to
+// return the interleaved 3-result-per-season array.
 const mockMulticall = vi.fn();
 vi.mock("@/lib/viemClient", () => ({
   buildPublicClient: () => ({ multicall: (...args) => mockMulticall(...args) }),
@@ -170,12 +170,10 @@ const createWrapper = () => {
 describe("ClaimCenter - raffle consolation prizes", () => {
   const address = "0x1111111111111111111111111111111111111111";
 
-  // Helper: queue the three multicall responses for one completed
-  // season's consolation-claim evaluation. The order matches
-  // raffleClaimsQuery's batches:
-  //   1) PrizeDistributor.getSeason(seasonId)
-  //   2) Raffle.getParticipantPosition(seasonId, user)
-  //   3) PrizeDistributor.isConsolationClaimed(seasonId, user)
+  // Helper: queue the single multicall response for one completed
+  // season's consolation-claim evaluation. raffleClaimsQuery reads three
+  // contract functions per season in one aggregate3, interleaved:
+  //   [getSeason, getParticipantPosition, isConsolationClaimed]
   function queueRaffleClaimsMulticalls({
     funded = true,
     grandWinner = "0x2222222222222222222222222222222222222222",
@@ -186,29 +184,24 @@ describe("ClaimCenter - raffle consolation prizes", () => {
     isParticipant = true,
     alreadyClaimed = false,
   } = {}) {
-    mockMulticall
-      .mockResolvedValueOnce([
-        {
-          status: "success",
-          result: {
-            funded,
-            grandWinner,
-            grandAmount,
-            consolationAmount,
-            totalParticipants,
-            grandClaimed,
-          },
+    mockMulticall.mockResolvedValueOnce([
+      {
+        status: "success",
+        result: {
+          funded,
+          grandWinner,
+          grandAmount,
+          consolationAmount,
+          totalParticipants,
+          grandClaimed,
         },
-      ])
-      .mockResolvedValueOnce([
-        {
-          status: "success",
-          result: { ticketCount: isParticipant ? 5n : 0n },
-        },
-      ])
-      .mockResolvedValueOnce([
-        { status: "success", result: alreadyClaimed },
-      ]);
+      },
+      {
+        status: "success",
+        result: { ticketCount: isParticipant ? 5n : 0n },
+      },
+      { status: "success", result: alreadyClaimed },
+    ]);
   }
 
   beforeEach(() => {
