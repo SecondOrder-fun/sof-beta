@@ -9,7 +9,6 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -20,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Search, Save } from "lucide-react";
+import UserPicker from "./UserPicker";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL + "/access";
 
@@ -49,7 +49,6 @@ function accessLevelBadge(level) {
 
 export default function UserAccessPanel({ getAuthHeaders }) {
   const queryClient = useQueryClient();
-  const [lookupInput, setLookupInput] = useState("");
   const [lookupParams, setLookupParams] = useState(null);
   const [newAccessLevel, setNewAccessLevel] = useState(null);
 
@@ -91,18 +90,6 @@ export default function UserAccessPanel({ getAuthHeaders }) {
     },
   });
 
-  const handleLookup = () => {
-    const input = lookupInput.trim();
-    if (!input) return;
-    if (input.match(/^0x[a-fA-F0-9]{40}$/)) {
-      setLookupParams({ wallet: input });
-    } else if (/^\d+$/.test(input)) {
-      setLookupParams({ fid: input });
-    } else {
-      alert("Enter a valid FID (number) or wallet address (0x...)");
-    }
-  };
-
   const handleSave = () => {
     const entry = lookupQuery.data?.entry;
     const fid = entry?.fid || (lookupParams?.fid ? parseInt(lookupParams.fid, 10) : null);
@@ -134,18 +121,13 @@ export default function UserAccessPanel({ getAuthHeaders }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex gap-2">
-          <Input
-            placeholder="FID (e.g., 12345) or wallet (0x...)"
-            value={lookupInput}
-            onChange={(e) => setLookupInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleLookup()}
-          />
-          <Button onClick={handleLookup} disabled={lookupQuery.isFetching || !lookupInput.trim()}>
-            <Search className="h-4 w-4 mr-1" />
-            Lookup
-          </Button>
-        </div>
+        <UserPicker
+          placeholder="@username, FID, or 0x…"
+          onSelect={(r) =>
+            setLookupParams(r.fid ? { fid: String(r.fid) } : { wallet: r.wallet })
+          }
+          disabled={lookupQuery.isFetching}
+        />
 
         {lookupQuery.isError && (
           <p className="text-sm text-destructive">{lookupQuery.error.message}</p>
