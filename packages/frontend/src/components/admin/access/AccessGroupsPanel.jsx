@@ -25,10 +25,10 @@ import {
   Plus,
   Trash2,
   RefreshCw,
-  UserPlus,
   ChevronDown,
   ChevronRight,
 } from "lucide-react";
+import UserPicker from "./UserPicker";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL + "/access";
 
@@ -37,7 +37,6 @@ export default function AccessGroupsPanel({ getAuthHeaders }) {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newGroup, setNewGroup] = useState({ name: "", slug: "", description: "" });
   const [expandedGroup, setExpandedGroup] = useState(null);
-  const [addMemberInput, setAddMemberInput] = useState("");
 
   // Fetch all groups
   const groupsQuery = useQuery({
@@ -106,22 +105,6 @@ export default function AccessGroupsPanel({ getAuthHeaders }) {
     },
   });
 
-  /**
-   * Parse identifier input — detects wallet address (0x...) vs FID (number)
-   */
-  const parseIdentifier = (input) => {
-    const trimmed = input.trim();
-    if (!trimmed) return null;
-    if (/^0x[a-fA-F0-9]{40}$/.test(trimmed)) {
-      return { wallet: trimmed };
-    }
-    const fid = parseInt(trimmed, 10);
-    if (!isNaN(fid) && fid > 0) {
-      return { fid };
-    }
-    return null;
-  };
-
   // Add member
   const addMemberMutation = useMutation({
     mutationFn: async ({ fid, wallet, groupSlug }) => {
@@ -142,7 +125,6 @@ export default function AccessGroupsPanel({ getAuthHeaders }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["access-group-members"] });
       queryClient.invalidateQueries({ queryKey: ["access-groups"] });
-      setAddMemberInput("");
     },
   });
 
@@ -350,41 +332,16 @@ export default function AccessGroupsPanel({ getAuthHeaders }) {
                     )}
 
                     {/* Add Member */}
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="FID or wallet (0x...)"
-                        value={addMemberInput}
-                        onChange={(e) => setAddMemberInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && addMemberInput.trim()) {
-                            const id = parseIdentifier(addMemberInput);
-                            if (id) {
-                              addMemberMutation.mutate({
-                                ...id,
-                                groupSlug: group.slug,
-                              });
-                            }
-                          }
-                        }}
-                        className="max-w-[250px]"
-                      />
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          const id = parseIdentifier(addMemberInput);
-                          if (id) {
-                            addMemberMutation.mutate({
-                              ...id,
-                              groupSlug: group.slug,
-                            });
-                          }
-                        }}
-                        disabled={addMemberMutation.isPending || !addMemberInput.trim()}
-                      >
-                        <UserPlus className="h-4 w-4 mr-1" />
-                        Add
-                      </Button>
-                    </div>
+                    <UserPicker
+                      placeholder="@username, FID, or 0x…"
+                      onSelect={(r) =>
+                        addMemberMutation.mutate({
+                          ...(r.fid ? { fid: r.fid } : { wallet: r.wallet }),
+                          groupSlug: group.slug,
+                        })
+                      }
+                      disabled={addMemberMutation.isPending}
+                    />
                     {addMemberMutation.isError && (
                       <p className="text-sm text-destructive">{addMemberMutation.error.message}</p>
                     )}
