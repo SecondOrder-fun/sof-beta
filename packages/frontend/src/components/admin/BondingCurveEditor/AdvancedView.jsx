@@ -57,6 +57,8 @@ const StepCard = ({
     setDraftPrice(null);
   }, [draftPrice, onUpdate, index, step.price]);
 
+  const handleRemove = useCallback(() => onRemove(index), [onRemove, index]);
+
   return (
     <div className={`p-3 rounded-lg border ${validationError ? "border-destructive/50 bg-destructive/10" : "bg-card"}`}>
       <div className="flex items-center justify-between mb-2">
@@ -75,7 +77,7 @@ const StepCard = ({
             type="button"
             variant="ghost"
             size="sm"
-            onClick={onRemove}
+            onClick={handleRemove}
             className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
           >
             <Trash2 className="h-4 w-4" />
@@ -139,31 +141,45 @@ StepCard.propTypes = {
   prevRangeTo: PropTypes.number.isRequired,
   isLast: PropTypes.bool.isRequired,
   maxTickets: PropTypes.number.isRequired,
+  // (index, field, value) => void — index is passed back so the parent can
+  // hand a stable reference to updateStep() instead of allocating a per-row
+  // closure on every render.
   onUpdate: PropTypes.func.isRequired,
+  // (index) => void — same shape as onUpdate; lets parent pass removeStep
+  // directly without a per-row closure.
   onRemove: PropTypes.func.isRequired,
   canRemove: PropTypes.bool.isRequired,
   validationError: PropTypes.string,
 };
 
 // Insert between button component
-const InsertBetweenButton = ({ onClick, afterIndex }) => (
-  <div className="flex items-center justify-center py-1">
-    <Button
-      type="button"
-      variant="ghost"
-      size="sm"
-      onClick={onClick}
-      className="h-6 px-2 text-xs text-muted-foreground hover:text-info hover:bg-info/10 gap-1"
-      title={`Insert step between ${afterIndex + 1} and ${afterIndex + 2}`}
-    >
-      <PlusCircle className="h-3 w-3" />
-      <span>Insert between</span>
-    </Button>
-  </div>
-);
+// onInsert: (afterIndex) => void — same shape as the InsertBetweenButton's
+// parent helper (insertStepBetween) so callers can pass it directly without
+// allocating a per-row closure.
+const InsertBetweenButton = ({ onInsert, afterIndex }) => {
+  const handleClick = useCallback(
+    () => onInsert(afterIndex),
+    [onInsert, afterIndex],
+  );
+  return (
+    <div className="flex items-center justify-center py-1">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={handleClick}
+        className="h-6 px-2 text-xs text-muted-foreground hover:text-info hover:bg-info/10 gap-1"
+        title={`Insert step between ${afterIndex + 1} and ${afterIndex + 2}`}
+      >
+        <PlusCircle className="h-3 w-3" />
+        <span>Insert between</span>
+      </Button>
+    </div>
+  );
+};
 
 InsertBetweenButton.propTypes = {
-  onClick: PropTypes.func.isRequired,
+  onInsert: PropTypes.func.isRequired,
   afterIndex: PropTypes.number.isRequired,
 };
 
@@ -248,14 +264,14 @@ const AdvancedView = ({
               isLast={index === steps.length - 1}
               maxTickets={maxTickets}
               onUpdate={updateStep}
-              onRemove={() => removeStep(index)}
+              onRemove={removeStep}
               canRemove={steps.length > 1}
               validationError={stepErrors[index]}
             />
             {/* Insert between button (not after last step) */}
             {index < steps.length - 1 && (
               <InsertBetweenButton
-                onClick={() => insertStepBetween(index)}
+                onInsert={insertStepBetween}
                 afterIndex={index}
               />
             )}
