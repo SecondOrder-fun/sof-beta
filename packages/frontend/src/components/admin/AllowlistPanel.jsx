@@ -195,6 +195,7 @@ export default function AllowlistPanel() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["allowlist-stats"] });
       queryClient.invalidateQueries({ queryKey: ["allowlist-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["allowlist-entries-picker"] });
       setAddInput("");
     },
   });
@@ -204,6 +205,7 @@ export default function AllowlistPanel() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["allowlist-stats"] });
       queryClient.invalidateQueries({ queryKey: ["allowlist-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["allowlist-entries-picker"] });
     },
   });
 
@@ -212,6 +214,7 @@ export default function AllowlistPanel() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["allowlist-stats"] });
       queryClient.invalidateQueries({ queryKey: ["allowlist-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["allowlist-entries-picker"] });
     },
   });
 
@@ -220,6 +223,7 @@ export default function AllowlistPanel() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["allowlist-stats"] });
       queryClient.invalidateQueries({ queryKey: ["allowlist-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["allowlist-entries-picker"] });
     },
   });
 
