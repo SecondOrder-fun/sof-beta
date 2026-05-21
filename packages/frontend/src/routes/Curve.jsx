@@ -1,5 +1,5 @@
 // src/routes/Curve.jsx
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAllSeasons } from "@/hooks/useAllSeasons";
 import { useWarmRead } from "@/hooks/chain/useWarmRead";
@@ -47,6 +47,11 @@ const Curve = () => {
   } = useCurveState(bondingCurveAddress, { isActive, pollMs: 12000 });
 
   const [activeTab, setActiveTab] = useState("transactions");
+
+  const handleTxSuccess = useCallback(
+    () => debouncedRefresh(500),
+    [debouncedRefresh],
+  );
 
   const header = useMemo(() => {
     const symbol = "TICKET"; // placeholder, can be read from curve if exposed
@@ -113,7 +118,7 @@ const Curve = () => {
           <CardContent>
             <BuySellWidget
               bondingCurveAddress={bondingCurveAddress}
-              onTxSuccess={() => debouncedRefresh(500)}
+              onTxSuccess={handleTxSuccess}
             />
           </CardContent>
         </Card>
