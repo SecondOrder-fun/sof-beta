@@ -7,6 +7,27 @@ import { useAppAuth } from "@/hooks/useAppAuth";
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
 const MAX_VISIBLE = 20;
 
+const WALLET_RE = /^0x[a-fA-F0-9]{40}$/;
+const FID_RE = /^\d+$/;
+
+function freeTextOption(trimmed) {
+  if (WALLET_RE.test(trimmed)) {
+    return {
+      kind: "wallet",
+      label: `Use ${trimmed.slice(0, 6)}…${trimmed.slice(-4)}`,
+      payload: { source: "freeText", fid: null, wallet: trimmed },
+    };
+  }
+  if (FID_RE.test(trimmed)) {
+    return {
+      kind: "fid",
+      label: `Use FID ${trimmed}`,
+      payload: { source: "freeText", fid: Number(trimmed), wallet: null },
+    };
+  }
+  return null;
+}
+
 async function fetchEntries(authHeaders) {
   const res = await fetch(
     `${API_BASE}/allowlist/entries?activeOnly=true&limit=200`,
@@ -80,58 +101,89 @@ export default function UserPicker({
         disabled={disabled}
         autoFocus={autoFocus}
       />
-      {isOpen && inputValue.trim() && visible.length > 0 && (
-        <ul
-          role="listbox"
-          className="absolute z-10 mt-1 w-full bg-popover border rounded-md shadow-md max-h-72 overflow-auto"
-        >
-          {visible.map((entry) => (
-            <li
-              key={entry.fid ?? entry.wallet_address}
-              role="option"
-              className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-accent"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                onSelect({
-                  source: "match",
-                  fid: entry.fid ?? null,
-                  wallet: entry.wallet_address ?? null,
-                  username: entry.username ?? null,
-                  pfpUrl: entry.pfpUrl ?? null,
-                });
-                setInputValue("");
-                setIsOpen(false);
-              }}
+      {isOpen && inputValue.trim() && (() => {
+        const trimmed = inputValue.trim();
+        if (visible.length > 0) {
+          return (
+            <ul
+              role="listbox"
+              className="absolute z-10 mt-1 w-full bg-popover border rounded-md shadow-md max-h-72 overflow-auto"
             >
-              {entry.pfpUrl && (
-                <img
-                  src={entry.pfpUrl}
-                  alt=""
-                  className="w-4 h-4 rounded-full"
-                />
+              {visible.map((entry) => (
+                <li
+                  key={entry.fid ?? entry.wallet_address}
+                  role="option"
+                  className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-accent"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    onSelect({
+                      source: "match",
+                      fid: entry.fid ?? null,
+                      wallet: entry.wallet_address ?? null,
+                      username: entry.username ?? null,
+                      pfpUrl: entry.pfpUrl ?? null,
+                    });
+                    setInputValue("");
+                    setIsOpen(false);
+                  }}
+                >
+                  {entry.pfpUrl && (
+                    <img
+                      src={entry.pfpUrl}
+                      alt=""
+                      className="w-4 h-4 rounded-full"
+                    />
+                  )}
+                  <span className="flex-1">
+                    {entry.username ? `@${entry.username}` : truncateWallet(entry.wallet_address)}
+                  </span>
+                  {entry.username && entry.wallet_address && (
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {truncateWallet(entry.wallet_address)}
+                    </span>
+                  )}
+                  {entry.fid && (
+                    <span className="text-xs text-muted-foreground">
+                      FID:{entry.fid}
+                    </span>
+                  )}
+                </li>
+              ))}
+              {overflow > 0 && (
+                <li className="px-3 py-2 text-xs text-muted-foreground border-t">
+                  +{overflow} more — keep typing
+                </li>
               )}
-              <span className="flex-1">
-                {entry.username ? `@${entry.username}` : truncateWallet(entry.wallet_address)}
-              </span>
-              {entry.username && entry.wallet_address && (
-                <span className="font-mono text-xs text-muted-foreground">
-                  {truncateWallet(entry.wallet_address)}
-                </span>
-              )}
-              {entry.fid && (
-                <span className="text-xs text-muted-foreground">
-                  FID:{entry.fid}
-                </span>
-              )}
-            </li>
-          ))}
-          {overflow > 0 && (
-            <li className="px-3 py-2 text-xs text-muted-foreground border-t">
-              +{overflow} more — keep typing
-            </li>
-          )}
-        </ul>
-      )}
+            </ul>
+          );
+        }
+        const ft = freeTextOption(trimmed);
+        return (
+          <ul
+            role="listbox"
+            className="absolute z-10 mt-1 w-full bg-popover border rounded-md shadow-md"
+          >
+            {ft ? (
+              <li
+                role="option"
+                className="px-3 py-2 text-sm cursor-pointer hover:bg-accent"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onSelect(ft.payload);
+                  setInputValue("");
+                  setIsOpen(false);
+                }}
+              >
+                {ft.label}
+              </li>
+            ) : (
+              <li className="px-3 py-2 text-sm text-muted-foreground">
+                No users found
+              </li>
+            )}
+          </ul>
+        );
+      })()}
     </div>
   );
 }

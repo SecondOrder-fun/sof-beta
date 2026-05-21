@@ -91,4 +91,41 @@ describe("UserPicker", () => {
     expect(items[0]).toHaveTextContent("@alice");
     expect(items[1]).toHaveTextContent("@alicebob");
   });
+
+  it("offers 'Use 0x…' free-text row when no matches but input is a valid wallet", async () => {
+    mockFetchWith(SAMPLE_ENTRIES);
+    const onSelect = vi.fn();
+    renderWithClient(<UserPicker onSelect={onSelect} />);
+    const wallet = "0x1111111111111111111111111111111111111111";
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: wallet } });
+    const row = await screen.findByText(/Use 0x1111…1111/i);
+    fireEvent.mouseDown(row.closest("[role='option']"));
+    expect(onSelect).toHaveBeenCalledWith({
+      source: "freeText",
+      fid: null,
+      wallet,
+    });
+  });
+
+  it("offers 'Use FID N' free-text row when no matches but input is a valid FID", async () => {
+    mockFetchWith(SAMPLE_ENTRIES);
+    const onSelect = vi.fn();
+    renderWithClient(<UserPicker onSelect={onSelect} />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "55555" } });
+    const row = await screen.findByText(/Use FID 55555/);
+    fireEvent.mouseDown(row.closest("[role='option']"));
+    expect(onSelect).toHaveBeenCalledWith({
+      source: "freeText",
+      fid: 55555,
+      wallet: null,
+    });
+  });
+
+  it("shows 'No users found' when no matches and input is neither valid FID nor wallet", async () => {
+    mockFetchWith(SAMPLE_ENTRIES);
+    renderWithClient(<UserPicker onSelect={vi.fn()} />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "zzz" } });
+    expect(await screen.findByText(/No users found/i)).toBeInTheDocument();
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
+  });
 });
