@@ -128,4 +128,31 @@ describe("UserPicker", () => {
     expect(await screen.findByText(/No users found/i)).toBeInTheDocument();
     expect(screen.queryAllByRole("option")).toHaveLength(0);
   });
+
+  it("arrow keys move highlight and Enter selects the highlighted match", async () => {
+    mockFetchWith(SAMPLE_ENTRIES);
+    const onSelect = vi.fn();
+    renderWithClient(<UserPicker onSelect={onSelect} />);
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "ali" } });
+    await waitFor(() => expect(screen.getByText("@alice")).toBeInTheDocument());
+
+    // First option is highlighted by default (alice). Press ArrowDown -> alicebob.
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ source: "match", username: "alicebob" }),
+    );
+  });
+
+  it("Escape closes the dropdown", async () => {
+    mockFetchWith(SAMPLE_ENTRIES);
+    renderWithClient(<UserPicker onSelect={vi.fn()} />);
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "ali" } });
+    await waitFor(() => expect(screen.getByRole("listbox")).toBeInTheDocument());
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  });
 });

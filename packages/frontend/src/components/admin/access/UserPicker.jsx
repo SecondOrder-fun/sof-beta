@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import PropTypes from "prop-types";
 import { useQuery } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
@@ -74,6 +74,16 @@ export default function UserPicker({
     staleTime: 30_000,
   });
 
+  const [highlightIndex, setHighlightIndex] = useState(0);
+  const blurTimerRef = useRef(null);
+  const listboxId = "user-picker-listbox";
+
+  useEffect(() => {
+    setHighlightIndex(0);
+  }, [inputValue]);
+
+  useEffect(() => () => clearTimeout(blurTimerRef.current), []);
+
   const matches = useMemo(() => {
     const q = inputValue.trim().toLowerCase();
     if (!q) return [];
@@ -88,102 +98,141 @@ export default function UserPicker({
   const visible = matches.slice(0, MAX_VISIBLE);
   const overflow = matches.length - visible.length;
 
+  const trimmed = inputValue.trim();
+  const ft = visible.length === 0 ? freeTextOption(trimmed) : null;
+  const options = visible.length > 0
+    ? visible.map((entry) => ({
+        kind: "match",
+        key: entry.fid ?? entry.wallet_address,
+        payload: {
+          source: "match",
+          fid: entry.fid ?? null,
+          wallet: entry.wallet_address ?? null,
+          username: entry.username ?? null,
+          pfpUrl: entry.pfpUrl ?? null,
+        },
+        entry,
+      }))
+    : ft
+      ? [{ kind: "freetext", key: "ft", payload: ft.payload, label: ft.label }]
+      : [];
+
+  function commitSelection(idx) {
+    const opt = options[idx];
+    if (!opt) return;
+    onSelect(opt.payload);
+    setInputValue("");
+    setIsOpen(false);
+  }
+
   return (
     <div className="relative w-full">
       <Input
         placeholder={placeholder}
         value={inputValue}
+        aria-expanded={isOpen && trimmed.length > 0}
+        aria-controls={listboxId}
+        aria-activedescendant={
+          isOpen && options[highlightIndex]
+            ? `user-picker-opt-${options[highlightIndex].key}`
+            : undefined
+        }
         onChange={(e) => {
           setInputValue(e.target.value);
           setIsOpen(true);
         }}
         onFocus={() => setIsOpen(true)}
+        onBlur={() => {
+          blurTimerRef.current = setTimeout(() => setIsOpen(false), 150);
+        }}
+        onKeyDown={(e) => {
+          if (!isOpen) return;
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setHighlightIndex((i) => Math.min(i + 1, Math.max(options.length - 1, 0)));
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setHighlightIndex((i) => Math.max(i - 1, 0));
+          } else if (e.key === "Enter") {
+            e.preventDefault();
+            commitSelection(highlightIndex);
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            setIsOpen(false);
+          }
+        }}
         disabled={disabled}
         autoFocus={autoFocus}
       />
-      {isOpen && inputValue.trim() && (() => {
-        const trimmed = inputValue.trim();
-        if (visible.length > 0) {
-          return (
-            <ul
-              role="listbox"
-              className="absolute z-10 mt-1 w-full bg-popover border rounded-md shadow-md max-h-72 overflow-auto"
+      {isOpen && trimmed && options.length > 0 && (
+        <ul
+          id={listboxId}
+          role="listbox"
+          className="absolute z-10 mt-1 w-full bg-popover border rounded-md shadow-md max-h-72 overflow-auto"
+        >
+          {options.map((opt, idx) => (
+            <li
+              key={opt.key}
+              id={`user-picker-opt-${opt.key}`}
+              role="option"
+              aria-selected={idx === highlightIndex}
+              className={`flex items-center gap-2 px-3 py-2 text-sm cursor-pointer ${
+                idx === highlightIndex ? "bg-accent" : "hover:bg-accent"
+              }`}
+              onMouseEnter={() => setHighlightIndex(idx)}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                commitSelection(idx);
+              }}
             >
-              {visible.map((entry) => (
-                <li
-                  key={entry.fid ?? entry.wallet_address}
-                  role="option"
-                  className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-accent"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    onSelect({
-                      source: "match",
-                      fid: entry.fid ?? null,
-                      wallet: entry.wallet_address ?? null,
-                      username: entry.username ?? null,
-                      pfpUrl: entry.pfpUrl ?? null,
-                    });
-                    setInputValue("");
-                    setIsOpen(false);
-                  }}
-                >
-                  {entry.pfpUrl && (
+              {opt.kind === "match" ? (
+                <>
+                  {opt.entry.pfpUrl && (
                     <img
-                      src={entry.pfpUrl}
+                      src={opt.entry.pfpUrl}
                       alt=""
                       className="w-4 h-4 rounded-full"
                     />
                   )}
                   <span className="flex-1">
-                    {entry.username ? `@${entry.username}` : truncateWallet(entry.wallet_address)}
+                    {opt.entry.username
+                      ? `@${opt.entry.username}`
+                      : truncateWallet(opt.entry.wallet_address)}
                   </span>
-                  {entry.username && entry.wallet_address && (
+                  {opt.entry.username && opt.entry.wallet_address && (
                     <span className="font-mono text-xs text-muted-foreground">
-                      {truncateWallet(entry.wallet_address)}
+                      {truncateWallet(opt.entry.wallet_address)}
                     </span>
                   )}
-                  {entry.fid && (
+                  {opt.entry.fid && (
                     <span className="text-xs text-muted-foreground">
-                      FID:{entry.fid}
+                      FID:{opt.entry.fid}
                     </span>
                   )}
-                </li>
-              ))}
-              {overflow > 0 && (
-                <li className="px-3 py-2 text-xs text-muted-foreground border-t">
-                  +{overflow} more — keep typing
-                </li>
+                </>
+              ) : (
+                <span>{opt.label}</span>
               )}
-            </ul>
-          );
-        }
-        const ft = freeTextOption(trimmed);
-        return (
-          <ul
-            role="listbox"
-            className="absolute z-10 mt-1 w-full bg-popover border rounded-md shadow-md"
-          >
-            {ft ? (
-              <li
-                role="option"
-                className="px-3 py-2 text-sm cursor-pointer hover:bg-accent"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  onSelect(ft.payload);
-                  setInputValue("");
-                  setIsOpen(false);
-                }}
-              >
-                {ft.label}
-              </li>
-            ) : (
-              <li className="px-3 py-2 text-sm text-muted-foreground">
-                No users found
-              </li>
-            )}
-          </ul>
-        );
-      })()}
+            </li>
+          ))}
+          {visible.length > 0 && overflow > 0 && (
+            <li className="px-3 py-2 text-xs text-muted-foreground border-t">
+              +{overflow} more — keep typing
+            </li>
+          )}
+        </ul>
+      )}
+      {isOpen && trimmed && options.length === 0 && (
+        <ul
+          id={listboxId}
+          role="listbox"
+          className="absolute z-10 mt-1 w-full bg-popover border rounded-md shadow-md"
+        >
+          <li className="px-3 py-2 text-sm text-muted-foreground">
+            No users found
+          </li>
+        </ul>
+      )}
     </div>
   );
 }
