@@ -574,11 +574,15 @@ const RaffleDetails = () => {
                             {curveStep?.rangeTo != null && curveSupply != null && (() => {
                               const remaining = BigInt(curveStep.rangeTo) - BigInt(curveSupply);
                               if (remaining <= 0n) return null;
+                              const isSingleStep = Array.isArray(allBondSteps) && allBondSteps.length === 1;
+                              const label = isSingleStep
+                                ? t("ticketsRemain", { defaultValue: "tickets remain" })
+                                : t("ticketsRemainUntilNextPriceIncrease", { defaultValue: "tickets remain until next price increase" });
                               return (
                                 <div className="flex justify-center mt-3">
                                   <div className="w-3/5 text-center rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
                                     <span className="font-mono font-semibold text-foreground">{remaining.toString()}</span>{" "}
-                                    {t("ticketsRemainUntilNextPriceIncrease", { defaultValue: "tickets remain until next price increase" })}
+                                    {label}
                                   </div>
                                 </div>
                               );

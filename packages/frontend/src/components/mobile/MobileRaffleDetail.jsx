@@ -209,11 +209,15 @@ export const MobileRaffleDetail = ({
             {curveStep?.rangeTo != null && curveSupply != null && (() => {
               const remaining = BigInt(curveStep.rangeTo) - BigInt(curveSupply);
               if (remaining <= 0n) return null;
+              const isSingleStep = Array.isArray(allBondSteps) && allBondSteps.length === 1;
+              const label = isSingleStep
+                ? t("raffle:ticketsRemain", { defaultValue: "tickets remain" })
+                : t("raffle:ticketsRemainUntilNextPriceIncrease", { defaultValue: "tickets remain until next price increase" });
               return (
                 <div className="flex justify-center mt-2">
                   <div className="w-3/5 text-center rounded-md border border-border bg-muted/40 px-2 py-1.5 text-xs text-muted-foreground">
                     <span className="font-mono font-semibold text-foreground">{remaining.toString()}</span>{" "}
-                    {t("raffle:ticketsRemainUntilNextPriceIncrease", { defaultValue: "tickets remain until next price increase" })}
+                    {label}
                   </div>
                 </div>
               );
