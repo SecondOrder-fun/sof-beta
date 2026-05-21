@@ -1,5 +1,5 @@
 // src/routes/RaffleDetails.jsx
-import { useState, useMemo } from "react";
+import { useCallback, useState, useMemo } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useRaffleState } from "@/hooks/useRaffleState";
@@ -235,10 +235,10 @@ const RaffleDetails = () => {
   };
 
   // Called after successful password verification
-  const handleGateVerified = async () => {
+  const handleGateVerified = useCallback(async () => {
     // Wait for gating status to be refetched and cache updated
     await refetchGating();
-    
+
     if (pendingAction === "buy") {
       setSheetMode("buy");
       setSheetOpen(true);
@@ -249,7 +249,35 @@ const RaffleDetails = () => {
       setSheetOpen(true);
     }
     setPendingAction(null);
-  };
+  }, [refetchGating, pendingAction, refreshPositionNow]);
+
+  // BuySellSheet onSuccess (mobile path) — staggered refresh after a trade.
+  const handleSheetSuccess = useCallback(async () => {
+    setSheetOpen(false);
+    await refreshPositionNow();
+    debouncedRefresh(0);
+    setTimeout(async () => {
+      await refreshPositionNow();
+      debouncedRefresh(0);
+    }, 1000);
+    setTimeout(async () => {
+      await refreshPositionNow();
+      debouncedRefresh(0);
+    }, 3000);
+  }, [refreshPositionNow, debouncedRefresh]);
+
+  // BuySellSheet onTxSettled — runs as soon as a tx is mined (success or revert).
+  const handleSheetTxSettled = useCallback(() => {
+    setIsRefreshing(true);
+    debouncedRefresh(0);
+    refreshPositionNow();
+  }, [setIsRefreshing, debouncedRefresh, refreshPositionNow]);
+
+  // BuySellWidget onGatingRequired (desktop path) — opens the gate modal.
+  const handleGatingRequired = useCallback((mode) => {
+    setPendingAction(mode);
+    setGateModalOpen(true);
+  }, []);
 
   // Mobile view for Farcaster Mini App and Base App
   if (isMobile && seasonDetailsQuery.data?.config) {
@@ -298,27 +326,8 @@ const RaffleDetails = () => {
           seasonEndTime={cfg?.endTime}
           bondingCurveAddress={bondingCurveAddress}
           maxSellable={localPosition?.tickets || 0n}
-          onSuccess={async () => {
-            setSheetOpen(false);
-            // Immediate refresh
-            await refreshPositionNow();
-            // Debounced refresh for curve data
-            debouncedRefresh(0);
-            // Additional refreshes to catch up with blockchain indexing
-            setTimeout(async () => {
-              await refreshPositionNow();
-              debouncedRefresh(0);
-            }, 1000);
-            setTimeout(async () => {
-              await refreshPositionNow();
-              debouncedRefresh(0);
-            }, 3000);
-          }}
-          onTxSettled={() => {
-            setIsRefreshing(true);
-            debouncedRefresh(0);
-            refreshPositionNow();
-          }}
+          onSuccess={handleSheetSuccess}
+          onTxSettled={handleSheetTxSettled}
         />
         {pendingGateType === GateType.SIGNATURE ? (
           <SignatureGateModal
@@ -600,10 +609,7 @@ const RaffleDetails = () => {
                             initialTab={initialTradeTab}
                             isGated={isSeasonGated}
                             isVerified={isGatingVerified}
-                            onGatingRequired={(mode) => {
-                              setPendingAction(mode);
-                              setGateModalOpen(true);
-                            }}
+                            onGatingRequired={handleGatingRequired}
                             onTxSuccess={triggerStaggeredRefresh}
                           />
                         )}

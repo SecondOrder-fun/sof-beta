@@ -171,7 +171,7 @@ const RaffleList = () => {
   };
 
   // Fetch position and open sell sheet (bypasses gating check)
-  const openSellSheet = async (season) => {
+  const openSellSheet = useCallback(async (season) => {
     const bondingCurveAddress =
       season?.config?.bondingCurve || season?.bondingCurveAddress;
 
@@ -213,10 +213,10 @@ const RaffleList = () => {
     await new Promise((resolve) => setTimeout(resolve, 200));
     setSheetMode("sell");
     setSheetOpen(true);
-  };
+  }, [chainId, chains, sma]);
 
   // Called after successful password verification
-  const handleGateVerified = async () => {
+  const handleGateVerified = useCallback(async () => {
     await refetchGating();
     if (pendingAction === "buy" && selectedSeason) {
       setSheetMode("buy");
@@ -226,7 +226,15 @@ const RaffleList = () => {
     }
     // If pendingAction is null (standalone verify), just close — badge updates reactively
     setPendingAction(null);
-  };
+  }, [refetchGating, pendingAction, selectedSeason, openSellSheet]);
+
+  // BuySellSheet onSuccess — close and navigate to the season's detail page.
+  const handleSheetSuccess = useCallback(async () => {
+    setSheetOpen(false);
+    if (selectedSeason) {
+      navigate(`/raffles/${selectedSeason.id}`);
+    }
+  }, [navigate, selectedSeason]);
 
   // Mobile view for Farcaster Mini App and Base App
   const displayedSeasons = useMemo(() => {
@@ -278,10 +286,7 @@ const RaffleList = () => {
             seasonEndTime={selectedSeason.config?.endTime}
             bondingCurveAddress={selectedSeason.config?.bondingCurve}
             maxSellable={localPosition?.tickets || 0n}
-            onSuccess={async () => {
-              setSheetOpen(false);
-              navigate(`/raffles/${selectedSeason.id}`);
-            }}
+            onSuccess={handleSheetSuccess}
           />
         )}
         {pendingGateType === GateType.SIGNATURE ? (
