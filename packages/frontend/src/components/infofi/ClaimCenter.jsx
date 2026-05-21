@@ -300,15 +300,26 @@ const ClaimCenter = ({ address, title, description }) => {
     },
   });
 
-  // Raffle prize claims — gated + batched.
+  // Raffle prize claims — gated + collapsed to one multicall.
   //
   // Only Completed (status 5) and Cancelled (status 6) seasons can have
   // claimable prizes; Active/Upcoming/Settling get filtered out so we
   // don't waste reads on seasons that can't possibly have anything to
-  // claim. The three per-season reads (getSeason payouts on distributor,
+  // claim.
+  //
+  // The three per-season reads (getSeason on distributor,
   // getParticipantPosition on raffle, isConsolationClaimed on distributor)
-  // are batched into three multicalls instead of running 3N sequential
-  // awaits.
+  // are issued in a SINGLE multicall instead of three sequential
+  // multicalls. The prior shape (gated → batch1 → batch2 → batch3) is data-
+  // dependent — batch 2 only fires for funded seasons, batch 3 only for
+  // participants — but on Profile mount it stacked behind useProfileData's
+  // two multicalls and ClaimCenter's fpmm reads and reliably 429'd on the
+  // third POST against the Tenderly free-tier rolling burst window.
+  //
+  // The new shape over-reads slightly (isConsolationClaimed for grand
+  // winners and getParticipantPosition for non-funded seasons are
+  // discarded) but contract reads inside an aggregate3 are cheap; the
+  // expensive thing is the HTTP POST itself.
   //
   // Mount-only — claim state flips on the ConsolationClaimed / GrandClaimed
   // watchers (gated to pendingClaims above) which invalidate ["raffle_claims"].
@@ -340,100 +351,76 @@ const ClaimCenter = ({ address, title, description }) => {
       const seasonIds = claimEligibleSeasons.map((s) => Number(s.id));
       const checksumAddr = getAddress(address);
 
-      // Batch 1: PrizeDistributor.getSeason(seasonId) for every eligible season.
-      const payoutResults = await client.multicall({
-        contracts: seasonIds.map((sid) => ({
+      const contractCalls = [];
+      seasonIds.forEach((sid) => {
+        contractCalls.push({
           address: distributor,
           abi: PrizeDistributorAbi,
           functionName: "getSeason",
           args: [BigInt(sid)],
-        })),
-        allowFailure: true,
-      });
-
-      // Batch 2: Raffle.getParticipantPosition(seasonId, user) — only for
-      // seasons whose payouts came back funded.
-      const participantCalls = [];
-      const participantMeta = [];
-      payoutResults.forEach((r, i) => {
-        if (r.status !== "success" || !r.result?.funded) return;
-        participantMeta.push({ sid: seasonIds[i], payout: r.result });
-        participantCalls.push({
+        });
+        contractCalls.push({
           address: addrs.RAFFLE,
           abi: RaffleAbi,
           functionName: "getParticipantPosition",
-          args: [BigInt(seasonIds[i]), checksumAddr],
+          args: [BigInt(sid), checksumAddr],
         });
-      });
-
-      let participantResults = [];
-      if (participantCalls.length > 0) {
-        participantResults = await client.multicall({
-          contracts: participantCalls,
-          allowFailure: true,
-        });
-      }
-
-      // Batch 3: PrizeDistributor.isConsolationClaimed for every season
-      // where the user was a participant. (For grand-prize entries we read
-      // grandClaimed directly off the payout result from batch 1.)
-      const claimCheckCalls = [];
-      const claimCheckMeta = [];
-      participantMeta.forEach((meta, i) => {
-        const pos = participantResults[i];
-        const ticketCount =
-          pos?.status === "success" ? BigInt(pos.result?.ticketCount ?? 0n) : 0n;
-        const isParticipant = ticketCount > 0n;
-        const isGrandWinner = Boolean(
-          meta.payout.grandWinner &&
-            meta.payout.grandWinner.toLowerCase() === address.toLowerCase(),
-        );
-        meta.isParticipant = isParticipant;
-        meta.isGrandWinner = isGrandWinner;
-        if (!isParticipant || isGrandWinner) return;
-        claimCheckMeta.push(meta);
-        claimCheckCalls.push({
+        contractCalls.push({
           address: distributor,
           abi: PrizeDistributorAbi,
           functionName: "isConsolationClaimed",
-          args: [BigInt(meta.sid), checksumAddr],
+          args: [BigInt(sid), checksumAddr],
         });
       });
 
-      let claimCheckResults = [];
-      if (claimCheckCalls.length > 0) {
-        claimCheckResults = await client.multicall({
-          contracts: claimCheckCalls,
-          allowFailure: true,
-        });
-      }
+      const allResults = await client.multicall({
+        contracts: contractCalls,
+        allowFailure: true,
+      });
 
       const out = [];
-      // Grand-prize entries first.
-      participantMeta.forEach((meta) => {
-        if (!meta.isGrandWinner) return;
-        if (meta.payout.grandClaimed) return;
-        out.push({
-          seasonId: meta.sid,
-          type: "raffle-grand",
-          amount: meta.payout.grandAmount,
-          claimed: meta.payout.grandClaimed,
-        });
-      });
-      // Consolation entries from batch 3.
-      claimCheckMeta.forEach((meta, i) => {
-        const claimRes = claimCheckResults[i];
+      seasonIds.forEach((sid, i) => {
+        const payoutRes = allResults[i * 3];
+        const posRes = allResults[i * 3 + 1];
+        const claimedRes = allResults[i * 3 + 2];
+
+        if (payoutRes?.status !== "success" || !payoutRes.result?.funded) return;
+        const payout = payoutRes.result;
+
+        const isGrandWinner = Boolean(
+          payout.grandWinner &&
+            payout.grandWinner.toLowerCase() === address.toLowerCase(),
+        );
+        if (isGrandWinner) {
+          if (payout.grandClaimed) return;
+          out.push({
+            seasonId: sid,
+            type: "raffle-grand",
+            amount: payout.grandAmount,
+            claimed: payout.grandClaimed,
+          });
+          return;
+        }
+
+        const ticketCount =
+          posRes?.status === "success"
+            ? BigInt(posRes.result?.ticketCount ?? 0n)
+            : 0n;
+        if (ticketCount === 0n) return;
+
         const alreadyClaimed =
-          claimRes?.status === "success" ? Boolean(claimRes.result) : false;
+          claimedRes?.status === "success" ? Boolean(claimedRes.result) : false;
         if (alreadyClaimed) return;
-        const totalParticipants = BigInt(meta.payout.totalParticipants ?? 0n);
-        const consolationAmount = BigInt(meta.payout.consolationAmount ?? 0n);
+
+        const totalParticipants = BigInt(payout.totalParticipants ?? 0n);
+        const consolationAmount = BigInt(payout.consolationAmount ?? 0n);
         if (totalParticipants <= 1n || consolationAmount === 0n) return;
         const loserCount = totalParticipants - 1n;
         const perLoser = consolationAmount / loserCount;
         if (perLoser <= 0n) return;
+
         out.push({
-          seasonId: meta.sid,
+          seasonId: sid,
           type: "raffle-consolation",
           amount: perLoser,
           claimed: false,
