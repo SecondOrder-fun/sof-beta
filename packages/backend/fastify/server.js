@@ -255,8 +255,8 @@ try {
 
 // SOFPaymaster ERC-7677 service — paymaster signing only (Pimlico is the
 // bundler in production). Mounted on every NETWORK; reads the contract
-// address from @sof/contracts/deployments. See docs/02-architecture/
-// paymaster-signer-rotation.md and packages/backend/shared/aa/bundler.js.
+// address from @sof/contracts/deployments. See
+// packages/backend/shared/aa/bundler.js.
 try {
   await app.register((await import("./routes/paymasterServiceRoutes.js")).default, {
     prefix: "/api/paymaster/sof",

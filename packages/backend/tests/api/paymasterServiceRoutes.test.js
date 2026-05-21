@@ -46,9 +46,17 @@ afterEach(() => {
     if (ORIGINAL_ENV[k] === undefined) delete process.env[k];
     else process.env[k] = ORIGINAL_ENV[k];
   }
+  // Release any per-test vi.doMock of the deployments module.
+  vi.doUnmock("@sof/contracts/deployments");
 });
 
-async function buildApp({ network, paymasterOverride, relayKey, rpcUrl } = {}) {
+async function buildApp({
+  network,
+  paymasterOverride,
+  relayKey,
+  rpcUrl,
+  mockEmptyDeployments = false,
+} = {}) {
   process.env.NETWORK = network;
   if (paymasterOverride === null) {
     delete process.env.PAYMASTER_ADDRESS;
@@ -68,6 +76,15 @@ async function buildApp({ network, paymasterOverride, relayKey, rpcUrl } = {}) {
     process.env.BASE_MAINNET_RPC_URL = rpcUrl ?? "http://127.0.0.1:8545";
   }
   vi.resetModules();
+  // Force the deployments-file lookup to return no Paymaster. Used by the
+  // "paymaster not deployed" tests so they don't depend on whether
+  // testnet.json currently declares a Paymaster (it does after the Phase D
+  // deploy; previously didn't).
+  if (mockEmptyDeployments) {
+    vi.doMock("@sof/contracts/deployments", () => ({
+      getDeployment: () => ({}),
+    }));
+  }
   const { default: route } = await import("../../fastify/routes/paymasterServiceRoutes.js");
   const app = fastify({ logger: false });
   await app.register(route, { prefix: "/api/paymaster/sof" });
@@ -241,10 +258,15 @@ describe("paymasterServiceRoutes — paymaster-only surface", () => {
 
 describe("paymasterServiceRoutes — paymaster address resolution", () => {
   it("returns 503 from pm_* methods when paymaster address is unknown for the network", async () => {
-    // No PAYMASTER_ADDRESS env override. testnet.json doesn't currently
-    // declare Paymaster, so resolution must fail gracefully — not crash the
-    // process, not return a malformed sig.
-    const app = await buildApp({ network: "TESTNET", paymasterOverride: null });
+    // No PAYMASTER_ADDRESS env override and the deployments file declares
+    // no Paymaster — resolution must fail gracefully, not crash the process
+    // and not return a malformed sig. Mock the deployments lookup so this
+    // assertion stays meaningful after every testnet/mainnet redeploy.
+    const app = await buildApp({
+      network: "TESTNET",
+      paymasterOverride: null,
+      mockEmptyDeployments: true,
+    });
     try {
       const r = await rpc(app, "pm_getPaymasterData", [
         userOp,
@@ -262,11 +284,12 @@ describe("paymasterServiceRoutes — paymaster address resolution", () => {
 
   it("ignores a non-address PAYMASTER_ADDRESS env value (won't sign with garbage)", async () => {
     // M1: validate via isAddress so a typo / truncated value doesn't make
-    // it to the verifying signer. testnet.json has no Paymaster, so the
-    // route falls back to "not deployed".
+    // it through to the paymaster service. With no valid env address and
+    // an empty deployments file, the route falls back to "not deployed".
     const app = await buildApp({
       network: "TESTNET",
       paymasterOverride: "0xnotanaddress",
+      mockEmptyDeployments: true,
     });
     try {
       const r = await rpc(app, "pm_getPaymasterData", [
