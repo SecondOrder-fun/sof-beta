@@ -176,7 +176,7 @@ export default function UserPicker({
         >
           {entriesQuery.isError && (
             <li className="px-3 py-2 text-xs text-destructive border-b">
-              Couldn't load users — type a full FID or 0x address
+              Couldn&apos;t load users — type a full FID or 0x address
             </li>
           )}
           {options.map((opt, idx) => (
