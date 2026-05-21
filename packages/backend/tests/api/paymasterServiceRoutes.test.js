@@ -128,8 +128,8 @@ describe("paymasterServiceRoutes — chain selection", () => {
   });
 
   it("TESTNET → eth_chainId returns 84532 (Base Sepolia)", async () => {
-    // testnet.json doesn't yet have Paymaster but the chainId getter is
-    // independent of paymaster resolution, so this should still work.
+    // chainId getter is independent of paymaster resolution, so this works
+    // regardless of whether testnet.json declares a Paymaster.
     const app = await buildApp({
       network: "TESTNET",
       paymasterOverride: "0x4A679253410272dd5232B3Ff7cF5dbB88f295319",
