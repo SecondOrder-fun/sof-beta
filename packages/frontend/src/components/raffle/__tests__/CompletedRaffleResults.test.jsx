@@ -7,6 +7,13 @@ vi.mock('react-i18next', () => ({
     if (k === 'consolationPerLoser' && opts) return `${opts.total} · ${opts.share} each`;
     return k;
   } }),
+  initReactI18next: { type: '3rdParty', init: vi.fn() },
+}));
+
+// AppAuthProvider loads @/i18n/config at module load — stub i18next so the
+// real backend/detector chain doesn't run in jsdom.
+vi.mock('@/i18n/config', () => ({
+  default: { t: (key) => key, language: 'en' },
 }));
 vi.mock('@/components/user/UsernameDisplay', () => ({
   default: ({ address }) => <span data-testid="username">{address}</span>,
