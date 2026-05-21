@@ -138,7 +138,6 @@
   "finish": "Finish",
   "processing": "Processing...",
   "tradingLocked": "Trading is Locked",
-  "txFailed": "Transaction failed. Please try again.",
   "txRejected": "Transaction was rejected.",
   "verify": "VERIFY",
   "verifying": "Verifying...",

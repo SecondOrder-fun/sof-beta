@@ -221,7 +221,9 @@
   "noHoldersYet": "No holders yet.",
   "placingBet": "Placing bet",
   "season": "Season",
+  "seasonEnded": "Season has ended",
   "settled": "Settled",
   "status": "Status",
+  "tradingLocked": "Trading is Locked",
   "unknown": "Unknown"
 }
