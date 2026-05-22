@@ -164,6 +164,17 @@ export default function UserAccessPanel({ getAuthHeaders }) {
                     : <span className="text-sm text-muted-foreground">None</span>}
                 </div>
               </div>
+              {userData.matchedVia === "sma_pair" && userData.matchedAddress && (
+                <div className="col-span-2">
+                  <Label className="text-muted-foreground text-xs">Matched via</Label>
+                  <p className="mt-1 text-sm">
+                    <Badge variant="secondary">Smart Account</Badge>{" "}
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {userData.matchedAddress}
+                    </span>
+                  </p>
+                </div>
+              )}
             </div>
 
             {userData.entry && (
