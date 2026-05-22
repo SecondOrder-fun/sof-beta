@@ -385,6 +385,7 @@
     "sponsoredPrizeAddon": "+ {{prizeName}}",
     "continueHint": "tap anywhere to continue",
     "cancelledHeadline": "Season cancelled",
-    "cancelledSubheadline": "Your funds will be refunded."
+    "cancelledSubheadline": "Your funds will be refunded.",
+    "ticketLabel": "WINNER"
   }
 }

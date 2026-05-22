@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { formatUnits } from 'viem';
 import { useTranslation } from 'react-i18next';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import UsernameDisplay from '@/components/user/UsernameDisplay';
 import { ClaimPrizeWidget } from '@/components/prizes/ClaimPrizeWidget';
 import CelebrationArtwork from './CelebrationArtwork';
@@ -68,8 +68,6 @@ function WinnerCelebrationModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [variant]);
 
-  if (!open) return null;
-
   const isCancelled = variant === 'cancelled';
   const isWin = variant === 'win';
   const sofText = isCancelled
@@ -77,79 +75,84 @@ function WinnerCelebrationModal({
     : t('celebration.amountSof', { amount: formatSofAmount(grandPrizeWei) });
 
   return (
-    <motion.div
-      data-testid="celebration-backdrop"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.2 }}
-      onClick={dismiss}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 50,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backdropFilter: 'blur(2px)',
-      }}
-      className="bg-background/80"
-    >
-      <motion.div
-        initial={{ scale: 0.92, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ type: 'spring', stiffness: 240, damping: 22, delay: 0 }}
-        onClick={(e) => e.stopPropagation()}
-        className="bg-card border border-border rounded-xl p-6 max-w-sm w-[90%] text-center shadow-2xl"
-        style={{ position: 'relative' }}
-      >
-        <CelebrationArtwork variant={variant} />
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          data-testid="celebration-backdrop"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2 }}
+          onClick={dismiss}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 50,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backdropFilter: 'blur(2px)',
+          }}
+          className="bg-background/80"
+        >
+          <motion.div
+            initial={{ scale: 0.92, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ type: 'spring', stiffness: 240, damping: 22, delay: 0 }}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-card border border-border rounded-xl p-6 max-w-sm w-[90%] text-center shadow-2xl"
+            style={{ position: 'relative' }}
+          >
+            <CelebrationArtwork variant={variant} label={t('celebration.ticketLabel')} />
 
-        <div className="mt-3 text-xs uppercase tracking-wider text-muted-foreground">
-          {isCancelled
-            ? t('celebration.cancelledHeadline')
-            : isWin
-              ? t('celebration.youWonHeadline')
-              : t('celebration.winnerLabel')}
-        </div>
-
-        {!isCancelled && (
-          <div className="mt-1 text-lg font-semibold text-foreground">
-            <UsernameDisplay address={winnerAddress} className="text-lg" />
-          </div>
-        )}
-
-        {!isCancelled && (
-          <div className="mt-2 text-2xl font-bold text-primary">
-            {sofText}
-          </div>
-        )}
-
-        {sponsoredPrizeLabel && !isCancelled && (
-          <div className="mt-1 text-sm text-muted-foreground">
-            {t('celebration.sponsoredPrizeAddon', { prizeName: sponsoredPrizeLabel })}
-          </div>
-        )}
-
-        {isWin && (
-          <div className="mt-4">
-            <div className="text-sm text-muted-foreground mb-2">
-              {t('celebration.youWonSubheadline')}
+            <div className="mt-3 text-xs uppercase tracking-wider text-muted-foreground">
+              {isCancelled
+                ? t('celebration.cancelledHeadline')
+                : isWin
+                  ? t('celebration.youWonHeadline')
+                  : t('celebration.winnerLabel')}
             </div>
-            <ClaimPrizeWidget seasonId={seasonId} />
-          </div>
-        )}
 
-        {isCancelled && (
-          <div className="mt-2 text-sm text-muted-foreground">
-            {t('celebration.cancelledSubheadline')}
-          </div>
-        )}
+            {!isCancelled && (
+              <div className="mt-1 text-lg font-semibold text-foreground">
+                <UsernameDisplay address={winnerAddress} className="text-lg" />
+              </div>
+            )}
 
-        <div className="mt-4 text-[10px] uppercase tracking-wider text-muted-foreground/70">
-          {t('celebration.continueHint')}
-        </div>
-      </motion.div>
-    </motion.div>
+            {!isCancelled && (
+              <div className="mt-2 text-2xl font-bold text-primary">
+                {sofText}
+              </div>
+            )}
+
+            {sponsoredPrizeLabel && !isCancelled && (
+              <div className="mt-1 text-sm text-muted-foreground">
+                {t('celebration.sponsoredPrizeAddon', { prizeName: sponsoredPrizeLabel })}
+              </div>
+            )}
+
+            {isWin && (
+              <div className="mt-4">
+                <div className="text-sm text-muted-foreground mb-2">
+                  {t('celebration.youWonSubheadline')}
+                </div>
+                <ClaimPrizeWidget seasonId={seasonId} />
+              </div>
+            )}
+
+            {isCancelled && (
+              <div className="mt-2 text-sm text-muted-foreground">
+                {t('celebration.cancelledSubheadline')}
+              </div>
+            )}
+
+            <div className="mt-4 text-[10px] uppercase tracking-wider text-muted-foreground/70">
+              {t('celebration.continueHint')}
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
