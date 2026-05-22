@@ -83,6 +83,12 @@ vi.mock('@/hooks/useSeasonGating', () => ({
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (k) => k }),
 }));
+// For bucket-count tests, treat every completed season as already seen so
+// the celebration-hold override doesn't reclassify them into 'settling'.
+vi.mock('@/hooks/useFirstViewGate', () => ({
+  useFirstViewGateBatch: (_scope, itemKeys) =>
+    new Set(itemKeys.map(String)),
+}));
 
 describe('RaffleList tabs', () => {
   it('renders 4 tabs with correct counts', () => {

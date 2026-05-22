@@ -20,6 +20,7 @@ import { useProfileData } from "@/hooks/useProfileData";
 import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import { SeasonCard } from "@/components/raffles/SeasonCard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useFirstViewGateBatch } from "@/hooks/useFirstViewGate";
 
 /**
  * Map an on-chain SeasonStatus enum value to its tab group name.
@@ -252,14 +253,23 @@ const RaffleList = () => {
   }, [allSeasonsQuery.data, showMineOnly, isConnected, ownedSeasonIds]);
 
   // Bucket the (already filtered) displayed seasons into the four tab groups.
+  // Completed/cancelled seasons the viewer hasn't seen yet in the celebration
+  // modal are demoted to 'settling' so they surface before moving to 'complete'.
+  const seasonIds = useMemo(
+    () => displayedSeasons.map((s) => s.id),
+    [displayedSeasons],
+  );
+  const seenSet = useFirstViewGateBatch('celebrated', seasonIds);
+
   const grouped = useMemo(() => {
     const buckets = { upcoming: [], active: [], settling: [], complete: [] };
     for (const s of displayedSeasons) {
-      const g = getSeasonGroup(s.status);
+      let g = getSeasonGroup(s.status);
+      if (g === 'complete' && !seenSet.has(String(s.id))) g = 'settling';
       if (buckets[g]) buckets[g].push(s);
     }
     return buckets;
-  }, [displayedSeasons]);
+  }, [displayedSeasons, seenSet]);
 
   if (isMobile) {
     // Note: We pass raw season data and let MobileRafflesList handle curve state
