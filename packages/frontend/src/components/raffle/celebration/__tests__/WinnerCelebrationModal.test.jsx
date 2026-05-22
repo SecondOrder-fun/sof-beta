@@ -25,7 +25,7 @@ vi.mock('@/components/user/UsernameDisplay', () => ({
 }));
 
 vi.mock('@/components/prizes/ClaimPrizeWidget', () => ({
-  default: ({ seasonId }) => <div data-testid="claim-widget">{String(seasonId)}</div>,
+  ClaimPrizeWidget: ({ seasonId }) => <div data-testid="claim-widget">{String(seasonId)}</div>,
 }));
 
 import WinnerCelebrationModal from '../WinnerCelebrationModal';

@@ -187,6 +187,14 @@ vi.mock("@/components/user/UsernameDisplay", () => ({
   default: ({ address }) => <span>{address}</span>,
 }));
 
+// Stub useFirstViewGateBatch so completed seasons (ids 2, 3) are treated as
+// already celebrated and stay in the 'complete' tab rather than being demoted
+// to 'settling' by the celebration-hold logic in RaffleList.
+vi.mock("@/hooks/useFirstViewGate", () => ({
+  useFirstViewGate: () => ({ hasSeen: true, markAsSeen: vi.fn() }),
+  useFirstViewGateBatch: (_scope, itemKeys) => new Set(itemKeys.map(String)),
+}));
+
 import RaffleList from "@/routes/RaffleList.jsx";
 
 function renderPage() {

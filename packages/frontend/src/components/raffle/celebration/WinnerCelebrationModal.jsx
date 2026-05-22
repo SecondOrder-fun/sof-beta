@@ -4,7 +4,7 @@ import { formatUnits } from 'viem';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import UsernameDisplay from '@/components/user/UsernameDisplay';
-import ClaimPrizeWidget from '@/components/prizes/ClaimPrizeWidget';
+import { ClaimPrizeWidget } from '@/components/prizes/ClaimPrizeWidget';
 import CelebrationArtwork from './CelebrationArtwork';
 import { fireWinBurst, reset as resetConfetti } from './confetti';
 
