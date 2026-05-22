@@ -109,16 +109,14 @@ vi.mock('@/hooks/useSponsoredPrizes', () => ({
   }),
 }));
 // Stub WinnerCelebrationModal sub-deps so framer-motion, confetti, etc. don't blow up.
+// The real component records the gate via onDismiss only when the user (or auto-timer)
+// dismisses — calling it on mount would unmount the modal before paint.
 vi.mock('@/components/raffle/celebration/WinnerCelebrationModal', () => ({
-  default: ({ variant, onDismiss }) => {
-    // Record gate immediately, mirroring the real component's useEffect.
-    onDismiss?.();
-    return (
-      <div data-testid="celebration-backdrop">
-        {variant === 'cancelled' && <span>celebration.cancelledHeadline</span>}
-      </div>
-    );
-  },
+  default: ({ variant, onDismiss }) => (
+    <div data-testid="celebration-backdrop" onClick={() => onDismiss?.()}>
+      {variant === 'cancelled' && <span>celebration.cancelledHeadline</span>}
+    </div>
+  ),
 }));
 
 const makeClient = () => new QueryClient({ defaultOptions: { queries: { retry: false } } });

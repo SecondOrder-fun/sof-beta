@@ -265,8 +265,14 @@ const RaffleList = () => {
     const buckets = { upcoming: [], active: [], settling: [], complete: [] };
     for (const s of displayedSeasons) {
       let g = getSeasonGroup(s.status);
-      if (g === 'complete' && !seenSet.has(String(s.id))) g = 'settling';
-      if (buckets[g]) buckets[g].push(s);
+      const demotedToSettling =
+        g === 'complete' && !seenSet.has(String(s.id));
+      if (demotedToSettling) g = 'settling';
+      // Only status 5 (Completed with winner) carries a spoiler. Cancelled
+      // (status 6) already says "no payout" which matches the celebration's
+      // cancelled variant — no suppression needed.
+      const suppressWinner = demotedToSettling && Number(s.status) === 5;
+      if (buckets[g]) buckets[g].push({ season: s, suppressWinner });
     }
     return buckets;
   }, [displayedSeasons, seenSet]);
@@ -410,12 +416,13 @@ const RaffleList = () => {
                   </p>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {grouped[g].map((season) => (
+                    {grouped[g].map(({ season, suppressWinner }) => (
                       <SeasonCard
                         key={season.id}
                         season={season}
                         renderBadge={renderBadge}
                         winnerSummary={winnerSummariesQuery.data?.[season.id]}
+                        suppressWinner={suppressWinner}
                       />
                     ))}
                   </div>
