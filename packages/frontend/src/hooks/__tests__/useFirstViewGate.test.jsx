@@ -104,6 +104,21 @@ describe('useFirstViewGate', () => {
     expect(result.current.hasSeen).toBe(false);
     Storage.prototype.setItem = orig;
   });
+
+  it('getServerSnapshot returns false (SSR safe)', () => {
+    // Direct verification: render the hook, then assert that on first render
+    // (before any client-only effect runs), hasSeen is false. We also verify
+    // the hook doesn't throw if localStorage is briefly unavailable.
+    const orig = global.localStorage;
+    // Simulate SSR by removing localStorage during render
+    delete global.localStorage;
+    try {
+      const { result } = renderHook(() => useFirstViewGate('celebrated', 99));
+      expect(result.current.hasSeen).toBe(false);
+    } finally {
+      global.localStorage = orig;
+    }
+  });
 });
 
 describe('useFirstViewGateBatch', () => {

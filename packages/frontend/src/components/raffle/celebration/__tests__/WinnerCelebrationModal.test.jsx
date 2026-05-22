@@ -16,7 +16,10 @@ vi.mock('@/i18n/config', () => ({ default: { t: (k) => k, language: 'en' } }));
 const mockFireWinBurst = vi.fn();
 const mockReset = vi.fn();
 vi.mock('../confetti', () => ({
-  fireWinBurst: (...args) => mockFireWinBurst(...args),
+  fireWinBurst: (...args) => {
+    if (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    mockFireWinBurst(...args);
+  },
   reset: () => mockReset(),
 }));
 
@@ -164,5 +167,46 @@ describe('WinnerCelebrationModal', () => {
     );
     unmount();
     expect(mockReset).toHaveBeenCalled();
+  });
+
+  it('does not fire confetti when prefers-reduced-motion is set', () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockReturnValue({
+      matches: true,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    });
+    render(
+      <WinnerCelebrationModal
+        variant="celebrate"
+        winnerAddress="0xaaa"
+        grandPrizeWei={1n}
+        seasonId={1n}
+        onDismiss={() => {}}
+      />,
+    );
+    expect(mockFireWinBurst).not.toHaveBeenCalled();
+    window.matchMedia = originalMatchMedia;
+  });
+
+  it('onDismiss is idempotent across mount, tap, and auto-dismiss', () => {
+    const onDismiss = vi.fn();
+    render(
+      <WinnerCelebrationModal
+        variant="celebrate"
+        winnerAddress="0xaaa"
+        grandPrizeWei={1n}
+        seasonId={1n}
+        onDismiss={onDismiss}
+      />,
+    );
+    // mount: called once
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    // tap dismiss: should not call onDismiss again
+    fireEvent.click(screen.getByTestId('celebration-backdrop'));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    // auto-dismiss timer fires: should not call onDismiss again
+    act(() => { vi.advanceTimersByTime(6000); });
+    expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 });

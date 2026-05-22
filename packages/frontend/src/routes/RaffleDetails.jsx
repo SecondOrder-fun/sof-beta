@@ -84,7 +84,7 @@ const RaffleDetails = () => {
   // ── Winner celebration ────────────────────────────────────────────────────
   const celebrationGate = useFirstViewGate("celebrated", seasonIdNumber);
   const sponsoredPrizesData = useSponsoredPrizes(seasonId, {
-    enabled: statusNum === 5 || statusNum === 6,
+    enabled: isCompletedSeason || isCancelledSeason,
   });
   const topSponsoredPrizeLabel = formatTopSponsoredPrize(sponsoredPrizesData);
 
