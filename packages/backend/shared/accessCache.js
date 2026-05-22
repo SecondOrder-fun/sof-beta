@@ -9,6 +9,7 @@
 
 import { getUserAccess } from "./accessService.js";
 import { redisClient } from "./redisClient.js";
+import { resolveAddressPair } from "./services/addressPairResolver.js";
 
 export const ACCESS_CACHE_TTL_SECONDS = 60;
 const KEY_PREFIX = "access:";
@@ -103,11 +104,27 @@ export async function getCachedUserAccess(identifier, logger = console) {
  */
 export async function invalidateUserAccessCache(identifier, logger = console) {
   const keys = [];
-  if (identifier.fid !== undefined && identifier.fid !== null && identifier.fid !== "") {
+  if (
+    identifier.fid !== undefined &&
+    identifier.fid !== null &&
+    identifier.fid !== ""
+  ) {
     keys.push(`${KEY_PREFIX}fid:${identifier.fid}`);
   }
   if (typeof identifier.wallet === "string" && identifier.wallet.length > 0) {
-    keys.push(`${KEY_PREFIX}wallet:${identifier.wallet.toLowerCase()}`);
+    const lc = identifier.wallet.toLowerCase();
+    keys.push(`${KEY_PREFIX}wallet:${lc}`);
+
+    // Symmetric busting: if this wallet has a paired counterpart in
+    // smart_accounts, invalidate its key too. Resolution is best-effort —
+    // a failure here doesn't block invalidating the primary key.
+    const pair = await resolveAddressPair(lc, logger);
+    if (pair) {
+      const alt = lc === pair.eoa ? pair.sma : pair.eoa;
+      if (alt && alt !== lc) {
+        keys.push(`${KEY_PREFIX}wallet:${alt}`);
+      }
+    }
   }
 
   if (keys.length === 0) return;
