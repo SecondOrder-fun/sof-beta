@@ -49,6 +49,10 @@ import {
   AccordionTrigger,
   AccordionContent,
 } from "@/components/ui/accordion";
+import WinnerCelebrationModal from "@/components/raffle/celebration/WinnerCelebrationModal";
+import { useFirstViewGate } from "@/hooks/useFirstViewGate";
+import { formatTopSponsoredPrize } from "@/components/raffle/celebration/sponsoredPrizeLabel";
+import { useSponsoredPrizes } from "@/hooks/useSponsoredPrizes";
 
 
 const RaffleDetails = () => {
@@ -76,6 +80,13 @@ const RaffleDetails = () => {
   );
   const consolationStatus = useConsolationStatus(seasonIdNumber);
   const { claimRaffleConsolation, pendingClaims, getClaimKey } = useClaims();
+
+  // ── Winner celebration ────────────────────────────────────────────────────
+  const celebrationGate = useFirstViewGate("celebrated", seasonIdNumber);
+  const sponsoredPrizesData = useSponsoredPrizes(seasonId, {
+    enabled: statusNum === 5 || statusNum === 6,
+  });
+  const topSponsoredPrizeLabel = formatTopSponsoredPrize(sponsoredPrizesData);
 
   // ── Season gating ──
   const isSeasonGated = Boolean(seasonDetailsQuery?.data?.config?.gated);
@@ -455,6 +466,26 @@ const RaffleDetails = () => {
 
               {(isCompletedSeason || isCancelledSeason) ? (
                 <>
+                  {(() => {
+                    const winnerAddr = winnerSummaryQuery?.data?.winnerAddress ?? null;
+                    const winnerReady = isCancelledSeason || (isCompletedSeason && winnerAddr);
+                    if (celebrationGate.hasSeen || !winnerReady) return null;
+                    const variant = isCancelledSeason
+                      ? "cancelled"
+                      : winnerAddr?.toLowerCase() === connectedAddress?.toLowerCase()
+                        ? "win"
+                        : "celebrate";
+                    return (
+                      <WinnerCelebrationModal
+                        variant={variant}
+                        winnerAddress={winnerAddr}
+                        grandPrizeWei={winnerSummaryQuery?.data?.grandPrizeWei}
+                        sponsoredPrizeLabel={topSponsoredPrizeLabel}
+                        seasonId={BigInt(seasonIdNumber)}
+                        onDismiss={celebrationGate.markAsSeen}
+                      />
+                    );
+                  })()}
                   <div className="px-6 mt-3">
                     <CompletedRaffleResults
                       winnerAddress={winnerSummaryQuery?.data?.winnerAddress || null}

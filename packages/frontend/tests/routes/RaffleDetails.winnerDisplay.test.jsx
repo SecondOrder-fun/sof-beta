@@ -120,6 +120,14 @@ vi.mock("@/hooks/useSponsoredPrizes", () => ({
   useSponsoredPrizes: () => ({ tierConfigs: [], prizes: [], isLoading: false }),
 }));
 
+vi.mock("@/hooks/useFirstViewGate", () => ({
+  useFirstViewGate: () => ({ hasSeen: true, markAsSeen: vi.fn() }),
+}));
+
+vi.mock("@/components/raffle/celebration/WinnerCelebrationModal", () => ({
+  default: () => null,
+}));
+
 vi.mock("@/hooks/useSmartTransactions", () => ({
   useSmartTransactions: () => ({
     executeBatch: vi.fn(),
