@@ -36,7 +36,8 @@ describe('useFirstViewGate', () => {
     act(() => result.current.markAsSeen());
     const raw = localStorage.getItem('sof:firstview:celebrated:anon:42');
     expect(raw).toBeTruthy();
-    expect(() => new Date(raw)).not.toThrow();
+    expect(Number.isNaN(new Date(raw).getTime())).toBe(false);
+    expect(new Date(raw).toISOString()).toBe(raw);
   });
 
   it('uses connected wallet address (lower-cased) in key', () => {

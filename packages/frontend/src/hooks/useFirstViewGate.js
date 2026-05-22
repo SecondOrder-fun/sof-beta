@@ -22,10 +22,14 @@ function safeGet(key) {
 
 function safeSet(key, value) {
   try {
-    if (typeof localStorage !== 'undefined') localStorage.setItem(key, value);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(key, value);
+      return true;
+    }
   } catch {
     /* swallow quota / private-mode errors */
   }
+  return false;
 }
 
 function subscribeToKey(targetKey, callback) {
@@ -56,8 +60,8 @@ export function useFirstViewGate(scope, itemKey) {
   );
 
   const markAsSeen = useCallback(() => {
-    safeSet(storageKey, new Date().toISOString());
-    if (typeof window !== 'undefined') {
+    const ok = safeSet(storageKey, new Date().toISOString());
+    if (ok && typeof window !== 'undefined') {
       // Same-tab notification so useSyncExternalStore re-reads.
       window.dispatchEvent(
         new StorageEvent('storage', { key: storageKey, newValue: 'x' }),
