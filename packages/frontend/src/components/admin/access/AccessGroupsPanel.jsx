@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -37,6 +37,7 @@ export default function AccessGroupsPanel({ getAuthHeaders }) {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newGroup, setNewGroup] = useState({ name: "", slug: "", description: "" });
   const [expandedGroup, setExpandedGroup] = useState(null);
+  const addPickerRef = useRef(null);
 
   // Fetch all groups
   const groupsQuery = useQuery({
@@ -125,6 +126,7 @@ export default function AccessGroupsPanel({ getAuthHeaders }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["access-group-members"] });
       queryClient.invalidateQueries({ queryKey: ["access-groups"] });
+      addPickerRef.current?.clear();
     },
   });
 
@@ -333,6 +335,7 @@ export default function AccessGroupsPanel({ getAuthHeaders }) {
 
                     {/* Add Member */}
                     <UserPicker
+                      ref={addPickerRef}
                       placeholder="@username, FID, or 0x…"
                       onSelect={(r) =>
                         addMemberMutation.mutate({

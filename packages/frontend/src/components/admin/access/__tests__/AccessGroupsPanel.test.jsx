@@ -81,4 +81,50 @@ describe("AccessGroupsPanel Add Member via UserPicker", () => {
       groupSlug: "beta",
     });
   });
+
+  it("retains picker input on add-member failure so the user can retry", async () => {
+    global.fetch = vi.fn((url) => {
+      if (url.includes("/access/groups/assign")) {
+        return Promise.resolve({
+          ok: false,
+          json: () => Promise.resolve({ error: "duplicate member" }),
+        });
+      }
+      if (url.includes("/access/groups/") && url.endsWith("/members")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ members: [] }) });
+      }
+      if (url.includes("/access/groups")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            groups: [{ slug: "beta", name: "Beta", description: "", member_count: 0 }],
+          }),
+        });
+      }
+      if (url.includes("/allowlist/entries")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            entries: [{
+              fid: 1001,
+              username: "alice",
+              wallet_address: "0xaaaa000000000000000000000000000000000001",
+              pfpUrl: null,
+            }],
+            count: 1,
+          }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+
+    renderWithClient(<AccessGroupsPanel getAuthHeaders={() => ({})} />);
+    fireEvent.click(await screen.findByText("Beta"));
+    const input = await screen.findByPlaceholderText(/@username, FID, or 0x/);
+    fireEvent.change(input, { target: { value: "alice" } });
+    const row = await screen.findByText("@alice");
+    fireEvent.mouseDown(row.closest("[role='option']"));
+    await waitFor(() => expect(screen.getByText(/duplicate member/i)).toBeInTheDocument());
+    expect(input).toHaveValue("alice");
+  });
 });

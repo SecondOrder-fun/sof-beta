@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { forwardRef, useState, useMemo, useEffect, useRef, useId, useImperativeHandle } from "react";
 import PropTypes from "prop-types";
 import { useQuery } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
@@ -58,15 +58,25 @@ function rankMatch(entry, q) {
   return -1;
 }
 
-export default function UserPicker({
-  placeholder = "@username, FID, or 0x…",
-  onSelect,
-  disabled = false,
-  autoFocus = false,
-}) {
+const UserPicker = forwardRef(function UserPicker(
+  {
+    placeholder = "@username, FID, or 0x…",
+    onSelect,
+    disabled = false,
+    autoFocus = false,
+  },
+  ref,
+) {
   const { getAuthHeaders } = useAppAuth();
   const [inputValue, setInputValue] = useState("");
   const [isOpen, setIsOpen] = useState(false);
+
+  useImperativeHandle(ref, () => ({
+    clear: () => {
+      setInputValue("");
+      setIsOpen(false);
+    },
+  }), []);
 
   const entriesQuery = useQuery({
     queryKey: ["allowlist-entries-picker"],
@@ -76,7 +86,9 @@ export default function UserPicker({
 
   const [highlightIndex, setHighlightIndex] = useState(0);
   const blurTimerRef = useRef(null);
-  const listboxId = "user-picker-listbox";
+  const reactId = useId();
+  const listboxId = `user-picker-listbox-${reactId}`;
+  const optionId = (key) => `user-picker-opt-${reactId}-${key}`;
 
   useEffect(() => {
     setHighlightIndex(0);
@@ -122,7 +134,6 @@ export default function UserPicker({
     if (!opt) return;
     clearTimeout(blurTimerRef.current);
     onSelect(opt.payload);
-    setInputValue("");
     setIsOpen(false);
   }
 
@@ -135,7 +146,7 @@ export default function UserPicker({
         aria-controls={listboxId}
         aria-activedescendant={
           isOpen && options[highlightIndex]
-            ? `user-picker-opt-${options[highlightIndex].key}`
+            ? optionId(options[highlightIndex].key)
             : undefined
         }
         onChange={(e) => {
@@ -182,7 +193,7 @@ export default function UserPicker({
           {options.map((opt, idx) => (
             <li
               key={opt.key}
-              id={`user-picker-opt-${opt.key}`}
+              id={optionId(opt.key)}
               role="option"
               aria-selected={idx === highlightIndex}
               className={`flex items-center gap-2 px-3 py-2 text-sm cursor-pointer ${
@@ -238,7 +249,7 @@ export default function UserPicker({
       )}
     </div>
   );
-}
+});
 
 UserPicker.propTypes = {
   placeholder: PropTypes.string,
@@ -246,3 +257,5 @@ UserPicker.propTypes = {
   disabled: PropTypes.bool,
   autoFocus: PropTypes.bool,
 };
+
+export default UserPicker;
