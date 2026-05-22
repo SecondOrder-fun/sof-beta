@@ -60,6 +60,16 @@ function WinnerCelebrationModal({
     return () => resetConfetti();
   }, [variant]);
 
+  // Escape-key dismiss.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') dismiss();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Auto-dismiss timer.
   useEffect(() => {
     const ms = AUTO_DISMISS_MS[variant] ?? 6000;
@@ -79,6 +89,9 @@ function WinnerCelebrationModal({
       {open && (
         <motion.div
           data-testid="celebration-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="celebration-headline"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -105,7 +118,7 @@ function WinnerCelebrationModal({
           >
             <CelebrationArtwork variant={variant} label={t('celebration.ticketLabel')} />
 
-            <div className="mt-3 text-xs uppercase tracking-wider text-muted-foreground">
+            <div id="celebration-headline" className="mt-3 text-xs uppercase tracking-wider text-muted-foreground">
               {isCancelled
                 ? t('celebration.cancelledHeadline')
                 : isWin

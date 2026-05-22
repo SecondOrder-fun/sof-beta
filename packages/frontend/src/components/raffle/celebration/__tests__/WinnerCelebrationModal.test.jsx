@@ -217,4 +217,35 @@ describe('WinnerCelebrationModal', () => {
     act(() => { vi.advanceTimersByTime(6000); });
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
+
+  it('dismisses on Escape key', () => {
+    render(
+      <WinnerCelebrationModal
+        variant="celebrate"
+        winnerAddress="0xaaa"
+        grandPrizeWei={1n}
+        seasonId={1n}
+        onDismiss={() => {}}
+      />,
+    );
+    expect(screen.getByTestId('celebration-backdrop')).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByTestId('celebration-backdrop')).toBeNull();
+  });
+
+  it('backdrop has dialog a11y attributes', () => {
+    render(
+      <WinnerCelebrationModal
+        variant="celebrate"
+        winnerAddress="0xaaa"
+        grandPrizeWei={1n}
+        seasonId={1n}
+        onDismiss={() => {}}
+      />,
+    );
+    const backdrop = screen.getByTestId('celebration-backdrop');
+    expect(backdrop.getAttribute('role')).toBe('dialog');
+    expect(backdrop.getAttribute('aria-modal')).toBe('true');
+    expect(backdrop.getAttribute('aria-labelledby')).toBe('celebration-headline');
+  });
 });

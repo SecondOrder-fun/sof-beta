@@ -183,6 +183,30 @@ const RaffleDetails = () => {
 
   // simulators now unused
 
+  // ── Celebration modal node (shared by mobile and desktop branches) ───────
+  // Computed before any early-return so both branches can render the same node.
+  // The modal uses position: fixed so JSX placement doesn't affect layout.
+  const celebrationModalNode = (() => {
+    const winnerAddr = winnerSummaryQuery?.data?.winnerAddress ?? null;
+    const winnerReady = isCancelledSeason || (isCompletedSeason && winnerAddr);
+    if (celebrationGate.hasSeen || !winnerReady) return null;
+    const variant = isCancelledSeason
+      ? 'cancelled'
+      : winnerAddr?.toLowerCase() === connectedAddress?.toLowerCase()
+        ? 'win'
+        : 'celebrate';
+    return (
+      <WinnerCelebrationModal
+        variant={variant}
+        winnerAddress={winnerAddr}
+        grandPrizeWei={winnerSummaryQuery?.data?.grandPrizeWei}
+        sponsoredPrizeLabel={topSponsoredPrizeLabel}
+        seasonId={BigInt(seasonIdNumber)}
+        onDismiss={celebrationGate.markAsSeen}
+      />
+    );
+  })();
+
   // Mobile view handlers
   const handleBuy = () => {
     // Block if season data not loaded yet
@@ -312,6 +336,7 @@ const RaffleDetails = () => {
 
     return (
       <>
+        {celebrationModalNode}
         <MobileRaffleDetail
           seasonId={seasonIdNumber}
           seasonConfig={cfg}
@@ -466,26 +491,7 @@ const RaffleDetails = () => {
 
               {(isCompletedSeason || isCancelledSeason) ? (
                 <>
-                  {(() => {
-                    const winnerAddr = winnerSummaryQuery?.data?.winnerAddress ?? null;
-                    const winnerReady = isCancelledSeason || (isCompletedSeason && winnerAddr);
-                    if (celebrationGate.hasSeen || !winnerReady) return null;
-                    const variant = isCancelledSeason
-                      ? "cancelled"
-                      : winnerAddr?.toLowerCase() === connectedAddress?.toLowerCase()
-                        ? "win"
-                        : "celebrate";
-                    return (
-                      <WinnerCelebrationModal
-                        variant={variant}
-                        winnerAddress={winnerAddr}
-                        grandPrizeWei={winnerSummaryQuery?.data?.grandPrizeWei}
-                        sponsoredPrizeLabel={topSponsoredPrizeLabel}
-                        seasonId={BigInt(seasonIdNumber)}
-                        onDismiss={celebrationGate.markAsSeen}
-                      />
-                    );
-                  })()}
+                  {celebrationModalNode}
                   <div className="px-6 mt-3">
                     <CompletedRaffleResults
                       winnerAddress={winnerSummaryQuery?.data?.winnerAddress || null}

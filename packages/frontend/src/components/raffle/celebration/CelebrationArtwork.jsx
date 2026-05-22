@@ -1,10 +1,5 @@
 import PropTypes from 'prop-types';
-import { motion } from 'framer-motion';
-
-function useReducedMotion() {
-  if (typeof window === 'undefined' || !window.matchMedia) return false;
-  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-}
+import { motion, useReducedMotion } from 'framer-motion';
 
 function Rays({ animated }) {
   return (

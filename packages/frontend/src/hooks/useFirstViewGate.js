@@ -72,6 +72,18 @@ export function useFirstViewGate(scope, itemKey) {
   return { hasSeen, markAsSeen };
 }
 
+/**
+ * Batch variant: returns a stable Set of seen `itemKeys` (stringified)
+ * for the given scope and current viewer.
+ *
+ * IMPORTANT: callers MUST memoise `itemKeys` (e.g. via `useMemo`) — passing
+ * a fresh array each render causes `getSnapshot` to recompute and the returned
+ * Set's identity to churn, breaking downstream `useMemo` deps.
+ *
+ * Cross-tab updates propagate via the `storage` event listener; same-tab writes
+ * from `useFirstViewGate.markAsSeen` are picked up via the synthesized event
+ * that hook dispatches.
+ */
 export function useFirstViewGateBatch(scope, itemKeys) {
   const { address } = useAccount();
   const viewer = getViewer(address);
