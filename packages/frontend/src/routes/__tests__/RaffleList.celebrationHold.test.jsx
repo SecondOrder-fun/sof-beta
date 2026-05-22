@@ -7,8 +7,13 @@ import RaffleList from '@/routes/RaffleList';
 
 // ── Heavy child stubs ─────────────────────────────────────────────────────────
 vi.mock('@/components/raffles/SeasonCard', () => ({
-  SeasonCard: ({ season }) => (
-    <div data-testid={`season-card-${season.id}`}>Season {Number(season.id)}</div>
+  SeasonCard: ({ season, suppressWinner }) => (
+    <div
+      data-testid={`season-card-${season.id}`}
+      data-suppress-winner={suppressWinner ? 'true' : 'false'}
+    >
+      Season {Number(season.id)}
+    </div>
   ),
 }));
 vi.mock('@/components/mobile/MobileRafflesList', () => ({
@@ -144,6 +149,37 @@ describe('RaffleList celebration hold', () => {
     // Season 2 (status 6 = Cancelled) has not been seen → should be demoted to settling
     await user.click(screen.getByRole('tab', { name: /tabs\.settling/ }));
     expect(screen.getByText('Season 2')).toBeInTheDocument();
+  });
+
+  it('forwards suppressWinner=true for demoted status=5 cards', async () => {
+    const user = userEvent.setup();
+    renderList();
+    await user.click(screen.getByRole('tab', { name: /tabs\.settling/ }));
+    // Season 1 (status 5, unseen) was demoted from complete → must suppress winner.
+    expect(
+      screen.getByTestId('season-card-1').getAttribute('data-suppress-winner'),
+    ).toBe('true');
+  });
+
+  it('does NOT suppress winner for genuinely-settling status (2/3/4) cards', async () => {
+    const user = userEvent.setup();
+    renderList();
+    await user.click(screen.getByRole('tab', { name: /tabs\.settling/ }));
+    // Season 4 has on-chain status 2 — it's a real settling season with no
+    // winner data yet, so suppressWinner stays false (no spoiler to hide).
+    expect(
+      screen.getByTestId('season-card-4').getAttribute('data-suppress-winner'),
+    ).toBe('false');
+  });
+
+  it('does NOT suppress winner for completed cards already seen', async () => {
+    const user = userEvent.setup();
+    localStorage.setItem('sof:firstview:celebrated:anon:1', new Date().toISOString());
+    renderList();
+    await user.click(screen.getByRole('tab', { name: /tabs\.complete/ }));
+    expect(
+      screen.getByTestId('season-card-1').getAttribute('data-suppress-winner'),
+    ).toBe('false');
   });
 
   it('upcoming/active/settling-status buckets are unaffected', async () => {

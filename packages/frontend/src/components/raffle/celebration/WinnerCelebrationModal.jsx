@@ -44,13 +44,11 @@ function WinnerCelebrationModal({
     if (dismissedRef.current) return;
     dismissedRef.current = true;
     setOpen(false);
-  };
-
-  // Fire onDismiss immediately on mount so the gate is recorded.
-  useEffect(() => {
+    // Mark gate on actual dismissal — calling onDismiss on mount would flip
+    // the parent's first-view gate before the modal painted, causing the
+    // parent to unmount this component on the very next render.
     onDismiss?.();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  };
 
   // Confetti on mount for celebrate/win.
   useEffect(() => {

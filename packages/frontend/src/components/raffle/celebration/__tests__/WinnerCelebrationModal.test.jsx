@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 
@@ -107,7 +108,7 @@ describe('WinnerCelebrationModal', () => {
     expect(mockFireWinBurst).toHaveBeenCalledTimes(1);
   });
 
-  it('calls onDismiss on mount (gate auto-record)', () => {
+  it('does NOT call onDismiss on mount (would unmount before paint)', () => {
     const onDismiss = vi.fn();
     render(
       <WinnerCelebrationModal
@@ -118,6 +119,51 @@ describe('WinnerCelebrationModal', () => {
         onDismiss={onDismiss}
       />,
     );
+    expect(onDismiss).not.toHaveBeenCalled();
+  });
+
+  it('calls onDismiss when backdrop is tapped', () => {
+    const onDismiss = vi.fn();
+    render(
+      <WinnerCelebrationModal
+        variant="celebrate"
+        winnerAddress="0xaaa"
+        grandPrizeWei={1n}
+        seasonId={1n}
+        onDismiss={onDismiss}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('celebration-backdrop'));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls onDismiss when Escape is pressed', () => {
+    const onDismiss = vi.fn();
+    render(
+      <WinnerCelebrationModal
+        variant="celebrate"
+        winnerAddress="0xaaa"
+        grandPrizeWei={1n}
+        seasonId={1n}
+        onDismiss={onDismiss}
+      />,
+    );
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls onDismiss when the auto-dismiss timer fires', () => {
+    const onDismiss = vi.fn();
+    render(
+      <WinnerCelebrationModal
+        variant="celebrate"
+        winnerAddress="0xaaa"
+        grandPrizeWei={1n}
+        seasonId={1n}
+        onDismiss={onDismiss}
+      />,
+    );
+    act(() => { vi.advanceTimersByTime(6000); });
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
@@ -197,7 +243,7 @@ describe('WinnerCelebrationModal', () => {
     window.matchMedia = originalMatchMedia;
   });
 
-  it('onDismiss is idempotent across mount, tap, and auto-dismiss', () => {
+  it('onDismiss is idempotent across multiple dismiss paths', () => {
     const onDismiss = vi.fn();
     render(
       <WinnerCelebrationModal
@@ -208,13 +254,16 @@ describe('WinnerCelebrationModal', () => {
         onDismiss={onDismiss}
       />,
     );
-    // mount: called once
-    expect(onDismiss).toHaveBeenCalledTimes(1);
-    // tap dismiss: should not call onDismiss again
+    // mount: not called
+    expect(onDismiss).not.toHaveBeenCalled();
+    // first tap dismiss: called once
     fireEvent.click(screen.getByTestId('celebration-backdrop'));
     expect(onDismiss).toHaveBeenCalledTimes(1);
-    // auto-dismiss timer fires: should not call onDismiss again
+    // auto-dismiss timer fires after tap: should not call onDismiss again
     act(() => { vi.advanceTimersByTime(6000); });
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    // escape after dismiss: still once
+    fireEvent.keyDown(window, { key: 'Escape' });
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
@@ -230,6 +279,31 @@ describe('WinnerCelebrationModal', () => {
     );
     expect(screen.getByTestId('celebration-backdrop')).toBeInTheDocument();
     fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByTestId('celebration-backdrop')).toBeNull();
+  });
+
+  // Regression: in production the parent gates rendering on `!gate.hasSeen`,
+  // and onDismiss flips the gate. If onDismiss fired on mount, the parent
+  // would re-render and unmount the modal before paint. Simulate that exact
+  // wiring with a parent that re-evaluates on every change.
+  it('survives a parent that unmounts on gate flip when modal is shown', () => {
+    function Parent() {
+      const [seen, setSeen] = useState(false);
+      if (seen) return null;
+      return (
+        <WinnerCelebrationModal
+          variant="celebrate"
+          winnerAddress="0xaaa"
+          grandPrizeWei={1n}
+          seasonId={1n}
+          onDismiss={() => setSeen(true)}
+        />
+      );
+    }
+    render(<Parent />);
+    expect(screen.getByTestId('celebration-backdrop')).toBeInTheDocument();
+    // Tap dismiss: NOW the parent should unmount.
+    fireEvent.click(screen.getByTestId('celebration-backdrop'));
     expect(screen.queryByTestId('celebration-backdrop')).toBeNull();
   });
 

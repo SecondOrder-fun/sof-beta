@@ -10,12 +10,13 @@ import { getStoredNetworkKey } from "@/lib/wagmi";
 import { getNetworkByKey } from "@/config/networks";
 import BondingCurvePanel from "@/components/curve/CurveGraph";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import CountdownTimer from "@/components/common/CountdownTimer";
 import TimeElapsed from "@/components/common/TimeElapsed";
 import UsernameDisplay from "@/components/user/UsernameDisplay";
 
-const SeasonCard = ({ season, renderBadge, winnerSummary }) => {
+const SeasonCard = ({ season, renderBadge, winnerSummary, suppressWinner = false }) => {
   const navigate = useNavigate();
   const { t } = useTranslation(["raffle", "common"]);
   const bondingCurveAddress = season?.config?.bondingCurve;
@@ -117,7 +118,11 @@ const SeasonCard = ({ season, renderBadge, winnerSummary }) => {
             </span>
             <span className="font-medium truncate">{season.config?.name}</span>
           </Link>
-          {renderBadge(season.status)}
+          {suppressWinner ? (
+            <Badge variant="statusSettling">{t("settlingResultsInside")}</Badge>
+          ) : (
+            renderBadge(season.status)
+          )}
         </div>
         {/* Countdown timer */}
         {isPreStart && startTimeSec !== null ? (
@@ -238,6 +243,23 @@ const SeasonCard = ({ season, renderBadge, winnerSummary }) => {
             note. The three branches are mutually exclusive — cancelled is
             checked first so a cancelled season with tickets doesn't silently
             fall through to the no-winner / winner paths. */}
+        {/* Settling hold: parent (RaffleList) demoted this status=5 card to
+            the Settling tab because the viewer hasn't seen the celebration
+            yet. Hide the winner/grand-prize spoiler and render a settling-
+            style placeholder; clicking the card opens the celebration. */}
+        {isComplete && !isCancelled && suppressWinner && (
+          <div className="rounded-md border border-border bg-muted/40 p-4 text-center">
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">
+              {t("tradingLocked", { defaultValue: "Trading locked" })}
+            </div>
+            <div className="font-mono text-base text-foreground mt-1">
+              <TimeElapsed targetTimestamp={Number(season?.config?.endTime)} />
+            </div>
+            <div className="mt-2 text-xs text-muted-foreground">
+              {t("settlingResultsInside")}
+            </div>
+          </div>
+        )}
         {isComplete && isCancelled && (
           <div className="rounded-md border border-border bg-muted/40 p-4 text-base text-muted-foreground">
             <div className="text-sm font-semibold text-foreground">
@@ -248,7 +270,7 @@ const SeasonCard = ({ season, renderBadge, winnerSummary }) => {
             </div>
           </div>
         )}
-        {isComplete && !isCancelled && winnerSummary && (
+        {isComplete && !isCancelled && !suppressWinner && winnerSummary && (
           <div className="rounded-md border border-border bg-muted/40 p-4 text-base text-muted-foreground">
             <div className="flex flex-wrap items-center gap-3">
               <span className="text-sm uppercase tracking-wide text-primary">
@@ -273,7 +295,7 @@ const SeasonCard = ({ season, renderBadge, winnerSummary }) => {
             </div>
           </div>
         )}
-        {isComplete && !isCancelled && !winnerSummary && totalTickets === 0n && (
+        {isComplete && !isCancelled && !suppressWinner && !winnerSummary && totalTickets === 0n && (
           <div className="rounded-md border border-border bg-muted/40 p-4 text-base text-muted-foreground">
             <div className="text-sm font-semibold text-foreground">
               {t("noWinner")}
@@ -306,6 +328,7 @@ SeasonCard.propTypes = {
     winnerAddress: PropTypes.string,
     grandPrizeWei: PropTypes.any,
   }),
+  suppressWinner: PropTypes.bool,
 };
 
 export { SeasonCard };

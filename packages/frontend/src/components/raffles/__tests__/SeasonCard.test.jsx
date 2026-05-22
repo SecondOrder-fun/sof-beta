@@ -158,4 +158,75 @@ describe('SeasonCard variants', () => {
     expect(screen.getByText(/seasonCancelled/i)).toBeInTheDocument();
     expect(screen.queryByText(/noParticipants/i)).not.toBeInTheDocument();
   });
+
+  // Bug 2 regression: when RaffleList demotes a status=5 raffle to the
+  // Settling tab (viewer hasn't seen the celebration yet), SeasonCard MUST
+  // NOT leak the winner or the grand prize.
+  it('Completed (5) with suppressWinner hides winner address and grand prize', () => {
+    render(
+      <MemoryRouter>
+        <SeasonCard
+          season={baseSeason(5)}
+          renderBadge={noopBadge}
+          winnerSummary={{ winnerAddress: '0xleak', grandPrizeWei: 940n * 10n ** 18n }}
+          suppressWinner
+        />
+      </MemoryRouter>
+    );
+    expect(screen.queryByText('0xleak')).not.toBeInTheDocument();
+    expect(screen.queryByText('winner')).not.toBeInTheDocument();
+    expect(screen.queryByText(/grandPrize/i)).not.toBeInTheDocument();
+    // The "940" amount must not leak through.
+    expect(screen.queryByText(/940/)).not.toBeInTheDocument();
+  });
+
+  it('Completed (5) with suppressWinner renders a settling-style placeholder', () => {
+    render(
+      <MemoryRouter>
+        <SeasonCard
+          season={baseSeason(5)}
+          renderBadge={noopBadge}
+          winnerSummary={{ winnerAddress: '0xleak', grandPrizeWei: 1n }}
+          suppressWinner
+        />
+      </MemoryRouter>
+    );
+    // Label appears in both the override badge and the placeholder body.
+    expect(screen.getAllByText('settlingResultsInside').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/tradingLocked/i)).toBeInTheDocument();
+  });
+
+  it('Completed (5) with suppressWinner overrides the badge to a settling label', () => {
+    // renderBadge would have stamped the raw status (5). With suppressWinner,
+    // SeasonCard renders its own badge instead, so the noopBadge's "5" must
+    // NOT be in the document.
+    render(
+      <MemoryRouter>
+        <SeasonCard
+          season={baseSeason(5)}
+          renderBadge={noopBadge}
+          winnerSummary={{ winnerAddress: '0xleak', grandPrizeWei: 1n }}
+          suppressWinner
+        />
+      </MemoryRouter>
+    );
+    expect(screen.queryByTestId('badge')).not.toBeInTheDocument();
+    // The override badge uses the same Settling label as the card body.
+    const labels = screen.getAllByText('settlingResultsInside');
+    expect(labels.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('Completed (5) without suppressWinner still shows the winner (unchanged)', () => {
+    render(
+      <MemoryRouter>
+        <SeasonCard
+          season={baseSeason(5)}
+          renderBadge={noopBadge}
+          winnerSummary={{ winnerAddress: '0xshown', grandPrizeWei: 1n }}
+        />
+      </MemoryRouter>
+    );
+    expect(screen.getByText('0xshown')).toBeInTheDocument();
+    expect(screen.getByText('winner')).toBeInTheDocument();
+  });
 });
