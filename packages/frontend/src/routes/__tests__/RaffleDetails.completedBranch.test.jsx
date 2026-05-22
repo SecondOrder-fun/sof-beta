@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import RaffleDetails from '@/routes/RaffleDetails';
 import { useRaffleState } from '@/hooks/useRaffleState';
 
@@ -87,6 +87,40 @@ vi.mock('@/components/gating/PasswordGateModal', () => ({ default: () => null })
 vi.mock('@/components/gating/SignatureGateModal', () => ({ default: () => null }));
 vi.mock('@/components/common/SecondaryCard', () => ({ default: () => null }));
 
+// ── Celebration modal deps ─────────────────────────────────────────────────────
+vi.mock('@/hooks/useFirstViewGate', () => ({
+  useFirstViewGate: (scope, itemKey) => {
+    const key = `sof:firstview:${scope}:anon:${itemKey}`;
+    const hasSeen = !!localStorage.getItem(key);
+    return {
+      hasSeen,
+      markAsSeen: () => localStorage.setItem(key, new Date().toISOString()),
+    };
+  },
+}));
+vi.mock('@/hooks/useSponsoredPrizes', () => ({
+  useSponsoredPrizes: () => ({
+    sponsoredERC20: [],
+    sponsoredERC721: [],
+    tierConfigs: [],
+    tierWinners: {},
+    hasSponsoredPrizes: false,
+    isLoading: false,
+  }),
+}));
+// Stub WinnerCelebrationModal sub-deps so framer-motion, confetti, etc. don't blow up.
+vi.mock('@/components/raffle/celebration/WinnerCelebrationModal', () => ({
+  default: ({ variant, onDismiss }) => {
+    // Record gate immediately, mirroring the real component's useEffect.
+    onDismiss?.();
+    return (
+      <div data-testid="celebration-backdrop">
+        {variant === 'cancelled' && <span>celebration.cancelledHeadline</span>}
+      </div>
+    );
+  },
+}));
+
 const makeClient = () => new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
 const makeSeasonQuery = (status) => ({
@@ -114,9 +148,17 @@ const renderRoute = () =>
     </QueryClientProvider>
   );
 
+// Pre-seed the gate so the celebration modal does NOT mount during the original
+// layout assertions (seasonId = 7, viewer = anon).
+const GATE_KEY = 'sof:firstview:celebrated:anon:7';
+
 describe('RaffleDetails completed branch', () => {
   beforeEach(() => {
+    localStorage.setItem(GATE_KEY, new Date().toISOString());
     vi.mocked(useRaffleState).mockReturnValue({ seasonDetailsQuery: makeSeasonQuery(5) });
+  });
+  afterEach(() => {
+    localStorage.removeItem(GATE_KEY);
   });
 
   it('renders CompletedRaffleResults, Transactions, Holders side-by-side, and hides BuySell/BondingCurve at status 5', () => {
@@ -145,5 +187,31 @@ describe('RaffleDetails completed branch', () => {
     expect(screen.getByTestId('completed-results')).toBeInTheDocument();
     expect(screen.queryByTestId('bonding-curve-panel')).not.toBeInTheDocument();
     expect(screen.queryByTestId('claim-widget')).not.toBeInTheDocument();
+  });
+});
+
+describe('WinnerCelebrationModal integration', () => {
+  beforeEach(() => { localStorage.clear(); });
+  afterEach(() => { localStorage.clear(); });
+
+  it('mounts modal on first view of completed season with winner', async () => {
+    vi.mocked(useRaffleState).mockReturnValue({ seasonDetailsQuery: makeSeasonQuery(5) });
+    renderRoute();
+    expect(await screen.findByTestId('celebration-backdrop')).toBeInTheDocument();
+  });
+
+  it('does not mount modal after gate marked seen', () => {
+    localStorage.setItem(GATE_KEY, new Date().toISOString());
+    vi.mocked(useRaffleState).mockReturnValue({ seasonDetailsQuery: makeSeasonQuery(5) });
+    renderRoute();
+    expect(screen.queryByTestId('celebration-backdrop')).toBeNull();
+  });
+
+  it('mounts cancelled variant for status 6', async () => {
+    vi.mocked(useRaffleState).mockReturnValue({ seasonDetailsQuery: makeSeasonQuery(6) });
+    renderRoute();
+    const modal = await screen.findByTestId('celebration-backdrop');
+    expect(modal).toBeInTheDocument();
+    expect(screen.getByText('celebration.cancelledHeadline')).toBeInTheDocument();
   });
 });

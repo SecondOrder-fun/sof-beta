@@ -376,5 +376,16 @@
   "verify": "Verify",
   "verifyAccess": "Verify Access",
   "verifying": "Verifying...",
-  "winChance": "Win Chance"
+  "winChance": "Win Chance",
+  "celebration": {
+    "winnerLabel": "Winner",
+    "youWonHeadline": "You won!",
+    "youWonSubheadline": "Claim your prize below or anytime later.",
+    "amountSof": "{{amount}} SOF",
+    "sponsoredPrizeAddon": "+ {{prizeName}}",
+    "continueHint": "tap anywhere to continue",
+    "cancelledHeadline": "Season cancelled",
+    "cancelledSubheadline": "Your funds will be refunded.",
+    "ticketLabel": "WINNER"
+  }
 }
