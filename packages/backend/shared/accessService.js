@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient.js";
+import { resolveAddressPair } from "./services/addressPairResolver.js";
 
 // Access level constants
 export const ACCESS_LEVELS = {
@@ -20,13 +21,16 @@ export const ACCESS_LEVEL_NAMES = {
 /**
  * Get user's access info by FID (priority) or wallet
  * @param {object} params - { fid?, wallet? }
- * @returns {Promise<{level: number, levelName: string, groups: string[], entry: object|null}>}
+ * @param {object} [log=console] - logger for resolver warnings
+ * @returns {Promise<{level: number, levelName: string, groups: string[], entry: object|null, matchedVia: "direct"|"sma_pair"|null, matchedAddress: string|null}>}
  */
-export async function getUserAccess({ fid, wallet }) {
+export async function getUserAccess({ fid, wallet }, log = console) {
   try {
     let entry = null;
+    let matchedVia = null;
+    let matchedAddress = null;
 
-    // Priority 1: Try FID lookup
+    // Priority 1: FID lookup
     if (fid) {
       const { data, error } = await supabase
         .from("allowlist_entries")
@@ -34,17 +38,15 @@ export async function getUserAccess({ fid, wallet }) {
         .eq("fid", fid)
         .eq("is_active", true)
         .single();
-
       if (!error && data) {
         entry = data;
+        matchedVia = "direct";
       } else if (error && error.code !== "PGRST116") {
-        // PGRST116 = "not found" from .single(), which is expected
-        // Any other error is unexpected (DB down, network timeout, etc.)
         throw error;
       }
     }
 
-    // Priority 2: Fallback to wallet lookup
+    // Priority 2: Direct wallet lookup
     if (!entry && wallet) {
       const { data, error } = await supabase
         .from("allowlist_entries")
@@ -52,26 +54,59 @@ export async function getUserAccess({ fid, wallet }) {
         .eq("wallet_address", wallet.toLowerCase())
         .eq("is_active", true)
         .single();
-
       if (!error && data) {
         entry = data;
+        matchedVia = "direct";
       } else if (error && error.code !== "PGRST116") {
         throw error;
       }
     }
 
-    // If no entry found, return public access
+    // Priority 3: SMA-paired wallet lookup
+    //
+    // When the queried wallet misses but the user has a smart_accounts row,
+    // try the paired address. Both directions: EOA↔SMA. If both addresses
+    // happen to have their own allowlist rows, the direct hit (above) wins —
+    // pair fallback only runs after a direct miss.
+    if (!entry && wallet) {
+      const pair = await resolveAddressPair(wallet, log);
+      if (pair) {
+        const lc = wallet.toLowerCase();
+        const alt = lc === pair.eoa ? pair.sma : pair.eoa;
+        if (alt && alt !== lc) {
+          const { data, error } = await supabase
+            .from("allowlist_entries")
+            .select("*")
+            .eq("wallet_address", alt)
+            .eq("is_active", true)
+            .single();
+          if (!error && data) {
+            entry = data;
+            matchedVia = "sma_pair";
+            matchedAddress = alt;
+          } else if (error && error.code !== "PGRST116") {
+            throw error;
+          }
+        }
+      }
+    }
+
+    // Total miss → public default
     if (!entry) {
       return {
         level: ACCESS_LEVELS.PUBLIC,
         levelName: ACCESS_LEVEL_NAMES[ACCESS_LEVELS.PUBLIC],
         groups: [],
         entry: null,
+        matchedVia: null,
+        matchedAddress: null,
       };
     }
 
-    // Get user's groups
-    const groups = await getUserGroups({ fid: entry.fid, wallet: entry.wallet_address });
+    const groups = await getUserGroups({
+      fid: entry.fid,
+      wallet: entry.wallet_address,
+    });
 
     return {
       level: entry.access_level ?? ACCESS_LEVELS.ALLOWLIST,
@@ -79,15 +114,18 @@ export async function getUserAccess({ fid, wallet }) {
         ACCESS_LEVEL_NAMES[entry.access_level ?? ACCESS_LEVELS.ALLOWLIST],
       groups,
       entry,
+      matchedVia,
+      matchedAddress,
     };
   } catch (error) {
-    // Only swallow "not found" type errors, rethrow unexpected ones
     if (error.code === "PGRST116") {
       return {
         level: ACCESS_LEVELS.PUBLIC,
         levelName: ACCESS_LEVEL_NAMES[ACCESS_LEVELS.PUBLIC],
         groups: [],
         entry: null,
+        matchedVia: null,
+        matchedAddress: null,
       };
     }
     console.error("Error getting user access:", error);

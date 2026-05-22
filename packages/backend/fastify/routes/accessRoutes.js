@@ -46,6 +46,8 @@ export default async function accessRoutes(fastify) {
         levelName: accessInfo.levelName,
         groups: accessInfo.groups,
         entry: accessInfo.entry,
+        matchedVia: accessInfo.matchedVia ?? null,
+        matchedAddress: accessInfo.matchedAddress ?? null,
       };
     } catch (error) {
       fastify.log.error("Error checking user access:", error);

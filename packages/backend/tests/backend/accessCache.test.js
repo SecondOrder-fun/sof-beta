@@ -18,6 +18,10 @@ const redisMocks = vi.hoisted(() => ({
   mockGetClient: vi.fn(),
 }));
 
+const resolverMocks = vi.hoisted(() => ({
+  mockResolvePair: vi.fn(),
+}));
+
 vi.mock("../../shared/accessService.js", () => ({
   getUserAccess: (...args) => accessMocks.mockGetUserAccess(...args),
 }));
@@ -26,6 +30,10 @@ vi.mock("../../shared/redisClient.js", () => ({
   redisClient: {
     getClient: (...args) => redisMocks.mockGetClient(...args),
   },
+}));
+
+vi.mock("../../shared/services/addressPairResolver.js", () => ({
+  resolveAddressPair: (...args) => resolverMocks.mockResolvePair(...args),
 }));
 
 import {
@@ -236,5 +244,48 @@ describe("invalidateUserAccessCache", () => {
       invalidateUserAccessCache({ fid: 1 }, logger),
     ).resolves.not.toThrow();
     expect(logger.warn).toHaveBeenCalled();
+  });
+});
+
+describe("invalidateUserAccessCache symmetric busting", () => {
+  beforeEach(() => {
+    resolverMocks.mockResolvePair.mockReset();
+  });
+
+  it("invalidates both keys when the queried wallet has a paired wallet", async () => {
+    const EOA_LC = "0xaaaa000000000000000000000000000000000001";
+    const SMA_LC = "0xbbbb000000000000000000000000000000000002";
+    resolverMocks.mockResolvePair.mockResolvedValueOnce({ eoa: EOA_LC, sma: SMA_LC });
+
+    await invalidateUserAccessCache({ wallet: EOA_LC }, makeLogger());
+
+    // Single call deletes both keys.
+    expect(redisMocks.mockDel).toHaveBeenCalledTimes(1);
+    const args = redisMocks.mockDel.mock.calls[0];
+    expect(args).toContain(`access:wallet:${EOA_LC}`);
+    expect(args).toContain(`access:wallet:${SMA_LC}`);
+  });
+
+  it("invalidates only the queried key when there is no pair", async () => {
+    const EOA_LC = "0xaaaa000000000000000000000000000000000003";
+    resolverMocks.mockResolvePair.mockResolvedValueOnce(null);
+
+    await invalidateUserAccessCache({ wallet: EOA_LC }, makeLogger());
+
+    expect(redisMocks.mockDel).toHaveBeenCalledTimes(1);
+    expect(redisMocks.mockDel).toHaveBeenCalledWith(`access:wallet:${EOA_LC}`);
+  });
+
+  it("skips pair resolution entirely when only fid is supplied", async () => {
+    await invalidateUserAccessCache({ fid: 12345 }, makeLogger());
+    expect(resolverMocks.mockResolvePair).not.toHaveBeenCalled();
+    expect(redisMocks.mockDel).toHaveBeenCalledWith("access:fid:12345");
+  });
+
+  it("does not block invalidation of the queried key when pair resolution returns null", async () => {
+    const EOA_LC = "0xaaaa000000000000000000000000000000000004";
+    resolverMocks.mockResolvePair.mockResolvedValueOnce(null); // simulates the swallow-and-return-null contract
+    await invalidateUserAccessCache({ wallet: EOA_LC }, makeLogger());
+    expect(redisMocks.mockDel).toHaveBeenCalledWith(`access:wallet:${EOA_LC}`);
   });
 });
