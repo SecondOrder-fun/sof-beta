@@ -116,6 +116,10 @@ export const MobileRafflesList = ({
   // Depends on `isLoading` and `activeTab` so it re-runs when the card first
   // appears in the DOM or when tabs swap.
   useEffect(() => {
+    // Clear the locked height immediately so the new tab's card briefly
+    // auto-sizes instead of flashing at the previous tab's measured height
+    // during the 100ms before re-measurement.
+    setCardHeight(null);
     const update = () => {
       if (!cardRef.current) return;
       const cardTop = cardRef.current.getBoundingClientRect().top;

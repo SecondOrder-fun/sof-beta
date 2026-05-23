@@ -109,4 +109,36 @@ describe('MobileRafflesList tabs', () => {
     renderList({ onActiveSeasonChange });
     expect(onActiveSeasonChange).toHaveBeenCalledWith(grouped.active[0].season);
   });
+
+  it('resets the carousel to index 0 when activeTab changes', () => {
+    const { rerender } = render(
+      <MemoryRouter>
+        <MobileRafflesList
+          grouped={grouped}
+          activeTab="complete"
+          onTabChange={vi.fn()}
+          onActiveSeasonChange={vi.fn()}
+          isLoading={false}
+        />
+      </MemoryRouter>,
+    );
+    // Index 0 of complete = season id 6
+    expect(screen.getByTestId('mobile-card-6')).toBeInTheDocument();
+
+    rerender(
+      <MemoryRouter>
+        <MobileRafflesList
+          grouped={grouped}
+          activeTab="active"
+          onTabChange={vi.fn()}
+          onActiveSeasonChange={vi.fn()}
+          isLoading={false}
+        />
+      </MemoryRouter>,
+    );
+    // After tab switch, index reset to 0 of active = season id 2
+    expect(screen.getByTestId('mobile-card-2')).toBeInTheDocument();
+    // And the old card shouldn't be present
+    expect(screen.queryByTestId('mobile-card-6')).not.toBeInTheDocument();
+  });
 });
