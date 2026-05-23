@@ -130,7 +130,7 @@
   "processing": "Elaborazione...",
   "home": {
     "welcome": "Benvenuto su SecondOrder.fun",
-    "blurb": "SecondOrder.fun è una piattaforma di lotteria trasparente basata su blockchain dove il tuo posto può aumentare di valore con ogni nuovo giocatore che si unisce. Quando acquisti i biglietti, il prezzo basato sulla curva di bonding crea valutazioni dinamiche, dando ai giocatori la possibilità di tenere fino al sorteggio o vendere in qualsiasi momento per guadagnare — offrendo un'esperienza di lotteria altamente ludica."
+    "intro": "Lotterie tokenizzate, eque e completamente onchain."
   },
   "delegation_title": "Attiva la modalità senza gas",
   "delegation_description": "Firma una volta per abilitare le transazioni senza gas. SecondOrder.fun coprirà le commissioni gas così potrai iniziare a fare trading immediatamente.",
