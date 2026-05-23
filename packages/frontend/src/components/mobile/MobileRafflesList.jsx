@@ -5,7 +5,7 @@
  */
 
 import PropTypes from "prop-types";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -13,6 +13,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import Carousel from "@/components/common/Carousel";
 import SeasonCard from "@/components/mobile/SeasonCard";
 import { useCurveState } from "@/hooks/useCurveState";
@@ -62,8 +63,12 @@ MobileActiveSeasonCard.propTypes = {
   isFarcaster: PropTypes.bool,
 };
 
+const TAB_KEYS = ["upcoming", "active", "settling", "complete"];
+
 export const MobileRafflesList = ({
-  seasons = [],
+  grouped,
+  activeTab,
+  onTabChange,
   isLoading,
   onBuy,
   onSell,
@@ -82,21 +87,34 @@ export const MobileRafflesList = ({
   const [cardHeight, setCardHeight] = useState(null);
   const cardRef = useRef(null);
 
+  // Seasons for the currently selected tab. Reset index to 0 when the tab
+  // changes (or when the active group's contents shrink), so we never point
+  // at a stale slot of a different group.
+  const activeSeasons = useMemo(
+    () => (grouped?.[activeTab] ?? []).map((entry) => entry.season),
+    [grouped, activeTab],
+  );
+
   useEffect(() => {
-    if (currentIndex >= seasons.length) {
+    setCurrentIndex(0);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (currentIndex >= activeSeasons.length) {
       setCurrentIndex(0);
     }
-  }, [currentIndex, seasons.length]);
+  }, [currentIndex, activeSeasons.length]);
 
   // Notify parent of active season for gating hook
   useEffect(() => {
-    if (seasons.length > 0 && currentIndex < seasons.length) {
-      onActiveSeasonChange?.(seasons[currentIndex]);
+    if (activeSeasons.length > 0 && currentIndex < activeSeasons.length) {
+      onActiveSeasonChange?.(activeSeasons[currentIndex]);
     }
-  }, [currentIndex, seasons, onActiveSeasonChange]);
+  }, [currentIndex, activeSeasons, onActiveSeasonChange]);
 
-  // Calculate and lock card height to fill space between header and footer
-  // Depends on `isLoading` so it re-runs when the card first appears in the DOM
+  // Calculate and lock card height to fill space between header and footer.
+  // Depends on `isLoading` and `activeTab` so it re-runs when the card first
+  // appears in the DOM or when tabs swap.
   useEffect(() => {
     const update = () => {
       if (!cardRef.current) return;
@@ -112,20 +130,20 @@ export const MobileRafflesList = ({
       clearTimeout(timer);
       window.removeEventListener("resize", update);
     };
-  }, [isLoading]);
+  }, [isLoading, activeTab]);
 
   const handlePrevious = () => {
-    if (seasons.length === 0) return;
+    if (activeSeasons.length === 0) return;
     if (currentIndex > 0) {
       setCurrentIndex(currentIndex - 1);
     } else {
-      setCurrentIndex(seasons.length - 1);
+      setCurrentIndex(activeSeasons.length - 1);
     }
   };
 
   const handleNext = () => {
-    if (seasons.length === 0) return;
-    if (currentIndex < seasons.length - 1) {
+    if (activeSeasons.length === 0) return;
+    if (currentIndex < activeSeasons.length - 1) {
       setCurrentIndex(currentIndex + 1);
     } else {
       setCurrentIndex(0);
@@ -135,7 +153,7 @@ export const MobileRafflesList = ({
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-hidden px-3 pt-1 pb-20">
-        {/* Title row with pagination controls */}
+        {/* Title row */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold text-foreground">{t("raffles")}</h1>
@@ -156,7 +174,7 @@ export const MobileRafflesList = ({
               </div>
             )}
           </div>
-          {!isLoading && seasons.length > 1 && (
+          {!isLoading && activeSeasons.length > 1 && (
             <div className="flex items-center gap-2">
               <ButtonGroup>
                 <Button
@@ -179,65 +197,106 @@ export const MobileRafflesList = ({
                 </Button>
               </ButtonGroup>
               <span className="text-sm text-muted-foreground font-mono">
-                {currentIndex + 1} / {seasons.length}
+                {currentIndex + 1} / {activeSeasons.length}
               </span>
             </div>
           )}
         </div>
 
-        {/* Loading */}
-        {isLoading && <MobileCardSkeleton />}
+        {/* Status tabs — uses the existing shadcn primitive (already pill-styled
+            with sliding indicator). Horizontally scrollable on narrow viewports. */}
+        <Tabs value={activeTab} onValueChange={onTabChange}>
+          <div className="mb-3 overflow-x-auto">
+            <TabsList>
+              {TAB_KEYS.map((g) => {
+                const count = grouped?.[g]?.length ?? 0;
+                return (
+                  <TabsTrigger
+                    key={g}
+                    value={g}
+                    className="flex items-center gap-2 text-xs px-3 py-1.5"
+                  >
+                    <span>{t(`tabs.${g}`)}</span>
+                    <span
+                      className="inline-flex items-center justify-center min-w-[1.25rem] rounded-full border border-border px-1.5 text-[10px] font-semibold leading-4
+                                 bg-secondary text-secondary-foreground
+                                 [[data-state=active]_&]:bg-background
+                                 [[data-state=active]_&]:text-primary"
+                    >
+                      {count}
+                    </span>
+                  </TabsTrigger>
+                );
+              })}
+            </TabsList>
+          </div>
 
-        {/* Empty */}
-        {!isLoading && seasons.length === 0 && (
-          <Card>
-            <CardContent className="py-8">
-              <p className="text-center text-muted-foreground">
-                {t("noActiveSeasons")}
-              </p>
-            </CardContent>
-          </Card>
-        )}
+          {TAB_KEYS.map((g) => (
+            <TabsContent key={g} value={g} className="mt-0">
+              {/* Loading */}
+              {isLoading && <MobileCardSkeleton />}
 
-        {/* Season Carousel */}
-        {!isLoading && seasons.length > 0 && (
-          <Card
-            ref={cardRef}
-            className="flex flex-col overflow-hidden"
-            style={cardHeight ? { height: cardHeight } : undefined}
-          >
-            <CardContent className="p-0 flex-1 overflow-hidden">
-              <Carousel
-                items={seasons}
-                currentIndex={currentIndex}
-                onIndexChange={setCurrentIndex}
-                className="h-full"
-                showArrows={false}
-                renderItem={(season) => (
-                  <MobileActiveSeasonCard
-                    key={season.id}
-                    season={season}
-                    onBuy={onBuy}
-                    onSell={onSell}
-                    isVerified={isVerified}
-                    isGated={isGated}
-                    onVerify={onVerify}
-                    isConnected={isConnected}
-                    onConnect={onConnect}
-                    isFarcaster={isFarcaster}
-                  />
-                )}
-              />
-            </CardContent>
-          </Card>
-        )}
+              {/* Empty */}
+              {!isLoading && activeSeasons.length === 0 && g === activeTab && (
+                <Card>
+                  <CardContent className="py-8">
+                    <p className="text-center text-muted-foreground">
+                      {t(`emptyTab.${g}`)}
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Carousel — only render for the active tab to keep the existing
+                  cardRef/measure path single-instance. */}
+              {!isLoading && activeSeasons.length > 0 && g === activeTab && (
+                <Card
+                  ref={cardRef}
+                  className="flex flex-col overflow-hidden"
+                  style={cardHeight ? { height: cardHeight } : undefined}
+                >
+                  <CardContent className="p-0 flex-1 overflow-hidden">
+                    <Carousel
+                      items={activeSeasons}
+                      currentIndex={currentIndex}
+                      onIndexChange={setCurrentIndex}
+                      className="h-full"
+                      showArrows={false}
+                      renderItem={(season) => (
+                        <MobileActiveSeasonCard
+                          key={season.id}
+                          season={season}
+                          onBuy={onBuy}
+                          onSell={onSell}
+                          isVerified={isVerified}
+                          isGated={isGated}
+                          onVerify={onVerify}
+                          isConnected={isConnected}
+                          onConnect={onConnect}
+                          isFarcaster={isFarcaster}
+                        />
+                      )}
+                    />
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+          ))}
+        </Tabs>
       </div>
     </div>
   );
 };
 
 MobileRafflesList.propTypes = {
-  seasons: PropTypes.array,
+  grouped: PropTypes.shape({
+    upcoming: PropTypes.array,
+    active: PropTypes.array,
+    settling: PropTypes.array,
+    complete: PropTypes.array,
+  }),
+  activeTab: PropTypes.oneOf(["upcoming", "active", "settling", "complete"]),
+  onTabChange: PropTypes.func,
   isLoading: PropTypes.bool,
   onBuy: PropTypes.func,
   onSell: PropTypes.func,

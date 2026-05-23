@@ -297,24 +297,15 @@ const RaffleList = () => {
     return buckets;
   }, [displayedSeasons, seenSet]);
 
-  // Mobile: exclude completed/cancelled seasons the viewer hasn't seen yet.
-  // After they navigate to the detail page and the modal records seen, the card
-  // re-appears on the next visit/refresh — matching the desktop Settling-hold.
-  const mobileSeasons = useMemo(() => {
-    return displayedSeasons.filter((s) => {
-      const g = getSeasonGroup(s.status);
-      if (g === 'complete' && !seenSet.has(String(s.id))) return false;
-      return true;
-    });
-  }, [displayedSeasons, seenSet]);
-
   if (isMobile) {
     // Note: We pass raw season data and let MobileRafflesList handle curve state
     // This avoids calling hooks inside map/filter which violates Rules of Hooks
     return (
       <>
         <MobileRafflesList
-          seasons={mobileSeasons}
+          grouped={grouped}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
           isLoading={allSeasonsQuery.isLoading}
           onBuy={handleBuy}
           onSell={handleSell}
