@@ -37,6 +37,16 @@ Never work directly on main. Always create a feature branch:
 
 No orphaned branches. One working branch at a time. Delete branches immediately after merge.
 
+## Comments and Docstrings
+
+When you change behaviour, update or delete every comment that described the old behaviour in the same commit. A comment that contradicts the code actively misleads readers and future passes — worse than no comment. Watch especially for:
+
+- Header docstrings that enumerate render paths, return conditions, or call orderings — if you add or remove one, update the enumeration.
+- Inline comments naming variables, hooks, or files you just renamed or removed.
+- File-top summaries describing what the module does ("Web: Welcome blurb…", "Renders null when:…").
+
+If a comment isn't worth keeping current, delete it. Don't leave it stale.
+
 ## Pre-Commit Checks
 
 Run before every commit:
