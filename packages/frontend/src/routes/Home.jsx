@@ -34,9 +34,7 @@ const FarcasterHome = () => {
 
           {/* Add to Farcaster */}
           <div className="mb-6">
-            <AddMiniAppButton
-              addedText="The Commissariat of Free Play will be issuing marching orders in the coming weeks."
-            />
+            <AddMiniAppButton />
           </div>
 
           {/* Launch App Buttons */}
