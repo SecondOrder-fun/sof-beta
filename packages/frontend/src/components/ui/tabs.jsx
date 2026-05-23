@@ -177,10 +177,13 @@ const TabsTrigger = React.forwardRef(({ className, value, ...props }, ref) => {
       className={cn(
         // Base styles - z-10 to be above indicator, 300ms transition to match indicator slide
         "relative z-10 inline-flex items-center justify-center whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium transition-colors duration-300 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
-        // Inactive: transparent bg, primary text, underlined
-        "bg-transparent hover:bg-transparent text-primary hover:text-white underline underline-offset-4",
+        // Inactive: transparent bg, primary text. Underline scoped to the
+        // FIRST direct child so badge siblings (counts, icons) don't inherit
+        // it. Triggers that render bare text won't be underlined — wrap in a
+        // <span> if you need the underline.
+        "bg-transparent hover:bg-transparent text-primary hover:text-white [&>:first-child]:underline [&>:first-child]:underline-offset-4",
         // Active: white text when indicator is behind it, no underline
-        "data-[state=active]:text-white data-[state=active]:no-underline data-[state=active]:bg-transparent",
+        "data-[state=active]:text-white data-[state=active]:[&>:first-child]:no-underline data-[state=active]:bg-transparent",
         // When hovering elsewhere in group: active tab text goes pink (indicator moved away)
         "group-hover:data-[state=active]:text-primary",
         // But when hovering the active tab itself: keep white text (indicator still there)

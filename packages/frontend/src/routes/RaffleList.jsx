@@ -36,6 +36,8 @@ export function getSeasonGroup(statusNum) {
   return "active";
 }
 
+const VALID_TABS = ["upcoming", "active", "settling", "complete"];
+
 const RaffleList = () => {
   const { t } = useTranslation(["raffle", "navigation"]);
   const { isMobile, isFarcaster } = usePlatform();
@@ -50,7 +52,25 @@ const RaffleList = () => {
   // user is actually looking at the Complete tab. Completed seasons hold
   // immutable data, but the two multicalls (winners + payouts) still cost
   // an RPC round-trip on every cold visit if we pre-fetch them.
-  const [activeTab, setActiveTab] = useState("active");
+  // activeTab is URL-backed (?tab=<group>) so it persists across reloads,
+  // share-links, and stays consistent between desktop and mobile views.
+  // Invalid or missing values fall back to "active". The default is omitted
+  // from the URL to keep links clean.
+  const urlTab = searchParams.get("tab");
+  const activeTab = VALID_TABS.includes(urlTab) ? urlTab : "active";
+  const setActiveTab = useCallback(
+    (next) => {
+      setSearchParams((prev) => {
+        if (next === "active") {
+          prev.delete("tab");
+        } else {
+          prev.set("tab", next);
+        }
+        return prev;
+      });
+    },
+    [setSearchParams],
+  );
   const winnerSummariesQuery = useSeasonWinnerSummaries(
     allSeasonsQuery.data,
     { enabled: activeTab === "complete" },
@@ -277,24 +297,15 @@ const RaffleList = () => {
     return buckets;
   }, [displayedSeasons, seenSet]);
 
-  // Mobile: exclude completed/cancelled seasons the viewer hasn't seen yet.
-  // After they navigate to the detail page and the modal records seen, the card
-  // re-appears on the next visit/refresh — matching the desktop Settling-hold.
-  const mobileSeasons = useMemo(() => {
-    return displayedSeasons.filter((s) => {
-      const g = getSeasonGroup(s.status);
-      if (g === 'complete' && !seenSet.has(String(s.id))) return false;
-      return true;
-    });
-  }, [displayedSeasons, seenSet]);
-
   if (isMobile) {
     // Note: We pass raw season data and let MobileRafflesList handle curve state
     // This avoids calling hooks inside map/filter which violates Rules of Hooks
     return (
       <>
         <MobileRafflesList
-          seasons={mobileSeasons}
+          grouped={grouped}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
           isLoading={allSeasonsQuery.isLoading}
           onBuy={handleBuy}
           onSell={handleSell}
@@ -390,11 +401,9 @@ const RaffleList = () => {
                   <TabsTrigger
                     key={g}
                     value={g}
-                    className="flex items-center gap-2 no-underline hover:no-underline"
+                    className="flex items-center gap-2"
                   >
-                    <span className="underline-offset-4 [[data-state=inactive]_&]:underline">
-                      {t(`tabs.${g}`)}
-                    </span>
+                    <span>{t(`tabs.${g}`)}</span>
                     <span
                       className="inline-flex items-center justify-center min-w-[1.5rem] rounded-full border border-border px-2 text-xs font-semibold leading-5
                                  bg-secondary text-secondary-foreground

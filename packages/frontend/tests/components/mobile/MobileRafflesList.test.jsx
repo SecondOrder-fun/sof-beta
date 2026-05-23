@@ -61,15 +61,34 @@ const createSeason = (id) => ({
 });
 
 /**
+ * Wrap a flat seasons array into the `grouped` shape the component now expects.
+ * Tests in this file focus on the Active tab; the other groups are empty.
+ * @param {Array} seasons
+ */
+const makeGrouped = (seasons) => ({
+  upcoming: [],
+  active: seasons.map((season) => ({ season, suppressWinner: false })),
+  settling: [],
+  complete: [],
+});
+
+/**
  * Render the mobile list with router context.
  * @param {Object} props
  */
-const renderList = (props) =>
-  render(
+const renderList = (props) => {
+  const { seasons = [], ...rest } = props;
+  return render(
     <MemoryRouter>
-      <MobileRafflesList {...props} />
+      <MobileRafflesList
+        grouped={makeGrouped(seasons)}
+        activeTab="active"
+        onTabChange={vi.fn()}
+        {...rest}
+      />
     </MemoryRouter>,
   );
+};
 
 describe("MobileRafflesList", () => {
   beforeEach(() => {
@@ -94,7 +113,7 @@ describe("MobileRafflesList", () => {
 
     // Skeleton renders animated pulse elements instead of text
     expect(container.querySelector(".animate-pulse")).toBeInTheDocument();
-    expect(screen.queryByText("noActiveSeasons")).not.toBeInTheDocument();
+    expect(screen.queryByText("emptyTab.active")).not.toBeInTheDocument();
   });
 
   it("shows empty state when no seasons exist", () => {
@@ -105,7 +124,7 @@ describe("MobileRafflesList", () => {
       onSell: vi.fn(),
     });
 
-    expect(screen.getByText("noActiveSeasons")).toBeInTheDocument();
+    expect(screen.getByText("emptyTab.active")).toBeInTheDocument();
   });
 
   it("calls onBuy when tapping the buy button", () => {
