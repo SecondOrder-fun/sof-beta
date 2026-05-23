@@ -199,6 +199,10 @@ export function AppAuthProvider({ children }) {
           address: addressLc,
           signature,
           nonce,
+          // Routes backend SMA resolution: smart-wallet types
+          // (coinbase-smart, farcaster-miniapp) keep sma=eoa so the
+          // airdrop lands in the wallet the user actually trades from.
+          walletType,
         });
       }
 
@@ -225,7 +229,7 @@ export function AppAuthProvider({ children }) {
     } finally {
       inflightRef.current = false;
     }
-  }, [addressLc, persist]);
+  }, [addressLc, persist, walletType]);
 
   const linkFarcaster = useCallback(async ({ message, signature, nonce }) => {
     if (inflightRef.current) return;

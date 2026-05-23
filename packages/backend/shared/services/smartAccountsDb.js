@@ -84,6 +84,25 @@ export async function markFunded(sma, _txHash) {
 }
 
 /**
+ * Reset funded_at to null for an EOA's row. Used by ensureSmartAccount
+ * when it detects a stale sma (the previously stored sma doesn't match
+ * the walletType-derived expected one) — the prior airdrop landed at an
+ * address the user can't see, so we need to re-airdrop.
+ *
+ * @param {string} eoa - Lowercased EOA
+ */
+export async function clearFunded(eoa) {
+  if (!hasSupabase) return;
+  const { error } = await supabase
+    .from(TABLE)
+    .update({ funded_at: null })
+    .eq("eoa", String(eoa).toLowerCase());
+  if (error) {
+    throw new Error(`smartAccountsDb.clearFunded: ${error.message}`);
+  }
+}
+
+/**
  * Mark an SMA as deployed (called by accountCreatedListener).
  * Idempotent — deployed_at only gets stamped once.
  * @param {string} sma - Lowercased SMA
@@ -110,6 +129,7 @@ export const smartAccountsDb = {
   getSmartAccountBySma,
   upsertSmartAccount,
   markFunded,
+  clearFunded,
   markDeployed,
 };
 
