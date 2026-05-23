@@ -130,7 +130,7 @@
   "processing": "Verarbeitung...",
   "home": {
     "welcome": "Welcome to SecondOrder.fun",
-    "blurb": "SecondOrder.fun is a transparent blockchain-powered raffle platform where your position can increase in value with every new player that joins. When you purchase tickets, bonding curve pricing creates dynamic valuations, giving players the choice to hold until the draw or sell anytime for profit—delivering a highly game-like raffle experience."
+    "intro": "Faire, vollständig onchain tokenisierte Verlosungen."
   },
   "delegation_title": "Gebührenfreien Modus aktivieren",
   "delegation_description": "Einmalig unterschreiben, um gebührenfreie Transaktionen zu aktivieren. SecondOrder.fun übernimmt die Gasgebühren, damit Sie sofort mit dem Handeln beginnen können.",

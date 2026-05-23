@@ -130,7 +130,7 @@
   "processing": "Processando...",
   "home": {
     "welcome": "Bem-vindo ao SecondOrder.fun",
-    "blurb": "SecondOrder.fun é uma plataforma de sorteio transparente baseada em blockchain onde o valor da sua posição pode aumentar com cada novo jogador que se junta. Ao comprar ingressos, o preço baseado em curva de ligação cria avaliações dinâmicas, dando aos jogadores a escolha de manter até o sorteio ou vender a qualquer momento para lucro — proporcionando uma experiência de sorteio altamente lúdica."
+    "intro": "Sorteios tokenizados, justos e totalmente onchain."
   },
   "delegation_title": "Ativar modo sem gas",
   "delegation_description": "Assine uma vez para ativar transações sem gas. SecondOrder.fun cobrirá as taxas de gas para que você possa começar a negociar imediatamente.",

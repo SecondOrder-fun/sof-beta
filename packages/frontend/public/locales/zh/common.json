@@ -130,7 +130,7 @@
   "processing": "处理中...",
   "home": {
     "welcome": "欢迎来到 SecondOrder.fun",
-    "blurb": "SecondOrder.fun 是一个透明的区块链驱动的彩票平台，您的位置价值会随着每个新玩家的加入而增加。当您购买彩票时，bonding curve 定价机制会创建动态估值，让玩家可以选择持有直到开奖或随时出售以获利——提供高度游戏化的彩票体验。"
+    "intro": "公平、完全链上的代币化抽奖。"
   },
   "delegation_title": "启用免 Gas 模式",
   "delegation_description": "签名一次即可启用免 Gas 交易。SecondOrder.fun 将承担 Gas 费用，让您立即开始交易。",

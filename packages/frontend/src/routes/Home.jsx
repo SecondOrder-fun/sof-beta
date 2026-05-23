@@ -16,6 +16,7 @@ import LaunchAppButtons from "@/components/farcaster/LaunchAppButtons";
 // Farcaster / Base App view
 // ---------------------------------------------------------------------------
 const FarcasterHome = () => {
+  const { t } = useTranslation("common");
   return (
     <div className="relative min-h-[80vh] bg-background">
       <MeltyLines />
@@ -28,8 +29,7 @@ const FarcasterHome = () => {
           <p
             className="mb-8 leading-relaxed text-muted-foreground/70 font-mono"
           >
-            SecondOrder.fun transforms memecoins from chaotic infinite games
-            into structured, fair finite games.
+            {t("home.intro")}
           </p>
 
           {/* Add to Farcaster */}
@@ -107,7 +107,7 @@ const WebHome = () => {
         >
           <h1 className="text-2xl font-semibold mb-4">{t("home.welcome")}</h1>
           <p className="text-muted-foreground leading-relaxed mb-8">
-            {t("home.blurb")}
+            {t("home.intro")}
           </p>
 
           {/* Navigation CTAs — both default Button (filled primary) so
