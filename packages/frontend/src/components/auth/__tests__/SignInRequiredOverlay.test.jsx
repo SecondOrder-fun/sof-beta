@@ -28,7 +28,13 @@ vi.mock("wagmi", () => ({
   useAccount: vi.fn(() => ({ address: "0xabc", status: "connected" })),
 }));
 
+// Default: desktop-eoa wallet. Farcaster-miniapp gate test overrides per-call.
+vi.mock("@/hooks/useRaffleAccount", () => ({
+  useRaffleAccount: vi.fn(() => ({ walletType: "desktop-eoa" })),
+}));
+
 import { useAccount } from "wagmi";
+import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 
 const renderWithAuth = (ctx) =>
   render(
@@ -71,6 +77,19 @@ describe("SignInRequiredOverlay", () => {
 
   it("renders nothing when AppAuthContext is missing", () => {
     render(<SignInRequiredOverlay />);
+    expect(
+      screen.queryByTestId("signin-required-overlay"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders nothing for Farcaster MiniApp users (walletType=farcaster-miniapp)", () => {
+    // Farcaster MiniApp owns its own sign-in surface (FarcasterAuth / SIWF
+    // relay). Routing those users through the overlay would send raw SIWE
+    // through the Farcaster connector and bypass the intended SIWF flow.
+    vi.mocked(useRaffleAccount).mockReturnValueOnce({
+      walletType: "farcaster-miniapp",
+    });
+    renderWithAuth({ status: "idle", error: null, signIn: vi.fn() });
     expect(
       screen.queryByTestId("signin-required-overlay"),
     ).not.toBeInTheDocument();
