@@ -36,6 +36,8 @@ export function getSeasonGroup(statusNum) {
   return "active";
 }
 
+const VALID_TABS = ["upcoming", "active", "settling", "complete"];
+
 const RaffleList = () => {
   const { t } = useTranslation(["raffle", "navigation"]);
   const { isMobile, isFarcaster } = usePlatform();
@@ -50,7 +52,25 @@ const RaffleList = () => {
   // user is actually looking at the Complete tab. Completed seasons hold
   // immutable data, but the two multicalls (winners + payouts) still cost
   // an RPC round-trip on every cold visit if we pre-fetch them.
-  const [activeTab, setActiveTab] = useState("active");
+  // activeTab is URL-backed (?tab=<group>) so it persists across reloads,
+  // share-links, and stays consistent between desktop and mobile views.
+  // Invalid or missing values fall back to "active". The default is omitted
+  // from the URL to keep links clean.
+  const urlTab = searchParams.get("tab");
+  const activeTab = VALID_TABS.includes(urlTab) ? urlTab : "active";
+  const setActiveTab = useCallback(
+    (next) => {
+      setSearchParams((prev) => {
+        if (next === "active") {
+          prev.delete("tab");
+        } else {
+          prev.set("tab", next);
+        }
+        return prev;
+      });
+    },
+    [setSearchParams],
+  );
   const winnerSummariesQuery = useSeasonWinnerSummaries(
     allSeasonsQuery.data,
     { enabled: activeTab === "complete" },
