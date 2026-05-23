@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import RaffleList from '@/routes/RaffleList';
+import { usePlatform } from '@/hooks/usePlatform';
 
 // ── Heavy child stubs ─────────────────────────────────────────────────────────
 vi.mock('@/components/raffles/SeasonCard', () => ({
@@ -16,8 +17,12 @@ vi.mock('@/components/raffles/SeasonCard', () => ({
     </div>
   ),
 }));
+const mobileCalls = [];
 vi.mock('@/components/mobile/MobileRafflesList', () => ({
-  default: () => <div data-testid="mobile-list" />,
+  default: (props) => {
+    mobileCalls.push(props);
+    return <div data-testid="mobile-list" />;
+  },
 }));
 vi.mock('@/components/mobile/BuySellSheet', () => ({
   default: () => null,
@@ -53,7 +58,7 @@ vi.mock('@/hooks/useSeasonWinnerSummaries', () => ({
   useSeasonWinnerSummaries: () => ({ data: {} }),
 }));
 vi.mock('@/hooks/usePlatform', () => ({
-  usePlatform: () => ({ isMobile: false, isFarcaster: false }),
+  usePlatform: vi.fn(() => ({ isMobile: false, isFarcaster: false })),
 }));
 vi.mock('wagmi', () => ({
   useAccount: () => ({ address: undefined, isConnected: false, chainId: 84532 }),
@@ -192,5 +197,53 @@ describe('RaffleList celebration hold', () => {
     // Season 4 (status 2 = EndRequested → settling) stays in settling tab
     await user.click(screen.getByRole('tab', { name: /tabs\.settling/ }));
     expect(screen.getByText('Season 4')).toBeInTheDocument();
+  });
+
+  describe('mobile demotion (unified with desktop)', () => {
+    beforeEach(() => {
+      mobileCalls.length = 0;
+      vi.mocked(usePlatform).mockReturnValue({ isMobile: true, isFarcaster: false });
+    });
+
+    afterEach(() => {
+      vi.mocked(usePlatform).mockReset();
+      vi.mocked(usePlatform).mockReturnValue({ isMobile: false, isFarcaster: false });
+    });
+
+    it('demotes unseen completed seasons into the settling group on mobile', () => {
+      // localStorage is empty → useFirstViewGateBatch returns empty Set → unseen.
+      renderList();
+
+      const lastCall = mobileCalls[mobileCalls.length - 1];
+      expect(lastCall).toBeDefined();
+      expect(lastCall.grouped).toBeDefined();
+
+      const settlingIds = lastCall.grouped.settling.map((entry) => entry.season.id);
+      const completeIds = lastCall.grouped.complete.map((entry) => entry.season.id);
+
+      // Season 1 is status 5 (Completed) but unseen → must demote to settling.
+      expect(settlingIds).toContain(1);
+      expect(completeIds).not.toContain(1);
+
+      const demoted = lastCall.grouped.settling.find(
+        (entry) => entry.season.id === 1,
+      );
+      expect(demoted?.suppressWinner).toBe(true);
+    });
+
+    it('promotes to complete once seenSet records the visit', () => {
+      localStorage.setItem(
+        'sof:firstview:celebrated:anon:1',
+        new Date().toISOString(),
+      );
+      renderList();
+
+      const lastCall = mobileCalls[mobileCalls.length - 1];
+      const settlingIds = lastCall.grouped.settling.map((entry) => entry.season.id);
+      const completeIds = lastCall.grouped.complete.map((entry) => entry.season.id);
+
+      expect(completeIds).toContain(1);
+      expect(settlingIds).not.toContain(1);
+    });
   });
 });
