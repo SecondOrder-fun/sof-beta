@@ -208,32 +208,31 @@ export const MobileRafflesList = ({
         </div>
 
         {/* Status tabs — uses the existing shadcn primitive (already pill-styled
-            with sliding indicator). Horizontally scrollable on narrow viewports. */}
+            with sliding indicator). Full-width with equal-share triggers so the
+            row fits any viewport down to ~320px without overflow. */}
         <Tabs value={activeTab} onValueChange={onTabChange}>
-          <div className="mb-3 overflow-x-auto">
-            <TabsList>
-              {TAB_KEYS.map((g) => {
-                const count = grouped?.[g]?.length ?? 0;
-                return (
-                  <TabsTrigger
-                    key={g}
-                    value={g}
-                    className="flex items-center gap-2 text-xs px-3 py-1.5"
+          <TabsList className="mb-3 flex w-full">
+            {TAB_KEYS.map((g) => {
+              const count = grouped?.[g]?.length ?? 0;
+              return (
+                <TabsTrigger
+                  key={g}
+                  value={g}
+                  className="flex-1 min-w-0 flex items-center justify-center gap-1 text-xs px-2 py-1.5"
+                >
+                  <span className="truncate">{t(`tabs.${g}`)}</span>
+                  <span
+                    className="inline-flex items-center justify-center min-w-[1rem] rounded-full border border-border px-1 text-[10px] font-semibold leading-4 shrink-0
+                               bg-secondary text-secondary-foreground
+                               [[data-state=active]_&]:bg-background
+                               [[data-state=active]_&]:text-primary"
                   >
-                    <span>{t(`tabs.${g}`)}</span>
-                    <span
-                      className="inline-flex items-center justify-center min-w-[1.25rem] rounded-full border border-border px-1.5 text-[10px] font-semibold leading-4
-                                 bg-secondary text-secondary-foreground
-                                 [[data-state=active]_&]:bg-background
-                                 [[data-state=active]_&]:text-primary"
-                    >
-                      {count}
-                    </span>
-                  </TabsTrigger>
-                );
-              })}
-            </TabsList>
-          </div>
+                    {count}
+                  </span>
+                </TabsTrigger>
+              );
+            })}
+          </TabsList>
 
           {TAB_KEYS.map((g) => (
             <TabsContent key={g} value={g} className="mt-0">

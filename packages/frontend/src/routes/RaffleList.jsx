@@ -401,11 +401,9 @@ const RaffleList = () => {
                   <TabsTrigger
                     key={g}
                     value={g}
-                    className="flex items-center gap-2 no-underline hover:no-underline"
+                    className="flex items-center gap-2"
                   >
-                    <span className="underline-offset-4 [[data-state=inactive]_&]:underline">
-                      {t(`tabs.${g}`)}
-                    </span>
+                    <span>{t(`tabs.${g}`)}</span>
                     <span
                       className="inline-flex items-center justify-center min-w-[1.5rem] rounded-full border border-border px-2 text-xs font-semibold leading-5
                                  bg-secondary text-secondary-foreground
