@@ -39,6 +39,7 @@ function makeFakeDb({ existing = null } = {}) {
     getSmartAccountByEoa: vi.fn().mockResolvedValue(existing),
     upsertSmartAccount: vi.fn().mockResolvedValue(undefined),
     markFunded: vi.fn().mockResolvedValue(undefined),
+    clearFunded: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -160,6 +161,128 @@ describe("ensureSmartAccount", () => {
     expect(db.upsertSmartAccount).toHaveBeenCalledWith({
       eoa: EOA_LC,
       sma: SMA_LC,
+    });
+  });
+
+  describe("smart-wallet walletType (Issue #117 — Farcaster airdrop fix)", () => {
+    it("skips factory call and uses eoa as sma when walletType=farcaster-miniapp", async () => {
+      const db = makeFakeDb({ existing: null });
+      const chain = makeFakeChain(SMA);
+      const airdrop = makeFakeAirdrop();
+
+      const result = await ensureSmartAccount({
+        eoa: EOA,
+        db,
+        chain,
+        airdrop,
+        network: "local",
+        walletType: "farcaster-miniapp",
+      });
+
+      expect(chain.readContract).not.toHaveBeenCalled();
+      expect(db.upsertSmartAccount).toHaveBeenCalledWith({
+        eoa: EOA_LC,
+        sma: EOA_LC, // sma === eoa for smart-wallet types
+      });
+      expect(airdrop.transferToSma).toHaveBeenCalledWith(EOA_LC);
+      expect(result).toEqual({ eoa: EOA_LC, sma: EOA_LC, isNew: true });
+    });
+
+    it("skips factory call and uses eoa as sma when walletType=coinbase-smart", async () => {
+      const db = makeFakeDb({ existing: null });
+      const chain = makeFakeChain(SMA);
+      const airdrop = makeFakeAirdrop();
+
+      const result = await ensureSmartAccount({
+        eoa: EOA,
+        db,
+        chain,
+        airdrop,
+        network: "local",
+        walletType: "coinbase-smart",
+      });
+
+      expect(chain.readContract).not.toHaveBeenCalled();
+      expect(result.sma).toBe(EOA_LC);
+      expect(airdrop.transferToSma).toHaveBeenCalledWith(EOA_LC);
+    });
+
+    it("still derives via factory when walletType=desktop-eoa", async () => {
+      const db = makeFakeDb({ existing: null });
+      const chain = makeFakeChain(SMA);
+      const airdrop = makeFakeAirdrop();
+
+      const result = await ensureSmartAccount({
+        eoa: EOA,
+        db,
+        chain,
+        airdrop,
+        network: "local",
+        walletType: "desktop-eoa",
+      });
+
+      expect(chain.readContract).toHaveBeenCalledTimes(1);
+      expect(result.sma).toBe(SMA_LC);
+      expect(airdrop.transferToSma).toHaveBeenCalledWith(SMA_LC);
+    });
+
+    it("repoints + clears funded_at + re-airdrops when stored sma disagrees with expected (smart-wallet user pre-fix)", async () => {
+      // Pre-fix row: backend derived sma via factory but user is Farcaster.
+      // The prior airdrop landed at SMA_LC, but the user trades from EOA_LC.
+      const db = makeFakeDb({
+        existing: {
+          eoa: EOA_LC,
+          sma: SMA_LC, // wrong — factory-derived
+          funded_at: new Date().toISOString(),
+        },
+      });
+      const chain = makeFakeChain(SMA);
+      const airdrop = makeFakeAirdrop();
+
+      const result = await ensureSmartAccount({
+        eoa: EOA,
+        db,
+        chain,
+        airdrop,
+        network: "local",
+        walletType: "farcaster-miniapp",
+      });
+
+      expect(chain.readContract).not.toHaveBeenCalled();
+      expect(db.upsertSmartAccount).toHaveBeenCalledWith({
+        eoa: EOA_LC,
+        sma: EOA_LC, // repointed
+      });
+      expect(db.clearFunded).toHaveBeenCalledWith(EOA_LC);
+      expect(airdrop.transferToSma).toHaveBeenCalledWith(EOA_LC);
+      expect(result.sma).toBe(EOA_LC);
+    });
+
+    it("fast-paths when smart-wallet row already has sma=eoa and funded_at set", async () => {
+      const db = makeFakeDb({
+        existing: {
+          eoa: EOA_LC,
+          sma: EOA_LC,
+          funded_at: new Date().toISOString(),
+        },
+      });
+      const chain = makeFakeChain(SMA);
+      const airdrop = makeFakeAirdrop();
+
+      const result = await ensureSmartAccount({
+        eoa: EOA,
+        db,
+        chain,
+        airdrop,
+        network: "local",
+        walletType: "farcaster-miniapp",
+      });
+
+      expect(chain.readContract).not.toHaveBeenCalled();
+      expect(db.upsertSmartAccount).not.toHaveBeenCalled();
+      expect(db.clearFunded).not.toHaveBeenCalled();
+      expect(airdrop.transferToSma).not.toHaveBeenCalled();
+      expect(result).toEqual({ eoa: EOA_LC, sma: EOA_LC, isNew: false });
     });
   });
 });

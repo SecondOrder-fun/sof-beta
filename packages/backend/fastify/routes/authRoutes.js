@@ -60,11 +60,14 @@ export default async function authRoutes(fastify) {
 
   /**
    * POST /verify
-   * Body (wallet):    { method: "wallet", address, signature, nonce }
+   * Body (wallet):    { method: "wallet", address, signature, nonce, walletType? }
    * Body (farcaster): { method: "farcaster", message, signature, nonce }
    *
-   * Validates nonce, dispatches to method-specific verification,
-   * looks up access level, returns JWT + user.
+   * `walletType` (wallet method only) routes the SMA resolution: smart-
+   * wallet types ("coinbase-smart", "farcaster-miniapp") keep sma=eoa so
+   * airdrops land where the user trades. Omitted/unknown values fall
+   * back to factory derivation. The farcaster method implies
+   * walletType="farcaster-miniapp".
    */
   fastify.post("/verify", async (request, reply) => {
     const { method, nonce, signature } = request.body || {};
@@ -95,9 +98,11 @@ export default async function authRoutes(fastify) {
     let username = null;
     let displayName = null;
     let pfpUrl = null;
+    let walletType;
 
     if (method === "wallet") {
-      const { address } = request.body;
+      const { address, walletType: bodyWalletType } = request.body;
+      walletType = bodyWalletType;
 
       if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
         return reply.code(400).send({ error: "Valid Ethereum address required" });
@@ -137,6 +142,10 @@ export default async function authRoutes(fastify) {
 
     } else if (method === "farcaster") {
       const { message } = request.body;
+      // SIWF auth implies the user is in a Farcaster MiniApp context
+      // (or auth-kit'd from a Farcaster surface). Their connected
+      // address is itself a smart account — skip factory derivation.
+      walletType = "farcaster-miniapp";
 
       if (!message) {
         return reply.code(400).send({ error: "message is required for farcaster method" });
@@ -200,10 +209,11 @@ export default async function authRoutes(fastify) {
     const role = ACCESS_LEVEL_NAMES[accessInfo.level] || "user";
 
     // ── Smart account + admin flag (gasless rewrite §5.3) ──────────
-    // Resolve the user's deterministic SMA via the factory, persist
-    // the row, and (for new users) kick the airdrop relayer to fund it.
-    // ADMIN_EOAS-listed wallets get is_admin flipped to true here on
-    // first auth.
+    // Resolve the user's SMA (factory-derived for plain EOAs, eoa-as-sma
+    // for smart-wallet types) and persist the row. For new users (or
+    // users whose stored sma disagrees with the walletType-derived
+    // expected value) the airdrop relayer fires next. ADMIN_EOAS-listed
+    // wallets get is_admin flipped to true here on first auth.
     let sma = null;
     let isAdmin = false;
     if (walletAddress) {
@@ -214,11 +224,12 @@ export default async function authRoutes(fastify) {
           chain: publicClient,
           airdrop: getAirdropService(fastify.log),
           network: (process.env.NETWORK || "LOCAL").toLowerCase(),
+          walletType,
         });
         sma = sa.sma;
       } catch (err) {
         fastify.log.warn(
-          { err, walletAddress },
+          { err, walletAddress, walletType },
           "ensureSmartAccount failed during auth — continuing without SMA",
         );
       }
