@@ -22,6 +22,12 @@ const resolverMocks = vi.hoisted(() => ({
   mockResolvePair: vi.fn(),
 }));
 
+const supabaseMocks = vi.hoisted(() => ({
+  // Single .maybeSingle() resolver per test — chain builder below.
+  mockMaybeSingle: vi.fn(),
+  hasSupabase: true,
+}));
+
 vi.mock("../../shared/accessService.js", () => ({
   getUserAccess: (...args) => accessMocks.mockGetUserAccess(...args),
 }));
@@ -35,6 +41,23 @@ vi.mock("../../shared/redisClient.js", () => ({
 vi.mock("../../shared/services/addressPairResolver.js", () => ({
   resolveAddressPair: (...args) => resolverMocks.mockResolvePair(...args),
 }));
+
+// Stub supabase chain — accessCache calls
+//   supabase.from("allowlist_entries").select(...).eq(...).limit(1).maybeSingle()
+// We only assert behaviour on the final .maybeSingle() return value;
+// the intermediate chain just returns itself.
+vi.mock("../../shared/supabaseClient.js", () => {
+  const chain = {
+    select: () => chain,
+    eq: () => chain,
+    limit: () => chain,
+    maybeSingle: (...args) => supabaseMocks.mockMaybeSingle(...args),
+  };
+  return {
+    hasSupabase: true,
+    supabase: { from: () => chain },
+  };
+});
 
 import {
   getCachedUserAccess,
@@ -60,6 +83,8 @@ beforeEach(() => {
   redisMocks.mockSet.mockReset();
   redisMocks.mockDel.mockReset();
   redisMocks.mockGetClient.mockReset();
+  supabaseMocks.mockMaybeSingle.mockReset();
+  supabaseMocks.mockMaybeSingle.mockResolvedValue({ data: null, error: null });
 
   redisMocks.mockGetClient.mockReturnValue({
     get: (...args) => redisMocks.mockGet(...args),
@@ -276,7 +301,8 @@ describe("invalidateUserAccessCache symmetric busting", () => {
     expect(redisMocks.mockDel).toHaveBeenCalledWith(`access:wallet:${EOA_LC}`);
   });
 
-  it("skips pair resolution entirely when only fid is supplied", async () => {
+  it("skips pair resolution entirely when only fid is supplied and the FID has no allowlist row", async () => {
+    // Default mock already returns { data: null } — no wallet derivable.
     await invalidateUserAccessCache({ fid: 12345 }, makeLogger());
     expect(resolverMocks.mockResolvePair).not.toHaveBeenCalled();
     expect(redisMocks.mockDel).toHaveBeenCalledWith("access:fid:12345");
@@ -287,5 +313,116 @@ describe("invalidateUserAccessCache symmetric busting", () => {
     resolverMocks.mockResolvePair.mockResolvedValueOnce(null); // simulates the swallow-and-return-null contract
     await invalidateUserAccessCache({ wallet: EOA_LC }, makeLogger());
     expect(redisMocks.mockDel).toHaveBeenCalledWith(`access:wallet:${EOA_LC}`);
+  });
+});
+
+describe("invalidateUserAccessCache FID-only wallet busting (Issue #109)", () => {
+  beforeEach(() => {
+    resolverMocks.mockResolvePair.mockReset();
+  });
+
+  it("looks up wallet from allowlist_entries and busts the wallet key when only fid supplied", async () => {
+    const FID = 9001;
+    const EOA_LC = "0xaaaa000000000000000000000000000000000010";
+    supabaseMocks.mockMaybeSingle.mockResolvedValueOnce({
+      data: { wallet_address: EOA_LC },
+      error: null,
+    });
+    resolverMocks.mockResolvePair.mockResolvedValueOnce(null);
+
+    await invalidateUserAccessCache({ fid: FID }, makeLogger());
+
+    expect(redisMocks.mockDel).toHaveBeenCalledTimes(1);
+    const args = redisMocks.mockDel.mock.calls[0];
+    expect(args).toContain(`access:fid:${FID}`);
+    expect(args).toContain(`access:wallet:${EOA_LC}`);
+  });
+
+  it("also busts the SMA pair key when the derived wallet has one (the Farcaster MiniApp case)", async () => {
+    const FID = 9002;
+    const EOA_LC = "0xaaaa000000000000000000000000000000000011";
+    const SMA_LC = "0xbbbb000000000000000000000000000000000012";
+    supabaseMocks.mockMaybeSingle.mockResolvedValueOnce({
+      data: { wallet_address: EOA_LC },
+      error: null,
+    });
+    resolverMocks.mockResolvePair.mockResolvedValueOnce({
+      eoa: EOA_LC,
+      sma: SMA_LC,
+    });
+
+    await invalidateUserAccessCache({ fid: FID }, makeLogger());
+
+    expect(redisMocks.mockDel).toHaveBeenCalledTimes(1);
+    const args = redisMocks.mockDel.mock.calls[0];
+    expect(args).toContain(`access:fid:${FID}`);
+    expect(args).toContain(`access:wallet:${EOA_LC}`);
+    expect(args).toContain(`access:wallet:${SMA_LC}`);
+  });
+
+  it("lowercases the wallet returned by the lookup", async () => {
+    const FID = 9003;
+    const EOA_MIXED = "0xAaAa000000000000000000000000000000000013";
+    const EOA_LC = EOA_MIXED.toLowerCase();
+    supabaseMocks.mockMaybeSingle.mockResolvedValueOnce({
+      data: { wallet_address: EOA_MIXED },
+      error: null,
+    });
+    resolverMocks.mockResolvePair.mockResolvedValueOnce(null);
+
+    await invalidateUserAccessCache({ fid: FID }, makeLogger());
+
+    const args = redisMocks.mockDel.mock.calls[0];
+    expect(args).toContain(`access:wallet:${EOA_LC}`);
+    expect(args).not.toContain(`access:wallet:${EOA_MIXED}`);
+  });
+
+  it("falls back to fid-only busting when the FID has no allowlist row (best-effort)", async () => {
+    supabaseMocks.mockMaybeSingle.mockResolvedValueOnce({
+      data: null,
+      error: null,
+    });
+    await invalidateUserAccessCache({ fid: 9004 }, makeLogger());
+
+    expect(resolverMocks.mockResolvePair).not.toHaveBeenCalled();
+    expect(redisMocks.mockDel).toHaveBeenCalledWith("access:fid:9004");
+  });
+
+  it("falls back to fid-only busting when the Supabase lookup errors (does not throw)", async () => {
+    supabaseMocks.mockMaybeSingle.mockResolvedValueOnce({
+      data: null,
+      error: { code: "PGRST500", message: "boom" },
+    });
+    const logger = makeLogger();
+    await expect(
+      invalidateUserAccessCache({ fid: 9005 }, logger),
+    ).resolves.not.toThrow();
+
+    expect(redisMocks.mockDel).toHaveBeenCalledWith("access:fid:9005");
+    expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it("prefers caller-supplied wallet over the FID lookup when both are present", async () => {
+    const FID = 9006;
+    const SUPPLIED_LC = "0xcccc000000000000000000000000000000000020";
+    const DB_WALLET = "0xdddd000000000000000000000000000000000021";
+    // The lookup would return DB_WALLET — but the caller-supplied
+    // wallet must win because that's the address they just mutated.
+    supabaseMocks.mockMaybeSingle.mockResolvedValueOnce({
+      data: { wallet_address: DB_WALLET },
+      error: null,
+    });
+    resolverMocks.mockResolvePair.mockResolvedValueOnce(null);
+
+    await invalidateUserAccessCache(
+      { fid: FID, wallet: SUPPLIED_LC },
+      makeLogger(),
+    );
+
+    const args = redisMocks.mockDel.mock.calls[0];
+    expect(args).toContain(`access:wallet:${SUPPLIED_LC}`);
+    expect(args).not.toContain(`access:wallet:${DB_WALLET}`);
+    // And we shouldn't have hit the DB at all when wallet was supplied.
+    expect(supabaseMocks.mockMaybeSingle).not.toHaveBeenCalled();
   });
 });
