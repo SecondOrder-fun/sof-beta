@@ -10,6 +10,7 @@
 import { getUserAccess } from "./accessService.js";
 import { redisClient } from "./redisClient.js";
 import { resolveAddressPair } from "./services/addressPairResolver.js";
+import { supabase, hasSupabase } from "./supabaseClient.js";
 
 export const ACCESS_CACHE_TTL_SECONDS = 60;
 const KEY_PREFIX = "access:";
@@ -90,38 +91,97 @@ export async function getCachedUserAccess(identifier, logger = console) {
 }
 
 /**
+ * Look up the wallet associated with an FID via the allowlist_entries
+ * table. Used by invalidateUserAccessCache to derive the wallet keys
+ * that need busting for FID-only invalidations (Farcaster webhooks,
+ * FID-only allowlist mutations). No `is_active` filter — we want the
+ * row even after a soft-delete mutation, because that's exactly the
+ * mutation that triggered the invalidation.
+ *
+ * Best-effort: returns null on any error (Supabase unconfigured, query
+ * failure, no matching row). Callers fall back to the existing
+ * FID-only behaviour — at worst the wallet-keyed entry stays stale for
+ * the 60s TTL.
+ *
+ * @param {number|string} fid
+ * @param {{warn: Function}} [logger=console]
+ * @returns {Promise<string|null>} lowercased wallet address, or null
+ */
+async function resolveWalletByFid(fid, logger = console) {
+  if (!hasSupabase) return null;
+  try {
+    const { data, error } = await supabase
+      .from("allowlist_entries")
+      .select("wallet_address")
+      .eq("fid", fid)
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      logger.warn?.(
+        { err: error, fid },
+        "[accessCache] wallet-by-fid lookup failed",
+      );
+      return null;
+    }
+    const w = data?.wallet_address;
+    return typeof w === "string" && w.length > 0 ? w.toLowerCase() : null;
+  } catch (err) {
+    logger.warn?.({ err, fid }, "[accessCache] wallet-by-fid threw");
+    return null;
+  }
+}
+
+/**
  * Invalidate the cache entry for a {fid, wallet} pair. Call this from
  * route handlers after any mutation that flips access (allowlist add,
  * access-level update, removal). The 60s TTL is the safety net — explicit
  * invalidation makes admin changes reflect immediately instead of after
  * the next minute.
  *
- * Both keys are busted when both identifiers are present, in case the
- * caller only ever queries via one or the other.
+ * Wallet keys (including SMA-paired counterparts) are busted whenever
+ * a wallet can be derived, even when the caller only supplied a FID:
+ * Farcaster webhooks and FID-only allowlist mutations would otherwise
+ * leave `access:wallet:0xEOA` / `access:wallet:0xSMA` entries holding
+ * the pre-mutation verdict for up to 60s. See Issue #109.
  *
  * @param {{fid?: number|string, wallet?: string}} identifier
  * @param {{warn: Function}} [logger=console]
  */
 export async function invalidateUserAccessCache(identifier, logger = console) {
   const keys = [];
-  if (
+
+  const hasFid =
     identifier.fid !== undefined &&
     identifier.fid !== null &&
-    identifier.fid !== ""
-  ) {
+    identifier.fid !== "";
+  const suppliedWallet =
+    typeof identifier.wallet === "string" && identifier.wallet.length > 0
+      ? identifier.wallet.toLowerCase()
+      : null;
+
+  if (hasFid) {
     keys.push(`${KEY_PREFIX}fid:${identifier.fid}`);
   }
-  if (typeof identifier.wallet === "string" && identifier.wallet.length > 0) {
-    const lc = identifier.wallet.toLowerCase();
-    keys.push(`${KEY_PREFIX}wallet:${lc}`);
+
+  // Derive a wallet to bust against. The caller-supplied wallet wins;
+  // when only a FID is present, look up the wallet from allowlist_entries
+  // so we can run the existing pair-busting against the same address an
+  // admin route would have used to populate the wallet-keyed entry.
+  let walletForBust = suppliedWallet;
+  if (!walletForBust && hasFid) {
+    walletForBust = await resolveWalletByFid(identifier.fid, logger);
+  }
+
+  if (walletForBust) {
+    keys.push(`${KEY_PREFIX}wallet:${walletForBust}`);
 
     // Symmetric busting: if this wallet has a paired counterpart in
     // smart_accounts, invalidate its key too. Resolution is best-effort —
     // a failure here doesn't block invalidating the primary key.
-    const pair = await resolveAddressPair(lc, logger);
+    const pair = await resolveAddressPair(walletForBust, logger);
     if (pair) {
-      const alt = lc === pair.eoa ? pair.sma : pair.eoa;
-      if (alt && alt !== lc) {
+      const alt = walletForBust === pair.eoa ? pair.sma : pair.eoa;
+      if (alt && alt !== walletForBust) {
         keys.push(`${KEY_PREFIX}wallet:${alt}`);
       }
     }
