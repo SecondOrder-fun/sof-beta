@@ -21,6 +21,7 @@ import { RaffleABI as raffleAbi, SOFBondingCurveABI as sofBondingCurveAbi, InfoF
 import { getChainByKey } from "../src/config/chain.js";
 import { authenticateFastify } from "../shared/auth.js";
 import { resolveCorsOrigin } from "../shared/parseCorsOrigins.js";
+import { recordMount } from "../shared/mountStatus.js";
 
 // NOTE: env validation happens BEFORE this module loads, in fastify/boot.js.
 // Putting the assert here would fire too late — ESM hoists transitive imports
@@ -84,223 +85,111 @@ app.addHook("onRoute", (routeOptions) => {
   }
 });
 
-// Register routes (use default export from dynamic import)
-try {
-  await app.register((await import("./routes/healthRoutes.js")).default, {
-    prefix: "/api",
-  });
-  app.log.info("Mounted /api/health");
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /api/health");
+/**
+ * Mount a route module. Records the outcome in the shared mountStatus
+ * registry so `/api/health` can report partial-mount deploys. Critical
+ * routes re-throw on failure — the boot process exits non-zero rather
+ * than push the broken state downstream to user 404s. See Issue #102 /
+ * followup_env_validator_failfast.
+ *
+ * Non-critical routes (admin diagnostics, optional integrations) keep
+ * the swallow-and-log behaviour so a single broken module doesn't take
+ * the whole server down.
+ *
+ * @param {string} key - Registry key + log label. Usually equals the
+ *   URL prefix; the `/api/access` triplet uses disambiguated keys (e.g.
+ *   "/api/access (groups)") since three modules share one prefix.
+ * @param {() => Promise<{default: Function}>} importer - dynamic-import
+ *   thunk; we run it inside the try so module-load throws also count.
+ * @param {object} [opts]
+ * @param {boolean} [opts.critical=false] - re-throw on failure if true
+ * @param {string} [opts.prefix] - URL prefix passed to app.register
+ *   (defaults to `key`).
+ * @param {object} [opts.registerOptions] - extra options merged into the
+ *   register() call (e.g. injecting a shared client).
+ */
+async function mountRoute(key, importer, opts = {}) {
+  const { critical = false, prefix = key, registerOptions } = opts;
+  try {
+    const mod = await importer();
+    await app.register(mod.default, { prefix, ...(registerOptions || {}) });
+    recordMount(key, { ok: true, critical });
+    app.log.info(`Mounted ${key}`);
+  } catch (err) {
+    recordMount(key, {
+      ok: false,
+      critical,
+      error: err?.message || String(err),
+    });
+    app.log.error({ err, key, critical }, `Failed to mount ${key}`);
+    if (critical) {
+      // Re-throw so the top-level await unwinds and boot.js' catch fires
+      // a process.exit(1). Silent partial-mount deploys are the bug
+      // Issue #102 closes.
+      throw err;
+    }
+  }
 }
 
-try {
-  await app.register(
-    (await import("./routes/farcasterWebhookRoutes.js")).default,
-    {
-      prefix: "/api",
-    },
-  );
-  app.log.info("Mounted /api/webhook/farcaster");
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /api/webhook/farcaster");
-}
+// ── Route mounts ────────────────────────────────────────────────────
+//
+// Critical mounts (auth, paymaster/sof, paymaster/local) re-throw on
+// failure so a misconfigured deploy fails loudly at boot instead of
+// silently 404ing routes at request time. Everything else logs and
+// continues so a single broken diagnostic doesn't take down the
+// platform.
 
-try {
-  await app.register((await import("./routes/usernameRoutes.js")).default, {
-    prefix: "/api/usernames",
-  });
-  app.log.info("Mounted /api/usernames");
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /api/usernames");
-}
+await mountRoute("/api", () => import("./routes/healthRoutes.js"));
+await mountRoute("/api", () => import("./routes/farcasterWebhookRoutes.js"));
+await mountRoute("/api/usernames", () => import("./routes/usernameRoutes.js"));
+await mountRoute("/api/users", () => import("./routes/userRoutes.js"));
+await mountRoute("/api/infofi", () => import("./routes/infoFiRoutes.js"));
+await mountRoute("/api/admin", () => import("./routes/adminRoutes.js"));
+await mountRoute("/api/raffle", () => import("./routes/raffleTransactionRoutes.js"));
+await mountRoute("/api/allowlist", () => import("./routes/allowlistRoutes.js"));
+await mountRoute("/api/nft-drops", () => import("./routes/nftDropRoutes.js"));
 
-try {
-  await app.register((await import("./routes/userRoutes.js")).default, {
-    prefix: "/api/users",
-  });
-  app.log.info("Mounted /api/users");
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /api/users");
-}
+// CRITICAL: auth/verify failure means nobody can sign in.
+await mountRoute("/api/auth", () => import("./routes/authRoutes.js"), {
+  critical: true,
+});
 
-try {
-  await app.register((await import("./routes/infoFiRoutes.js")).default, {
-    prefix: "/api/infofi",
-  });
-  app.log.info("Mounted /api/infofi");
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /api/infofi");
-}
+// /api/access is split across three modules (access, groups,
+// route-config) for historical reasons; each gets its own registry
+// entry under a disambiguated key so a partial mount is observable.
+await mountRoute("/api/access", () => import("./routes/accessRoutes.js"));
+await mountRoute("/api/access (groups)", () => import("./routes/groupRoutes.js"), {
+  prefix: "/api/access",
+});
+await mountRoute(
+  "/api/access (route-config)",
+  () => import("./routes/routeConfigRoutes.js"),
+  { prefix: "/api/access" },
+);
 
-try {
-  await app.register((await import("./routes/adminRoutes.js")).default, {
-    prefix: "/api/admin",
-  });
-  app.log.info("Mounted /api/admin");
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /api/admin");
-}
+await mountRoute("/api/seasons", () => import("./routes/seasonRoutes.js"));
+await mountRoute("/api/gating", () => import("./routes/gatingRoutes.js"));
+await mountRoute("/api/airdrop", () => import("./routes/airdropRoutes.js"));
+await mountRoute("/api/paymaster", () => import("./routes/paymasterProxyRoutes.js"));
 
-try {
-  await app.register(
-    (await import("./routes/raffleTransactionRoutes.js")).default,
-    {
-      prefix: "/api/raffle",
-    },
-  );
-  app.log.info("Mounted /api/raffle");
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /api/raffle");
-}
+// CRITICAL: paymaster/local is the local-dev gasless rail; mount
+// failure there means LOCAL deploys can't submit UserOps.
+await mountRoute("/api/paymaster/local", () => import("./routes/localBundlerRoutes.js"), {
+  critical: true,
+});
 
-try {
-  await app.register((await import("./routes/allowlistRoutes.js")).default, {
-    prefix: "/api/allowlist",
-  });
-  app.log.info("Mounted /api/allowlist");
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /api/allowlist");
-}
+// CRITICAL: paymaster/sof is the ERC-7677 paymaster signing service.
+// Mount errors historically came from pickChain() throwing on missing
+// RPC envs (PR #74 incident) — exactly the silent-404 pattern this
+// followup closes.
+await mountRoute("/api/paymaster/sof", () => import("./routes/paymasterServiceRoutes.js"), {
+  critical: true,
+});
 
-try {
-  await app.register((await import("./routes/nftDropRoutes.js")).default, {
-    prefix: "/api/nft-drops",
-  });
-  app.log.info("Mounted /api/nft-drops");
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /api/nft-drops");
-}
-
-try {
-  await app.register((await import("./routes/authRoutes.js")).default, {
-    prefix: "/api/auth",
-  });
-  app.log.info("Mounted /api/auth");
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /api/auth");
-}
-
-try {
-  await app.register((await import("./routes/accessRoutes.js")).default, {
-    prefix: "/api/access",
-  });
-  app.log.info("Mounted /api/access");
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /api/access");
-}
-
-try {
-  await app.register((await import("./routes/groupRoutes.js")).default, {
-    prefix: "/api/access",
-  });
-  app.log.info("Mounted /api/access (groups)");
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /api/access (groups)");
-}
-
-try {
-  await app.register((await import("./routes/routeConfigRoutes.js")).default, {
-    prefix: "/api/access",
-  });
-  app.log.info("Mounted /api/access (route-config)");
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /api/access (route-config)");
-}
-
-try {
-  await app.register((await import("./routes/seasonRoutes.js")).default, {
-    prefix: "/api/seasons",
-  });
-  app.log.info("Mounted /api/seasons");
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /api/seasons");
-}
-
-try {
-  await app.register((await import("./routes/gatingRoutes.js")).default, {
-    prefix: "/api/gating",
-  });
-  app.log.info("Mounted /api/gating");
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /api/gating");
-}
-
-try {
-  await app.register((await import("./routes/airdropRoutes.js")).default, {
-    prefix: "/api/airdrop",
-  });
-  app.log.info("Mounted /api/airdrop");
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /api/airdrop");
-}
-
-try {
-  await app.register((await import("./routes/paymasterProxyRoutes.js")).default, {
-    prefix: "/api/paymaster",
-  });
-  app.log.info("Mounted /api/paymaster");
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /api/paymaster");
-}
-
-try {
-  await app.register((await import("./routes/localBundlerRoutes.js")).default, {
-    prefix: "/api/paymaster/local",
-  });
-  app.log.info("Mounted /api/paymaster/local");
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /api/paymaster/local");
-}
-
-// SOFPaymaster ERC-7677 service — paymaster signing only (Pimlico is the
-// bundler in production). Mounted on every NETWORK; reads the contract
-// address from @sof/contracts/deployments. See
-// packages/backend/shared/aa/bundler.js.
-try {
-  await app.register((await import("./routes/paymasterServiceRoutes.js")).default, {
-    prefix: "/api/paymaster/sof",
-  });
-  app.log.info("Mounted /api/paymaster/sof");
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /api/paymaster/sof");
-}
-
-try {
-  await app.register((await import("./routes/delegationRoutes.js")).default, {
-    prefix: "/api/wallet",
-  });
-  app.log.info("Mounted /api/wallet");
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /api/wallet");
-}
-
-try {
-  await app.register((await import("./routes/rolloverRoutes.js")).default, {
-    prefix: "/api/rollover",
-  });
-  app.log.info("Mounted /api/rollover");
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /api/rollover");
-}
-
-try {
-  await app.register((await import("./routes/sseRoutes.js")).default, {
-    prefix: "/sse",
-  });
-  app.log.info("Mounted /sse");
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /sse");
-}
-
-try {
-  await app.register((await import("./routes/curveRoutes.js")).default, {
-    prefix: "/api/curve",
-  });
-  app.log.info("Mounted /api/curve");
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /api/curve");
-}
+await mountRoute("/api/wallet", () => import("./routes/delegationRoutes.js"));
+await mountRoute("/api/rollover", () => import("./routes/rolloverRoutes.js"));
+await mountRoute("/sse", () => import("./routes/sseRoutes.js"));
+await mountRoute("/api/curve", () => import("./routes/curveRoutes.js"));
 
 // Build the Blockscout client up-front so multiple routes (the proxy
 // itself + /api/token/sof/transactions/:user) can share one instance
@@ -324,35 +213,17 @@ if (process.env.BLOCKSCOUT_BASE_URL && process.env.BLOCKSCOUT_API_KEY) {
   app.log.warn("⚠️  BLOCKSCOUT_BASE_URL/API_KEY missing; cold reads disabled");
 }
 
-try {
-  await app.register((await import("./routes/tokenRoutes.js")).default, {
-    prefix: "/api/token",
-    blockscoutClient: sharedBlockscoutClient,
-  });
-  app.log.info("Mounted /api/token");
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /api/token");
-}
+await mountRoute("/api/token", () => import("./routes/tokenRoutes.js"), {
+  registerOptions: { blockscoutClient: sharedBlockscoutClient },
+});
+await mountRoute("/api/chain", () => import("./routes/chainTimeRoutes.js"));
 
-try {
-  await app.register((await import("./routes/chainTimeRoutes.js")).default, {
-    prefix: "/api/chain",
-  });
-  app.log.info("Mounted /api/chain");
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /api/chain");
-}
-
-try {
-  if (sharedBlockscoutClient) {
-    await app.register((await import("./routes/blockscoutRoutes.js")).default, {
-      prefix: "/api/blockscout",
-      blockscoutClient: sharedBlockscoutClient,
-    });
-    app.log.info("✅ Blockscout proxy registered at /api/blockscout");
-  }
-} catch (err) {
-  app.log.error({ err }, "Failed to mount /api/blockscout");
+if (sharedBlockscoutClient) {
+  await mountRoute(
+    "/api/blockscout",
+    () => import("./routes/blockscoutRoutes.js"),
+    { registerOptions: { blockscoutClient: sharedBlockscoutClient } },
+  );
 }
 
 // Debug: print all mounted routes

@@ -1,5 +1,6 @@
 import process from "node:process";
 import { hasSupabase, db } from "../../shared/supabaseClient.js";
+import { getMountFailures } from "../../shared/mountStatus.js";
 
 /**
  * Health check routes
@@ -7,14 +8,23 @@ import { hasSupabase, db } from "../../shared/supabaseClient.js";
  * Exposes GET /health (typically mounted under prefix /api → /api/health).
  * - Always returns HTTP 200 so platform healthchecks don't flap.
  * - Body.status is "OK" or "DEGRADED" based on checks.
+ * - `mountFailures` lists any route module that failed to mount at
+ *   boot (Issue #102). Empty list = healthy. Non-empty = partial-mount
+ *   deploy — affected routes silently 404 until restart. Critical
+ *   failures (auth, paymaster/sof, paymaster/local) never reach this
+ *   endpoint because they fail boot; what shows up here is non-critical
+ *   diagnostics / optional integrations.
  */
 async function healthRoutes(fastify) {
   fastify.get("/health", async (_request, reply) => {
     const startedAt = Date.now();
 
+    const mountFailures = getMountFailures();
+
     const checks = {
       supabase: { ok: true },
       rpc: { ok: true },
+      mounts: { ok: mountFailures.length === 0 },
     };
 
     // Supabase check: simple lightweight query against a small table
@@ -76,12 +86,15 @@ async function healthRoutes(fastify) {
     }
 
     const overallStatus =
-      checks.supabase.ok && checks.rpc.ok ? "OK" : "DEGRADED";
+      checks.supabase.ok && checks.rpc.ok && checks.mounts.ok
+        ? "OK"
+        : "DEGRADED";
 
     const payload = {
       status: overallStatus,
       timestamp: new Date().toISOString(),
       checks,
+      mountFailures,
       _meta: {
         responseTimeMs: Date.now() - startedAt,
       },
