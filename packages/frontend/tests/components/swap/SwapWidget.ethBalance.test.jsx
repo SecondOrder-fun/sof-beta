@@ -1,18 +1,19 @@
-// tests/components/swap/SwapWidget.placeholder.test.jsx
-// TDD: Verify "Enter amount" placeholder is not clipped by pr-14 when Max button is hidden
+// tests/components/swap/SwapWidget.ethBalance.test.jsx
+// Issue #119: header surfaces native ETH balance alongside $SOF balance so
+// users can see whether they have gas to transact.
 
 import { describe, test, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import SwapWidget from "@/components/swap/SwapWidget";
 
-// Mock wagmi
 vi.mock("wagmi", () => ({
   useAccount: vi.fn(() => ({ address: "0xUser", isConnected: true })),
   useChainId: vi.fn(() => 84532),
-  useBalance: vi.fn(() => ({ data: undefined })),
+  useBalance: vi.fn(() => ({
+    data: { formatted: "1.2345", symbol: "ETH", value: 1234500000000000000n, decimals: 18 },
+  })),
 }));
 
-// Mock swap hooks
 vi.mock("@/hooks/swap/useSwapProvider", () => ({
   useSwapProvider: vi.fn(() => ({ exchangeAddress: "0xExchange", getQuote: vi.fn(), getDailyUsage: vi.fn() })),
 }));
@@ -32,10 +33,7 @@ vi.mock("@/hooks/useSOFToken", () => ({
 }));
 
 vi.mock("@/config/contracts", () => ({
-  getContractAddresses: () => ({
-    SOF: "0xSOF",
-    USDC: "0xUSDC",
-  }),
+  getContractAddresses: () => ({ SOF: "0xSOF", USDC: "0xUSDC" }),
 }));
 
 vi.mock("@/lib/wagmi", () => ({
@@ -44,32 +42,28 @@ vi.mock("@/lib/wagmi", () => ({
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key) => {
-      const map = {
-        title: "Swap",
-        youPay: "You Pay",
-        enterAmount: "Enter amount",
-        youReceive: "You Receive",
-        swap: "Swap",
-        max: "Max",
-      };
-      return map[key] || key;
-    },
+    t: (key, fallback) => fallback ?? key,
     i18n: { language: "en" },
   }),
 }));
 
-// Mock TokenSelector
 vi.mock("@/components/swap/TokenSelector", () => ({
   default: ({ value }) => <div data-testid="token-selector">{value}</div>,
 }));
 
-describe("SwapWidget - placeholder padding", () => {
-  test("input does NOT have pr-14 class when buying SOF (no Max button)", () => {
+describe("SwapWidget - ETH balance header", () => {
+  test("renders ETH balance from wagmi useBalance alongside the $SOF row", () => {
     render(<SwapWidget />);
 
-    const input = screen.getByPlaceholderText("Enter amount");
-    // When buying SOF (default), Max button is not shown, so pr-14 should NOT be present
-    expect(input.className).not.toContain("pr-14");
+    expect(screen.getByText("Your ETH balance:")).toBeInTheDocument();
+    expect(screen.getByText("1.2345")).toBeInTheDocument();
+    expect(screen.getByText("ETH")).toBeInTheDocument();
+  });
+
+  test("still shows the $SOF balance row", () => {
+    render(<SwapWidget />);
+
+    expect(screen.getByText("Your $SOF balance:")).toBeInTheDocument();
+    expect(screen.getByText("100")).toBeInTheDocument();
   });
 });
