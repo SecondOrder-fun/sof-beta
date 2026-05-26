@@ -16,6 +16,11 @@ import TokenSelector from './TokenSelector';
 
 const ETH_ADDRESS = '0x0000000000000000000000000000000000000000';
 
+// SOFExchange.getDailyUsage() returns `type(uint256).max` for `remaining`
+// when no daily sell limit is configured. Treat that as "unlimited" and
+// suppress the panel rather than rendering ~1.16e59 $SOF.
+const UNLIMITED_DAILY_REMAINING = (2n ** 256n) - 1n;
+
 /**
  * Build the token list from contract addresses.
  *
@@ -350,8 +355,11 @@ const SwapWidget = () => {
           </div>
         )}
 
-        {/* Daily sell limit indicator */}
-        {isSellingSOF && dailyUsage && (
+        {/* Daily sell limit indicator — hidden when the contract reports
+            `type(uint256).max`, the sentinel SOFExchange returns when
+            `dailySellLimit == 0` (no limit configured). Without this guard
+            the panel renders a meaningless ~1.16e59 $SOF "remaining". */}
+        {isSellingSOF && dailyUsage && dailyUsage.remaining !== UNLIMITED_DAILY_REMAINING && (
           <div className="rounded-md border border-border bg-muted p-3 space-y-1">
             <p className="text-xs font-medium text-foreground">{t('dailyLimit')}</p>
             <div className="flex justify-between text-xs text-muted-foreground">
