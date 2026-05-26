@@ -77,12 +77,12 @@ const TokenInfoTab = ({
   //
   // The address is set once at season creation and never changes, so this
   // query carries staleTime: Infinity — the result lives in react-query's
-  // cache for the rest of the session. Older curve implementations
-  // exposed the getter under different names (token / raffleToken /
-  // ticketToken / tickets / asset); we probe in parallel and take the
-  // first valid address. viem's batch.multicall aggregator collapses the
-  // five reads into a single aggregate3 call, so the cold-load cost is
-  // one RPC round-trip even though four of the probes revert.
+  // cache for the rest of the session. The canonical getter is
+  // `raffleToken()` (SOFBondingCurve.sol declares `IRaffleToken public
+  // raffleToken;`); the older 5-name probe (token/raffleToken/
+  // ticketToken/tickets/asset) is gone. If a future contract change
+  // renames the getter, the call reverts and the regression is loud —
+  // exactly the behaviour we want vs a silent fallback to a stale name.
   const netKey = getStoredNetworkKey();
   const raffleTokenQuery = useQuery({
     queryKey: ["raffleTokenAddress", netKey, bondingCurveAddress?.toLowerCase?.()],
@@ -92,28 +92,18 @@ const TokenInfoTab = ({
       const client = buildPublicClient(netKey);
       if (!client) return null;
 
-      const candidateFns = ["token", "raffleToken", "ticketToken", "tickets", "asset"];
-      const results = await Promise.allSettled(
-        candidateFns.map((fn) =>
-          client.readContract({
-            address: bondingCurveAddress,
-            abi: SOFBondingCurveAbi,
-            functionName: fn,
-            args: [],
-          }),
-        ),
-      );
+      const addr = await client.readContract({
+        address: bondingCurveAddress,
+        abi: SOFBondingCurveAbi,
+        functionName: "raffleToken",
+        args: [],
+      });
 
-      const validAddr = results
-        .map((r) => (r.status === "fulfilled" ? r.value : null))
-        .find(
-          (addr) =>
-            typeof addr === "string" &&
-            /^0x[a-fA-F0-9]{40}$/.test(addr) &&
-            addr !== "0x0000000000000000000000000000000000000000",
-        );
-
-      return validAddr ?? bondingCurveAddress;
+      const isValid =
+        typeof addr === "string" &&
+        /^0x[a-fA-F0-9]{40}$/.test(addr) &&
+        addr !== "0x0000000000000000000000000000000000000000";
+      return isValid ? addr : null;
     },
   });
   const raffleTokenAddress = raffleTokenQuery.data ?? null;
