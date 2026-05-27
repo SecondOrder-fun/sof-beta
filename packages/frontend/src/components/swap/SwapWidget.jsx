@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useAccount } from 'wagmi';
+import { useAccount, useBalance } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import { ArrowUpDown } from 'lucide-react';
 
@@ -15,6 +15,11 @@ import { getStoredNetworkKey } from '@/lib/wagmi';
 import TokenSelector from './TokenSelector';
 
 const ETH_ADDRESS = '0x0000000000000000000000000000000000000000';
+
+// SOFExchange.getDailyUsage() returns `type(uint256).max` for `remaining`
+// when no daily sell limit is configured. Treat that as "unlimited" and
+// suppress the panel rather than rendering ~1.16e59 $SOF.
+const UNLIMITED_DAILY_REMAINING = (2n ** 256n) - 1n;
 
 /**
  * Build the token list from contract addresses.
@@ -68,6 +73,10 @@ const SwapWidget = () => {
   const { mutateAsync: executeSwap, isPending, isSuccess, isError, error } =
     useSwapTransaction(exchangeAddress);
   const { balance: sofBalance, refetchBalance } = useSOFToken();
+  // Native ETH balance is read from the connected EOA (not the SMA): users
+  // who decline the gasless / EIP-7702 flow pay gas from their EOA, so the
+  // EOA balance is what tells them whether they can transact.
+  const { data: ethBalance } = useBalance({ address });
 
   // Default: buy SOF with ETH
   const [tokenIn, setTokenIn] = useState(ETH_ADDRESS);
@@ -202,6 +211,13 @@ const SwapWidget = () => {
       })
     : '—';
 
+  const formattedEthBalance = isConnected && ethBalance
+    ? Number(ethBalance.formatted).toLocaleString(undefined, {
+        maximumFractionDigits: 4,
+      })
+    : '—';
+  const ethSymbol = ethBalance?.symbol ?? 'ETH';
+
   // Swap is unavailable when the SOFExchange contract isn't deployed on the
   // active network (currently the case on LOCAL — tracked as a follow-up).
   // Return a degraded card instead of letting every keystroke fire a doomed
@@ -226,18 +242,33 @@ const SwapWidget = () => {
     <Card className="w-full max-w-md mx-auto">
       <CardHeader>
         <CardTitle className="text-foreground">{t('title')}</CardTitle>
-        <div className="mt-2 flex items-baseline justify-between gap-3 rounded-md border px-3 py-2">
-          <span className="text-xs uppercase tracking-wide text-muted-foreground">
-            {t('balanceHeader', 'Your $SOF balance:')}
-          </span>
-          <span className="flex items-baseline gap-1.5">
-            <span className="text-base font-semibold tabular-nums text-foreground">
-              {formattedBalance}
+        <div className="mt-2 space-y-1.5 rounded-md border px-3 py-2">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">
+              {t('balanceHeader', 'Your $SOF balance:')}
             </span>
-            <span className="text-sm font-medium text-muted-foreground">
-              $SOF
+            <span className="flex items-baseline gap-1.5">
+              <span className="text-base font-semibold tabular-nums text-foreground">
+                {formattedBalance}
+              </span>
+              <span className="text-sm font-medium text-muted-foreground">
+                $SOF
+              </span>
             </span>
-          </span>
+          </div>
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">
+              {t('ethBalanceHeader', 'Your ETH balance:')}
+            </span>
+            <span className="flex items-baseline gap-1.5">
+              <span className="text-base font-semibold tabular-nums text-foreground">
+                {formattedEthBalance}
+              </span>
+              <span className="text-sm font-medium text-muted-foreground">
+                {ethSymbol}
+              </span>
+            </span>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -324,8 +355,11 @@ const SwapWidget = () => {
           </div>
         )}
 
-        {/* Daily sell limit indicator */}
-        {isSellingSOF && dailyUsage && (
+        {/* Daily sell limit indicator — hidden when the contract reports
+            `type(uint256).max`, the sentinel SOFExchange returns when
+            `dailySellLimit == 0` (no limit configured). Without this guard
+            the panel renders a meaningless ~1.16e59 $SOF "remaining". */}
+        {isSellingSOF && dailyUsage && dailyUsage.remaining !== UNLIMITED_DAILY_REMAINING && (
           <div className="rounded-md border border-border bg-muted p-3 space-y-1">
             <p className="text-xs font-medium text-foreground">{t('dailyLimit')}</p>
             <div className="flex justify-between text-xs text-muted-foreground">

@@ -1,5 +1,7 @@
 {
   "title": "Get $SOF",
+  "balanceHeader": "Your $SOF balance:",
+  "ethBalanceHeader": "Your ETH balance:",
   "youPay": "You pay",
   "youReceive": "You receive",
   "rate": "Rate",
