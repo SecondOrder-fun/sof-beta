@@ -191,6 +191,13 @@ node scripts/extract-deployment-addresses.js --network testnet
 - SIWE nonces must be alphanumeric (`[a-zA-Z0-9]{8+}`). Use `crypto.randomUUID().replaceAll('-', '')`.
 - Backend `verifySignInMessage` must use the domain from the signed SIWE message, not hardcoded. Use `SIWF_ALLOWED_DOMAINS` env var with wildcard support.
 
+### Apex + www origins (CORS / SIWF)
+Browser origins are an exact-string match — `https://secondorder.fun` and `https://www.secondorder.fun` are different origins, and `secondorder.fun` ≠ `www.secondorder.fun` as SIWF message domains either. When pointing a TLD at Vercel, **both** must appear in:
+- `CORS_ORIGINS` on the backend (Railway): `https://secondorder.fun,https://www.secondorder.fun`
+- `SIWF_ALLOWED_DOMAINS` on the backend: `secondorder.fun,www.secondorder.fun` (or `secondorder.fun,*.secondorder.fun` — the wildcard prefix `*.` matches subdomains but NOT the apex, per `shared/auth.js`).
+
+Symptom of getting this wrong: console shows `No 'Access-Control-Allow-Origin' header is present` from the `www` (or apex) variant the user happens to land on, and every API call from that origin 404/errs net::ERR_FAILED.
+
 ### On-Chain Transactions
 All user-facing on-chain operations must use `useSmartTransactions.executeBatch` (ERC-5792 batched flow). Never use raw `writeContractAsync` for user-facing transactions.
 
