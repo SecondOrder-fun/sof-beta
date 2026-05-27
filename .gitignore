@@ -68,3 +68,9 @@ seed.txt
 # Local dev
 .local-dev-pids/
 .superpowers/
+
+# Claude Code — ignore local-user state, but leave room for shared
+# project settings (.claude/settings.json), commands, and agents that
+# the team may want to commit later.
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
