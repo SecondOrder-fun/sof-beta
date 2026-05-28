@@ -32,6 +32,30 @@ class RaffleTransactionService {
   }
 
   /**
+   * Resolve the current bonding curve address for a season from
+   * season_contracts (upserted by season_id, so it always holds the live
+   * deployment's curve). Used to scope reads so prior-deployment rows sharing
+   * the same season_id partition can't bleed in (#144 / #147).
+   * @returns {Promise<string|null>} lowercased curve address, or null if unknown
+   */
+  async getSeasonCurveAddress(seasonId) {
+    try {
+      const sc = await db.getSeasonContracts(seasonId);
+      return sc?.bonding_curve_address ?? null;
+    } catch (err) {
+      // Don't fail the read on a lookup error, but don't hide it either:
+      // returning null falls back to season-only scope (which can briefly
+      // re-expose prior-deployment rows), so surface the cause.
+      // eslint-disable-next-line no-console
+      console.warn(
+        `getSeasonCurveAddress(${seasonId}) failed; falling back to season-only scope:`,
+        err.message,
+      );
+      return null;
+    }
+  }
+
+  /**
    * Record a transaction from PositionUpdate event (idempotent via tx_hash)
    */
   async recordTransaction({
@@ -45,6 +69,7 @@ class RaffleTransactionService {
     blockTimestamp,
     ticketsBefore,
     ticketsAfter,
+    bondingCurveAddress,
   }) {
     try {
       // Ensure partition exists for this season
@@ -68,6 +93,9 @@ class RaffleTransactionService {
           block_timestamp: blockTimestamp,
           tickets_before: ticketsBefore,
           tickets_after: ticketsAfter,
+          bonding_curve_address: bondingCurveAddress
+            ? bondingCurveAddress.toLowerCase()
+            : null,
         })
         .select()
         .single();
@@ -202,6 +230,7 @@ class RaffleTransactionService {
             ).toISOString(),
             ticketsBefore: oldTicketsNum,
             ticketsAfter: newTicketsNum,
+            bondingCurveAddress,
           });
 
           if (result.alreadyRecorded) {
@@ -289,12 +318,19 @@ class RaffleTransactionService {
    * Uses tickets_after from each user's latest transaction as their current position.
    */
   async getSeasonHolders(seasonId) {
-    const { data, error } = await db.client
+    // Scope to the season's current bonding curve so prior-deployment rows in
+    // the same season_id partition don't bleed in (#147).
+    const curveAddress = await this.getSeasonCurveAddress(seasonId);
+    let query = db.client
       .from("raffle_transactions")
       .select(
         "user_address, tickets_after, block_number, block_timestamp, id",
       )
-      .eq("season_id", seasonId)
+      .eq("season_id", seasonId);
+    if (curveAddress) {
+      query = query.eq("bonding_curve_address", curveAddress);
+    }
+    const { data, error } = await query
       .order("block_number", { ascending: false })
       .order("id", { ascending: false });
 
@@ -359,10 +395,17 @@ class RaffleTransactionService {
       order = "desc",
     } = options;
 
-    const { data, error, count } = await db.client
+    // Scope to the season's current bonding curve so prior-deployment rows in
+    // the same season_id partition don't bleed in (#144).
+    const curveAddress = await this.getSeasonCurveAddress(seasonId);
+    let query = db.client
       .from("raffle_transactions")
       .select("*", { count: "exact" })
-      .eq("season_id", seasonId)
+      .eq("season_id", seasonId);
+    if (curveAddress) {
+      query = query.eq("bonding_curve_address", curveAddress);
+    }
+    const { data, error, count } = await query
       .order("block_timestamp", { ascending: order === "asc" })
       .range(offset, offset + limit - 1);
 
@@ -381,12 +424,19 @@ class RaffleTransactionService {
       order = "desc",
     } = options;
 
+    // Scope to the season's current bonding curve so prior-deployment rows in
+    // the same season_id partition don't bleed in (#144).
+    const curveAddress = await this.getSeasonCurveAddress(seasonId);
     // orderBy is validated at the route layer via ALLOWED_ORDER_COLUMNS whitelist
-    const { data, error } = await db.client
+    let query = db.client
       .from("raffle_transactions")
       .select("*")
       .eq("user_address", userAddress.toLowerCase())
-      .eq("season_id", seasonId)
+      .eq("season_id", seasonId);
+    if (curveAddress) {
+      query = query.eq("bonding_curve_address", curveAddress);
+    }
+    const { data, error } = await query
       .order(orderBy, { ascending: order === "asc" })
       .range(offset, offset + limit - 1);
 

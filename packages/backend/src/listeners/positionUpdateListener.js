@@ -16,7 +16,7 @@ import { historicalOddsService } from "../../shared/historicalOddsService.js";
  * Scan for historical PositionUpdate events that may have been missed
  * (e.g., if the listener was restarted after token purchases occurred)
  */
-async function scanHistoricalPositionUpdateEvents(
+export async function scanHistoricalPositionUpdateEvents(
   bondingCurveAddress,
   bondingCurveAbi,
   raffleAddress,
@@ -98,6 +98,7 @@ async function scanHistoricalPositionUpdateEvents(
             ).toISOString(),
             ticketsBefore: oldTicketsNum,
             ticketsAfter: newTicketsNum,
+            bondingCurveAddress,
           });
 
           if (result.alreadyRecorded) {
@@ -669,6 +670,7 @@ export async function startPositionUpdateListener(
               ).toISOString(),
               ticketsBefore: oldTicketsNum,
               ticketsAfter: newTicketsNum,
+              bondingCurveAddress,
             });
 
             logger.info(`   💾 Transaction recorded: ${log.transactionHash}`);
