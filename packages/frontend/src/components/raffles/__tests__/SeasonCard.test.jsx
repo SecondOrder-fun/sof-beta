@@ -3,9 +3,11 @@ import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, vi } from 'vitest';
 import { SeasonCard } from '../SeasonCard';
 
-// Mock hooks the card depends on
+// Per-test override surface for useCurveState. Default = empty / starting-state
+// so existing variant tests keep working.
+let curveStateMock = { curveSupply: 0n, curveStep: null, allBondSteps: [] };
 vi.mock('@/hooks/useCurveState', () => ({
-  useCurveState: () => ({ curveSupply: 0n, curveStep: { price: 0n }, allBondSteps: [] }),
+  useCurveState: () => curveStateMock,
 }));
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (k) => k }),
@@ -214,6 +216,48 @@ describe('SeasonCard variants', () => {
     // The override badge uses the same Settling label as the card body.
     const labels = screen.getAllByText('settlingResultsInside');
     expect(labels.length).toBeGreaterThanOrEqual(1);
+  });
+
+  // Bug #142 regression: Upcoming (status 0) must derive Starting Price from
+  // the immutable bond-step ladder (allBondSteps[0].price), NOT from the
+  // dynamic curveStep — which is null/zero for any season that has not yet
+  // traded. Reading curveStep.price made the card render "0.0000 SOF" even
+  // when the underlying curve had a real starting price configured.
+  it('Upcoming (0) renders Starting Price from allBondSteps[0], not curveStep', () => {
+    curveStateMock = {
+      curveSupply: 0n,
+      curveStep: null, // backend cache hasn't seen a trade yet
+      allBondSteps: [
+        { rangeTo: 100n, price: 2n * 10n ** 18n }, // 2.0000 SOF
+        { rangeTo: 200n, price: 3n * 10n ** 18n },
+      ],
+    };
+    // Upcoming means startTime is in the future.
+    const FAR_FUTURE = BigInt(Math.floor(Date.now() / 1000) + 3600);
+    const season = {
+      id: 3,
+      status: 0,
+      totalTickets: 0n,
+      config: {
+        name: 'Tokyo Vol.23',
+        startTime: FAR_FUTURE,
+        endTime: FAR_FUTURE + 86400n,
+        bondingCurve: '0xa',
+      },
+    };
+    render(
+      <MemoryRouter>
+        <SeasonCard season={season} renderBadge={noopBadge} winnerSummary={null} />
+      </MemoryRouter>
+    );
+    // Graph still renders (panel reads allBondSteps).
+    expect(screen.getByTestId('curve-mini')).toBeInTheDocument();
+    // Starting Price reads step 0's price, not curveStep.
+    expect(screen.getByText(/^2\.0000/)).toBeInTheDocument();
+    // And does NOT silently fall through to 0.0000.
+    expect(screen.queryByText(/^0\.0000/)).not.toBeInTheDocument();
+    // Reset for downstream tests.
+    curveStateMock = { curveSupply: 0n, curveStep: null, allBondSteps: [] };
   });
 
   it('Completed (5) without suppressWinner still shows the winner (unchanged)', () => {

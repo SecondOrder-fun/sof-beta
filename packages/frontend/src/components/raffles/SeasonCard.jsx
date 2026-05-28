@@ -105,6 +105,20 @@ const SeasonCard = ({ season, renderBadge, winnerSummary, suppressWinner = false
     }
   })();
 
+  // Upcoming seasons have no trades yet, so the backend's currentStep cache
+  // is null and currentPriceLabel falls through to 0.0000. Starting Price is
+  // an immutable property of the curve config, so read it from step 0 of the
+  // bond-step ladder instead.
+  const startingPriceLabel = (() => {
+    try {
+      const first = Array.isArray(allBondSteps) && allBondSteps.length > 0 ? allBondSteps[0] : null;
+      if (!first) return "0.0000";
+      return Number(formatUnits(BigInt(first.price ?? 0n), 18)).toFixed(4);
+    } catch {
+      return "0.0000";
+    }
+  })();
+
   return (
     <Card className="flex flex-col h-full">
       <CardHeader className="py-1 pb-0">
@@ -213,7 +227,7 @@ const SeasonCard = ({ season, renderBadge, winnerSummary, suppressWinner = false
                   })}
                 </div>
                 <div className="font-mono text-base">
-                  {currentPriceLabel} SOF
+                  {startingPriceLabel} SOF
                 </div>
               </div>
             </div>

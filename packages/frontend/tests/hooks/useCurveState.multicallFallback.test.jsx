@@ -13,6 +13,24 @@ vi.mock('@/hooks/chain/sseRegistry', () => ({
   subscribe: vi.fn(() => () => {}),
 }));
 
+// --- chain RPC mocks so the bond-steps fallback doesn't hit a real RPC ---
+// Per-test override of what the on-chain getBondSteps returns. Default: null
+// → buildPublicClient returns null → fallback resolves to []; this matches
+// the pre-fallback behaviour for tests that only exercise the warm path.
+let chainBondStepsMock = null;
+vi.mock('@/lib/viemClient', () => ({
+  buildPublicClient: () =>
+    chainBondStepsMock === null
+      ? null
+      : { readContract: async () => chainBondStepsMock },
+}));
+vi.mock('@/lib/wagmi', () => ({
+  getStoredNetworkKey: () => 'LOCAL',
+}));
+vi.mock('@/utils/abis', () => ({
+  SOFBondingCurveAbi: [],
+}));
+
 const ADDR = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
 function makeWrapper() {
@@ -27,6 +45,7 @@ describe('useCurveState — warm-read + SSE pattern', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.restoreAllMocks();
+    chainBondStepsMock = null;
   });
 
   it('returns BigInt fields from /api/curve/:addr/state response', async () => {
@@ -130,6 +149,43 @@ describe('useCurveState — warm-read + SSE pattern', () => {
     // Allow any pending microtasks
     await new Promise((r) => setTimeout(r, 50));
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  // Bug #142 regression: when the backend cache has not been seeded for a
+  // bonding curve yet (e.g. a season created before the SeasonCreated
+  // seed-on-create logic was deployed), /curve/:addr/steps 404s. Without the
+  // fallback this leaves Upcoming raffle cards with a blank curve graph and
+  // a 0.0000 starting price even though the on-chain step ladder has been
+  // immutable since deployment. The fallback reads getBondSteps via viem and
+  // populates allBondSteps.
+  it('falls back to chain getBondSteps when /curve/:addr/steps returns no data', async () => {
+    chainBondStepsMock = [
+      { rangeTo: 100n, price: 2000000000000000000n }, // 2 SOF
+      { rangeTo: 200n, price: 3000000000000000000n },
+    ];
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: () => Promise.resolve({}),
+    });
+
+    const { useCurveState } = await import('@/hooks/useCurveState');
+
+    const { result } = renderHook(
+      () => useCurveState(ADDR, { isActive: false, enabled: true }),
+      { wrapper: makeWrapper() },
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.allBondSteps).toHaveLength(2);
+      },
+      { timeout: 5000 },
+    );
+
+    expect(result.current.allBondSteps[0].rangeTo).toBe(100n);
+    expect(result.current.allBondSteps[0].price).toBe(2000000000000000000n);
+    expect(result.current.allBondSteps[1].rangeTo).toBe(200n);
   });
 
   it('uses lowerAddr for query key so cache is address-normalised', async () => {

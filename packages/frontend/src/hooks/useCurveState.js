@@ -1,8 +1,11 @@
 // src/hooks/useCurveState.js
 import { useCallback } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useWarmRead } from '@/hooks/chain/useWarmRead';
 import { useLiveSubscription } from '@/hooks/chain/useLiveSubscription';
+import { buildPublicClient } from '@/lib/viemClient';
+import { getStoredNetworkKey } from '@/lib/wagmi';
+import { SOFBondingCurveAbi } from '@/utils/abis';
 
 /**
  * Bonding curve state, served from backend cache populated by listeners.
@@ -13,6 +16,16 @@ import { useLiveSubscription } from '@/hooks/chain/useLiveSubscription';
  *
  * Steps are immutable post-creation and served by /api/curve/:addr/steps;
  * never refetched after first success.
+ *
+ * Bond-step RPC fallback: when the backend cache hasn't been seeded yet (e.g.
+ * a season created before the seasonStatusListener.SeasonCreated handler ran,
+ * or a transient listener gap), the warm read returns 404. Without a fallback
+ * Upcoming raffle cards render with a blank curve graph and "0.0000 SOF"
+ * starting price — even though the on-chain step ladder has been immutable
+ * since season creation. So we read getBondSteps directly from the bonding
+ * curve contract whenever the warm read finishes with no data. The on-chain
+ * ladder is genuinely immutable, so the result is cached with
+ * staleTime: Infinity.
  */
 export function useCurveState(
   bondingCurveAddress,
@@ -33,6 +46,36 @@ export function useCurveState(
     params: { address: lowerAddr },
     enabled: enabled && !!bondingCurveAddress && includeSteps,
     staleTime: Infinity, // immutable
+  });
+
+  // RPC fallback for the immutable bond-step ladder. Activates only after the
+  // warm read has finished (success-with-empty OR error) and produced no
+  // usable data.
+  const warmStepsResolved =
+    stepsQuery.isFetched || stepsQuery.isError;
+  const warmStepsEmpty =
+    warmStepsResolved &&
+    (!Array.isArray(stepsQuery.data) || stepsQuery.data.length === 0);
+  const netKey = getStoredNetworkKey();
+  const chainStepsQuery = useQuery({
+    queryKey: ['chainBondSteps', netKey, lowerAddr],
+    enabled:
+      enabled && includeSteps && !!bondingCurveAddress && warmStepsEmpty,
+    staleTime: Infinity,
+    retry: 1,
+    queryFn: async () => {
+      const client = buildPublicClient(netKey);
+      if (!client) return [];
+      const raw = await client.readContract({
+        address: bondingCurveAddress,
+        abi: SOFBondingCurveAbi,
+        functionName: 'getBondSteps',
+      });
+      return (raw || []).map((s) => ({
+        rangeTo: (s?.rangeTo ?? s?.[0] ?? 0n).toString(),
+        price: (s?.price ?? s?.[1] ?? 0n).toString(),
+      }));
+    },
   });
 
   useLiveSubscription({
@@ -63,7 +106,10 @@ export function useCurveState(
   );
 
   const state = stateQuery.data;
-  const steps = stepsQuery.data || [];
+  const steps =
+    Array.isArray(stepsQuery.data) && stepsQuery.data.length > 0
+      ? stepsQuery.data
+      : chainStepsQuery.data || [];
   const tail = steps.slice(Math.max(0, steps.length - 3));
 
   return {

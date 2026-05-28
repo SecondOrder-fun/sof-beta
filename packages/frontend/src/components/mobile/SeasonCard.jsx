@@ -170,7 +170,12 @@ export const SeasonCard = ({
                     : t("raffle:currentPrice")}
                 </div>
                 <div className="font-mono text-base">
-                  {formatSOF(displayCurveStep?.price)} SOF
+                  {formatSOF(
+                    isPreStart
+                      ? displayBondSteps?.[0]?.price
+                      : displayCurveStep?.price,
+                  )}{" "}
+                  SOF
                 </div>
               </ContentBox>
 
