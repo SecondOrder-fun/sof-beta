@@ -134,6 +134,7 @@ async function backfillSeason(client, raffleAddress, seasonId) {
         blockTimestamp: new Date(Number(block.timestamp) * 1000).toISOString(),
         ticketsBefore: oldNum,
         ticketsAfter: newNum,
+        bondingCurveAddress: bondingCurve,
       });
       if (result?.alreadyRecorded) skipped++; else recorded++;
     } catch (err) {

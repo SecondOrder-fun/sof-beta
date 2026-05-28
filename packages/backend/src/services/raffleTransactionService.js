@@ -42,7 +42,15 @@ class RaffleTransactionService {
     try {
       const sc = await db.getSeasonContracts(seasonId);
       return sc?.bonding_curve_address ?? null;
-    } catch {
+    } catch (err) {
+      // Don't fail the read on a lookup error, but don't hide it either:
+      // returning null falls back to season-only scope (which can briefly
+      // re-expose prior-deployment rows), so surface the cause.
+      // eslint-disable-next-line no-console
+      console.warn(
+        `getSeasonCurveAddress(${seasonId}) failed; falling back to season-only scope:`,
+        err.message,
+      );
       return null;
     }
   }
