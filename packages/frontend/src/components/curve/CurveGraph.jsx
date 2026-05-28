@@ -131,11 +131,15 @@ const BondingCurvePanel = ({
 
   const currentPrice = useMemo(() => {
     try {
-      return curveStep?.price ?? 0n;
+      // Before the first trade the backend cache has no currentStep, so
+      // curveStep is null. The live price at that point is the curve's
+      // starting tier, so fall back to the immutable step-0 price instead of
+      // rendering 0.
+      return curveStep?.price ?? allBondSteps?.[0]?.price ?? 0n;
     } catch {
       return 0n;
     }
-  }, [curveStep]);
+  }, [curveStep, allBondSteps]);
 
   // Build Recharts data: array of {supply, price}
   // Uses stepAfter interpolation — each point holds its price until the next.
