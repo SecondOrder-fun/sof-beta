@@ -1,11 +1,13 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { SeasonCard } from '../SeasonCard';
 
 // Per-test override surface for useCurveState. Default = empty / starting-state
-// so existing variant tests keep working.
-let curveStateMock = { curveSupply: 0n, curveStep: null, allBondSteps: [] };
+// so existing variant tests keep working. Reset in afterEach so a test that
+// throws before its own cleanup can't leak the mock into later tests.
+const DEFAULT_CURVE_STATE = { curveSupply: 0n, curveStep: null, allBondSteps: [] };
+let curveStateMock = { ...DEFAULT_CURVE_STATE };
 vi.mock('@/hooks/useCurveState', () => ({
   useCurveState: () => curveStateMock,
 }));
@@ -48,6 +50,10 @@ vi.mock('@/config/networks', () => ({
 }));
 
 const noopBadge = (status) => <span data-testid="badge">{status}</span>;
+
+afterEach(() => {
+  curveStateMock = { ...DEFAULT_CURVE_STATE };
+});
 
 describe('SeasonCard', () => {
   it('renders id, name, and status badge in the header', () => {
@@ -256,8 +262,28 @@ describe('SeasonCard variants', () => {
     expect(screen.getByText(/^2\.0000/)).toBeInTheDocument();
     // And does NOT silently fall through to 0.0000.
     expect(screen.queryByText(/^0\.0000/)).not.toBeInTheDocument();
-    // Reset for downstream tests.
-    curveStateMock = { curveSupply: 0n, curveStep: null, allBondSteps: [] };
+  });
+
+  // Folded into #145: an Active season before its first trade has curveStep
+  // === null (backend cache unseeded). The current price is the starting
+  // tier, so it must fall back to allBondSteps[0] rather than show 0.0000.
+  it('Active (1) with null curveStep falls back to the starting tier for Current Price', () => {
+    curveStateMock = {
+      curveSupply: 0n,
+      curveStep: null,
+      allBondSteps: [
+        { rangeTo: 100n, price: 2n * 10n ** 18n }, // 2.0000 SOF
+        { rangeTo: 200n, price: 3n * 10n ** 18n },
+      ],
+    };
+    render(
+      <MemoryRouter>
+        <SeasonCard season={baseSeason(1)} renderBadge={noopBadge} winnerSummary={null} />
+      </MemoryRouter>
+    );
+    expect(screen.getByText(/currentPrice/i)).toBeInTheDocument();
+    expect(screen.getByText(/^2\.0000/)).toBeInTheDocument();
+    expect(screen.queryByText(/^0\.0000/)).not.toBeInTheDocument();
   });
 
   it('Completed (5) without suppressWinner still shows the winner (unchanged)', () => {

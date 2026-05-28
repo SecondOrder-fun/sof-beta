@@ -68,6 +68,13 @@ export const SeasonCard = ({
     startTimeSec !== null && Number.isFinite(startTimeSec)
       ? nowSec < startTimeSec
       : false;
+  // Show the Starting Price (immutable step 0) whenever the season hasn't
+  // started trading: any Upcoming season (status 0) — even one whose startTime
+  // has elapsed but whose on-chain status hasn't flipped yet — or any season
+  // still in the pre-start window. Status-driven (not purely time-driven) so
+  // it matches the desktop card.
+  const isUpcoming = statusNum === 0;
+  const showStartingPrice = isPreStart || isUpcoming;
   const seasonEndedByTime = useMemo(() => {
     if (!seasonConfig?.endTime) return false;
     const end = Number(seasonConfig.endTime);
@@ -165,15 +172,15 @@ export const SeasonCard = ({
             <div className="flex gap-2">
               <ContentBox style={{ flex: "35" }}>
                 <div className="text-xs text-muted-foreground mb-1">
-                  {isPreStart
+                  {showStartingPrice
                     ? t("raffle:startingPrice", { defaultValue: "Starting Price (SOF)" })
                     : t("raffle:currentPrice")}
                 </div>
                 <div className="font-mono text-base">
                   {formatSOF(
-                    isPreStart
+                    showStartingPrice
                       ? displayBondSteps?.[0]?.price
-                      : displayCurveStep?.price,
+                      : displayCurveStep?.price ?? displayBondSteps?.[0]?.price,
                   )}{" "}
                   SOF
                 </div>

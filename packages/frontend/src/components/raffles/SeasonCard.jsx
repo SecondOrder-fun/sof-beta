@@ -95,10 +95,12 @@ const SeasonCard = ({ season, renderBadge, winnerSummary, suppressWinner = false
 
   const currentPriceLabel = (() => {
     try {
-      const raw = curveStep?.price ?? 0n;
+      // Before the first trade curveStep is null (backend cache unseeded); the
+      // live price is the starting tier, so fall back to step 0 rather than 0.
       // Reason: Bonding curve prices are in SOF (18 decimals by default). For
       // the list view we use a lightweight formatter; the detailed page uses
       // BondingCurvePanel which reads exact decimals.
+      const raw = curveStep?.price ?? allBondSteps?.[0]?.price ?? 0n;
       return Number(formatUnits(raw, 18)).toFixed(4);
     } catch {
       return "0.0000";
