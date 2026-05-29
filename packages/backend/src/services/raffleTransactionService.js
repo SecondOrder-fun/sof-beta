@@ -448,12 +448,18 @@ class RaffleTransactionService {
    * Get user's aggregated position for a season
    */
   async getUserPosition(userAddress, seasonId) {
-    const { data, error } = await db.client
+    // Scope to the season's current bonding curve so a prior deployment's
+    // position in the same season_id doesn't bleed in (#152).
+    const curveAddress = await this.getSeasonCurveAddress(seasonId);
+    let query = db.client
       .from("user_raffle_positions")
       .select("*")
       .eq("user_address", userAddress.toLowerCase())
-      .eq("season_id", seasonId)
-      .single();
+      .eq("season_id", seasonId);
+    if (curveAddress) {
+      query = query.eq("bonding_curve_address", curveAddress);
+    }
+    const { data, error } = await query.single();
 
     if (error && error.code !== "PGRST116") throw error; // Ignore "not found"
     return data;
@@ -470,7 +476,27 @@ class RaffleTransactionService {
       .order("season_id", { ascending: false });
 
     if (error) throw error;
-    return data;
+    if (!data || data.length === 0) return data || [];
+
+    // Keep only positions on each season's CURRENT bonding curve, so prior-
+    // deployment positions (different curve, same season_id) don't bleed in
+    // (#152). season_contracts is upserted by season_id, so it holds the live
+    // deployment's curve.
+    const seasonIds = [...new Set(data.map((d) => d.season_id))];
+    const { data: scRows, error: scError } = await db.client
+      .from("season_contracts")
+      .select("season_id, bonding_curve_address")
+      .in("season_id", seasonIds);
+    if (scError) throw scError;
+
+    const currentCurveBySeason = new Map(
+      (scRows || []).map((r) => [r.season_id, r.bonding_curve_address]),
+    );
+    return data.filter(
+      (d) =>
+        d.bonding_curve_address &&
+        d.bonding_curve_address === currentCurveBySeason.get(d.season_id),
+    );
   }
 
   /**
