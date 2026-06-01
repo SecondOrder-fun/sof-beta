@@ -231,88 +231,6 @@ export function AppAuthProvider({ children }) {
     }
   }, [addressLc, persist, walletType]);
 
-  const linkFarcaster = useCallback(async ({ message, signature, nonce }) => {
-    if (inflightRef.current) return;
-    if (!jwt) {
-      setError(
-        i18n.t(
-          "auth:errors.cannotLinkNoAuth",
-          "Cannot link Farcaster — wallet not authenticated",
-        ),
-      );
-      setStatus("error");
-      return;
-    }
-
-    inflightRef.current = true;
-    setError(null);
-    setStatus("verifying");
-
-    try {
-      const res = await fetch(`${API_BASE}/auth/link-farcaster`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${jwt}`,
-        },
-        body: JSON.stringify({ message, signature, nonce }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `Link failed (${res.status})`);
-      }
-
-      const { token, user: userObj } = await res.json();
-      setAuth({ jwt: token, user: userObj });
-      setStatus("authenticated");
-      persist(token, userObj);
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn("[AppAuth] linkFarcaster failed:", err);
-      setStatus("error");
-      setError(err?.message || i18n.t("auth:errors.linkFailed", "Link failed"));
-    } finally {
-      inflightRef.current = false;
-    }
-  }, [jwt, persist]);
-
-  const unlinkFarcaster = useCallback(async () => {
-    if (inflightRef.current) return;
-    if (!jwt) return;
-
-    inflightRef.current = true;
-    setError(null);
-
-    try {
-      const res = await fetch(`${API_BASE}/auth/unlink-farcaster`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${jwt}`,
-        },
-        body: "{}",
-      });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `Unlink failed (${res.status})`);
-      }
-
-      const { token, user: userObj } = await res.json();
-      setAuth({ jwt: token, user: userObj });
-      setStatus("authenticated");
-      persist(token, userObj);
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn("[AppAuth] unlinkFarcaster failed:", err);
-      setStatus("error");
-      setError(err?.message || i18n.t("auth:errors.unlinkFailed", "Unlink failed"));
-    } finally {
-      inflightRef.current = false;
-    }
-  }, [jwt, persist]);
-
   const signOut = useCallback(() => {
     setAuth({ jwt: null, user: null });
     setStatus("idle");
@@ -383,11 +301,9 @@ export function AppAuthProvider({ children }) {
       error,
       signIn,
       signOut,
-      linkFarcaster,
-      unlinkFarcaster,
       getAuthHeaders,
     }),
-    [jwt, user, status, error, signIn, signOut, linkFarcaster, unlinkFarcaster, getAuthHeaders],
+    [jwt, user, status, error, signIn, signOut, getAuthHeaders],
   );
 
   return (

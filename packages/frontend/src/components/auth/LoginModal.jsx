@@ -1,12 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useConnect, useAccount } from "wagmi";
-import { QRCodeSVG } from "qrcode.react";
-import { Loader2, ArrowLeft } from "lucide-react";
 import { useLoginModal } from "@/hooks/useLoginModal";
-import { useFarcasterSignIn } from "@/hooks/useFarcasterSignIn";
 import { Button } from "@/components/ui/button";
-import { QrFrame } from "@/components/ui/qr-frame";
 import {
   Dialog,
   DialogContent,
@@ -21,20 +17,6 @@ const LoginModal = () => {
   const { isConnected } = useAccount();
   const { connectors, connect } = useConnect();
 
-  // Internal view: 'options' | 'farcaster-qr'
-  const [view, setView] = useState("options");
-
-  const handleSiwfSuccess = useCallback(() => {
-    closeLoginModal();
-  }, [closeLoginModal]);
-
-  const {
-    handleSignInClick,
-    handleCancel: cancelSiwf,
-    url,
-    isLoading: isSiwfLoading,
-  } = useFarcasterSignIn({ onSuccess: handleSiwfSuccess });
-
   // Auto-close when wallet connects
   useEffect(() => {
     if (isConnected && isLoginModalOpen) {
@@ -42,43 +24,15 @@ const LoginModal = () => {
     }
   }, [isConnected, isLoginModalOpen, closeLoginModal]);
 
-  // Reset to options view and cancel stale SIWF state when modal opens
-  useEffect(() => {
-    if (isLoginModalOpen) {
-      cancelSiwf();
-      setView("options");
-    }
-  }, [isLoginModalOpen, cancelSiwf]);
-
-  const handleOpenChange = useCallback(
-    (open) => {
-      if (!open) {
-        cancelSiwf();
-        closeLoginModal();
-      }
-    },
-    [cancelSiwf, closeLoginModal],
-  );
-
-  const handleFarcasterClick = () => {
-    setView("farcaster-qr");
-    handleSignInClick();
+  const handleOpenChange = (open) => {
+    if (!open) closeLoginModal();
   };
 
-  const handleWalletClick = (connector) => {
-    connect({ connector });
-  };
-
-  const handleBack = () => {
-    cancelSiwf();
-    setView("options");
-  };
-
-  // Filter Farcaster (handled by the dedicated SIWF button above) and dedupe
-  // by connector id. RainbowKit's connectorsForWallets emits one wagmi
-  // connector per wallet definition, but several definitions back onto the
-  // same WalletConnect transport — so without dedupe we render 2-3 indistinct
-  // "WalletConnect" rows with no icons, which the user can't tell apart.
+  // Filter the Farcaster MiniApp connector (auto-connects in MiniApp context;
+  // never relevant in a browser sign-in list) and dedupe by id. RainbowKit
+  // emits multiple WalletConnect-backed connectors (rainbowWallet,
+  // walletConnectWallet, ...) all sharing id="walletConnect"; without dedupe
+  // they render as 2-3 indistinct "WalletConnect" rows with no icons.
   const walletConnectors = (() => {
     const seen = new Set();
     return connectors.filter((c) => {
@@ -92,131 +46,49 @@ const LoginModal = () => {
   return (
     <Dialog open={isLoginModalOpen} onOpenChange={handleOpenChange}>
       <DialogContent className="bg-background border border-primary max-w-sm">
-        {view === "options" ? (
-          <>
-            <DialogHeader>
-              <DialogTitle>{t("logInOrSignUp", "Log in or sign up")}</DialogTitle>
-              <DialogDescription className="sr-only">
-                {t("logInOrSignUp", "Log in or sign up")}
-              </DialogDescription>
-            </DialogHeader>
+        <DialogHeader>
+          <DialogTitle>{t("logInOrSignUp", "Log in or sign up")}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {t("logInOrSignUp", "Log in or sign up")}
+          </DialogDescription>
+        </DialogHeader>
 
-            <div className="flex flex-col gap-4 py-2">
-              {/* Farcaster primary CTA */}
+        <div className="flex flex-col gap-4 py-2">
+          <div className="flex flex-col gap-2">
+            {walletConnectors.map((connector) => (
               <Button
-                variant="farcaster"
-                className="w-full"
-                onClick={handleFarcasterClick}
-                disabled={isSiwfLoading}
+                key={connector.uid}
+                variant="outline"
+                className="w-full justify-start gap-3"
+                onClick={() => connect({ connector })}
               >
-                {isSiwfLoading && (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                {connector.icon ? (
+                  <img
+                    src={connector.icon}
+                    alt=""
+                    className="h-5 w-5 rounded"
+                  />
+                ) : (
+                  <div className="h-5 w-5 rounded bg-muted" />
                 )}
-                {t("signInWithFarcaster", "Sign in with Farcaster")}
+                {connector.name}
               </Button>
+            ))}
+          </div>
 
-              {/* Separator */}
-              <div className="relative flex items-center">
-                <div className="flex-1 border-t border-border" />
-                <span className="mx-3 text-xs text-muted-foreground">
-                  {t("orConnectWallet", "or connect a wallet")}
-                </span>
-                <div className="flex-1 border-t border-border" />
-              </div>
-
-              {/* Wallet connectors */}
-              <div className="flex flex-col gap-2">
-                {walletConnectors.map((connector) => (
-                  <Button
-                    key={connector.uid}
-                    variant="outline"
-                    className="w-full justify-start gap-3"
-                    onClick={() => handleWalletClick(connector)}
-                  >
-                    {connector.icon ? (
-                      <img
-                        src={connector.icon}
-                        alt=""
-                        className="h-5 w-5 rounded"
-                      />
-                    ) : (
-                      <div className="h-5 w-5 rounded bg-muted" />
-                    )}
-                    {connector.name}
-                  </Button>
-                ))}
-              </div>
-
-              {/* Terms */}
-              <p className="text-xs text-muted-foreground text-center pt-2">
-                {t("termsAgreement", "By signing in you agree to our")}{" "}
-                <a
-                  href="https://docs.secondorder.fun/legal/terms-of-service"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline text-primary"
-                >
-                  Terms of Service
-                </a>
-                .
-              </p>
-            </div>
-          </>
-        ) : (
-          <>
-            {/* Farcaster QR view */}
-            <DialogHeader>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={handleBack}
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                  <span className="sr-only">
-                    {t("backToOptions", "Back")}
-                  </span>
-                </Button>
-                <DialogTitle>
-                  {t("signInWithFarcaster", "Sign in with Farcaster")}
-                </DialogTitle>
-              </div>
-              <DialogDescription className="sr-only">
-                {t("scanQrCodeDescription")}
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="flex flex-col items-center gap-4 py-4">
-              {url ? (
-                <>
-                  <QrFrame>
-                    <QRCodeSVG value={url} size={220} level="L" />
-                  </QrFrame>
-                  <a
-                    href={url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-primary underline"
-                  >
-                    {t("openInFarcaster", "Open in Farcaster")}
-                  </a>
-                </>
-              ) : (
-                <div className="flex items-center justify-center h-[220px] w-[220px]">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
-              )}
-            </div>
-
-            <p className="text-sm text-muted-foreground text-center">
-              {t(
-                "scanQrCodeDescription",
-                "Scan this QR code with the camera on a smartphone that has Farcaster installed and logged in with the account you want to use.",
-              )}
-            </p>
-          </>
-        )}
+          <p className="text-xs text-muted-foreground text-center pt-2">
+            {t("termsAgreement", "By signing in you agree to our")}{" "}
+            <a
+              href="https://docs.secondorder.fun/legal/terms-of-service"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline text-primary"
+            >
+              Terms of Service
+            </a>
+            .
+          </p>
+        </div>
       </DialogContent>
     </Dialog>
   );
