@@ -333,7 +333,7 @@ async function scanHistoricalSeasonCompletedEvents(
  * @param {object} raffleAbi - Raffle contract ABI
  * @param {object} logger - Fastify logger instance (app.log)
  * @param {function} [onSeasonCompleted] - Callback when season completes (for listener cleanup)
- * @returns {function} Unwatch function to stop listening
+ * @returns {Promise<() => Promise<void>>} Async unwatch (awaits cursor flush)
  */
 export async function startSeasonCompletedListener(
   raffleAddress,

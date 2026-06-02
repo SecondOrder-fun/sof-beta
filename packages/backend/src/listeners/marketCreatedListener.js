@@ -115,7 +115,7 @@ async function calculateProbability(seasonId, playerAddress, logger) {
  * @param {string} infoFiFactoryAddress - InfoFiMarketFactory contract address
  * @param {object} infoFiFactoryAbi - InfoFiMarketFactory contract ABI
  * @param {object} logger - Fastify logger instance (app.log)
- * @returns {function} Unwatch function to stop listening
+ * @returns {Promise<() => Promise<void>>} Async unwatch (awaits cursor flush)
  */
 export async function startMarketCreatedListener(
   infoFiFactoryAddress,

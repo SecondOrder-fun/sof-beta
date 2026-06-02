@@ -376,23 +376,40 @@ async function startListeners() {
         );
       }
 
-      // Stop any Trade listeners associated with this season's markets
+      // Stop any Trade listeners associated with this season's markets.
+      // Each tradeUnwatch awaits a Supabase UPSERT (the cursor flush), so
+      // a season with N markets would otherwise serialize N × flush
+      // latency before this callback returns — blocking the upstream
+      // SeasonCompleted tick. Fan out via Promise.allSettled so a slow
+      // flush on one market doesn't starve the others or the broader
+      // event loop. Mirrors the rolloverEventListener.unwatchAll pattern.
       try {
         const markets = await db.getInfoFiMarketsBySeasonId(seasonId);
         if (markets && markets.length > 0) {
+          const stops = [];
           for (const market of markets) {
             const addr = market.contract_address;
-            if (addr) {
-              const tradeUnwatch = tradeListeners.get(addr);
-              if (tradeUnwatch) {
-                await tradeUnwatch();
-                tradeListeners.delete(addr);
-                app.log.info(
-                  `🛑 Stopped Trade listener for FPMM ${addr} (season ${seasonId})`,
-                );
-              }
-            }
+            if (!addr) continue;
+            const tradeUnwatch = tradeListeners.get(addr);
+            if (!tradeUnwatch) continue;
+            tradeListeners.delete(addr);
+            stops.push(
+              tradeUnwatch().then(
+                () => {
+                  app.log.info(
+                    `🛑 Stopped Trade listener for FPMM ${addr} (season ${seasonId})`,
+                  );
+                },
+                (err) => {
+                  app.log.error(
+                    { err },
+                    `Error stopping Trade listener for FPMM ${addr} (season ${seasonId})`,
+                  );
+                },
+              ),
+            );
           }
+          await Promise.allSettled(stops);
         }
       } catch (error) {
         app.log.error(

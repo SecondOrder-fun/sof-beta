@@ -135,11 +135,22 @@ export async function startContractEventPolling(params) {
         fromBlock = chunkToBlock + 1n;
       }
 
-      lastProcessedBlock = currentBlock + 1n;
+      // Advance the cursor to reflect ACTUAL progress, not the chain head.
+      // If `stopped` flipped true between chunks of a multi-chunk catchup,
+      // the while loop exits early with `fromBlock` pointing at the next
+      // un-processed block. Persisting `currentBlock` here would lie about
+      // having processed the unfinished chunks — and with the new awaited
+      // shutdown flush, that lie now reliably commits to Supabase, silently
+      // dropping every event in the skipped block range on restart.
+      // `fromBlock - 1n` is the last block we actually processed (or
+      // `lastProcessedBlock - 1n` if the loop never iterated, which can't
+      // happen after the `currentBlock < lastProcessedBlock` rewind guard
+      // above).
+      const lastActuallyProcessed = fromBlock - 1n;
+      lastProcessedBlock = fromBlock;
 
-      // Persist the last fully processed block
       if (blockCursor) {
-        await blockCursor.set(currentBlock);
+        await blockCursor.set(lastActuallyProcessed);
       }
     } catch (error) {
       if (typeof onError === "function") {

@@ -235,7 +235,7 @@ export async function scanHistoricalPositionUpdateEvents(
  * @param {string} raffleTokenAddress - RaffleToken contract address (for max supply)
  * @param {string} infoFiFactoryAddress - InfoFiMarketFactory contract address (for gasless market creation)
  * @param {object} logger - Fastify logger instance (app.log)
- * @returns {function} Unwatch function to stop listening
+ * @returns {Promise<() => Promise<void>>} Async unwatch (awaits cursor flush)
  */
 export async function startPositionUpdateListener(
   bondingCurveAddress,

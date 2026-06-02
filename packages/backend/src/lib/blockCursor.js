@@ -9,12 +9,17 @@
  *
  * Persistence is throttled: `set(block)` buffers the latest value in memory
  * and only writes to Supabase at most once per `throttleMs` (default 30s,
- * overridable via the `LISTENER_CURSOR_THROTTLE_MS` env var). The trade-off
- * is bounded re-scan on crash — worst case we re-process the last
- * `throttleMs` of blocks on restart. Event handlers in this project are
- * designed to be idempotent (typically check-before-insert by tx_hash or
- * onConflict upserts), so re-processing is safe in the steady-state paths;
- * see individual listeners for the specifics of their dedupe logic.
+ * overridable via the `LISTENER_CURSOR_THROTTLE_MS` env var; note this is
+ * captured once at module import). The trade-off is bounded re-scan on
+ * crash — under steady-state success, worst case we re-process the last
+ * `throttleMs` of blocks after the most recent SUCCESSFUL flush. A streak
+ * of N consecutive failed persists can widen that window proportionally,
+ * because `lastPersistedAt` advances on failure to suppress retry storms;
+ * the buffer survives across failures so the next successful set() picks
+ * up the latest value. Event handlers in this project are designed to be
+ * idempotent (typically check-before-insert by tx_hash or onConflict
+ * upserts), so re-processing is safe in the steady-state paths; see
+ * individual listeners for the specifics of their dedupe logic.
  *
  * At the polling rates used here this cuts cursor egress ~30x: with 13
  * listeners ticking every 3–5s the UPSERT was the single largest egress
@@ -195,12 +200,15 @@ export async function createBlockCursor(listenerKey, options = {}) {
   }
 
   // ------- No persistence available — in-memory only -------
+  // Apply the same bigint validation as the Supabase path so dev/test
+  // callers see consistent behavior regardless of which branch is active.
   let memBlock = null;
   return {
     async get() {
       return memBlock;
     },
     async set(block) {
+      if (typeof block !== "bigint") return;
       memBlock = block;
     },
     async flush() {

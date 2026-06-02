@@ -174,6 +174,59 @@ describe("startContractEventPolling", () => {
     await stopPromise;
   });
 
+  it("does not advance cursor past unprocessed chunks when stopped mid-catchup", async () => {
+    // Regression: previously the tick set lastProcessedBlock = currentBlock + 1
+    // and persisted cursor.set(currentBlock) unconditionally after the chunked
+    // loop, even when `stopped` flipped true between chunks. With the new
+    // awaited shutdown flush, that lie was being committed to Supabase, so
+    // every event in the unfinished block range was silently dropped on the
+    // next process boot. The fix tracks the actual last-processed block via
+    // the loop's `fromBlock` cursor.
+    const blockCursor = {
+      get: vi.fn().mockResolvedValue(0n),
+      set: vi.fn().mockResolvedValue(undefined),
+      flush: vi.fn().mockResolvedValue(undefined),
+    };
+
+    // currentBlock=4000, lastProcessed=1, maxBlockRange=2000 → need 2 chunks
+    // [1..2001] and [2002..4000]. We make the FIRST getContractEvents call
+    // succeed, then trigger stop() before the second chunk can run.
+    mockClient.getBlockNumber.mockResolvedValue(4000n);
+    let stopTrigger;
+    mockClient.getContractEvents = vi.fn().mockImplementation(async (args) => {
+      // After processing the first chunk, signal the test to stop the poller
+      // before the loop's next iteration check.
+      if (args.fromBlock === 1n) {
+        queueMicrotask(() => stopTrigger());
+        return [];
+      }
+      return [];
+    });
+
+    const unwatch = await startContractEventPolling({
+      client: mockClient,
+      address: "0xABC",
+      abi: testAbi,
+      eventName: "TestEvent",
+      pollingIntervalMs: 1_000,
+      maxBlockRange: 2000n,
+      blockCursor,
+      onLogs: vi.fn(),
+    });
+
+    const stopPromise = new Promise((resolve) => {
+      stopTrigger = () => resolve(unwatch());
+    });
+    await stopPromise;
+
+    // cursor.set must have been called with the END of the first chunk
+    // (block 2001), NOT with the chain head (4000n) which would falsely
+    // claim we processed the skipped second chunk.
+    const setCalls = blockCursor.set.mock.calls.map((c) => c[0]);
+    expect(setCalls).toContain(2001n);
+    expect(setCalls).not.toContain(4000n);
+  });
+
   it("drains in-flight tick before flushing on stop", async () => {
     // The stop fn must await any tick that is currently running so its
     // trailing `await blockCursor.set(currentBlock)` lands in the buffer
@@ -224,10 +277,12 @@ describe("startContractEventPolling", () => {
     resolveBlockNumber(60n);
     await stopPromise;
 
-    // set() must come BEFORE flush() in the call order — otherwise the
-    // tick's trailing write was buffered after flush returned and the
-    // value is lost.
-    const setIdx = flushOrder.indexOf("set(60)");
+    // SOME set() must come before flush() — confirms the tick's
+    // trailing write landed in the buffer before flush ran. The exact
+    // block value depends on whether the loop processed any chunks
+    // before stopped flipped true; for this test it's the "no chunks
+    // processed" case (set is called with lastProcessedBlock - 1).
+    const setIdx = flushOrder.findIndex((s) => s.startsWith("set("));
     const flushIdx = flushOrder.indexOf("flush");
     expect(setIdx).toBeGreaterThanOrEqual(0);
     expect(flushIdx).toBeGreaterThanOrEqual(0);
