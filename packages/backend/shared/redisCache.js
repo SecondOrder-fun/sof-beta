@@ -142,6 +142,15 @@ export async function cacheInvalidate(keyOrKeys, logger = console) {
  * @param {{ warn?: Function }} [logger=console]
  */
 export async function cacheInvalidatePattern(pattern, logger = console) {
+  // Defensive: an empty / nullish pattern would resolve to `match: undefined`
+  // and SCAN every key in the namespace; the subsequent UNLINK would wipe
+  // the whole DB. No current caller passes anything but a hardcoded prefix,
+  // but the cost of guarding is one line.
+  if (typeof pattern !== "string" || pattern.length === 0) {
+    logger.warn?.({ pattern }, "[cache] refused empty pattern");
+    return;
+  }
+
   const client = tryGetClient(logger);
   if (!client) return;
 
