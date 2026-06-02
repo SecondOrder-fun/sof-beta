@@ -239,7 +239,12 @@ export async function startRolloverEventListener(network, logger) {
     `[RolloverListener] Polling RolloverDeposit, RolloverSpend, RolloverRefund at ${escrowAddress} (cursor-backed)`,
   );
 
-  return function unwatchAll() {
-    for (const unwatch of unwatchers) unwatch();
+  // Inner unwatch fns are async (startContractEventPolling now awaits
+  // blockCursor.flush() before resolving). Fan out with Promise.allSettled
+  // so a slow/failing flush on one event doesn't starve the other two and
+  // none of the three are dropped via fire-and-forget — same contract the
+  // server-level shutdown gather depends on.
+  return async function unwatchAll() {
+    await Promise.allSettled(unwatchers.map((u) => u()));
   };
 }

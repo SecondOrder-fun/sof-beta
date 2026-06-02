@@ -1,6 +1,6 @@
 {
   "name": "@sof/backend",
-  "version": "0.29.5",
+  "version": "0.29.9",
   "private": true,
   "type": "module",
   "description": "SecondOrder.fun Backend API Server",

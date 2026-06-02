@@ -360,35 +360,56 @@ async function startListeners() {
       app.log.error(`❌ Failed to start SeasonStatusListener: ${error.message}`);
     }
 
-    // Callback to clean up per-season listeners when a season completes
+    // Callback to clean up per-season listeners when a season completes.
+    // Unwatch fns are now async — they await blockCursor.flush() before
+    // resolving — so we must await them here, otherwise the flush is
+    // orphaned outside the shutdown gather and a SIGTERM landing during
+    // this callback could kill the HTTP UPSERT in flight.
     const onSeasonCompleted = async ({ seasonId }) => {
       // Stop the PositionUpdate listener for this season
       const posUnwatch = positionUpdateListeners.get(seasonId);
       if (posUnwatch) {
-        posUnwatch();
+        await posUnwatch();
         positionUpdateListeners.delete(seasonId);
         app.log.info(
           `🛑 Stopped PositionUpdate listener for completed season ${seasonId}`,
         );
       }
 
-      // Stop any Trade listeners associated with this season's markets
+      // Stop any Trade listeners associated with this season's markets.
+      // Each tradeUnwatch awaits a Supabase UPSERT (the cursor flush), so
+      // a season with N markets would otherwise serialize N × flush
+      // latency before this callback returns — blocking the upstream
+      // SeasonCompleted tick. Fan out via Promise.allSettled so a slow
+      // flush on one market doesn't starve the others or the broader
+      // event loop. Mirrors the rolloverEventListener.unwatchAll pattern.
       try {
         const markets = await db.getInfoFiMarketsBySeasonId(seasonId);
         if (markets && markets.length > 0) {
+          const stops = [];
           for (const market of markets) {
             const addr = market.contract_address;
-            if (addr) {
-              const tradeUnwatch = tradeListeners.get(addr);
-              if (tradeUnwatch) {
-                tradeUnwatch();
-                tradeListeners.delete(addr);
-                app.log.info(
-                  `🛑 Stopped Trade listener for FPMM ${addr} (season ${seasonId})`,
-                );
-              }
-            }
+            if (!addr) continue;
+            const tradeUnwatch = tradeListeners.get(addr);
+            if (!tradeUnwatch) continue;
+            tradeListeners.delete(addr);
+            stops.push(
+              tradeUnwatch().then(
+                () => {
+                  app.log.info(
+                    `🛑 Stopped Trade listener for FPMM ${addr} (season ${seasonId})`,
+                  );
+                },
+                (err) => {
+                  app.log.error(
+                    { err },
+                    `Error stopping Trade listener for FPMM ${addr} (season ${seasonId})`,
+                  );
+                },
+              ),
+            );
           }
+          await Promise.allSettled(stops);
         }
       } catch (error) {
         app.log.error(
@@ -495,9 +516,13 @@ async function startListeners() {
       );
     }
 
-    // Start Rollover Event Listener (indexes RolloverEscrow events)
+    // Start Rollover Event Listener (indexes RolloverEscrow events).
+    // startRolloverEventListener is async — without await, unwatchRollover
+    // would hold the Promise (not the unwatchAll fn) and shutdown would
+    // throw `TypeError: unwatchRollover is not a function`, leaving the 3
+    // rollover cursors un-flushed on every deploy.
     try {
-      unwatchRollover = startRolloverEventListener(NETWORK, app.log);
+      unwatchRollover = await startRolloverEventListener(NETWORK, app.log);
       app.log.info("✅ RolloverEventListener started");
     } catch (error) {
       app.log.error(
@@ -655,15 +680,25 @@ try {
 
 // Graceful shutdown
 let isShuttingDown = false;
-const SHUTDOWN_HARD_TIMEOUT_MS = 8_000;
+// 15s budget covers ~13 parallel cursor flushes against Supabase
+// (each is a single UPSERT) plus app.close(). The old 8s budget assumed
+// fire-and-forget stops; awaiting flushes now needs more headroom for
+// the case where Supabase is slow but recoverable.
+const SHUTDOWN_HARD_TIMEOUT_MS = 15_000;
 
 // Each cleanup step gets its own try/catch — one failing listener (e.g. an
 // onClose hook throwing because Anvil is already down) must not abort the
 // remaining steps. Pino logs Error instances under the `err` key, not `error`,
 // so use that shape for visibility instead of the empty `{}` we used to log.
-function safeStep(label, fn) {
+//
+// Listener stop functions are async (they wait for the cursor flush to
+// land in Supabase before resolving), so safeStep awaits `fn()` and the
+// caller is expected to collect the returned Promise and await it via
+// Promise.allSettled. Sync stop fns are still supported — `await fn()`
+// is a no-op on undefined.
+async function safeStep(label, fn) {
   try {
-    fn();
+    await fn();
     app.log.info(`Stopped ${label}`);
   } catch (err) {
     app.log.error({ err }, `Error stopping ${label}`);
@@ -691,26 +726,36 @@ async function shutdown(signal) {
   }, SHUTDOWN_HARD_TIMEOUT_MS);
   watchdog.unref();
 
+  // Run all listener stops in parallel and AWAIT them. Each stop awaits
+  // its cursor's flush() so we get one final Supabase UPSERT per cursor
+  // before app.close() / process.exit. Without this gather, the previous
+  // fire-and-forget pattern dropped up to throttleMs (30s) of cursor
+  // progress on every deploy.
+  const stops = [];
   if (unwatchSeasonStarted)
-    safeStep("SeasonStarted listener", unwatchSeasonStarted);
+    stops.push(safeStep("SeasonStarted listener", unwatchSeasonStarted));
   if (unwatchSeasonCompleted)
-    safeStep("SeasonCompleted listener", unwatchSeasonCompleted);
+    stops.push(safeStep("SeasonCompleted listener", unwatchSeasonCompleted));
   for (const [i, unwatch] of unwatchSeasonStatusListeners.entries()) {
-    safeStep(`SeasonStatus listener[${i}]`, unwatch);
+    stops.push(safeStep(`SeasonStatus listener[${i}]`, unwatch));
   }
   if (unwatchMarketCreated)
-    safeStep("MarketCreated listener", unwatchMarketCreated);
-  if (unwatchRollover) safeStep("Rollover listener", unwatchRollover);
+    stops.push(safeStep("MarketCreated listener", unwatchMarketCreated));
+  if (unwatchRollover) stops.push(safeStep("Rollover listener", unwatchRollover));
   if (unwatchAccountCreated)
-    safeStep("AccountCreated listener", unwatchAccountCreated);
+    stops.push(safeStep("AccountCreated listener", unwatchAccountCreated));
 
   for (const [seasonId, unwatch] of positionUpdateListeners.entries()) {
-    safeStep(`PositionUpdate listener for season ${seasonId}`, unwatch);
+    stops.push(
+      safeStep(`PositionUpdate listener for season ${seasonId}`, unwatch),
+    );
   }
 
   for (const [fpmmAddress, unwatch] of tradeListeners.entries()) {
-    safeStep(`Trade listener for FPMM ${fpmmAddress}`, unwatch);
+    stops.push(safeStep(`Trade listener for FPMM ${fpmmAddress}`, unwatch));
   }
+
+  await Promise.allSettled(stops);
 
   try {
     const lifecycleService = getSeasonLifecycleService(app.log);

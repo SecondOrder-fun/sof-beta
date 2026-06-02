@@ -11,12 +11,17 @@ import { updateChainTimeCache } from "./chainTimeCache.js";
  * @property {bigint} [maxBlockRange]
  * @property {(logs: any[]) => Promise<void> | void} onLogs
  * @property {(error: unknown) => void} [onError]
- * @property {{ get: () => Promise<bigint|null>, set: (block: bigint) => Promise<void> }} [blockCursor]
+ * @property {{ get: () => Promise<bigint|null>, set: (block: bigint) => Promise<void>, flush?: () => Promise<void> }} [blockCursor]
  */
 
 /**
+ * Returns an async stop function. Awaiting it ensures the cursor's
+ * pending buffered value is flushed to persistence before the caller
+ * proceeds — the graceful shutdown path in fastify/server.js relies on
+ * this so deploys don't drop up to throttleMs of cursor progress.
+ *
  * @param {ContractEventPollingParams} params
- * @returns {Promise<() => void>}
+ * @returns {Promise<() => Promise<void>>}
  */
 export async function startContractEventPolling(params) {
   const {
@@ -94,6 +99,12 @@ export async function startContractEventPolling(params) {
         // is silently stuck forever (cursor never advances, new events at
         // lower block numbers never get indexed). Reset to the current head
         // so subsequent ticks resume normally.
+        //
+        // Note: blockCursor.set() is throttled, so the lower value may sit
+        // buffered for up to throttleMs before persisting. A backend crash
+        // within that window leaves the OLD higher block in the table and
+        // triggers this same rewind branch again on next start — which is
+        // self-healing.
         lastProcessedBlock = currentBlock + 1n;
         if (blockCursor) {
           await blockCursor.set(currentBlock);
@@ -124,11 +135,22 @@ export async function startContractEventPolling(params) {
         fromBlock = chunkToBlock + 1n;
       }
 
-      lastProcessedBlock = currentBlock + 1n;
+      // Advance the cursor to reflect ACTUAL progress, not the chain head.
+      // If `stopped` flipped true between chunks of a multi-chunk catchup,
+      // the while loop exits early with `fromBlock` pointing at the next
+      // un-processed block. Persisting `currentBlock` here would lie about
+      // having processed the unfinished chunks — and with the new awaited
+      // shutdown flush, that lie now reliably commits to Supabase, silently
+      // dropping every event in the skipped block range on restart.
+      // `fromBlock - 1n` is the last block we actually processed (or
+      // `lastProcessedBlock - 1n` if the loop never iterated, which can't
+      // happen after the `currentBlock < lastProcessedBlock` rewind guard
+      // above).
+      const lastActuallyProcessed = fromBlock - 1n;
+      lastProcessedBlock = fromBlock;
 
-      // Persist the last fully processed block
       if (blockCursor) {
-        await blockCursor.set(currentBlock);
+        await blockCursor.set(lastActuallyProcessed);
       }
     } catch (error) {
       if (typeof onError === "function") {
@@ -137,15 +159,51 @@ export async function startContractEventPolling(params) {
     }
   };
 
-  const intervalId = setInterval(() => {
-    void tick();
-  }, pollingIntervalMs);
+  // Track the in-flight tick so the stop callback can await it before
+  // flushing. Without this an in-flight tick's trailing `await
+  // blockCursor.set(currentBlock)` would land AFTER flush() returns,
+  // buffering a value that never reaches Supabase.
+  let activeTick = /** @type {Promise<void>|null} */ (null);
+  const runTickIfIdle = () => {
+    if (stopped) return;
+    // Skip overlapping ticks. The previous "void tick()" pattern allowed
+    // ticks to overlap on slow RPC, which produced concurrent set()
+    // calls; the blockCursor's single-flight latch handles that safely
+    // but it's cleaner to prevent overlap upstream.
+    if (activeTick) return;
+    activeTick = tick().finally(() => {
+      activeTick = null;
+    });
+  };
 
-  void tick();
+  const intervalId = setInterval(runTickIfIdle, pollingIntervalMs);
 
-  return () => {
+  runTickIfIdle();
+
+  return async () => {
     stopped = true;
     clearInterval(intervalId);
+    // Drain the in-flight tick first so any final set() it queues lands
+    // in the cursor buffer BEFORE we flush. Skipping this step lets a
+    // tick that began just before stop() lose its trailing block write.
+    if (activeTick) {
+      await activeTick.catch(() => {
+        // tick has its own try/catch around the body; defensive only.
+      });
+    }
+    // Persist any buffered cursor value on shutdown so the next process
+    // doesn't re-scan from a stale snapshot. Awaitable so server.js can
+    // include this in its `app.close()`-ordered drain — otherwise the
+    // HTTP UPSERT races process.exit and the throttled cursor design's
+    // bounded-rescan guarantee silently regresses on every deploy.
+    //
+    // The typeof guard preserves back-compat with cursor doubles used
+    // in older tests that predate the flush() addition.
+    if (blockCursor && typeof blockCursor.flush === "function") {
+      await blockCursor.flush().catch(() => {
+        // Best-effort; the cursor implementation swallows errors itself.
+      });
+    }
   };
 }
 

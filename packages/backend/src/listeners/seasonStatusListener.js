@@ -334,7 +334,7 @@ async function scanHistoricalEvents(raffleAddress, raffleAbi, eventName, handler
  * @param {string} raffleAddress - Raffle contract address
  * @param {object} raffleAbi - Raffle contract ABI
  * @param {object} logger - Fastify logger instance
- * @returns {Promise<Array<() => void>>} Array of unwatch functions
+ * @returns {Promise<Array<() => Promise<void>>>} Array of unwatch fns (each async — awaits cursor flush)
  */
 export async function startSeasonStatusListener(raffleAddress, raffleAbi, logger) {
   if (!raffleAddress || !raffleAbi) {

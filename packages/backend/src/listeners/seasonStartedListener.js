@@ -223,7 +223,7 @@ async function scanHistoricalSeasonEvents(
  * @param {object} raffleAbi - Raffle contract ABI
  * @param {object} logger - Fastify logger instance (app.log)
  * @param {function} onSeasonCreated - Callback to start PositionUpdate listener for new season
- * @returns {function} Unwatch function to stop listening
+ * @returns {Promise<() => Promise<void>>} Async unwatch (awaits cursor flush)
  */
 export async function startSeasonStartedListener(
   raffleAddress,
