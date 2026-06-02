@@ -98,6 +98,11 @@ beforeEach(() => {
   localStorage.clear();
   vi.clearAllMocks();
   vi.restoreAllMocks();
+  // vi.restoreAllMocks() resets standalone vi.fn() instances back to a no-op,
+  // wiping the module-level mockResolvedValue we set at declaration. Re-
+  // establish the default so future tests that exercise the Quick Auth path
+  // without an explicit mockResolvedValueOnce don't get `undefined` back.
+  quickAuthGetToken.mockResolvedValue({ token: "test-quick-auth-jwt" });
 });
 
 afterEach(() => {

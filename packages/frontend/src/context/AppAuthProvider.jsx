@@ -1,17 +1,23 @@
 /**
  * AppAuthProvider — global JWT lifecycle.
  *
- * Auto-fires SIWE on connect for desktop-EOA and Coinbase Smart Wallet
- * users when no valid cached JWT exists for the connected address.
- * Backend /api/auth/verify response populates user.sma + user.isAdmin
- * via ensureSmartAccount + ensureAdminFlag.
+ * Two auto-fire paths run on connect when no valid cached JWT exists:
+ *  - desktop-EOA / Coinbase Smart Wallet → SIWE
+ *      (signMessage prompt → POST /api/auth/verify method:"wallet")
+ *  - Farcaster MiniApp → Quick Auth (zero prompt, fix for #148)
+ *      (sdk.quickAuth.getToken → POST /api/auth/verify
+ *       method:"farcaster-quick-auth")
+ * The backend's /verify response populates user.sma + user.isAdmin via
+ * ensureSmartAccount + ensureAdminFlag.
  *
  * Replaces AdminAuthContext (deleted) and the JWT half of FarcasterProvider
  * (kept for auth-kit profile state only).
  *
  * Storage:
  *  - desktop-eoa, coinbase-smart → localStorage (sof:auth_jwt + sof:auth_user)
- *  - farcaster-miniapp           → in-memory only
+ *  - farcaster-miniapp           → in-memory only (Quick Auth tokens are
+ *                                  short-lived; the MiniApp re-Quick-Auths
+ *                                  on each open)
  *
  * See spec: docs/superpowers/specs/2026-05-07-universal-siwe-design.md
  */
@@ -161,7 +167,10 @@ export function AppAuthProvider({ children }) {
 
     inflightRef.current = true;
     setError(null);
-    setStatus("signing");
+    // Quick Auth never invokes the wallet — go straight to "verifying" so
+    // any UI keyed on status="signing" (which means "wallet prompt open")
+    // doesn't flash for MiniApp users.
+    setStatus(opts.method === "farcaster-quick-auth" ? "verifying" : "signing");
 
     try {
       let body;
@@ -176,7 +185,6 @@ export function AppAuthProvider({ children }) {
         // trusts the supplied address as the user's EOA/SMA.
         const { sdk } = await import("@farcaster/miniapp-sdk");
         const { token } = await sdk.quickAuth.getToken();
-        setStatus("verifying");
         body = JSON.stringify({
           method: "farcaster-quick-auth",
           quickAuthToken: token,

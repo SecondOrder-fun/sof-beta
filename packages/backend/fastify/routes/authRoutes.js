@@ -8,7 +8,7 @@
 import crypto from "node:crypto";
 import process from "node:process";
 import { verifyMessage } from "viem";
-import { createClient as createQuickAuthClient, Errors as QuickAuthErrors } from "@farcaster/quick-auth";
+import { createClient as createQuickAuthClient } from "@farcaster/quick-auth";
 import { redisClient } from "../../shared/redisClient.js";
 import { AuthService } from "../../shared/auth.js";
 import { getUserAccess, ACCESS_LEVEL_NAMES } from "../../shared/accessService.js";
@@ -258,9 +258,12 @@ export default async function authRoutes(fastify) {
           });
           break;
         } catch (err) {
+          // Catch ALL errors (not only InvalidTokenError): a transient JWKS
+          // fetch failure on one domain shouldn't bypass the remaining
+          // allowlist. If every iteration fails, the !payload check below
+          // surfaces a clean 401 (with the last error logged) rather than
+          // letting the raw error escape as a 500.
           lastErr = err;
-          if (!(err instanceof QuickAuthErrors.InvalidTokenError)) throw err;
-          // Try the next allowed domain — common in multi-env deploys.
         }
       }
       if (!payload) {
@@ -281,6 +284,13 @@ export default async function authRoutes(fastify) {
       }
 
       walletAddress = address.toLowerCase();
+
+      // Address-trust note (tracked in follow-up issue): we trust the supplied
+      // address as the FID's wallet. The Quick Auth JWT proves FID ownership
+      // but does NOT bind the FID to the supplied address. A user could
+      // technically claim multiple SOF airdrops by rotating addresses. This
+      // is acceptable for testnet alpha (SOF is mintable) but should be
+      // hardened with a verified-address cross-check (Neynar) before mainnet.
 
       // Enrich the JWT with display claims via the existing FID resolver
       // (best-effort — failures don't block auth).
