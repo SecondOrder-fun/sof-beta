@@ -75,10 +75,6 @@ vi.mock("@/hooks/useAppAuth", () => ({
   }),
 }));
 
-vi.mock("@/components/auth/FarcasterAuth", () => ({
-  default: () => null,
-}));
-
 vi.mock("@/components/common/LanguageToggle", () => ({
   default: () => null,
 }));

@@ -1,10 +1,11 @@
 /**
  * FarcasterProvider — auth-kit profile state only.
  *
- * Backend JWT lifecycle moved to AppAuthProvider (spec §5). This provider
- * keeps the useProfile() data + the relay nonce fetcher used by
- * useFarcasterSignIn. Verification with the backend is delegated to
- * AppAuthProvider via useAppAuth().signIn({ method: 'farcaster', ... }).
+ * Backend JWT lifecycle lives in AppAuthProvider (spec §5). The browser-SIWF
+ * QR surface that this provider's fetchNonce once fed was removed in PR #146;
+ * MiniApp sign-in now runs end-to-end through AppAuthProvider.signIn({
+ * method: 'farcaster' }) (which fetches its own nonce). Kept here for the
+ * auth-kit `useProfile()` data that other UI surfaces still read.
  */
 
 import { useCallback, useContext, useMemo } from "react";
