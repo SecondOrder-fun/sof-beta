@@ -168,6 +168,20 @@ export function AppAuthProvider({ children }) {
       if (opts.method === "farcaster") {
         const { message, signature, nonce } = opts;
         body = JSON.stringify({ method: "farcaster", message, signature, nonce });
+      } else if (opts.method === "farcaster-quick-auth") {
+        // Zero-prompt MiniApp sign-in. Pull a JWT from the Farcaster Quick
+        // Auth Server via the SDK (the Farcaster client signs on the user's
+        // behalf — no wallet prompt) and hand it + the wagmi-connected
+        // address to the backend. The backend extracts FID from the JWT and
+        // trusts the supplied address as the user's EOA/SMA.
+        const { sdk } = await import("@farcaster/miniapp-sdk");
+        const { token } = await sdk.quickAuth.getToken();
+        setStatus("verifying");
+        body = JSON.stringify({
+          method: "farcaster-quick-auth",
+          quickAuthToken: token,
+          address: addressLc,
+        });
       } else {
         // Wallet path — fetch nonce, sign, verify.
         const nonceRes = await fetch(`${API_BASE}/auth/nonce`);
@@ -291,6 +305,20 @@ export function AppAuthProvider({ children }) {
     if (status === "signing" || status === "verifying") return;
     if (status === "rejected" || status === "error") return; // don't loop
     void signIn({ method: "wallet" });
+  }, [isFullyConnected, addressLc, walletType, jwt, status, signIn]);
+
+  // Effect: zero-prompt MiniApp auth for Farcaster MiniApp users. The wallet
+  // auto-fire above intentionally excludes farcaster-miniapp (it can't sign
+  // SIWE through the Farcaster connector). Instead, when we're inside the
+  // MiniApp we ask the Farcaster client for a Quick Auth JWT and authenticate
+  // via /verify method:"farcaster-quick-auth". No prompt is shown to the user.
+  useEffect(() => {
+    if (!isFullyConnected || !addressLc) return;
+    if (walletType !== "farcaster-miniapp") return;
+    if (jwt) return;
+    if (status === "signing" || status === "verifying") return;
+    if (status === "rejected" || status === "error") return; // don't loop
+    void signIn({ method: "farcaster-quick-auth" });
   }, [isFullyConnected, addressLc, walletType, jwt, status, signIn]);
 
   const value = useMemo(

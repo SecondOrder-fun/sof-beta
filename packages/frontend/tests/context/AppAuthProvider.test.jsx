@@ -23,6 +23,14 @@ vi.mock("@/lib/apiBase", () => ({
   API_BASE: "http://test-api/api",
 }));
 
+// Module-level mock for the MiniApp SDK's Quick Auth helper. Only invoked by
+// the farcaster-miniapp auto-fire path; tests that don't trigger that path
+// won't hit this mock. Tests override the returned token via mockResolvedValue.
+const quickAuthGetToken = vi.fn().mockResolvedValue({ token: "test-quick-auth-jwt" });
+vi.mock("@farcaster/miniapp-sdk", () => ({
+  sdk: { quickAuth: { getToken: () => quickAuthGetToken() } },
+}));
+
 // Helper: encode a fake JWT { wallet_address, exp } as a parseable token.
 function makeJwt({ walletAddress, expSecondsFromNow = 3600 }) {
   const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" }));
@@ -251,8 +259,20 @@ describe("AppAuthProvider", () => {
       expect(screen.getByTestId("status")).toHaveTextContent("authenticated");
     });
 
-    it("does NOT auto-fire for farcaster-miniapp wallet type", async () => {
-      global.fetch = vi.fn();
+    it("auto-fires via Quick Auth (zero-prompt) for farcaster-miniapp wallet type", async () => {
+      // Bug #148 fix: farcaster-miniapp must NOT take the wallet SIWE auto-
+      // fire path (can't sign SIWE through the Farcaster connector), but it
+      // MUST auto-authenticate via the SDK's Quick Auth — no signMessage
+      // prompt, just a server-issued JWT keyed on the FID.
+      const token = makeJwt({ walletAddress: EOA_LC });
+      quickAuthGetToken.mockResolvedValueOnce({ token: "qa-jwt-abc" });
+      global.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          token,
+          user: { address: EOA_LC, sma: EOA_LC, isAdmin: false, fid: 12345 },
+        }),
+      });
       wagmiCore.signMessage.mockResolvedValue("0xsig");
       mockConnected({ address: EOA, walletType: "farcaster-miniapp" });
 
@@ -262,12 +282,23 @@ describe("AppAuthProvider", () => {
         </AppAuthProvider>,
       );
 
-      await act(async () => {
-        await new Promise((r) => setTimeout(r, 50));
-      });
+      await waitFor(() =>
+        expect(screen.getByTestId("status")).toHaveTextContent("authenticated"),
+      );
 
-      expect(global.fetch).not.toHaveBeenCalled();
-      expect(screen.getByTestId("status")).toHaveTextContent("idle");
+      // Used the Quick Auth path — wallet SIWE was never invoked.
+      expect(wagmiCore.signMessage).not.toHaveBeenCalled();
+
+      // POSTed to /auth/verify with method=farcaster-quick-auth and the
+      // wagmi-connected address.
+      const verifyCall = global.fetch.mock.calls.find(([url]) =>
+        String(url).endsWith("/auth/verify"),
+      );
+      expect(verifyCall).toBeDefined();
+      const body = JSON.parse(verifyCall[1].body);
+      expect(body.method).toBe("farcaster-quick-auth");
+      expect(body.quickAuthToken).toBe("qa-jwt-abc");
+      expect(body.address).toBe(EOA_LC);
     });
   });
 
@@ -464,47 +495,25 @@ describe("AppAuthProvider", () => {
     });
 
     it("does NOT persist to localStorage for farcaster-miniapp (in-memory only)", async () => {
-      // Simulate the Farcaster-delegated signIn call — explicit method:'farcaster' opts.
+      // After #148, farcaster-miniapp auto-authenticates via Quick Auth on
+      // connect. The JWT must stay in memory (spec §5.3) — Warpcast manages
+      // session lifetime; we re-Quick-Auth on each MiniApp open.
       const token = makeJwt({ walletAddress: EOA_LC });
+      quickAuthGetToken.mockResolvedValueOnce({ token: "qa-jwt-xyz" });
       global.fetch = vi.fn().mockResolvedValueOnce({
         ok: true,
         json: async () => ({
           token,
-          user: { address: EOA_LC, sma: SMA, isAdmin: false },
+          user: { address: EOA_LC, sma: EOA_LC, isAdmin: false },
         }),
       });
       mockConnected({ address: EOA, walletType: "farcaster-miniapp" });
 
-      function FarcasterTrigger() {
-        const auth = useAppAuth();
-        return (
-          <button
-            type="button"
-            onClick={() =>
-              auth.signIn({
-                method: "farcaster",
-                message: "siwf-msg",
-                signature: "0xsig",
-                nonce: "abc",
-              })
-            }
-          >
-            siwf
-          </button>
-        );
-      }
-
       render(
         <AppAuthProvider>
-          <FarcasterTrigger />
           <StatusProbe />
         </AppAuthProvider>,
       );
-
-      await act(async () => {
-        screen.getByText("siwf").click();
-        await new Promise((r) => setTimeout(r, 0));
-      });
 
       await waitFor(() =>
         expect(screen.getByTestId("status")).toHaveTextContent("authenticated"),
