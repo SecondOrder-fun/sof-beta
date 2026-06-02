@@ -146,6 +146,12 @@ export async function startContractEventPolling(params) {
   return () => {
     stopped = true;
     clearInterval(intervalId);
+    // Persist any buffered cursor value on shutdown so the next process
+    // doesn't re-scan from a stale snapshot. Best-effort; the cursor
+    // implementation swallows errors.
+    if (blockCursor && typeof blockCursor.flush === "function") {
+      void blockCursor.flush();
+    }
   };
 }
 
