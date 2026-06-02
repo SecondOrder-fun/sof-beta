@@ -80,7 +80,10 @@ async function resolveMarketsOnchain(seasonId, winnerAddress, logger) {
  * @param {object} raffleAbi - Raffle contract ABI
  * @param {object} logger - Logger instance
  */
-async function settleInfoFiMarkets(seasonId, raffleAddress, raffleAbi, logger) {
+// Exported for direct unit testing — verifies the cache-invalidation
+// contract on the bulk-settle path. Not intended for external callers
+// (use processSeasonCompletedLog instead).
+export async function settleInfoFiMarkets(seasonId, raffleAddress, raffleAbi, logger) {
   try {
     // Get winners from the raffle contract
     const winners = await publicClient.readContract({

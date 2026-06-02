@@ -185,15 +185,11 @@ export class DatabaseService {
   // fall off the 30s TTL on their own.
   //
   // External call sites that touch `infofi_markets` directly (e.g. the
-  // settle-season admin endpoint in infoFiRoutes.js) must call this
-  // method explicitly after their write — exposed without an underscore
-  // for that reason.
+  // settle-season admin endpoint in infoFiRoutes.js and the
+  // seasonCompletedListener on-chain handler) must call this method
+  // explicitly after their write.
   async invalidateMarketsCache() {
     await cacheInvalidatePattern(`${MARKETS_KEY_PREFIX}*`, this.getLogger());
-  }
-  // Backwards-compat alias for internal callers in this file.
-  async _invalidateMarketsCache() {
-    return this.invalidateMarketsCache();
   }
 
   async createInfoFiMarket(marketData) {
@@ -258,7 +254,7 @@ export class DatabaseService {
     this.getLogger().info(
       `[supabaseClient] Successfully created market: ${data.id}`,
     );
-    await this._invalidateMarketsCache();
+    await this.invalidateMarketsCache();
     return data;
   }
 
@@ -271,7 +267,7 @@ export class DatabaseService {
       .single();
 
     if (error) throw new Error(error.message);
-    await this._invalidateMarketsCache();
+    await this.invalidateMarketsCache();
     return data;
   }
 
@@ -308,7 +304,7 @@ export class DatabaseService {
       .single();
 
     if (error) throw new Error(error.message);
-    await this._invalidateMarketsCache();
+    await this.invalidateMarketsCache();
     return data;
   }
 
@@ -337,7 +333,7 @@ export class DatabaseService {
       );
     }
 
-    await this._invalidateMarketsCache();
+    await this.invalidateMarketsCache();
   }
 
   /**
@@ -514,7 +510,7 @@ export class DatabaseService {
       .single();
 
     if (error) throw new Error(error.message);
-    await this._invalidateSeasonContractsCache();
+    await this.invalidateSeasonContractsCache();
     return result;
   }
 
@@ -564,8 +560,11 @@ export class DatabaseService {
   // Read-through caches for season_contracts. All four readers are cached
   // because the table is admin-rare-mutation (only state transitions on
   // SeasonStarted/Locked/Completed write to it, plus initial registration).
-  // Writes invalidate the whole namespace via `_invalidateSeasonContractsCache`.
-  async _invalidateSeasonContractsCache() {
+  // Writes invalidate the whole namespace via `invalidateSeasonContractsCache`.
+  // Exposed publicly (no underscore) for symmetry with invalidateMarketsCache
+  // — any future external code path that writes season_contracts directly
+  // can call this to bust the cache without going through DatabaseService.
+  async invalidateSeasonContractsCache() {
     await cacheInvalidatePattern(
       `${SEASON_CONTRACTS_KEY_PREFIX}*`,
       this.getLogger(),
@@ -623,7 +622,7 @@ export class DatabaseService {
       .select()
       .single();
     if (error) throw error;
-    await this._invalidateSeasonContractsCache();
+    await this.invalidateSeasonContractsCache();
     return data;
   }
 
@@ -650,7 +649,7 @@ export class DatabaseService {
       .single();
 
     if (error) throw new Error(error.message);
-    await this._invalidateSeasonContractsCache();
+    await this.invalidateSeasonContractsCache();
     return data;
   }
 
@@ -715,7 +714,7 @@ export class DatabaseService {
       .single();
 
     if (error) throw new Error(error.message);
-    await this._invalidateSeasonContractsCache();
+    await this.invalidateSeasonContractsCache();
     return data;
   }
 
@@ -736,7 +735,7 @@ export class DatabaseService {
       .update({ last_tx_sync_block: String(lastBlock) })
       .eq("season_id", seasonId);
     if (error) throw new Error(error.message);
-    await this._invalidateSeasonContractsCache();
+    await this.invalidateSeasonContractsCache();
   }
 
   /**
@@ -850,7 +849,7 @@ export class DatabaseService {
       // contract_address is part of the cached /markets response.
       // Without this invalidation a fresh FPMM deploy stays invisible
       // to the frontend for up to 30s after the listener writes it.
-      await this._invalidateMarketsCache();
+      await this.invalidateMarketsCache();
       return data;
     } catch (error) {
       throw new Error(

@@ -1,8 +1,13 @@
 // backend/shared/redisCache.js
 //
-// Read-through Redis cache helper used by accessCache (allowlist),
-// routeConfigCache, infoFiMarketsCache, and seasonContractsCache. The
-// pattern is: try Redis → fall through to the loader on miss/error,
+// Read-through Redis cache helper. Used by accessService.getRouteConfig,
+// the /api/infofi/markets endpoint handler, and DatabaseService's
+// season_contracts reads. accessCache.js predates this helper and uses
+// `redisClient.getClient()` directly with its own custom key-building
+// logic (FID vs wallet vs SMA-pair invalidation) — it could be migrated
+// later if the per-cache custom logic ever needs to be unified.
+//
+// The pattern is: try Redis → fall through to the loader on miss/error,
 // best-effort write-through, never throws. Designed so a Redis hiccup
 // (network blip, restart, eviction) silently degrades to direct DB
 // reads rather than failing the calling request.
