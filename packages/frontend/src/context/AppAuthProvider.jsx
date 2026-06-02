@@ -1,17 +1,23 @@
 /**
  * AppAuthProvider — global JWT lifecycle.
  *
- * Auto-fires SIWE on connect for desktop-EOA and Coinbase Smart Wallet
- * users when no valid cached JWT exists for the connected address.
- * Backend /api/auth/verify response populates user.sma + user.isAdmin
- * via ensureSmartAccount + ensureAdminFlag.
+ * Two auto-fire paths run on connect when no valid cached JWT exists:
+ *  - desktop-EOA / Coinbase Smart Wallet → SIWE
+ *      (signMessage prompt → POST /api/auth/verify method:"wallet")
+ *  - Farcaster MiniApp → Quick Auth (zero prompt, fix for #148)
+ *      (sdk.quickAuth.getToken → POST /api/auth/verify
+ *       method:"farcaster-quick-auth")
+ * The backend's /verify response populates user.sma + user.isAdmin via
+ * ensureSmartAccount + ensureAdminFlag.
  *
  * Replaces AdminAuthContext (deleted) and the JWT half of FarcasterProvider
  * (kept for auth-kit profile state only).
  *
  * Storage:
  *  - desktop-eoa, coinbase-smart → localStorage (sof:auth_jwt + sof:auth_user)
- *  - farcaster-miniapp           → in-memory only
+ *  - farcaster-miniapp           → in-memory only (Quick Auth tokens are
+ *                                  short-lived; the MiniApp re-Quick-Auths
+ *                                  on each open)
  *
  * See spec: docs/superpowers/specs/2026-05-07-universal-siwe-design.md
  */
@@ -161,13 +167,29 @@ export function AppAuthProvider({ children }) {
 
     inflightRef.current = true;
     setError(null);
-    setStatus("signing");
+    // Quick Auth never invokes the wallet — go straight to "verifying" so
+    // any UI keyed on status="signing" (which means "wallet prompt open")
+    // doesn't flash for MiniApp users.
+    setStatus(opts.method === "farcaster-quick-auth" ? "verifying" : "signing");
 
     try {
       let body;
       if (opts.method === "farcaster") {
         const { message, signature, nonce } = opts;
         body = JSON.stringify({ method: "farcaster", message, signature, nonce });
+      } else if (opts.method === "farcaster-quick-auth") {
+        // Zero-prompt MiniApp sign-in. Pull a JWT from the Farcaster Quick
+        // Auth Server via the SDK (the Farcaster client signs on the user's
+        // behalf — no wallet prompt) and hand it + the wagmi-connected
+        // address to the backend. The backend extracts FID from the JWT and
+        // trusts the supplied address as the user's EOA/SMA.
+        const { sdk } = await import("@farcaster/miniapp-sdk");
+        const { token } = await sdk.quickAuth.getToken();
+        body = JSON.stringify({
+          method: "farcaster-quick-auth",
+          quickAuthToken: token,
+          address: addressLc,
+        });
       } else {
         // Wallet path — fetch nonce, sign, verify.
         const nonceRes = await fetch(`${API_BASE}/auth/nonce`);
@@ -291,6 +313,20 @@ export function AppAuthProvider({ children }) {
     if (status === "signing" || status === "verifying") return;
     if (status === "rejected" || status === "error") return; // don't loop
     void signIn({ method: "wallet" });
+  }, [isFullyConnected, addressLc, walletType, jwt, status, signIn]);
+
+  // Effect: zero-prompt MiniApp auth for Farcaster MiniApp users. The wallet
+  // auto-fire above intentionally excludes farcaster-miniapp (it can't sign
+  // SIWE through the Farcaster connector). Instead, when we're inside the
+  // MiniApp we ask the Farcaster client for a Quick Auth JWT and authenticate
+  // via /verify method:"farcaster-quick-auth". No prompt is shown to the user.
+  useEffect(() => {
+    if (!isFullyConnected || !addressLc) return;
+    if (walletType !== "farcaster-miniapp") return;
+    if (jwt) return;
+    if (status === "signing" || status === "verifying") return;
+    if (status === "rejected" || status === "error") return; // don't loop
+    void signIn({ method: "farcaster-quick-auth" });
   }, [isFullyConnected, addressLc, walletType, jwt, status, signIn]);
 
   const value = useMemo(

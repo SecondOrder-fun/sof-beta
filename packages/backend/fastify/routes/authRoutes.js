@@ -8,6 +8,7 @@
 import crypto from "node:crypto";
 import process from "node:process";
 import { verifyMessage } from "viem";
+import { createClient as createQuickAuthClient } from "@farcaster/quick-auth";
 import { redisClient } from "../../shared/redisClient.js";
 import { AuthService } from "../../shared/auth.js";
 import { getUserAccess, ACCESS_LEVEL_NAMES } from "../../shared/accessService.js";
@@ -24,6 +25,25 @@ import { publicClient } from "../../src/lib/viemClient.js";
 
 const NONCE_TTL_SECONDS = 300; // 5 minutes
 const SIGN_IN_MESSAGE_PREFIX = "Sign in to SecondOrder.fun\nNonce: ";
+
+// Lazily-constructed Quick Auth client (verifies JWTs issued by
+// https://auth.farcaster.xyz). Lazy so backend boot doesn't fail when
+// @farcaster/quick-auth isn't reachable during a cold start.
+let _quickAuthClient = null;
+function getQuickAuthClient() {
+  if (!_quickAuthClient) _quickAuthClient = createQuickAuthClient();
+  return _quickAuthClient;
+}
+
+/**
+ * Quick Auth JWTs carry an `aud` claim equal to the MiniApp's hosting domain
+ * (the same domain Warpcast loaded the app from). Allow a comma-separated
+ * list via env so the same backend serves prod + preview deploys.
+ */
+function getQuickAuthAllowedDomains() {
+  const raw = (process.env.QUICK_AUTH_DOMAINS || "secondorder.fun").trim();
+  return raw.split(",").map((s) => s.trim()).filter(Boolean);
+}
 
 export default async function authRoutes(fastify) {
   /**
@@ -55,25 +75,41 @@ export default async function authRoutes(fastify) {
   fastify.post("/verify", async (request, reply) => {
     const { method, nonce, signature } = request.body || {};
 
-    // ── Validate common fields ──────────────────────────────────────
-    if (!method || !nonce || !signature) {
-      return reply.code(400).send({ error: "method, nonce, and signature are required" });
+    // ── Validate method ─────────────────────────────────────────────
+    if (!method) {
+      return reply.code(400).send({ error: "method is required" });
     }
 
-    if (method !== "wallet" && method !== "farcaster") {
-      return reply.code(400).send({ error: 'method must be "wallet" or "farcaster"' });
+    const VALID_METHODS = ["wallet", "farcaster", "farcaster-quick-auth"];
+    if (!VALID_METHODS.includes(method)) {
+      return reply.code(400).send({
+        error: `method must be one of: ${VALID_METHODS.join(", ")}`,
+      });
     }
 
-    // ── Validate and consume nonce (one-time use) ───────────────────
-    const redis = redisClient.getClient();
-    const nonceRedisKey = `auth:nonce:${nonce}`;
-    const storedNonce = await redis.get(nonceRedisKey);
+    // wallet + farcaster (legacy QR SIWF) both require a one-time nonce that
+    // we issued from /auth/nonce. farcaster-quick-auth carries its own replay
+    // protection (Farcaster-issued JWT with exp/iat), so we skip the nonce
+    // consume on that branch.
+    if (method === "wallet" || method === "farcaster") {
+      if (!nonce || !signature) {
+        return reply.code(400).send({
+          error: "nonce and signature are required for this method",
+        });
+      }
 
-    if (!storedNonce) {
-      return reply.code(401).send({ error: "Nonce expired or not found. Request a new one." });
+      const redis = redisClient.getClient();
+      const nonceRedisKey = `auth:nonce:${nonce}`;
+      const storedNonce = await redis.get(nonceRedisKey);
+
+      if (!storedNonce) {
+        return reply
+          .code(401)
+          .send({ error: "Nonce expired or not found. Request a new one." });
+      }
+
+      await redis.del(nonceRedisKey);
     }
-
-    await redis.del(nonceRedisKey);
 
     // ── Method-specific verification ────────────────────────────────
     let walletAddress = null;
@@ -179,6 +215,116 @@ export default async function authRoutes(fastify) {
 
       // Sync Farcaster username
       if (walletAddress && username) {
+        try {
+          await usernameService.syncFarcasterUsername(walletAddress, username);
+        } catch (err) {
+          fastify.log.warn({ err }, "Failed to sync Farcaster username");
+        }
+      }
+    } else if (method === "farcaster-quick-auth") {
+      // Zero-prompt MiniApp sign-in. The Farcaster client (Warpcast) issues
+      // a short-lived JWT via auth.farcaster.xyz that proves FID ownership
+      // without the user signing anything. The frontend passes:
+      //   - quickAuthToken : the Quick Auth JWT
+      //   - address        : the wagmi-connected MiniApp address (whatever the
+      //                      Farcaster connector exposes — this matches what
+      //                      the frontend's useRaffleAccount reads, so SMA
+      //                      lookups stay consistent)
+      // Verifies the JWT against the configured allowed domains, extracts the
+      // FID (`sub` claim), and accepts the supplied address as the user's
+      // EOA/SMA.
+      const { quickAuthToken, address } = request.body || {};
+      walletType = "farcaster-miniapp";
+
+      if (!quickAuthToken) {
+        return reply.code(400).send({
+          error: "quickAuthToken is required for farcaster-quick-auth method",
+        });
+      }
+      if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
+        return reply
+          .code(400)
+          .send({ error: "Valid Ethereum address required" });
+      }
+
+      const allowedDomains = getQuickAuthAllowedDomains();
+      let payload = null;
+      let lastErr = null;
+      for (const domain of allowedDomains) {
+        try {
+          payload = await getQuickAuthClient().verifyJwt({
+            token: quickAuthToken,
+            domain,
+          });
+          break;
+        } catch (err) {
+          // Catch ALL errors (not only InvalidTokenError): a transient JWKS
+          // fetch failure on one domain shouldn't bypass the remaining
+          // allowlist. If every iteration fails, the !payload check below
+          // surfaces a clean 401 (with the last error logged) rather than
+          // letting the raw error escape as a 500.
+          lastErr = err;
+        }
+      }
+      if (!payload) {
+        fastify.log.error(
+          { err: lastErr, domains: allowedDomains },
+          "Quick Auth JWT verification failed against all allowed domains",
+        );
+        return reply
+          .code(401)
+          .send({ error: "Quick Auth verification failed" });
+      }
+
+      fid = Number(payload.sub);
+      if (!fid) {
+        return reply
+          .code(401)
+          .send({ error: "Quick Auth JWT missing FID" });
+      }
+
+      walletAddress = address.toLowerCase();
+
+      // Address-trust note (tracked in follow-up issue): we trust the supplied
+      // address as the FID's wallet. The Quick Auth JWT proves FID ownership
+      // but does NOT bind the FID to the supplied address. A user could
+      // technically claim multiple SOF airdrops by rotating addresses. This
+      // is acceptable for testnet alpha (SOF is mintable) but should be
+      // hardened with a verified-address cross-check (Neynar) before mainnet.
+
+      // Enrich the JWT with display claims via the existing FID resolver
+      // (best-effort — failures don't block auth).
+      try {
+        const data = await resolveFidToWallet(fid);
+        username = data.username || null;
+        displayName = data.displayName || null;
+        pfpUrl = data.pfpUrl || null;
+      } catch (err) {
+        fastify.log.warn(
+          { err, fid },
+          "FID profile enrichment failed for Quick Auth — proceeding without",
+        );
+      }
+
+      // Allowlist upsert (mirrors the legacy farcaster method).
+      const allowlistResult = await addToAllowlist(
+        { fid, wallet: walletAddress },
+        "siwf",
+        true,
+      );
+      if (!allowlistResult.success) {
+        fastify.log.warn(
+          { fid, error: allowlistResult.error },
+          "Allowlist upsert failed",
+        );
+      } else {
+        await invalidateUserAccessCache(
+          { fid, wallet: walletAddress },
+          fastify.log,
+        );
+      }
+
+      if (username) {
         try {
           await usernameService.syncFarcasterUsername(walletAddress, username);
         } catch (err) {

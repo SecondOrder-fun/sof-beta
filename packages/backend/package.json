@@ -1,6 +1,6 @@
 {
   "name": "@sof/backend",
-  "version": "0.29.4",
+  "version": "0.29.5",
   "private": true,
   "type": "module",
   "description": "SecondOrder.fun Backend API Server",
@@ -17,6 +17,7 @@
   "dependencies": {
     "@farcaster/auth-client": "^0.7.1",
     "@farcaster/miniapp-node": "^0.1.11",
+    "@farcaster/quick-auth": "^0.0.8",
     "@fastify/cors": "^11.1.0",
     "@fastify/helmet": "^13.0.1",
     "@fastify/rate-limit": "^10.3.0",
