@@ -4,7 +4,6 @@ import { useAccount, useDisconnect } from "wagmi";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, Ticket, User, Crown } from "lucide-react";
 import SettingsMenu from "@/components/common/SettingsMenu";
-import FarcasterAuth from "@/components/auth/FarcasterAuth";
 import { useAppAuth } from "@/hooks/useAppAuth";
 import { useLoginModal } from "@/hooks/useLoginModal";
 import { Button } from "@/components/ui/button";
@@ -32,8 +31,7 @@ const Header = () => {
   const { openLoginModal } = useLoginModal();
   const { user: appAuthUser, status: authStatus, signOut: appAuthLogout } = useAppAuth();
   const isBackendAuthenticated = authStatus === "authenticated";
-  const backendUser = appAuthUser; // shape: { address, sma, isAdmin, fid?, username? }
-  const farcasterLogout = appAuthLogout;
+  const backendUser = appAuthUser;
   const { data: username } = useUsername(address);
   const { accessLevel } = useAllowlist();
   const isAdmin = accessLevel >= ACCESS_LEVELS.ADMIN;
@@ -143,25 +141,23 @@ const Header = () => {
         </div>
         <div className="flex items-center space-x-4">
           {isConnected ? (
-            <>
-              <SettingsMenu
-                address={sma || address}
-                username={username}
-                farcasterUser={backendUser?.fid ? backendUser : null}
-                onDisconnect={() => {
-                  farcasterLogout();
-                  disconnect();
-                }}
-              />
-            </>
+            <SettingsMenu
+              address={sma || address}
+              username={username}
+              onDisconnect={() => {
+                appAuthLogout();
+                disconnect();
+              }}
+            />
           ) : isBackendAuthenticated && backendUser ? (
+            // Edge state: authed (e.g. via legacy SIWF JWT or stale auth) but no
+            // wallet connected. Give the user a way to sign out OR reconnect a
+            // wallet — the Connect Wallet flow re-attaches them to a SettingsMenu.
             <>
-              <FarcasterAuth />
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={openLoginModal}
-              >
+              <Button variant="ghost" size="sm" onClick={appAuthLogout}>
+                {tAuth("signOut", "Sign out")}
+              </Button>
+              <Button variant="secondary" size="sm" onClick={openLoginModal}>
                 {t("connectWallet")}
               </Button>
             </>

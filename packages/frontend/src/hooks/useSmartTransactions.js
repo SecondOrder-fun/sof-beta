@@ -137,7 +137,8 @@ export function useSmartTransactions() {
   const { data: walletClient } = useWalletClient();
   const { walletType } = useRaffleAccount();
   // JWT from AppAuthProvider — covers SIWE-on-connect (desktop EOA / Coinbase
-  // Smart Wallet) and Farcaster SIWF (delegated via useFarcasterSignIn).
+  // Smart Wallet) and Farcaster MiniApp SIWF (via
+  // AppAuthProvider.signIn({ method: 'farcaster' })).
   // Legacy storage keys (sof:farcaster_jwt, sof:admin_jwt) are cleared on
   // AppAuthProvider mount, so localStorage fallbacks here are dead code.
   const { jwt: backendJwt } = useAppAuth();

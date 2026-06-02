@@ -41,9 +41,10 @@ export const SignInRequiredOverlay = ({ variant = "desktop" }) => {
 
   if (!ctx) return null;
   if (!address || walletStatus !== "connected") return null;
-  // Farcaster MiniApp owns its own sign-in surface via FarcasterAuth + the
-  // SIWF relay. Routing those users through this overlay would call signIn()
-  // with the default method:'wallet' and send raw SIWE through the Farcaster
+  // Farcaster MiniApp users auto-sign-in via the WagmiConfigProvider
+  // FarcasterAutoConnect + AppAuthProvider.signIn({ method: 'farcaster' })
+  // path. Routing them through this overlay would call signIn() with the
+  // default method:'wallet' and send raw SIWE through the Farcaster
   // connector, bypassing the intended SIWF flow. Mirrors AppAuthProvider's
   // AUTO_FIRE_WALLET_TYPES exclusion.
   if (walletType === "farcaster-miniapp") return null;

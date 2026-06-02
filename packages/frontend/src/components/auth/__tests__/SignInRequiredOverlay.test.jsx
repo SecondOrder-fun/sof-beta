@@ -83,9 +83,10 @@ describe("SignInRequiredOverlay", () => {
   });
 
   it("renders nothing for Farcaster MiniApp users (walletType=farcaster-miniapp)", () => {
-    // Farcaster MiniApp owns its own sign-in surface (FarcasterAuth / SIWF
-    // relay). Routing those users through the overlay would send raw SIWE
-    // through the Farcaster connector and bypass the intended SIWF flow.
+    // Farcaster MiniApp users auto-sign-in via FarcasterAutoConnect +
+    // AppAuthProvider.signIn({ method: 'farcaster' }). Routing them through
+    // the overlay would send raw SIWE through the Farcaster connector and
+    // bypass the intended SIWF flow.
     vi.mocked(useRaffleAccount).mockReturnValueOnce({
       walletType: "farcaster-miniapp",
     });
