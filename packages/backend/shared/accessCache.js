@@ -12,7 +12,11 @@ import { redisClient } from "./redisClient.js";
 import { resolveAddressPair } from "./services/addressPairResolver.js";
 import { supabase, hasSupabase } from "./supabaseClient.js";
 
-export const ACCESS_CACHE_TTL_SECONDS = 60;
+// 5-minute TTL. Mutations explicitly invalidate via invalidateUserAccessCache
+// from every admin endpoint that touches allowlist_entries or
+// user_access_groups, so the TTL only matters as a safety net for stale
+// entries — 5 min is fine and cuts cache-miss frequency 5x vs the prior 60s.
+export const ACCESS_CACHE_TTL_SECONDS = 300;
 const KEY_PREFIX = "access:";
 
 /**

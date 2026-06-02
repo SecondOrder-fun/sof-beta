@@ -129,7 +129,7 @@ describe("getCachedUserAccess", () => {
     expect(redisMocks.mockGet).toHaveBeenCalledWith("access:fid:1");
   });
 
-  it("on miss, calls through to DB and writes through with 60s TTL", async () => {
+  it("on miss, calls through to DB and writes through with the configured TTL", async () => {
     redisMocks.mockGet.mockResolvedValueOnce(null);
     accessMocks.mockGetUserAccess.mockResolvedValueOnce(SAMPLE_ENTRY);
     redisMocks.mockSet.mockResolvedValueOnce("OK");
@@ -145,7 +145,10 @@ describe("getCachedUserAccess", () => {
       "EX",
       ACCESS_CACHE_TTL_SECONDS,
     );
-    expect(ACCESS_CACHE_TTL_SECONDS).toBe(60);
+    // TTL was bumped 60s → 300s as part of the Supabase-egress optimization
+    // bundle. Mutations explicitly invalidate via invalidateUserAccessCache,
+    // so the longer TTL just reduces cache-miss frequency.
+    expect(ACCESS_CACHE_TTL_SECONDS).toBe(300);
   });
 
   it("falls through to DB when Redis getClient throws (e.g. unconfigured)", async () => {

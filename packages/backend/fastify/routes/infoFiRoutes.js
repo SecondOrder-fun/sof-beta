@@ -7,6 +7,15 @@ import {
   historicalOddsRanges,
 } from "../../shared/historicalOddsService.js";
 import { createRequireAdmin } from "../../shared/adminGuard.js";
+import { cacheRead } from "../../shared/redisCache.js";
+
+// /markets responses are cached in Redis for 30s. Probability updates fire on
+// every Buy/Sell and would shred the cache if we invalidated on each one;
+// structural changes (create/delete/settle) explicitly invalidate via
+// `markets:*` pattern bust. The frontend already tolerates ~15s staleness
+// via TanStack staleTime, so the 30s server window is invisible to users.
+const MARKETS_CACHE_TTL_SECONDS = 30;
+const MARKETS_KEY_PREFIX = "markets:";
 
 /**
  * InfoFi Markets API Routes
@@ -28,43 +37,63 @@ export default async function infoFiRoutes(fastify) {
   fastify.get("/markets", async (request, reply) => {
     try {
       const { seasonId, isActive, marketType } = request.query;
+      const cacheKey =
+        `${MARKETS_KEY_PREFIX}` +
+        `${seasonId ?? "_"}:` +
+        `${isActive ?? "_"}:` +
+        `${marketType ?? "_"}`;
 
-      // Build query with optional filters
-      let query = supabase
-        .from("infofi_markets")
-        .select(
-          `
-          id,
-          season_id,
-          player_address,
-          player_id,
-          market_type,
-          contract_address,
-          current_probability_bps,
-          is_active,
-          is_settled,
-          settlement_time,
-          winning_outcome,
-          created_at,
-          updated_at
-        `,
-        )
-        .order("created_at", { ascending: false });
+      const result = await cacheRead(
+        cacheKey,
+        async () => {
+          // Build query with optional filters
+          let query = supabase
+            .from("infofi_markets")
+            .select(
+              `
+              id,
+              season_id,
+              player_address,
+              player_id,
+              market_type,
+              contract_address,
+              current_probability_bps,
+              is_active,
+              is_settled,
+              settlement_time,
+              winning_outcome,
+              created_at,
+              updated_at
+            `,
+            )
+            .order("created_at", { ascending: false });
 
-      // Apply filters if provided
-      if (seasonId) {
-        query = query.eq("season_id", seasonId);
-      }
+          // Apply filters if provided
+          if (seasonId) {
+            query = query.eq("season_id", seasonId);
+          }
 
-      if (isActive !== undefined) {
-        query = query.eq("is_active", isActive === "true");
-      }
+          if (isActive !== undefined) {
+            query = query.eq("is_active", isActive === "true");
+          }
 
-      if (marketType) {
-        query = query.eq("market_type", marketType);
-      }
+          if (marketType) {
+            query = query.eq("market_type", marketType);
+          }
 
-      const { data, error } = await query;
+          const { data, error } = await query;
+          if (error) {
+            // Throw so cacheRead does NOT cache the failure response.
+            // The handler catch below converts it to a 500.
+            throw error;
+          }
+          return data;
+        },
+        { ttlSeconds: MARKETS_CACHE_TTL_SECONDS, logger: fastify.log },
+      );
+
+      const data = result;
+      const error = null;
 
       if (error) {
         fastify.log.error({ error }, "Failed to fetch markets");

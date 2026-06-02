@@ -1,5 +1,21 @@
 import { supabase } from "./supabaseClient.js";
 import { resolveAddressPair } from "./services/addressPairResolver.js";
+import { cacheRead } from "./redisCache.js";
+
+// route_access_config rarely mutates (admin-only); cache lookups for 5 min.
+// Mutations in routeConfigService invalidate the whole namespace via
+// cacheInvalidatePattern("route_config:*").
+const ROUTE_CONFIG_CACHE_TTL_SECONDS = 300;
+const ROUTE_CONFIG_KEY_PREFIX = "route_config:";
+
+function buildRouteConfigKey(route, resourceType, resourceId) {
+  // Use literal "_" as the no-value sentinel so the key namespace stays
+  // unambiguous (a real resourceType/Id of `undefined` would otherwise
+  // collide with the absent-filter form).
+  const rt = resourceType ?? "_";
+  const ri = resourceId ?? "_";
+  return `${ROUTE_CONFIG_KEY_PREFIX}${route}:${rt}:${ri}`;
+}
 
 // Access level constants
 export const ACCESS_LEVELS = {
@@ -34,7 +50,7 @@ export async function getUserAccess({ fid, wallet }, log = console) {
     if (fid) {
       const { data, error } = await supabase
         .from("allowlist_entries")
-        .select("*")
+        .select("id, fid, wallet_address, access_level, is_active")
         .eq("fid", fid)
         .eq("is_active", true)
         .single();
@@ -50,7 +66,7 @@ export async function getUserAccess({ fid, wallet }, log = console) {
     if (!entry && wallet) {
       const { data, error } = await supabase
         .from("allowlist_entries")
-        .select("*")
+        .select("id, fid, wallet_address, access_level, is_active")
         .eq("wallet_address", wallet.toLowerCase())
         .eq("is_active", true)
         .single();
@@ -76,7 +92,7 @@ export async function getUserAccess({ fid, wallet }, log = console) {
         if (alt && alt !== lc) {
           const { data, error } = await supabase
             .from("allowlist_entries")
-            .select("*")
+            .select("id, fid, wallet_address, access_level, is_active")
             .eq("wallet_address", alt)
             .eq("is_active", true)
             .single();
@@ -255,41 +271,64 @@ export async function checkRouteAccess({
 }
 
 /**
- * Get route configuration
+ * Get route configuration. Read-through Redis cache (5 min TTL); mutations
+ * in routeConfigService.js explicitly invalidate the route_config:*
+ * namespace. Returns null when no config is found — that null is also
+ * cached so the cold-path lookup doesn't re-fire on every request to a
+ * route with no explicit ACL.
+ *
  * @param {string} route - Route pattern
  * @param {string} resourceType - Optional resource type
  * @param {string} resourceId - Optional resource ID
  * @returns {Promise<object|null>}
  */
 export async function getRouteConfig(route, resourceType, resourceId) {
-  try {
-    let query = supabase.from("route_access_config").select("*");
+  const key = buildRouteConfigKey(route, resourceType, resourceId);
+  return cacheRead(
+    key,
+    async () => {
+      try {
+        // Narrowed from select("*") — these are the only columns
+        // checkRouteAccess reads (required_level, required_groups,
+        // require_all_groups, is_public, is_disabled).
+        const columns =
+          "route_pattern, resource_type, resource_id, required_level, required_groups, require_all_groups, is_public, is_disabled, priority";
 
-    // Try exact match first with resource specificity
-    if (resourceType && resourceId) {
-      const { data } = await query
-        .eq("route_pattern", route)
-        .eq("resource_type", resourceType)
-        .eq("resource_id", resourceId)
-        .order("priority", { ascending: false })
-        .limit(1)
-        .single();
+        // Try exact match first with resource specificity
+        if (resourceType && resourceId) {
+          const { data } = await supabase
+            .from("route_access_config")
+            .select(columns)
+            .eq("route_pattern", route)
+            .eq("resource_type", resourceType)
+            .eq("resource_id", resourceId)
+            .order("priority", { ascending: false })
+            .limit(1)
+            .single();
 
-      if (data) return data;
-    }
+          if (data) return data;
+        }
 
-    // Try route pattern match
-    const { data } = await query
-      .eq("route_pattern", route)
-      .order("priority", { ascending: false })
-      .limit(1)
-      .single();
+        // Try route pattern match
+        const { data } = await supabase
+          .from("route_access_config")
+          .select(columns)
+          .eq("route_pattern", route)
+          .order("priority", { ascending: false })
+          .limit(1)
+          .single();
 
-    return data || null;
-  } catch (error) {
-    console.error("Error getting route config:", error);
-    return null;
-  }
+        return data || null;
+      } catch (error) {
+        // PGRST116 = no rows; that's the common "no config for this route" case.
+        if (error?.code !== "PGRST116") {
+          console.error("Error getting route config:", error);
+        }
+        return null;
+      }
+    },
+    { ttlSeconds: ROUTE_CONFIG_CACHE_TTL_SECONDS },
+  );
 }
 
 /**
