@@ -62,7 +62,7 @@ describe("startContractEventPolling", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(mockClient.getContractEvents).not.toHaveBeenCalled();
 
-    unwatch();
+    await unwatch();
   });
 
   it("resumes from blockCursor when available", async () => {
@@ -105,7 +105,7 @@ describe("startContractEventPolling", () => {
     // blockCursor.set should have been called with the latest block
     expect(blockCursor.set).toHaveBeenCalledWith(100n);
 
-    unwatch();
+    await unwatch();
   });
 
   it("uses explicit startBlock over blockCursor", async () => {
@@ -135,7 +135,65 @@ describe("startContractEventPolling", () => {
     const callArgs = mockClient.getContractEvents.mock.calls[0][0];
     expect(callArgs.fromBlock).toBe(75n);
 
-    unwatch();
+    await unwatch();
+  });
+
+  it("awaits blockCursor.flush() when stop fn is invoked", async () => {
+    // The stop fn returned by startContractEventPolling is the graceful
+    // shutdown hook; it must await the cursor's flush() so server.js
+    // can include it in the app.close()-ordered drain. Without this,
+    // the buffered cursor value is lost on every deploy.
+    let flushResolve;
+    const flushPromise = new Promise((resolve) => {
+      flushResolve = resolve;
+    });
+    const blockCursor = {
+      get: vi.fn().mockResolvedValue(null),
+      set: vi.fn().mockResolvedValue(undefined),
+      flush: vi.fn(() => flushPromise),
+    };
+
+    const unwatch = await startContractEventPolling({
+      client: mockClient,
+      address: "0xABC",
+      abi: testAbi,
+      eventName: "TestEvent",
+      pollingIntervalMs: 1_000,
+      blockCursor,
+      onLogs: vi.fn(),
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Stop fn returns a Promise — it must NOT resolve before flush settles.
+    const stopPromise = unwatch();
+    expect(blockCursor.flush).toHaveBeenCalledTimes(1);
+
+    // Resolve the flush and verify stop completes.
+    flushResolve();
+    await stopPromise;
+  });
+
+  it("stop fn tolerates cursors without flush() (back-compat)", async () => {
+    // Older cursor implementations only had {get, set}. The typeof guard
+    // must skip flush silently rather than throwing.
+    const blockCursor = {
+      get: vi.fn().mockResolvedValue(null),
+      set: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const unwatch = await startContractEventPolling({
+      client: mockClient,
+      address: "0xABC",
+      abi: testAbi,
+      eventName: "TestEvent",
+      pollingIntervalMs: 1_000,
+      blockCursor,
+      onLogs: vi.fn(),
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(unwatch()).resolves.toBeUndefined();
   });
 
   it("persists block on each successful tick", async () => {
@@ -168,6 +226,6 @@ describe("startContractEventPolling", () => {
     // blockCursor.set should have been called with 105n
     expect(blockCursor.set).toHaveBeenCalledWith(105n);
 
-    unwatch();
+    await unwatch();
   });
 });

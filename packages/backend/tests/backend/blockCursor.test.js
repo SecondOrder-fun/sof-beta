@@ -1,8 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Mock Redis and Supabase before importing blockCursor. Tests that exercise
 // the throttled-persist path use vi.doMock per-test below so `hasSupabase`
 // can be flipped to true without colliding with the in-memory fallback test.
+// `vi.doMock` survives `vi.resetModules()` (it clears the module cache, not
+// the mock registry), so the throttle describe explicitly doUnmocks the
+// supabase module in afterEach to keep tests order-independent.
 vi.mock("../../shared/redisClient.js", () => ({
   redisClient: {
     client: null,
@@ -44,12 +47,26 @@ describe("blockCursor", () => {
   });
 
   describe("throttled persistence (Supabase path)", () => {
+    afterEach(() => {
+      // Remove the per-test doMock so a subsequent test in this file
+      // (or a re-run of test #1) sees the top-level `hasSupabase: false`
+      // mock rather than the throttle suite's `true` override.
+      vi.doUnmock("../../shared/supabaseClient.js");
+    });
+
     /**
      * Build a fake Supabase client that records every upsert and lets us
-     * substitute `hasSupabase: true` for the throttle path.
+     * substitute `hasSupabase: true` for the throttle path. `monotonicNow`
+     * drives the throttle elapsed-time gate; `wallClockNow` drives the
+     * timestamp written into `updated_at`.
      */
-    async function loadCursor({ throttleMs, now } = {}) {
-      const upsert = vi.fn().mockResolvedValue({ data: null, error: null });
+    async function loadCursor({
+      throttleMs,
+      monotonicNow,
+      wallClockNow,
+      upsertResult = { data: null, error: null },
+    } = {}) {
+      const upsert = vi.fn().mockResolvedValue(upsertResult);
       const maybeSingle = vi
         .fn()
         .mockResolvedValue({ data: null, error: null });
@@ -65,7 +82,11 @@ describe("blockCursor", () => {
       const { createBlockCursor } = await import(
         "../../src/lib/blockCursor.js"
       );
-      const cursor = await createBlockCursor("test:event", { throttleMs, now });
+      const cursor = await createBlockCursor("test:event", {
+        throttleMs,
+        monotonicNow,
+        wallClockNow,
+      });
       return { cursor, upsert };
     }
 
@@ -73,7 +94,7 @@ describe("blockCursor", () => {
       let t = 1_000_000;
       const { cursor, upsert } = await loadCursor({
         throttleMs: 30_000,
-        now: () => t,
+        monotonicNow: () => t,
       });
 
       await cursor.set(100n);
@@ -107,7 +128,7 @@ describe("blockCursor", () => {
       let t = 2_000_000;
       const { cursor, upsert } = await loadCursor({
         throttleMs: 30_000,
-        now: () => t,
+        monotonicNow: () => t,
       });
 
       // First set persists.
@@ -132,6 +153,103 @@ describe("blockCursor", () => {
       // flush with no pending value is a no-op.
       await cursor.flush();
       expect(upsert).toHaveBeenCalledTimes(2);
+    });
+
+    it("treats supabase-js resolved-with-error as failure (no false success)", async () => {
+      // supabase-js v2 returns `{ error }` in the resolved value for
+      // RLS/auth/schema errors — it does NOT throw. The cursor must
+      // detect this and leave the buffer intact for the next attempt
+      // rather than clearing it and silently falling behind.
+      let t = 3_000_000;
+      const { cursor, upsert } = await loadCursor({
+        throttleMs: 30_000,
+        monotonicNow: () => t,
+        upsertResult: {
+          data: null,
+          error: { code: "PGRST301", message: "JWT expired" },
+        },
+      });
+
+      await cursor.set(300n);
+      expect(upsert).toHaveBeenCalledTimes(1);
+
+      // Buffer should NOT be cleared — flush must re-attempt.
+      await cursor.flush();
+      // Flush awaits any in-flight persist before issuing its own, so
+      // we see the original set()'s upsert plus one additional from
+      // flush — both attempted because each persist returned false.
+      expect(upsert.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(upsert).toHaveBeenLastCalledWith(
+        expect.objectContaining({ last_block: 300 }),
+        expect.anything(),
+      );
+    });
+
+    it("read-your-own-writes: get() returns buffered value during throttle window", async () => {
+      let t = 4_000_000;
+      const { cursor } = await loadCursor({
+        throttleMs: 30_000,
+        monotonicNow: () => t,
+      });
+
+      // First set persists immediately (throttle not yet elapsed since 0).
+      await cursor.set(400n);
+
+      // Second set within window — buffered, not persisted.
+      t += 1_000;
+      await cursor.set(401n);
+
+      // get() must surface the in-memory buffered value, not the stale
+      // persisted one (which would be 400 here).
+      const v = await cursor.get();
+      expect(v).toBe(401n);
+    });
+
+    it("single-flight: concurrent set() calls produce one persist, not two", async () => {
+      let t = 5_000_000;
+      // Make upsert slow so two set() calls definitely overlap.
+      const upsertPromise = new Promise((resolve) =>
+        setTimeout(() => resolve({ data: null, error: null }), 50),
+      );
+      const upsert = vi.fn(() => upsertPromise);
+      const maybeSingle = vi
+        .fn()
+        .mockResolvedValue({ data: null, error: null });
+      const eq = vi.fn(() => ({ maybeSingle }));
+      const select = vi.fn(() => ({ eq }));
+      const from = vi.fn(() => ({ select, upsert }));
+      vi.doMock("../../shared/supabaseClient.js", () => ({
+        supabase: { from },
+        hasSupabase: true,
+      }));
+      const { createBlockCursor } = await import(
+        "../../src/lib/blockCursor.js"
+      );
+      const cursor = await createBlockCursor("test:event", {
+        throttleMs: 30_000,
+        monotonicNow: () => t,
+      });
+
+      // Fire two set() calls without awaiting the first.
+      const p1 = cursor.set(500n);
+      const p2 = cursor.set(501n);
+      await Promise.all([p1, p2]);
+
+      // Only one persist should be in flight; the second set() sees
+      // the inflight latch and just updates the buffer.
+      expect(upsert).toHaveBeenCalledTimes(1);
+      expect(upsert).toHaveBeenLastCalledWith(
+        expect.objectContaining({ last_block: 500 }),
+        expect.anything(),
+      );
+
+      // The buffered 501n should still be pending — flush picks it up.
+      await cursor.flush();
+      expect(upsert).toHaveBeenCalledTimes(2);
+      expect(upsert).toHaveBeenLastCalledWith(
+        expect.objectContaining({ last_block: 501 }),
+        expect.anything(),
+      );
     });
   });
 });
