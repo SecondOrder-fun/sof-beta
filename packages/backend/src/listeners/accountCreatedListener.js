@@ -119,7 +119,7 @@ async function scanHistoricalAccountCreated(factoryAddress, logger) {
  *
  * @param {string} factoryAddress - SOFSmartAccountFactory address
  * @param {object} logger - Fastify logger (app.log)
- * @returns {Promise<() => void>} unwatch
+ * @returns {Promise<() => Promise<void>>} unwatch (async — awaits cursor flush)
  */
 export async function startAccountCreatedListener(factoryAddress, logger) {
   if (!factoryAddress) {

@@ -174,6 +174,66 @@ describe("startContractEventPolling", () => {
     await stopPromise;
   });
 
+  it("drains in-flight tick before flushing on stop", async () => {
+    // The stop fn must await any tick that is currently running so its
+    // trailing `await blockCursor.set(currentBlock)` lands in the buffer
+    // BEFORE flush() reads it. Without this, the most-recent block
+    // observed by the listener would silently fail to persist on
+    // graceful shutdown — defeating the bounded-rescan guarantee.
+    let resolveBlockNumber;
+    const blockNumberPromise = new Promise((resolve) => {
+      resolveBlockNumber = resolve;
+    });
+    // First call (setup) resolves immediately; second call (tick) blocks
+    // until we explicitly resolve it.
+    mockClient.getBlockNumber
+      .mockResolvedValueOnce(50n)
+      .mockReturnValueOnce(blockNumberPromise);
+
+    const flushOrder = [];
+    const blockCursor = {
+      get: vi.fn().mockResolvedValue(null),
+      set: vi.fn().mockImplementation(async (block) => {
+        flushOrder.push(`set(${block})`);
+      }),
+      flush: vi.fn().mockImplementation(async () => {
+        flushOrder.push("flush");
+      }),
+    };
+
+    const unwatch = await startContractEventPolling({
+      client: mockClient,
+      address: "0xABC",
+      abi: testAbi,
+      eventName: "TestEvent",
+      pollingIntervalMs: 1_000,
+      blockCursor,
+      onLogs: vi.fn(),
+    });
+
+    // Trigger the interval to fire — tick runs and blocks on the
+    // pending getBlockNumber promise.
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    // Initiate stop while the tick is still mid-flight.
+    const stopPromise = unwatch();
+
+    // Now let the tick complete by resolving its getBlockNumber.
+    // currentBlock=60 > lastProcessedBlock=51, so it will call
+    // blockCursor.set(60) at the tail of the tick.
+    resolveBlockNumber(60n);
+    await stopPromise;
+
+    // set() must come BEFORE flush() in the call order — otherwise the
+    // tick's trailing write was buffered after flush returned and the
+    // value is lost.
+    const setIdx = flushOrder.indexOf("set(60)");
+    const flushIdx = flushOrder.indexOf("flush");
+    expect(setIdx).toBeGreaterThanOrEqual(0);
+    expect(flushIdx).toBeGreaterThanOrEqual(0);
+    expect(setIdx).toBeLessThan(flushIdx);
+  });
+
   it("stop fn tolerates cursors without flush() (back-compat)", async () => {
     // Older cursor implementations only had {get, set}. The typeof guard
     // must skip flush silently rather than throwing.

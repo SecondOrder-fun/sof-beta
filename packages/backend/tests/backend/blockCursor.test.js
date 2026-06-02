@@ -175,10 +175,12 @@ describe("blockCursor", () => {
 
       // Buffer should NOT be cleared — flush must re-attempt.
       await cursor.flush();
-      // Flush awaits any in-flight persist before issuing its own, so
-      // we see the original set()'s upsert plus one additional from
-      // flush — both attempted because each persist returned false.
-      expect(upsert.mock.calls.length).toBeGreaterThanOrEqual(2);
+      // Exactly two upserts: the initial set(300n) (returns false; the
+      // buffer survives, lastPersistedAt advances to suppress retry-
+      // storm) plus the flush() (forces a re-attempt regardless of the
+      // throttle). A third upsert here would indicate an unintended
+      // retry loop and is a regression.
+      expect(upsert).toHaveBeenCalledTimes(2);
       expect(upsert).toHaveBeenLastCalledWith(
         expect.objectContaining({ last_block: 300 }),
         expect.anything(),
@@ -205,13 +207,41 @@ describe("blockCursor", () => {
       expect(v).toBe(401n);
     });
 
+    it("rejects non-bigint inputs at the boundary", async () => {
+      // Number(null)=0 and Number(undefined)=NaN would silently corrupt
+      // the cursor row — guard at the wrapper boundary so caller bugs
+      // can't poison the buffer or the persisted value.
+      let t = 6_000_000;
+      const { cursor, upsert } = await loadCursor({
+        throttleMs: 30_000,
+        monotonicNow: () => t,
+      });
+
+      // @ts-expect-error — deliberately bad input
+      await cursor.set(null);
+      // @ts-expect-error — deliberately bad input
+      await cursor.set(undefined);
+      // @ts-expect-error — deliberately bad input
+      await cursor.set(100); // plain Number, not bigint
+
+      expect(upsert).not.toHaveBeenCalled();
+      // get() should fall through to Supabase (which returns null in
+      // this mock) because no valid set() ever populated the buffer.
+      await expect(cursor.get()).resolves.toBeNull();
+    });
+
     it("single-flight: concurrent set() calls produce one persist, not two", async () => {
       let t = 5_000_000;
-      // Make upsert slow so two set() calls definitely overlap.
-      const upsertPromise = new Promise((resolve) =>
-        setTimeout(() => resolve({ data: null, error: null }), 50),
+      // Each upsert returns a fresh promise so call-site shared state
+      // doesn't mask sequencing bugs. Using a single promise instance
+      // for all invocations would couple their resolution and hide
+      // subsequent-call regressions.
+      const upsert = vi.fn().mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(() => resolve({ data: null, error: null }), 50),
+          ),
       );
-      const upsert = vi.fn(() => upsertPromise);
       const maybeSingle = vi
         .fn()
         .mockResolvedValue({ data: null, error: null });

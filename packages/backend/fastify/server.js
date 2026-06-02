@@ -360,12 +360,16 @@ async function startListeners() {
       app.log.error(`❌ Failed to start SeasonStatusListener: ${error.message}`);
     }
 
-    // Callback to clean up per-season listeners when a season completes
+    // Callback to clean up per-season listeners when a season completes.
+    // Unwatch fns are now async — they await blockCursor.flush() before
+    // resolving — so we must await them here, otherwise the flush is
+    // orphaned outside the shutdown gather and a SIGTERM landing during
+    // this callback could kill the HTTP UPSERT in flight.
     const onSeasonCompleted = async ({ seasonId }) => {
       // Stop the PositionUpdate listener for this season
       const posUnwatch = positionUpdateListeners.get(seasonId);
       if (posUnwatch) {
-        posUnwatch();
+        await posUnwatch();
         positionUpdateListeners.delete(seasonId);
         app.log.info(
           `🛑 Stopped PositionUpdate listener for completed season ${seasonId}`,
@@ -381,7 +385,7 @@ async function startListeners() {
             if (addr) {
               const tradeUnwatch = tradeListeners.get(addr);
               if (tradeUnwatch) {
-                tradeUnwatch();
+                await tradeUnwatch();
                 tradeListeners.delete(addr);
                 app.log.info(
                   `🛑 Stopped Trade listener for FPMM ${addr} (season ${seasonId})`,
@@ -495,9 +499,13 @@ async function startListeners() {
       );
     }
 
-    // Start Rollover Event Listener (indexes RolloverEscrow events)
+    // Start Rollover Event Listener (indexes RolloverEscrow events).
+    // startRolloverEventListener is async — without await, unwatchRollover
+    // would hold the Promise (not the unwatchAll fn) and shutdown would
+    // throw `TypeError: unwatchRollover is not a function`, leaving the 3
+    // rollover cursors un-flushed on every deploy.
     try {
-      unwatchRollover = startRolloverEventListener(NETWORK, app.log);
+      unwatchRollover = await startRolloverEventListener(NETWORK, app.log);
       app.log.info("✅ RolloverEventListener started");
     } catch (error) {
       app.log.error(
@@ -655,7 +663,11 @@ try {
 
 // Graceful shutdown
 let isShuttingDown = false;
-const SHUTDOWN_HARD_TIMEOUT_MS = 8_000;
+// 15s budget covers ~13 parallel cursor flushes against Supabase
+// (each is a single UPSERT) plus app.close(). The old 8s budget assumed
+// fire-and-forget stops; awaiting flushes now needs more headroom for
+// the case where Supabase is slow but recoverable.
+const SHUTDOWN_HARD_TIMEOUT_MS = 15_000;
 
 // Each cleanup step gets its own try/catch — one failing listener (e.g. an
 // onClose hook throwing because Anvil is already down) must not abort the

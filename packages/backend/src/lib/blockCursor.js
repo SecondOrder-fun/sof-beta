@@ -39,8 +39,9 @@ import { supabase, hasSupabase } from "../../shared/supabaseClient.js";
 
 /**
  * Parse and validate the `LISTENER_CURSOR_THROTTLE_MS` env var. Falls back
- * to 30s when unset or invalid so misconfiguration can never disable
- * throttling silently.
+ * to 30s when unset, invalid, or explicitly zero — `0` would collapse the
+ * throttle and reproduce the per-tick egress problem this module was
+ * written to solve, so we reject it loudly rather than honor the literal.
  *
  * @returns {number}
  */
@@ -48,7 +49,7 @@ function envThrottleMs() {
   const raw = process.env.LISTENER_CURSOR_THROTTLE_MS;
   if (!raw) return 30_000;
   const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) && n >= 0 ? n : 30_000;
+  return Number.isFinite(n) && n > 0 ? n : 30_000;
 }
 
 export const DEFAULT_CURSOR_THROTTLE_MS = envThrottleMs();
@@ -72,7 +73,13 @@ export async function createBlockCursor(listenerKey, options = {}) {
 
   if (hasSupabase) {
     let pendingBlock = /** @type {bigint|null} */ (null);
-    let lastPersistedAt = 0;
+    // Initialize to -Infinity so the very first set() always crosses the
+    // throttle gate regardless of how soon after process start it fires.
+    // `performance.now()` returns ms since process start, so starting at 0
+    // would force the first 30s of every process to buffer in memory with
+    // no Supabase write — an ungraceful crash inside that window would
+    // lose all cursor progress from the new boot (no row to read back).
+    let lastPersistedAt = Number.NEGATIVE_INFINITY;
     let inflight = /** @type {Promise<boolean>|null} */ (null);
 
     /**
@@ -88,7 +95,12 @@ export async function createBlockCursor(listenerKey, options = {}) {
           .upsert(
             {
               listener_key: listenerKey,
-              last_block: Number(block), // Supabase bigint column accepts number
+              // Postgres bigint is 64-bit; JS Number is safe to 2^53-1
+              // (~9e15). Base block height is ~4e7 so this won't bite for
+              // hundreds of millions of years, but if the caller ever
+              // passes a bigint exceeding MAX_SAFE_INTEGER the round-trip
+              // would silently truncate.
+              last_block: Number(block),
               updated_at: new Date(wallClockNow()).toISOString(),
             },
             { onConflict: "listener_key" },
@@ -110,11 +122,13 @@ export async function createBlockCursor(listenerKey, options = {}) {
     const runPersist = async (buffered) => {
       const ok = await persist(buffered);
       lastPersistedAt = monotonicNow();
-      // Only clear the buffer when the write actually landed AND the
-      // value is still the one we tried to persist — block numbers are
-      // monotonic so equality means "no different value arrived"; a
-      // concurrent set() with the SAME value would also be a no-op
-      // semantically.
+      // Only clear the buffer when the write landed AND no different
+      // value arrived during the await. Block numbers are *usually*
+      // monotonic in the steady-state caller, but the chain-rewind
+      // branch in contractEventPolling.js can set a lower value, so
+      // equality (not <= or >=) is the only safe check for "buffer is
+      // still what we tried to persist". A concurrent set() with the
+      // same bigint value is a no-op either way.
       if (ok && pendingBlock === buffered) {
         pendingBlock = null;
       }
@@ -142,6 +156,13 @@ export async function createBlockCursor(listenerKey, options = {}) {
         }
       },
       async set(block) {
+        // Reject non-bigint inputs at the boundary. Number(null) silently
+        // becomes 0 and Number(undefined) becomes NaN, either of which
+        // would corrupt the persisted cursor and cause the next process
+        // to either re-scan from genesis or fail at BigInt(NaN). Callers
+        // that hand us garbage almost certainly have a bug — drop the
+        // write rather than poison the buffer.
+        if (typeof block !== "bigint") return;
         pendingBlock = block;
         // Single-flight: if a persist is in progress, the latest
         // pendingBlock will be picked up by the next set() after the
@@ -157,12 +178,11 @@ export async function createBlockCursor(listenerKey, options = {}) {
       },
       async flush() {
         // Wait for any in-flight persist to settle so we don't race it.
+        // runPersist itself catches all errors via persist's try/catch,
+        // so this await cannot throw; .catch is belt-and-braces for
+        // injected `monotonicNow` doubles that may throw in tests.
         if (inflight) {
-          try {
-            await inflight;
-          } catch {
-            // runPersist itself never throws, but be defensive.
-          }
+          await inflight.catch(() => {});
         }
         if (pendingBlock === null) return;
         const buffered = pendingBlock;

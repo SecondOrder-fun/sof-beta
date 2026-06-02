@@ -148,26 +148,50 @@ export async function startContractEventPolling(params) {
     }
   };
 
-  const intervalId = setInterval(() => {
-    void tick();
-  }, pollingIntervalMs);
+  // Track the in-flight tick so the stop callback can await it before
+  // flushing. Without this an in-flight tick's trailing `await
+  // blockCursor.set(currentBlock)` would land AFTER flush() returns,
+  // buffering a value that never reaches Supabase.
+  let activeTick = /** @type {Promise<void>|null} */ (null);
+  const runTickIfIdle = () => {
+    if (stopped) return;
+    // Skip overlapping ticks. The previous "void tick()" pattern allowed
+    // ticks to overlap on slow RPC, which produced concurrent set()
+    // calls; the blockCursor's single-flight latch handles that safely
+    // but it's cleaner to prevent overlap upstream.
+    if (activeTick) return;
+    activeTick = tick().finally(() => {
+      activeTick = null;
+    });
+  };
 
-  void tick();
+  const intervalId = setInterval(runTickIfIdle, pollingIntervalMs);
+
+  runTickIfIdle();
 
   return async () => {
     stopped = true;
     clearInterval(intervalId);
+    // Drain the in-flight tick first so any final set() it queues lands
+    // in the cursor buffer BEFORE we flush. Skipping this step lets a
+    // tick that began just before stop() lose its trailing block write.
+    if (activeTick) {
+      await activeTick.catch(() => {
+        // tick has its own try/catch around the body; defensive only.
+      });
+    }
     // Persist any buffered cursor value on shutdown so the next process
     // doesn't re-scan from a stale snapshot. Awaitable so server.js can
     // include this in its `app.close()`-ordered drain — otherwise the
     // HTTP UPSERT races process.exit and the throttled cursor design's
     // bounded-rescan guarantee silently regresses on every deploy.
+    //
+    // The typeof guard preserves back-compat with cursor doubles used
+    // in older tests that predate the flush() addition.
     if (blockCursor && typeof blockCursor.flush === "function") {
-      try {
-        await blockCursor.flush();
-      } catch {
+      await blockCursor.flush().catch(() => {
         // Best-effort; the cursor implementation swallows errors itself.
-      }
+      });
     }
   };
 }
