@@ -1,12 +1,15 @@
 import { supabase } from "./supabaseClient.js";
-import { cacheInvalidatePattern } from "./redisCache.js";
+import {
+  cacheInvalidatePattern,
+  ROUTE_CONFIG_KEY_PREFIX,
+} from "./redisCache.js";
 
 // Bust the entire route_config:* namespace whenever any
 // route_access_config row mutates. The cache is read-through with a
 // 5-min TTL; explicit invalidation makes admin changes take effect
 // immediately rather than after the TTL.
 async function invalidateRouteConfigCache() {
-  await cacheInvalidatePattern("route_config:*");
+  await cacheInvalidatePattern(`${ROUTE_CONFIG_KEY_PREFIX}*`);
 }
 
 /**

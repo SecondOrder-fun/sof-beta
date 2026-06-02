@@ -251,13 +251,11 @@ class RaffleTransactionService {
       // Clear block cache after sync completes
       blockCache.clear();
 
-      // Update last synced block
-      await db.client
-        .from("season_contracts")
-        .update({
-          last_tx_sync_block: latestBlock.toString(),
-        })
-        .eq("season_id", seasonId);
+      // Update last synced block via DatabaseService so the cached
+      // season_contracts:* namespace is invalidated. Bypassing through
+      // db.client.from() would leave the cache holding stale rows for
+      // up to 5 min.
+      await db.setLastTxSyncBlock(seasonId, latestBlock);
 
       // Refresh materialized view
       await this.refreshUserPositions(seasonId);

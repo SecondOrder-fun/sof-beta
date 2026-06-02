@@ -7,15 +7,16 @@ import {
   historicalOddsRanges,
 } from "../../shared/historicalOddsService.js";
 import { createRequireAdmin } from "../../shared/adminGuard.js";
-import { cacheRead } from "../../shared/redisCache.js";
+import { cacheRead, MARKETS_KEY_PREFIX } from "../../shared/redisCache.js";
 
 // /markets responses are cached in Redis for 30s. Probability updates fire on
 // every Buy/Sell and would shred the cache if we invalidated on each one;
-// structural changes (create/delete/settle) explicitly invalidate via
-// `markets:*` pattern bust. The frontend already tolerates ~15s staleness
-// via TanStack staleTime, so the 30s server window is invisible to users.
+// structural changes (create/delete/settle/contract-address) explicitly
+// invalidate via `markets:*` pattern bust. The frontend already tolerates
+// ~15s staleness via TanStack staleTime, so the 30s server window is
+// generally invisible to users (worst-case end-to-end staleness is the
+// sum, ~45s, on the trailing-edge of probability updates).
 const MARKETS_CACHE_TTL_SECONDS = 30;
-const MARKETS_KEY_PREFIX = "markets:";
 
 /**
  * InfoFi Markets API Routes
@@ -37,11 +38,17 @@ export default async function infoFiRoutes(fastify) {
   fastify.get("/markets", async (request, reply) => {
     try {
       const { seasonId, isActive, marketType } = request.query;
+      // Normalize each segment so equivalent filters share a cache slot
+      // (`?isActive=true` vs `?isActive=True` shouldn't double the
+      // footprint), and encodeURIComponent each segment to defuse
+      // collisions when a raw value contains `:`.
+      const normSeasonId = seasonId == null ? "_" : encodeURIComponent(String(seasonId));
+      const normIsActive =
+        isActive == null ? "_" : isActive === "true" ? "true" : "false";
+      const normMarketType =
+        marketType == null ? "_" : encodeURIComponent(String(marketType));
       const cacheKey =
-        `${MARKETS_KEY_PREFIX}` +
-        `${seasonId ?? "_"}:` +
-        `${isActive ?? "_"}:` +
-        `${marketType ?? "_"}`;
+        `${MARKETS_KEY_PREFIX}${normSeasonId}:${normIsActive}:${normMarketType}`;
 
       const result = await cacheRead(
         cacheKey,
@@ -92,16 +99,11 @@ export default async function infoFiRoutes(fastify) {
         { ttlSeconds: MARKETS_CACHE_TTL_SECONDS, logger: fastify.log },
       );
 
+      // The loader throws on supabase error so cacheRead does not cache
+      // the failure — that throw propagates to the outer try/catch
+      // below, which returns 500 with `details: error.message`. No need
+      // for an intermediate `if (error)` check here.
       const data = result;
-      const error = null;
-
-      if (error) {
-        fastify.log.error({ error }, "Failed to fetch markets");
-        return reply.code(500).send({
-          error: "Failed to fetch markets",
-          details: error.message,
-        });
-      }
 
       // Group markets by season_id
       const marketsBySeason = {};
@@ -1321,6 +1323,11 @@ export default async function infoFiRoutes(fastify) {
           settled: true,
         });
       }
+
+      // Bulk updates above bypass db.updateInfoFiMarket — explicitly
+      // bust the markets:* cache so dashboards see the settled state
+      // immediately rather than waiting up to 30s for TTL expiry.
+      await db.invalidateMarketsCache();
 
       fastify.log.info(
         { seasonId, winnerAddress, settled, total: markets.length },

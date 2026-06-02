@@ -1,20 +1,31 @@
 import { supabase } from "./supabaseClient.js";
 import { resolveAddressPair } from "./services/addressPairResolver.js";
-import { cacheRead } from "./redisCache.js";
+import { cacheRead, ROUTE_CONFIG_KEY_PREFIX } from "./redisCache.js";
 
 // route_access_config rarely mutates (admin-only); cache lookups for 5 min.
 // Mutations in routeConfigService invalidate the whole namespace via
 // cacheInvalidatePattern("route_config:*").
 const ROUTE_CONFIG_CACHE_TTL_SECONDS = 300;
-const ROUTE_CONFIG_KEY_PREFIX = "route_config:";
+
+// Columns the cached value must carry. Includes everything the public
+// /api/access/route-config response surfaces (name, description) plus the
+// fields checkRouteAccess consults. Keep this in sync with the public
+// endpoint shape — silently dropping a column here silently empties the
+// JSON response there.
+const ROUTE_CONFIG_COLUMNS =
+  "route_pattern, resource_type, resource_id, required_level, required_groups, " +
+  "require_all_groups, is_public, is_disabled, priority, name, description";
 
 function buildRouteConfigKey(route, resourceType, resourceId) {
   // Use literal "_" as the no-value sentinel so the key namespace stays
   // unambiguous (a real resourceType/Id of `undefined` would otherwise
-  // collide with the absent-filter form).
-  const rt = resourceType ?? "_";
-  const ri = resourceId ?? "_";
-  return `${ROUTE_CONFIG_KEY_PREFIX}${route}:${rt}:${ri}`;
+  // collide with the absent-filter form). encodeURIComponent prevents
+  // `:` characters in any segment (e.g., Fastify route patterns like
+  // `/api/users/:userId`) from colliding with the key delimiter.
+  const r = encodeURIComponent(route ?? "");
+  const rt = resourceType == null ? "_" : encodeURIComponent(resourceType);
+  const ri = resourceId == null ? "_" : encodeURIComponent(resourceId);
+  return `${ROUTE_CONFIG_KEY_PREFIX}${r}:${rt}:${ri}`;
 }
 
 // Access level constants
@@ -50,7 +61,9 @@ export async function getUserAccess({ fid, wallet }, log = console) {
     if (fid) {
       const { data, error } = await supabase
         .from("allowlist_entries")
-        .select("id, fid, wallet_address, access_level, is_active")
+        .select(
+          "id, fid, wallet_address, access_level, is_active, username, display_name, source, added_at",
+        )
         .eq("fid", fid)
         .eq("is_active", true)
         .single();
@@ -66,7 +79,9 @@ export async function getUserAccess({ fid, wallet }, log = console) {
     if (!entry && wallet) {
       const { data, error } = await supabase
         .from("allowlist_entries")
-        .select("id, fid, wallet_address, access_level, is_active")
+        .select(
+          "id, fid, wallet_address, access_level, is_active, username, display_name, source, added_at",
+        )
         .eq("wallet_address", wallet.toLowerCase())
         .eq("is_active", true)
         .single();
@@ -92,7 +107,9 @@ export async function getUserAccess({ fid, wallet }, log = console) {
         if (alt && alt !== lc) {
           const { data, error } = await supabase
             .from("allowlist_entries")
-            .select("id, fid, wallet_address, access_level, is_active")
+            .select(
+          "id, fid, wallet_address, access_level, is_active, username, display_name, source, added_at",
+        )
             .eq("wallet_address", alt)
             .eq("is_active", true)
             .single();
@@ -287,45 +304,45 @@ export async function getRouteConfig(route, resourceType, resourceId) {
   return cacheRead(
     key,
     async () => {
-      try {
-        // Narrowed from select("*") — these are the only columns
-        // checkRouteAccess reads (required_level, required_groups,
-        // require_all_groups, is_public, is_disabled).
-        const columns =
-          "route_pattern, resource_type, resource_id, required_level, required_groups, require_all_groups, is_public, is_disabled, priority";
-
-        // Try exact match first with resource specificity
-        if (resourceType && resourceId) {
-          const { data } = await supabase
-            .from("route_access_config")
-            .select(columns)
-            .eq("route_pattern", route)
-            .eq("resource_type", resourceType)
-            .eq("resource_id", resourceId)
-            .order("priority", { ascending: false })
-            .limit(1)
-            .single();
-
-          if (data) return data;
-        }
-
-        // Try route pattern match
-        const { data } = await supabase
+      // Try exact match first with resource specificity. `.single()`
+      // resolves with `{ data: null, error: { code: 'PGRST116' } }` when
+      // no row matches — that's a legitimate "no config for this slot"
+      // outcome and we just fall through to the route-pattern match.
+      // ANY OTHER error means Supabase actually failed (auth, network,
+      // schema). We THROW out of the loader so cacheRead does NOT cache
+      // the failure — otherwise a transient blip would poison the cache
+      // for the 5-min TTL with `null`, which checkRouteAccess interprets
+      // as "no config" and falls back to requiredLevel=ALLOWLIST.
+      if (resourceType && resourceId) {
+        const { data, error } = await supabase
           .from("route_access_config")
-          .select(columns)
+          .select(ROUTE_CONFIG_COLUMNS)
           .eq("route_pattern", route)
+          .eq("resource_type", resourceType)
+          .eq("resource_id", resourceId)
           .order("priority", { ascending: false })
           .limit(1)
           .single();
 
-        return data || null;
-      } catch (error) {
-        // PGRST116 = no rows; that's the common "no config for this route" case.
-        if (error?.code !== "PGRST116") {
-          console.error("Error getting route config:", error);
+        if (error && error.code !== "PGRST116") {
+          throw error;
         }
-        return null;
+        if (data) return data;
       }
+
+      // Fallback: route pattern only
+      const { data, error } = await supabase
+        .from("route_access_config")
+        .select(ROUTE_CONFIG_COLUMNS)
+        .eq("route_pattern", route)
+        .order("priority", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (error && error.code !== "PGRST116") {
+        throw error;
+      }
+      return data || null;
     },
     { ttlSeconds: ROUTE_CONFIG_CACHE_TTL_SECONDS },
   );

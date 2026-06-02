@@ -1,14 +1,17 @@
 import { createClient } from "@supabase/supabase-js";
 import process from "node:process";
-import { cacheRead, cacheInvalidatePattern } from "./redisCache.js";
+import {
+  cacheRead,
+  cacheInvalidatePattern,
+  MARKETS_KEY_PREFIX,
+  SEASON_CONTRACTS_KEY_PREFIX,
+} from "./redisCache.js";
 
-// Cache TTLs and key namespaces for read-through caches inside this file.
-// All values are stable in steady state (mutations are admin-rare or
-// state-transition-only), so we cache aggressively and invalidate
-// explicitly on writes; the TTL is the safety net.
+// Cache TTL for season_contracts reads. All values are stable in steady
+// state (mutations are admin-rare or state-transition-only), so we cache
+// aggressively and invalidate explicitly on writes; the TTL is the safety
+// net.
 const SEASON_CONTRACTS_CACHE_TTL_SECONDS = 300;
-const SEASON_CONTRACTS_KEY_PREFIX = "season_contracts:";
-const MARKETS_KEY_PREFIX = "markets:";
 
 // Supabase configuration
 const supabaseUrl = process.env.SUPABASE_URL || "";
@@ -174,12 +177,23 @@ export class DatabaseService {
   }
 
   // Invalidate the markets cache after structural writes (create / delete /
-  // settle). The high-frequency `updateInfoFiMarketProbability` path
-  // intentionally does NOT invalidate — probability snapshots fall off the
-  // 30s TTL on their own; busting the cache on every Buy/Sell would defeat
-  // the cache.
-  async _invalidateMarketsCache() {
+  // settle / contract-address assignment). The high-frequency
+  // probability-update paths (`updateInfoFiMarketProbability`,
+  // `updateMarketProbabilityByFpmm`, and the bulk `updateAllPlayerProbabilities`)
+  // intentionally do NOT invalidate — busting the cache on every Buy/Sell
+  // would defeat the cache and reproduce the egress problem. Snapshots
+  // fall off the 30s TTL on their own.
+  //
+  // External call sites that touch `infofi_markets` directly (e.g. the
+  // settle-season admin endpoint in infoFiRoutes.js) must call this
+  // method explicitly after their write — exposed without an underscore
+  // for that reason.
+  async invalidateMarketsCache() {
     await cacheInvalidatePattern(`${MARKETS_KEY_PREFIX}*`, this.getLogger());
+  }
+  // Backwards-compat alias for internal callers in this file.
+  async _invalidateMarketsCache() {
+    return this.invalidateMarketsCache();
   }
 
   async createInfoFiMarket(marketData) {
@@ -261,6 +275,8 @@ export class DatabaseService {
     return data;
   }
 
+  // NOTE: intentionally does NOT invalidate the markets cache —
+  // see invalidateMarketsCache's docstring.
   async updateInfoFiMarketProbability(
     seasonId,
     playerId,
@@ -585,34 +601,9 @@ export class DatabaseService {
     );
   }
 
-  /**
-   * Get the latest season ID from database
-   * @returns {Promise<number|null>} Latest season ID or null if no seasons exist
-   */
-  async getLatestSeasonId() {
-    return cacheRead(
-      `${SEASON_CONTRACTS_KEY_PREFIX}latest_id`,
-      async () => {
-        const { data, error } = await this.client
-          .from("season_contracts")
-          .select("season_id")
-          .order("season_id", { ascending: false })
-          .limit(1)
-          .single();
-
-        if (error && error.code !== "PGRST116") {
-          // PGRST116 = no rows found
-          throw new Error(error.message);
-        }
-
-        return data ? data.season_id : null;
-      },
-      {
-        ttlSeconds: SEASON_CONTRACTS_CACHE_TTL_SECONDS,
-        logger: this.getLogger(),
-      },
-    );
-  }
+  // `getLatestSeasonId` had no callers — removed during the egress
+  // optimization pass. seasonReconciliationService reads the current
+  // season id from chain (Raffle.currentSeasonId()) instead of the DB.
 
   /**
    * Upsert a season_contracts row by season_id.
@@ -729,6 +720,26 @@ export class DatabaseService {
   }
 
   /**
+   * Update season_contracts.last_tx_sync_block for a season.
+   * Funneled through DatabaseService so the call site (currently
+   * raffleTransactionService.syncSeasonTransactions) doesn't bypass
+   * cache invalidation — direct `.from('season_contracts').update()`
+   * writes are landmines that silently leave stale data in the
+   * cached getActiveSeasonContracts / getAllSeasonContracts results.
+   *
+   * @param {number} seasonId
+   * @param {string | bigint | number} lastBlock — block height; coerced to string for storage
+   */
+  async setLastTxSyncBlock(seasonId, lastBlock) {
+    const { error } = await this.client
+      .from("season_contracts")
+      .update({ last_tx_sync_block: String(lastBlock) })
+      .eq("season_id", seasonId);
+    if (error) throw new Error(error.message);
+    await this._invalidateSeasonContractsCache();
+  }
+
+  /**
    * Update win probabilities for ALL players in a season
    * Called when any player's position changes (buy/sell)
    *
@@ -737,6 +748,10 @@ export class DatabaseService {
    * @param {Array} playerPositions - Array of {player, ticketCount}
    * @returns {Promise<number>} Count of updated markets
    */
+  // NOTE: probability updates intentionally do NOT invalidate the
+  // markets cache. See invalidateMarketsCache's docstring above —
+  // every Buy/Sell tick would otherwise shred the cache. Snapshots
+  // fall off the 30s TTL on their own.
   async updateAllPlayerProbabilities(
     seasonId,
     totalTickets,
@@ -832,6 +847,10 @@ export class DatabaseService {
         );
       }
 
+      // contract_address is part of the cached /markets response.
+      // Without this invalidation a fresh FPMM deploy stays invisible
+      // to the frontend for up to 30s after the listener writes it.
+      await this._invalidateMarketsCache();
       return data;
     } catch (error) {
       throw new Error(
@@ -878,6 +897,9 @@ export class DatabaseService {
    * @param {number} newProbabilityBps - New probability in basis points (0-10000)
    * @returns {Promise<Object|null>} Updated market or null
    */
+  // NOTE: intentionally does NOT invalidate the markets cache —
+  // see invalidateMarketsCache's docstring. This is the per-trade
+  // hot path called by tradeListener.
   async updateMarketProbabilityByFpmm(fpmmAddress, newProbabilityBps) {
     const normalizedAddr = fpmmAddress.toLowerCase();
     const { data, error } = await this.client
