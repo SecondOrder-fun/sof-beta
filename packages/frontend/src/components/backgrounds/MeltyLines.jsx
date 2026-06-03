@@ -153,21 +153,42 @@ const MeltyLines = () => {
 
     const ctx = canvas.getContext("2d");
     let width, height, xC, yC;
+    // In reduced-motion mode this is set to repaint the one-shot static frame.
+    // resize() resets canvas.width (which clears the bitmap), so without a
+    // repaint hook the ResizeObserver's initial callback would wipe the static
+    // dots and leave a blank canvas. null in animated mode (frame() repaints).
+    let renderStatic = null;
 
     const resize = () => {
       const dpr = window.devicePixelRatio || 1;
-      // Measure the canvas's actual rendered size (set by the
-      // `absolute inset-0` parent) rather than the window. Otherwise
-      // particles get centered to the viewport midpoint instead of the
-      // section midpoint, leaving them clipped at the bottom.
-      const rect = canvas.getBoundingClientRect();
+      // Measure the PARENT, never the canvas itself. A <canvas> is a *replaced*
+      // element: `absolute inset-0` does NOT size it to the container — with
+      // `width: auto` the used width falls back to the canvas's intrinsic
+      // (bitmap) size. So if we measured `canvas.getBoundingClientRect()` and
+      // fed it into `canvas.width = w * dpr`, the display size would track the
+      // bitmap and the ResizeObserver would re-measure a `dpr`× bigger box each
+      // pass, ballooning the canvas to the 16M-px cap and pushing the centered
+      // field off-screen (#138). The parent (a `relative` block) is a stable
+      // reference that the canvas's own size can't feed back into.
+      const host = canvas.parentElement;
+      const rect = host
+        ? host.getBoundingClientRect()
+        : { width: window.innerWidth, height: window.innerHeight };
       width = rect.width || window.innerWidth;
       height = rect.height || window.innerHeight;
+      // Pin the CSS display size explicitly so it stops being `auto` (and thus
+      // stops resolving to the intrinsic/bitmap size) — this is what actually
+      // breaks the feedback loop. Then set the backing-store bitmap at dpr.
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
       canvas.width = width * dpr;
       canvas.height = height * dpr;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       xC = width / 2;
       yC = height / 2;
+      // canvas.width above cleared the bitmap; in reduced-motion mode repaint
+      // the static frame so a resize doesn't leave it blank.
+      if (renderStatic) renderStatic();
     };
     resize();
     window.addEventListener("resize", resize);
@@ -181,12 +202,19 @@ const MeltyLines = () => {
 
     if (prefersReducedMotion) {
       const { grid, maxIndex } = buildGrid();
-      for (let i = 0; i < 60; i++) {
-        const p = createParticle(grid, maxIndex);
-        const xx = xC + p.x * ZOOM;
-        const yy = yC + p.y * ZOOM;
-        drawPixelDot(ctx, xx, yy, p.h, p.s, p.l, 0.25);
-      }
+      // Pick the dot positions once so they stay put across resizes.
+      const staticParticles = Array.from({ length: 60 }, () =>
+        createParticle(grid, maxIndex),
+      );
+      // Registered with resize() so the static frame is repainted whenever the
+      // canvas is re-sized (and thus cleared) — not just on first mount.
+      renderStatic = () => {
+        ctx.clearRect(0, 0, width, height);
+        for (const p of staticParticles) {
+          drawPixelDot(ctx, xC + p.x * ZOOM, yC + p.y * ZOOM, p.h, p.s, p.l, 0.25);
+        }
+      };
+      renderStatic();
       return () => {
         window.removeEventListener("resize", resize);
         if (resizeObserver) resizeObserver.disconnect();
