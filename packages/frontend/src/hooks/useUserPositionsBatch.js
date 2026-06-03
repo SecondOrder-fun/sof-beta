@@ -46,7 +46,8 @@ export const useUserPositionsBatch = (marketIds = []) => {
       return parsed;
     },
     staleTime: 10_000,
-    refetchInterval: 15_000,
+    // No polling — positions only change on user trades. BuySellWidget's
+    // placeBet.onSuccess invalidates ["userPositionsBatch"] to refresh this.
   });
 
   return {

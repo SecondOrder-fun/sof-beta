@@ -40,7 +40,7 @@ export function BackendWalletManager() {
       if (!response.ok) throw new Error("Failed to fetch wallet info");
       return response.json();
     },
-    refetchInterval: 30000,
+    refetchInterval: 60000,
   });
 
   // Query market creation stats

@@ -78,7 +78,7 @@ export default function RouteConfigPanel({ getAuthHeaders }) {
       if (!res.ok) throw new Error("Failed to fetch route configs");
       return res.json();
     },
-    refetchInterval: 30000,
+    refetchInterval: 60000,
   });
 
   // Create / update route config

@@ -49,7 +49,7 @@ export default function AccessGroupsPanel({ getAuthHeaders }) {
       if (!res.ok) throw new Error("Failed to fetch groups");
       return res.json();
     },
-    refetchInterval: 30000,
+    refetchInterval: 60000,
   });
 
   // Fetch members of expanded group

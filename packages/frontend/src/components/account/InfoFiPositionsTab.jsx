@@ -130,7 +130,8 @@ const InfoFiPositionsTab = ({ address, addresses, originLabels }) => {
       return deduped;
     },
     staleTime: 5_000,
-    refetchInterval: 10_000,
+    // No polling — positions only change on user trades. BuySellWidget's
+    // placeBet.onSuccess invalidates ["infofiTrades"] to refresh this.
   });
 
   const positionsQuery = useQuery({
@@ -217,7 +218,8 @@ const InfoFiPositionsTab = ({ address, addresses, originLabels }) => {
       return { positions, marketIds };
     },
     staleTime: 5_000,
-    refetchInterval: 10_000,
+    // No polling — positions only change on user trades. BuySellWidget's
+    // placeBet.onSuccess invalidates ["infofiPositionsOnchainActive"] to refresh.
   });
 
   // Build set of all market IDs belonging to the selected season

@@ -62,6 +62,13 @@ const BuySellWidget = ({ marketId, market }) => {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['infofiBet', marketId, address, true] });
       qc.invalidateQueries({ queryKey: ['infofiBet', marketId, address, false] });
+      // Positions/trade queries no longer poll — refresh them on trade success.
+      // Prefix match (partial key) covers all address/season/network variants:
+      //   InfoFiPositionsTab: ["infofiTrades", ...], ["infofiPositionsOnchainActive", ...]
+      //   useUserPositionsBatch: ["userPositionsBatch", ...]
+      qc.invalidateQueries({ queryKey: ['infofiTrades'] });
+      qc.invalidateQueries({ queryKey: ['infofiPositionsOnchainActive'] });
+      qc.invalidateQueries({ queryKey: ['userPositionsBatch'] });
       yesPosition.refetch?.();
       noPosition.refetch?.();
       setAmount('');

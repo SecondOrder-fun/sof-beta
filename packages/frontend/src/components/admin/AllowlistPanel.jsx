@@ -180,13 +180,13 @@ export default function AllowlistPanel() {
   const statsQuery = useQuery({
     queryKey: ["allowlist-stats"],
     queryFn: () => fetchStats(getAuthHeaders()),
-    refetchInterval: 30000,
+    refetchInterval: 60000,
   });
 
   const entriesQuery = useQuery({
     queryKey: ["allowlist-entries", !showInactive],
     queryFn: () => fetchEntries(!showInactive, getAuthHeaders()),
-    refetchInterval: 30000,
+    refetchInterval: 60000,
   });
 
   // Mutations
