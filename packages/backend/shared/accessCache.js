@@ -6,9 +6,15 @@
 // 5 minutes (see ACCESS_CACHE_TTL_SECONDS) eliminates the bulk of those
 // roundtrips at near-zero risk: mutations explicitly invalidate, and
 // any Redis hiccup silently falls through to the DB.
+//
+// This module is a thin, access-specific wrapper around the generic
+// read-through helper in redisCache.js. It owns the FID-vs-wallet key
+// derivation, the wallet-by-fid resolution, and the SMA-pair
+// invalidation surface; the Redis mechanics (try-cache, write-through,
+// best-effort invalidation, never-throw) live in redisCache.js.
 
 import { getUserAccess } from "./accessService.js";
-import { redisClient } from "./redisClient.js";
+import { cacheRead, cacheInvalidate } from "./redisCache.js";
 import { resolveAddressPair } from "./services/addressPairResolver.js";
 import { supabase, hasSupabase } from "./supabaseClient.js";
 
@@ -40,8 +46,9 @@ export function buildAccessCacheKey({ fid, wallet }) {
  * Read-through cache wrapper for getUserAccess.
  *
  * Returns the same shape as getUserAccess: {level, levelName, groups, entry}.
- * Cache failures (Redis down, parse error) are logged at warn and never
- * block the request — we always fall through to the DB.
+ * Cache failures (Redis down, parse error) are logged at warn by the
+ * underlying helper and never block the request — we always fall through
+ * to the DB.
  *
  * @param {{fid?: number|string, wallet?: string}} identifier
  * @param {{warn: Function, error: Function}} [logger=console]
@@ -54,44 +61,10 @@ export async function getCachedUserAccess(identifier, logger = console) {
     return getUserAccess(identifier);
   }
 
-  // Try cache first. ANY failure (connect refused, malformed JSON, etc.)
-  // falls through to the DB — caching is best-effort.
-  let client;
-  try {
-    client = redisClient.getClient();
-  } catch (err) {
-    logger.warn({ err }, "[accessCache] redis unavailable; falling through");
-    return getUserAccess(identifier);
-  }
-
-  try {
-    const cached = await client.get(key);
-    if (cached !== null && cached !== undefined) {
-      try {
-        return JSON.parse(cached);
-      } catch (err) {
-        logger.warn(
-          { err, key },
-          "[accessCache] cached value not valid JSON; refetching",
-        );
-        // fall through to DB
-      }
-    }
-  } catch (err) {
-    logger.warn({ err, key }, "[accessCache] read failed; falling through");
-    return getUserAccess(identifier);
-  }
-
-  // Miss — load from DB and write through.
-  const value = await getUserAccess(identifier);
-
-  try {
-    await client.set(key, JSON.stringify(value), "EX", ACCESS_CACHE_TTL_SECONDS);
-  } catch (err) {
-    logger.warn({ err, key }, "[accessCache] write failed; returning DB result");
-  }
-
-  return value;
+  return cacheRead(key, () => getUserAccess(identifier), {
+    ttlSeconds: ACCESS_CACHE_TTL_SECONDS,
+    logger,
+  });
 }
 
 /**
@@ -193,17 +166,7 @@ export async function invalidateUserAccessCache(identifier, logger = console) {
 
   if (keys.length === 0) return;
 
-  let client;
-  try {
-    client = redisClient.getClient();
-  } catch (err) {
-    logger.warn({ err }, "[accessCache] redis unavailable; skipping invalidate");
-    return;
-  }
-
-  try {
-    await client.del(...keys);
-  } catch (err) {
-    logger.warn({ err, keys }, "[accessCache] invalidate failed");
-  }
+  // Single DEL covering FID + wallet + SMA-pair keys; cacheInvalidate is
+  // best-effort and never throws on a Redis hiccup.
+  await cacheInvalidate(keys, logger);
 }

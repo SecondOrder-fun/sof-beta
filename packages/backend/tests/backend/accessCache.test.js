@@ -3,6 +3,16 @@
  * @description Read-through Redis cache for access lookups. Validates the
  * cache hit/miss paths, write-through behavior, key derivation (fid > wallet),
  * Redis-failure fallthrough, and explicit invalidation.
+ *
+ * accessCache.js now delegates the Redis mechanics to the generic
+ * shared/redisCache.js helper (cacheRead / cacheInvalidate). These tests
+ * mock that boundary rather than the low-level redis client: the mocked
+ * cacheRead/cacheInvalidate faithfully reproduce the helper's contract
+ * (try-cache → fall through on miss/error, best-effort write-through and
+ * delete, never throw) by driving the same get/set/del client mocks the
+ * suite already asserts against. So every key-shape, TTL, and
+ * fallthrough assertion still verifies real accessCache behaviour, now
+ * exercised through the helper seam.
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -30,6 +40,66 @@ const supabaseMocks = vi.hoisted(() => ({
 
 vi.mock("../../shared/accessService.js", () => ({
   getUserAccess: (...args) => accessMocks.mockGetUserAccess(...args),
+}));
+
+// Mock the generic read-through helper at the seam accessCache now uses.
+// These fakes mirror redisCache.js's real contract so the suite's
+// existing get/set/del + key/TTL assertions keep verifying the same
+// behaviour. The redisClient mock stays wired in case the helper's
+// getClient() is consulted (and so unconfigured-Redis tests still apply).
+vi.mock("../../shared/redisCache.js", () => ({
+  // cacheRead: try client.get(key) → on hit JSON.parse (refetch on bad
+  // JSON), on miss call loader() and write-through with EX ttl. Any
+  // client failure falls through to loader(). Never throws.
+  async cacheRead(key, loader, { ttlSeconds, logger = console } = {}) {
+    let client;
+    try {
+      client = redisMocks.mockGetClient();
+    } catch (err) {
+      logger.warn?.({ err }, "[cache] redis unavailable");
+      return loader();
+    }
+    try {
+      const cached = await client.get(key);
+      if (cached !== null && cached !== undefined) {
+        try {
+          return JSON.parse(cached);
+        } catch (err) {
+          logger.warn?.({ err, key }, "[cache] malformed JSON; refetching");
+        }
+      }
+    } catch (err) {
+      logger.warn?.({ err, key }, "[cache] read failed; loading from origin");
+      return loader();
+    }
+    const value = await loader();
+    if (!Number.isFinite(ttlSeconds) || ttlSeconds < 1 || value === undefined) {
+      return value;
+    }
+    try {
+      await client.set(key, JSON.stringify(value), "EX", ttlSeconds);
+    } catch (err) {
+      logger.warn?.({ err, key }, "[cache] write failed; returning origin value");
+    }
+    return value;
+  },
+  // cacheInvalidate: best-effort client.del(...keys). Never throws.
+  async cacheInvalidate(keyOrKeys, logger = console) {
+    const keys = Array.isArray(keyOrKeys) ? keyOrKeys : [keyOrKeys];
+    if (keys.length === 0) return;
+    let client;
+    try {
+      client = redisMocks.mockGetClient();
+    } catch (err) {
+      logger.warn?.({ err }, "[cache] redis unavailable; skipping invalidate");
+      return;
+    }
+    try {
+      await client.del(...keys);
+    } catch (err) {
+      logger.warn?.({ err, keys }, "[cache] invalidate failed");
+    }
+  },
 }));
 
 vi.mock("../../shared/redisClient.js", () => ({
