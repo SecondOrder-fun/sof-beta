@@ -7,8 +7,8 @@
   "miniapp": {
     "version": "1",
     "name": "SecondOrder.fun",
-    "subtitle": "Memecoins without the hangover",
-    "description": "SecondOrder.fun transforms memecoins from chaotic infinite games into structured, fair finite games using game theory principles.",
+    "subtitle": "Fair, fully onchain raffles",
+    "description": "Fair, fully onchain tokenized raffles. SecondOrder.fun turns speculation into structured, transparent finite games using game-theory principles.",
     "iconUrl": "https://secondorder.fun/images/logo.png",
     "homeUrl": "https://secondorder.fun",
     "imageUrl": "https://secondorder.fun/images/image.png",
@@ -18,7 +18,7 @@
     "primaryCategory": "games",
     "tags": [
       "raffle",
-      "memecoin",
+      "onchain",
       "prediction-markets",
       "web3"
     ]
