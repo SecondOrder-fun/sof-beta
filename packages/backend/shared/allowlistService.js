@@ -6,6 +6,10 @@
 import { db, hasSupabase } from "./supabaseClient.js";
 import { resolveFidToWallet } from "./fidResolverService.js";
 import { getDefaultAccessLevel } from "./accessService.js";
+import {
+  getAllowlistCount,
+  invalidateAllowlistCount,
+} from "./allowlistCounter.js";
 
 /**
  * Check if the allowlist window is currently open
@@ -19,6 +23,9 @@ export async function isAllowlistWindowOpen() {
   try {
     const { data, error } = await db.client
       .from("allowlist_config")
+      // select * — the full row is returned as `config`/`windowConfig` to the
+      // API (/window-status, /stats) and rendered by AllowlistPanel.jsx;
+      // columns the UI reads vary, so narrowing here risks dropping one.
       .select("*")
       .eq("is_active", true)
       .order("created_at", { ascending: false })
@@ -53,10 +60,7 @@ export async function isAllowlistWindowOpen() {
 
     // Check max entries if configured
     if (data.max_entries) {
-      const { count } = await db.client
-        .from("allowlist_entries")
-        .select("*", { count: "exact", head: true })
-        .eq("is_active", true);
+      const count = await getAllowlistCount("active");
 
       if (count >= data.max_entries) {
         return {
@@ -157,6 +161,9 @@ export async function addToAllowlist(
           return { success: false, error: updateError.message };
         }
 
+        // Reactivation flips is_active false→true, changing the active count.
+        await invalidateAllowlistCount();
+
         console.log(`[Allowlist] Reactivated ${label}`);
         return { success: true, entry: updated, reactivated: true };
       }
@@ -212,6 +219,10 @@ export async function addToAllowlist(
       return { success: false, error: insertError.message };
     }
 
+    // New active row — bust total/active (and withWallet/pendingWallet,
+    // which depend on whether wallet_address was resolved).
+    await invalidateAllowlistCount();
+
     console.log(
       `[Allowlist] Added ${label} (wallet: ${
         walletData.address || wallet || "pending"
@@ -265,6 +276,9 @@ export async function removeFromAllowlist(identifier) {
       return { success: false, error: error.message };
     }
 
+    // Soft-delete flips is_active true→false, changing the active count.
+    await invalidateAllowlistCount();
+
     console.log(`[Allowlist] Removed ${label}`);
     return { success: true };
   } catch (error) {
@@ -286,6 +300,9 @@ export async function isWalletAllowlisted(walletAddress) {
   try {
     const { data, error } = await db.client
       .from("allowlist_entries")
+      // select * — the full entry row is returned to the API
+      // (/api/allowlist/check → useAllowlist exposes `entry`); columns the
+      // frontend may read vary, so we don't narrow this single-row read.
       .select("*")
       .eq("wallet_address", walletAddress.toLowerCase())
       .eq("is_active", true)
@@ -315,6 +332,9 @@ export async function isFidAllowlisted(fid) {
   try {
     const { data, error } = await db.client
       .from("allowlist_entries")
+      // select * — the full entry row is returned to the API
+      // (/api/allowlist/check-fid → useAllowlist exposes `entry`); columns
+      // the frontend may read vary, so we don't narrow this single-row read.
       .select("*")
       .eq("fid", fid)
       .eq("is_active", true)
@@ -380,30 +400,15 @@ export async function getAllowlistStats() {
   }
 
   try {
-    // Total entries
-    const { count: total } = await db.client
-      .from("allowlist_entries")
-      .select("*", { count: "exact", head: true });
-
-    // Active entries
-    const { count: active } = await db.client
-      .from("allowlist_entries")
-      .select("*", { count: "exact", head: true })
-      .eq("is_active", true);
-
-    // With wallet resolved
-    const { count: withWallet } = await db.client
-      .from("allowlist_entries")
-      .select("*", { count: "exact", head: true })
-      .eq("is_active", true)
-      .not("wallet_address", "is", null);
-
-    // Pending resolution
-    const { count: pendingResolution } = await db.client
-      .from("allowlist_entries")
-      .select("*", { count: "exact", head: true })
-      .eq("is_active", true)
-      .is("wallet_address", null);
+    // All four counts are served read-through from Redis (see
+    // allowlistCounter.js); mutations bust the namespace so these stay
+    // fresh without a COUNT(*) per stats call.
+    const [total, active, withWallet, pendingResolution] = await Promise.all([
+      getAllowlistCount("total"),
+      getAllowlistCount("active"),
+      getAllowlistCount("active:withWallet"),
+      getAllowlistCount("active:pendingWallet"),
+    ]);
 
     // Get window status
     const windowStatus = await isAllowlistWindowOpen();
@@ -520,6 +525,12 @@ export async function retryPendingWalletResolutions() {
       } catch (error) {
         failed++;
       }
+    }
+
+    // Resolving a wallet moves a row from pendingWallet→withWallet, so the
+    // wallet-dependent counts change whenever we resolved at least one.
+    if (resolved > 0) {
+      await invalidateAllowlistCount();
     }
 
     console.log(

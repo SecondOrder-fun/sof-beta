@@ -27,6 +27,8 @@ export default async function nftDropRoutes(fastify) {
     try {
       let query = db.client
         .from("nft_drops")
+        // select * — full rows returned to the frontend (useNftDrops +
+        // AllowlistMintCard read a wide, varying column set); keep whole row.
         .select("*")
         .order("created_at", { ascending: false });
 
@@ -70,6 +72,7 @@ export default async function nftDropRoutes(fastify) {
     try {
       const { data, error } = await db.client
         .from("nft_drops")
+        // select * — full row returned to the frontend as `drop`; columns vary.
         .select("*")
         .eq("id", id)
         .single();
@@ -102,6 +105,8 @@ export default async function nftDropRoutes(fastify) {
 
       const { data, error } = await db.client
         .from("nft_drops")
+        // select * — full rows returned to the frontend as `drops`; the UI
+        // reads a wide, varying column set, so keep the whole row.
         .select("*")
         .eq("is_active", true)
         .or(`start_time.is.null,start_time.lte.${now}`)

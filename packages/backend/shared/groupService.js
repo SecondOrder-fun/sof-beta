@@ -36,6 +36,8 @@ export async function getAllGroups(activeOnly = true) {
   try {
     let query = supabase
       .from("access_groups")
+      // select * — full rows returned to the admin API (groupRoutes) and
+      // rendered by AccessGroupsPanel, which reads a varying column set.
       .select("*")
       .order("name", { ascending: true });
 
@@ -63,6 +65,8 @@ export async function getGroupBySlug(slug) {
   try {
     const { data, error } = await supabase
       .from("access_groups")
+      // select * — full group row returned to the admin API and used for
+      // membership ops; consumed column set varies, keep the whole row.
       .select("*")
       .eq("slug", slug)
       .single();
