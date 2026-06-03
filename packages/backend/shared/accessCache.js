@@ -3,16 +3,20 @@
 // Hot-path optimization: every protected admin route used to do one
 // `allowlist_entries` lookup per request via getUserAccess (often two
 // queries — fid lookup, then wallet fallback). Caching the result for
-// 60s eliminates the bulk of those roundtrips at near-zero risk: TTL
-// is short, mutations explicitly invalidate, and any Redis hiccup
-// silently falls through to the DB.
+// 5 minutes (see ACCESS_CACHE_TTL_SECONDS) eliminates the bulk of those
+// roundtrips at near-zero risk: mutations explicitly invalidate, and
+// any Redis hiccup silently falls through to the DB.
 
 import { getUserAccess } from "./accessService.js";
 import { redisClient } from "./redisClient.js";
 import { resolveAddressPair } from "./services/addressPairResolver.js";
 import { supabase, hasSupabase } from "./supabaseClient.js";
 
-export const ACCESS_CACHE_TTL_SECONDS = 60;
+// 5-minute TTL. Mutations explicitly invalidate via invalidateUserAccessCache
+// from every admin endpoint that touches allowlist_entries or
+// user_access_groups, so the TTL only matters as a safety net for stale
+// entries — 5 min is fine and cuts cache-miss frequency 5x vs the prior 60s.
+export const ACCESS_CACHE_TTL_SECONDS = 300;
 const KEY_PREFIX = "access:";
 
 /**
@@ -101,7 +105,7 @@ export async function getCachedUserAccess(identifier, logger = console) {
  * Best-effort: returns null on any error (Supabase unconfigured, query
  * failure, no matching row). Callers fall back to the existing
  * FID-only behaviour — at worst the wallet-keyed entry stays stale for
- * the 60s TTL.
+ * the ACCESS_CACHE_TTL_SECONDS window.
  *
  * @param {number|string} fid
  * @param {{warn: Function}} [logger=console]
@@ -134,15 +138,15 @@ async function resolveWalletByFid(fid, logger = console) {
 /**
  * Invalidate the cache entry for a {fid, wallet} pair. Call this from
  * route handlers after any mutation that flips access (allowlist add,
- * access-level update, removal). The 60s TTL is the safety net — explicit
- * invalidation makes admin changes reflect immediately instead of after
- * the next minute.
+ * access-level update, removal). The ACCESS_CACHE_TTL_SECONDS window is
+ * the safety net — explicit invalidation makes admin changes reflect
+ * immediately instead of after the TTL elapses.
  *
  * Wallet keys (including SMA-paired counterparts) are busted whenever
  * a wallet can be derived, even when the caller only supplied a FID:
  * Farcaster webhooks and FID-only allowlist mutations would otherwise
  * leave `access:wallet:0xEOA` / `access:wallet:0xSMA` entries holding
- * the pre-mutation verdict for up to 60s. See Issue #109.
+ * the pre-mutation verdict for up to one TTL window. See Issue #109.
  *
  * @param {{fid?: number|string, wallet?: string}} identifier
  * @param {{warn: Function}} [logger=console]

@@ -80,7 +80,10 @@ async function resolveMarketsOnchain(seasonId, winnerAddress, logger) {
  * @param {object} raffleAbi - Raffle contract ABI
  * @param {object} logger - Logger instance
  */
-async function settleInfoFiMarkets(seasonId, raffleAddress, raffleAbi, logger) {
+// Exported for direct unit testing — verifies the cache-invalidation
+// contract on the bulk-settle path. Not intended for external callers
+// (use processSeasonCompletedLog instead).
+export async function settleInfoFiMarkets(seasonId, raffleAddress, raffleAbi, logger) {
   try {
     // Get winners from the raffle contract
     const winners = await publicClient.readContract({
@@ -152,6 +155,14 @@ async function settleInfoFiMarkets(seasonId, raffleAddress, raffleAbi, logger) {
         );
       }
     }
+
+    // Bulk updates above bypass db.updateInfoFiMarket — explicitly bust
+    // the markets:* cache so dashboards see the settled state immediately
+    // rather than serving stale `is_active=true / is_settled=false` for
+    // up to 30s after each season completes. This is the production code
+    // path on the SeasonCompleted on-chain event; the parallel manual
+    // /admin/settle-season endpoint in infoFiRoutes.js does the same.
+    await db.invalidateMarketsCache();
 
     logger.info(`   InfoFi markets settlement complete for season ${seasonId}`);
   } catch (error) {

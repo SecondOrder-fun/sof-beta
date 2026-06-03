@@ -1,5 +1,17 @@
 import { createClient } from "@supabase/supabase-js";
 import process from "node:process";
+import {
+  cacheRead,
+  cacheInvalidatePattern,
+  MARKETS_KEY_PREFIX,
+  SEASON_CONTRACTS_KEY_PREFIX,
+} from "./redisCache.js";
+
+// Cache TTL for season_contracts reads. All values are stable in steady
+// state (mutations are admin-rare or state-transition-only), so we cache
+// aggressively and invalidate explicitly on writes; the TTL is the safety
+// net.
+const SEASON_CONTRACTS_CACHE_TTL_SECONDS = 300;
 
 // Supabase configuration
 const supabaseUrl = process.env.SUPABASE_URL || "";
@@ -164,6 +176,22 @@ export class DatabaseService {
     return this.getInfoFiMarketsBySeasonId(seasonId);
   }
 
+  // Invalidate the markets cache after structural writes (create / delete /
+  // settle / contract-address assignment). The high-frequency
+  // probability-update paths (`updateInfoFiMarketProbability`,
+  // `updateMarketProbabilityByFpmm`, and the bulk `updateAllPlayerProbabilities`)
+  // intentionally do NOT invalidate — busting the cache on every Buy/Sell
+  // would defeat the cache and reproduce the egress problem. Snapshots
+  // fall off the 30s TTL on their own.
+  //
+  // External call sites that touch `infofi_markets` directly (e.g. the
+  // settle-season admin endpoint in infoFiRoutes.js and the
+  // seasonCompletedListener on-chain handler) must call this method
+  // explicitly after their write.
+  async invalidateMarketsCache() {
+    await cacheInvalidatePattern(`${MARKETS_KEY_PREFIX}*`, this.getLogger());
+  }
+
   async createInfoFiMarket(marketData) {
     // Check if Supabase is configured
     if (!hasSupabase) {
@@ -226,6 +254,7 @@ export class DatabaseService {
     this.getLogger().info(
       `[supabaseClient] Successfully created market: ${data.id}`,
     );
+    await this.invalidateMarketsCache();
     return data;
   }
 
@@ -238,9 +267,12 @@ export class DatabaseService {
       .single();
 
     if (error) throw new Error(error.message);
+    await this.invalidateMarketsCache();
     return data;
   }
 
+  // NOTE: intentionally does NOT invalidate the markets cache —
+  // see invalidateMarketsCache's docstring.
   async updateInfoFiMarketProbability(
     seasonId,
     playerId,
@@ -272,6 +304,7 @@ export class DatabaseService {
       .single();
 
     if (error) throw new Error(error.message);
+    await this.invalidateMarketsCache();
     return data;
   }
 
@@ -299,6 +332,8 @@ export class DatabaseService {
         seqError.message,
       );
     }
+
+    await this.invalidateMarketsCache();
   }
 
   /**
@@ -475,6 +510,7 @@ export class DatabaseService {
       .single();
 
     if (error) throw new Error(error.message);
+    await this.invalidateSeasonContractsCache();
     return result;
   }
 
@@ -521,45 +557,52 @@ export class DatabaseService {
     }
   }
 
+  // Read-through caches for season_contracts. All four readers are cached
+  // because the table is admin-rare-mutation (only state transitions on
+  // SeasonStarted/Locked/Completed write to it, plus initial registration).
+  // Writes invalidate the whole namespace via `invalidateSeasonContractsCache`.
+  // Exposed publicly (no underscore) for symmetry with invalidateMarketsCache
+  // — any future external code path that writes season_contracts directly
+  // can call this to bust the cache without going through DatabaseService.
+  async invalidateSeasonContractsCache() {
+    await cacheInvalidatePattern(
+      `${SEASON_CONTRACTS_KEY_PREFIX}*`,
+      this.getLogger(),
+    );
+  }
+
   /**
    * Get season contract addresses by season ID
    * @param {number} seasonId - Season ID
    * @returns {Promise<Object|null>} Season contract record or null if not found
    */
   async getSeasonContracts(seasonId) {
-    const { data, error } = await this.client
-      .from("season_contracts")
-      .select("*")
-      .eq("season_id", seasonId)
-      .single();
+    return cacheRead(
+      `${SEASON_CONTRACTS_KEY_PREFIX}by_id:${seasonId}`,
+      async () => {
+        const { data, error } = await this.client
+          .from("season_contracts")
+          .select("*")
+          .eq("season_id", seasonId)
+          .single();
 
-    if (error && error.code !== "PGRST116") {
-      // PGRST116 = no rows found
-      throw new Error(error.message);
-    }
+        if (error && error.code !== "PGRST116") {
+          // PGRST116 = no rows found
+          throw new Error(error.message);
+        }
 
-    return data || null;
+        return data || null;
+      },
+      {
+        ttlSeconds: SEASON_CONTRACTS_CACHE_TTL_SECONDS,
+        logger: this.getLogger(),
+      },
+    );
   }
 
-  /**
-   * Get the latest season ID from database
-   * @returns {Promise<number|null>} Latest season ID or null if no seasons exist
-   */
-  async getLatestSeasonId() {
-    const { data, error } = await this.client
-      .from("season_contracts")
-      .select("season_id")
-      .order("season_id", { ascending: false })
-      .limit(1)
-      .single();
-
-    if (error && error.code !== "PGRST116") {
-      // PGRST116 = no rows found
-      throw new Error(error.message);
-    }
-
-    return data ? data.season_id : null;
-  }
+  // `getLatestSeasonId` had no callers — removed during the egress
+  // optimization pass. seasonReconciliationService reads the current
+  // season id from chain (Raffle.currentSeasonId()) instead of the DB.
 
   /**
    * Upsert a season_contracts row by season_id.
@@ -579,6 +622,7 @@ export class DatabaseService {
       .select()
       .single();
     if (error) throw error;
+    await this.invalidateSeasonContractsCache();
     return data;
   }
 
@@ -605,6 +649,7 @@ export class DatabaseService {
       .single();
 
     if (error) throw new Error(error.message);
+    await this.invalidateSeasonContractsCache();
     return data;
   }
 
@@ -613,14 +658,23 @@ export class DatabaseService {
    * @returns {Promise<Array>} Array of active season contract records
    */
   async getActiveSeasonContracts() {
-    const { data, error } = await this.client
-      .from("season_contracts")
-      .select("*")
-      .eq("is_active", true)
-      .order("created_at", { ascending: false });
+    return cacheRead(
+      `${SEASON_CONTRACTS_KEY_PREFIX}active`,
+      async () => {
+        const { data, error } = await this.client
+          .from("season_contracts")
+          .select("*")
+          .eq("is_active", true)
+          .order("created_at", { ascending: false });
 
-    if (error) throw new Error(error.message);
-    return data || [];
+        if (error) throw new Error(error.message);
+        return data || [];
+      },
+      {
+        ttlSeconds: SEASON_CONTRACTS_CACHE_TTL_SECONDS,
+        logger: this.getLogger(),
+      },
+    );
   }
 
   /**
@@ -628,13 +682,22 @@ export class DatabaseService {
    * @returns {Promise<Array>} Array of all season contract records, sorted by season_id descending
    */
   async getAllSeasonContracts() {
-    const { data, error } = await this.client
-      .from("season_contracts")
-      .select("*")
-      .order("season_id", { ascending: false });
+    return cacheRead(
+      `${SEASON_CONTRACTS_KEY_PREFIX}all`,
+      async () => {
+        const { data, error } = await this.client
+          .from("season_contracts")
+          .select("*")
+          .order("season_id", { ascending: false });
 
-    if (error) throw new Error(error.message);
-    return data || [];
+        if (error) throw new Error(error.message);
+        return data || [];
+      },
+      {
+        ttlSeconds: SEASON_CONTRACTS_CACHE_TTL_SECONDS,
+        logger: this.getLogger(),
+      },
+    );
   }
 
   /**
@@ -651,7 +714,28 @@ export class DatabaseService {
       .single();
 
     if (error) throw new Error(error.message);
+    await this.invalidateSeasonContractsCache();
     return data;
+  }
+
+  /**
+   * Update season_contracts.last_tx_sync_block for a season.
+   * Funneled through DatabaseService so the call site (currently
+   * raffleTransactionService.syncSeasonTransactions) doesn't bypass
+   * cache invalidation — direct `.from('season_contracts').update()`
+   * writes are landmines that silently leave stale data in the
+   * cached getActiveSeasonContracts / getAllSeasonContracts results.
+   *
+   * @param {number} seasonId
+   * @param {string | bigint | number} lastBlock — block height; coerced to string for storage
+   */
+  async setLastTxSyncBlock(seasonId, lastBlock) {
+    const { error } = await this.client
+      .from("season_contracts")
+      .update({ last_tx_sync_block: String(lastBlock) })
+      .eq("season_id", seasonId);
+    if (error) throw new Error(error.message);
+    await this.invalidateSeasonContractsCache();
   }
 
   /**
@@ -663,6 +747,10 @@ export class DatabaseService {
    * @param {Array} playerPositions - Array of {player, ticketCount}
    * @returns {Promise<number>} Count of updated markets
    */
+  // NOTE: probability updates intentionally do NOT invalidate the
+  // markets cache. See invalidateMarketsCache's docstring above —
+  // every Buy/Sell tick would otherwise shred the cache. Snapshots
+  // fall off the 30s TTL on their own.
   async updateAllPlayerProbabilities(
     seasonId,
     totalTickets,
@@ -758,6 +846,10 @@ export class DatabaseService {
         );
       }
 
+      // contract_address is part of the cached /markets response.
+      // Without this invalidation a fresh FPMM deploy stays invisible
+      // to the frontend for up to 30s after the listener writes it.
+      await this.invalidateMarketsCache();
       return data;
     } catch (error) {
       throw new Error(
@@ -804,6 +896,9 @@ export class DatabaseService {
    * @param {number} newProbabilityBps - New probability in basis points (0-10000)
    * @returns {Promise<Object|null>} Updated market or null
    */
+  // NOTE: intentionally does NOT invalidate the markets cache —
+  // see invalidateMarketsCache's docstring. This is the per-trade
+  // hot path called by tradeListener.
   async updateMarketProbabilityByFpmm(fpmmAddress, newProbabilityBps) {
     const normalizedAddr = fpmmAddress.toLowerCase();
     const { data, error } = await this.client

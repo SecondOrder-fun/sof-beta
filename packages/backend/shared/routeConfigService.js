@@ -1,4 +1,16 @@
 import { supabase } from "./supabaseClient.js";
+import {
+  cacheInvalidatePattern,
+  ROUTE_CONFIG_KEY_PREFIX,
+} from "./redisCache.js";
+
+// Bust the entire route_config:* namespace whenever any
+// route_access_config row mutates. The cache is read-through with a
+// 5-min TTL; explicit invalidation makes admin changes take effect
+// immediately rather than after the TTL.
+async function invalidateRouteConfigCache() {
+  await cacheInvalidatePattern(`${ROUTE_CONFIG_KEY_PREFIX}*`);
+}
 
 /**
  * Create or update route configuration
@@ -47,6 +59,7 @@ export async function upsertRouteConfig(config) {
 
     if (error) throw error;
 
+    await invalidateRouteConfigCache();
     return { success: true, config: data };
   } catch (error) {
     console.error("Error upserting route config:", error);
@@ -72,6 +85,7 @@ export async function setRoutePublicOverride(routePattern, isPublic) {
 
     if (error) throw error;
 
+    await invalidateRouteConfigCache();
     return { success: true };
   } catch (error) {
     console.error("Error setting route public override:", error);
@@ -97,6 +111,7 @@ export async function setRouteDisabled(routePattern, isDisabled) {
 
     if (error) throw error;
 
+    await invalidateRouteConfigCache();
     return { success: true };
   } catch (error) {
     console.error("Error setting route disabled state:", error);
@@ -202,6 +217,7 @@ export async function deleteRouteConfig(routePattern) {
 
     if (error) throw error;
 
+    await invalidateRouteConfigCache();
     return { success: true };
   } catch (error) {
     console.error("Error deleting route config:", error);
