@@ -64,7 +64,7 @@ export default function HealthStatus() {
         };
       }
     },
-    refetchInterval: 30000,
+    refetchInterval: 60000,
     staleTime: 25000,
     retry: false,
   });

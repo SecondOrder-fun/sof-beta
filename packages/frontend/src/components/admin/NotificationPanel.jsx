@@ -86,7 +86,7 @@ function NotificationPanel() {
   const statsQuery = useQuery({
     queryKey: ["notificationStats"],
     queryFn: () => fetchNotificationStats(getAuthHeaders()),
-    refetchInterval: 30000,
+    refetchInterval: 60000,
   });
 
   // Fetch tokens
