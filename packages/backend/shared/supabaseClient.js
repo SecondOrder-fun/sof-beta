@@ -72,7 +72,8 @@ export class DatabaseService {
 
     const { data, error } = await this.client
       .from("infofi_markets")
-      .select("*")
+      // Only `id` is consumed (existence check via hasInfoFiMarket).
+      .select("id")
       .eq("season_id", seasonId)
       .eq("player_address", normalizedAddress)
       .eq("market_type", marketType)
@@ -144,7 +145,9 @@ export class DatabaseService {
 
     const { data, error } = await this.client
       .from("infofi_markets")
-      .select("*")
+      // Only `id` is consumed by the sole caller (positionUpdateListener,
+      // recordOddsUpdate(marketRecord.id)).
+      .select("id")
       .eq("season_id", seasonId)
       .eq("player_address", normalizedAddress)
       .eq("market_type", marketType)
@@ -399,7 +402,12 @@ export class DatabaseService {
 
     const { data, error } = await this.client
       .from("infofi_failed_markets")
-      .select("*")
+      // Columns match the documented /api/admin/failed-market-attempts
+      // response contract (ManualMarketCreation.jsx reads id/season_id/
+      // player_address/created_at; the rest are part of the documented shape).
+      .select(
+        "id, season_id, player_address, source, error_message, attempts, created_at, last_attempt_at",
+      )
       .order("created_at", { ascending: false })
       .limit(limit);
 
@@ -429,6 +437,8 @@ export class DatabaseService {
   async getPositionsByAddress(address) {
     const { data, error } = await this.client
       .from("infofi_positions")
+      // select * — generic accessor with no current caller; the consumed
+      // column set is unknown, so we don't narrow it speculatively.
       .select("*")
       .eq("user_address", address)
       .order("created_at", { ascending: false });
@@ -441,7 +451,8 @@ export class DatabaseService {
     const addr = String(address || "").toLowerCase();
     const { data, error } = await this.client
       .from("players")
-      .select("*")
+      // Only `id` is consumed (getOrCreatePlayerIdByAddress reads .id).
+      .select("id")
       .ilike("address", addr)
       .single();
     if (error && error.code !== "PGRST116") throw new Error(error.message);
@@ -582,6 +593,9 @@ export class DatabaseService {
       async () => {
         const { data, error } = await this.client
           .from("season_contracts")
+          // select * — full row returned to API (seasonRoutes/adminRoutes →
+          // frontend) and read column-by-column across 12+ backend call
+          // sites; already cached, so columns vary, keep the whole row.
           .select("*")
           .eq("season_id", seasonId)
           .single();
@@ -663,6 +677,8 @@ export class DatabaseService {
       async () => {
         const { data, error } = await this.client
           .from("season_contracts")
+          // select * — full row returned to API and read column-by-column
+          // across many backend call sites; cached, so columns vary.
           .select("*")
           .eq("is_active", true)
           .order("created_at", { ascending: false });
@@ -687,6 +703,8 @@ export class DatabaseService {
       async () => {
         const { data, error } = await this.client
           .from("season_contracts")
+          // select * — full row returned to API (/api/seasons) and read
+          // column-by-column across many backend call sites; cached, columns vary.
           .select("*")
           .order("season_id", { ascending: false });
 
@@ -962,7 +980,14 @@ export class DatabaseService {
   async getCurveState(bondingCurveAddress) {
     const { data, error } = await this.client
       .from("curve_state")
-      .select("*")
+      // Union of columns the only caller (curveRoutes /state, /steps,
+      // /treasury) maps into its responses — each field is read explicitly,
+      // not spread, so this set is the full contract.
+      .select(
+        "bonding_curve_address, accumulated_fees, sof_reserves, current_supply, " +
+          "current_step_index, current_step_price, current_step_range_to, " +
+          "last_updated_block, updated_at, bond_steps, treasury_address",
+      )
       .eq("bonding_curve_address", bondingCurveAddress.toLowerCase())
       .maybeSingle();
     if (error) throw error;

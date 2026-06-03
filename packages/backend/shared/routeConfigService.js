@@ -128,6 +128,9 @@ export async function getAllRouteConfigs(filters = {}) {
   try {
     let query = supabase
       .from("route_access_config")
+      // select * — full rows returned to the admin API (routeConfigRoutes)
+      // and rendered by RouteConfigPanel/RouteAccessPanel, which read a broad
+      // and varying column set; narrowing risks dropping a UI-needed field.
       .select("*")
       .order("priority", { ascending: false })
       .order("route_pattern", { ascending: true });
@@ -164,6 +167,8 @@ export async function getRouteConfigByPattern(routePattern) {
   try {
     const { data, error } = await supabase
       .from("route_access_config")
+      // select * — full row feeds checkRouteAccess and the admin API; the
+      // consumed column set is broad and varies, so keep the whole row.
       .select("*")
       .eq("route_pattern", routePattern)
       .single();
@@ -187,6 +192,8 @@ export async function getRouteConfigByResource(resourceType, resourceId) {
   try {
     const { data, error } = await supabase
       .from("route_access_config")
+      // select * — full row feeds checkRouteAccess and the admin API; the
+      // consumed column set is broad and varies, so keep the whole row.
       .select("*")
       .eq("resource_type", resourceType)
       .eq("resource_id", resourceId)
@@ -231,7 +238,10 @@ export async function deleteRouteConfig(routePattern) {
  */
 export async function getAccessSettings() {
   try {
-    const { data, error } = await supabase.from("access_settings").select("*");
+    // Only key/value are consumed (reduced to a key→value map below).
+    const { data, error } = await supabase
+      .from("access_settings")
+      .select("key, value");
 
     if (error) throw error;
 

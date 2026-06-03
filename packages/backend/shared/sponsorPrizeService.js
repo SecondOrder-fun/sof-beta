@@ -60,6 +60,8 @@ export async function getSponsorPrizes(seasonId) {
 
     const { data, error } = await supabase
       .from("sponsor_prizes")
+      // select * — full rows returned to the frontend via sponsorPrizeRoutes
+      // and read across several sponsor/celebration components; columns vary.
       .select("*")
       .eq("season_id", Number(seasonId))
       .order("created_at", { ascending: true });
@@ -154,6 +156,8 @@ export async function getTierConfigs(seasonId) {
 
     const { data, error } = await supabase
       .from("season_tier_configs")
+      // select * — full rows returned to the frontend via sponsorPrizeRoutes;
+      // consumed column set varies, keep the whole row.
       .select("*")
       .eq("season_id", Number(seasonId))
       .order("tier_index", { ascending: true });

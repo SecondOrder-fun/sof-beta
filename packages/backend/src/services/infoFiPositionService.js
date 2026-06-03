@@ -330,6 +330,8 @@ class InfoFiPositionService {
   async getUserPositions(userAddress, marketId = null) {
     let query = db.client
       .from("infofi_positions")
+      // select * — full rows returned to the frontend via /infofi positions
+      // endpoint; consumed column set varies, keep the whole row.
       .select("*")
       .eq("user_address", userAddress.toLowerCase());
 
@@ -355,6 +357,9 @@ class InfoFiPositionService {
   async getAggregatedPosition(userAddress, marketId) {
     const { data, error } = await db.client
       .from("user_market_positions")
+      // select * — full aggregated rows returned to the frontend via the
+      // /infofi aggregated-position endpoint, and read here by getNetPosition
+      // (outcome/total_amount/num_trades). Columns vary, keep the whole row.
       .select("*")
       .eq("user_address", userAddress.toLowerCase())
       .eq("market_id", marketId);

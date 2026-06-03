@@ -428,6 +428,9 @@ class RaffleTransactionService {
     // orderBy is validated at the route layer via ALLOWED_ORDER_COLUMNS whitelist
     let query = db.client
       .from("raffle_transactions")
+      // select * — full rows returned to the frontend via
+      // /raffle-transactions (useRaffleTransactions + several raffle
+      // components read a varying column set); keep the whole row.
       .select("*")
       .eq("user_address", userAddress.toLowerCase())
       .eq("season_id", seasonId);
@@ -451,6 +454,8 @@ class RaffleTransactionService {
     const curveAddress = await this.getSeasonCurveAddress(seasonId);
     let query = db.client
       .from("user_raffle_positions")
+      // select * — full position row returned to the frontend via
+      // /positions/:user/:season; consumed column set varies, keep whole row.
       .select("*")
       .eq("user_address", userAddress.toLowerCase())
       .eq("season_id", seasonId);
@@ -469,6 +474,9 @@ class RaffleTransactionService {
   async getAllUserPositions(userAddress) {
     const { data, error } = await db.client
       .from("user_raffle_positions")
+      // select * — full rows returned to the frontend via /positions/:user;
+      // also filtered below on season_id + bonding_curve_address. Columns
+      // the UI reads vary, so keep the whole row.
       .select("*")
       .eq("user_address", userAddress.toLowerCase())
       .order("season_id", { ascending: false });

@@ -20,7 +20,8 @@ export async function getNotificationTokens(fid) {
 
   const { data, error } = await db.client
     .from("farcaster_notification_tokens")
-    .select("*")
+    // sendNotificationToUser reads notification_url, notification_token, app_key.
+    .select("notification_url, notification_token, app_key")
     .eq("fid", fid)
     .eq("notifications_enabled", true);
 
@@ -46,7 +47,8 @@ export async function getAllEnabledTokens() {
 
   const { data, error } = await db.client
     .from("farcaster_notification_tokens")
-    .select("*")
+    // sendNotificationToAll groups by notification_url and sends notification_token.
+    .select("notification_url, notification_token")
     .eq("notifications_enabled", true);
 
   if (error) {
