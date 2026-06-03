@@ -82,10 +82,13 @@ function buildSupabaseMock(markets) {
       })),
     }),
     infofi_winnings: () => ({
+      // Production calls .single() inside the existing-winnings dedupe
+      // lookup. Match the real chain so a future test that supplies
+      // positions actually exercises the loop body.
       select: vi.fn(() => ({
         eq: vi.fn(() => ({
           eq: vi.fn(() => ({
-            maybeSingle: vi
+            single: vi
               .fn()
               .mockResolvedValue({ data: null, error: null }),
           })),
