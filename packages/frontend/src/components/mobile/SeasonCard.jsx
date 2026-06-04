@@ -11,6 +11,7 @@ import { CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ContentBox, ImportantBox } from "@/components/ui/content-box";
+import { Skeleton } from "@/components/ui/skeleton";
 import MiniCurveChart from "@/components/curve/MiniCurveChart";
 import CountdownTimer from "@/components/common/CountdownTimer";
 import UsernameDisplay from "@/components/user/UsernameDisplay";
@@ -95,6 +96,13 @@ export const SeasonCard = ({
     (curveState.allBondSteps && curveState.allBondSteps.length > 0
       ? curveState.allBondSteps
       : allBondSteps) || [];
+  // #150: render a price Skeleton instead of a premature "0 SOF" while the
+  // curve is still loading — but only when neither the parent props nor the
+  // hook have surfaced any step data yet (a real step source clears it).
+  const priceLoading =
+    curveState.isPriceLoading &&
+    displayBondSteps.length === 0 &&
+    !displayCurveStep;
 
   const formatSOF = (value) => {
     if (!value) return "0";
@@ -177,12 +185,18 @@ export const SeasonCard = ({
                     : t("raffle:currentPrice")}
                 </div>
                 <div className="font-mono text-base">
-                  {formatSOF(
-                    showStartingPrice
-                      ? displayBondSteps?.[0]?.price
-                      : displayCurveStep?.price ?? displayBondSteps?.[0]?.price,
-                  )}{" "}
-                  SOF
+                  {priceLoading ? (
+                    <Skeleton data-testid="price-skeleton" className="h-6 w-20" />
+                  ) : (
+                    <>
+                      {formatSOF(
+                        showStartingPrice
+                          ? displayBondSteps?.[0]?.price
+                          : displayCurveStep?.price ?? displayBondSteps?.[0]?.price,
+                      )}{" "}
+                      SOF
+                    </>
+                  )}
                 </div>
               </ContentBox>
 

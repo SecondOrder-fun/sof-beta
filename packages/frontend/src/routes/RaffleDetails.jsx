@@ -120,6 +120,7 @@ const RaffleDetails = () => {
     curveReserves,
     curveStep,
     /* bondStepsPreview, */ allBondSteps,
+    isPriceLoading,
     debouncedRefresh,
   } = useCurveState(bondingCurveAddress, {
     isActive: isActiveSeason,
@@ -616,6 +617,7 @@ const RaffleDetails = () => {
                               curveSupply={curveSupply}
                               curveStep={curveStep}
                               allBondSteps={allBondSteps}
+                              isLoading={isPriceLoading}
                             />
                             {curveStep?.rangeTo != null && curveSupply != null && (() => {
                               const remaining = BigInt(curveStep.rangeTo) - BigInt(curveSupply);

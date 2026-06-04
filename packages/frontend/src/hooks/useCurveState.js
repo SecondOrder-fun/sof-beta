@@ -112,6 +112,23 @@ export function useCurveState(
       : chainStepsQuery.data || [];
   const tail = steps.slice(Math.max(0, steps.length - 3));
 
+  // Loading signal for the price-bearing cards (#150). The immutable step
+  // ladder is "settled" once the warm cache returns steps, or — when the warm
+  // cache is empty — the on-chain fallback has finished. A live currentStep
+  // from the state cache also gives us a price to paint. Until one of those
+  // holds we can't distinguish "still loading" from "genuinely no curve", so
+  // consumers render a Skeleton instead of a premature 0.0000.
+  const chainStepsResolved = chainStepsQuery.isFetched || chainStepsQuery.isError;
+  const stepsSettled =
+    (warmStepsResolved && !warmStepsEmpty) ||
+    (warmStepsEmpty && chainStepsResolved);
+  const isPriceLoading =
+    enabled &&
+    includeSteps &&
+    !!bondingCurveAddress &&
+    !state?.currentStep &&
+    !stepsSettled;
+
   return {
     curveSupply: state?.currentSupply ? BigInt(state.currentSupply) : 0n,
     curveReserves: state?.sofReserves ? BigInt(state.sofReserves) : 0n,
@@ -131,6 +148,7 @@ export function useCurveState(
       rangeTo: BigInt(s.rangeTo),
       price: BigInt(s.price),
     })),
+    isPriceLoading,
     refreshCurveState,
     debouncedRefresh,
   };
