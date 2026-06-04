@@ -112,22 +112,22 @@ export function useCurveState(
       : chainStepsQuery.data || [];
   const tail = steps.slice(Math.max(0, steps.length - 3));
 
-  // Loading signal for the price-bearing cards (#150). The immutable step
-  // ladder is "settled" once the warm cache returns steps, or — when the warm
-  // cache is empty — the on-chain fallback has finished. A live currentStep
-  // from the state cache also gives us a price to paint. Until one of those
-  // holds we can't distinguish "still loading" from "genuinely no curve", so
-  // consumers render a Skeleton instead of a premature 0.0000.
-  const chainStepsResolved = chainStepsQuery.isFetched || chainStepsQuery.isError;
-  const stepsSettled =
-    (warmStepsResolved && !warmStepsEmpty) ||
-    (warmStepsEmpty && chainStepsResolved);
+  // Loading signal for the price-bearing cards (#150). Show a Skeleton only
+  // while we have no price to paint AND a price query is *actively* fetching.
+  // Keying off isFetching (not isFetched/isError) means paused or errored
+  // queries — e.g. an upcoming season whose bond_steps were never populated, so
+  // the warm read 404s and the retry pauses offline — fall through to the
+  // resolved value (a genuine 0.0000) instead of a perpetual Skeleton.
+  const hasPriceData =
+    !!state?.currentStep || (Array.isArray(steps) && steps.length > 0);
+  const anyPriceFetching =
+    stateQuery.isFetching || stepsQuery.isFetching || chainStepsQuery.isFetching;
   const isPriceLoading =
     enabled &&
     includeSteps &&
     !!bondingCurveAddress &&
-    !state?.currentStep &&
-    !stepsSettled;
+    !hasPriceData &&
+    anyPriceFetching;
 
   return {
     curveSupply: state?.currentSupply ? BigInt(state.currentSupply) : 0n,

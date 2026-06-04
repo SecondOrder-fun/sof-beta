@@ -1,6 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  QueryClient,
+  QueryClientProvider,
+  onlineManager,
+} from '@tanstack/react-query';
 import { useCurveState } from '../useCurveState';
 
 // useCurveState subscribes to SSE and (on warm-cache miss) reads the bond-step
@@ -86,5 +90,28 @@ describe('useCurveState — isPriceLoading', () => {
       wrapper: makeWrapper(),
     });
     expect(result.current.isPriceLoading).toBe(false);
+  });
+
+  // Regression: when the curve queries are paused (offline / paused retry
+  // after a 404) they sit at status:pending, fetchStatus:paused forever —
+  // never reaching isFetched/isError. The loading signal must NOT treat that
+  // as "still loading" or the card shows a perpetual Skeleton that hides the
+  // genuine zero. Observed live on an upcoming season whose bond_steps were
+  // never populated (#150 verification).
+  describe('paused / offline queries', () => {
+    afterEach(() => onlineManager.setOnline(true));
+
+    it('does not show a perpetual loading state while fetches are paused', async () => {
+      onlineManager.setOnline(false);
+      mockFetch({
+        state: null,
+        steps: [{ rangeTo: '100', price: '2000000000000000000' }],
+      });
+      const { result } = renderHook(() => useCurveState(ADDR), {
+        wrapper: makeWrapper(),
+      });
+      // Paused queries are not actively fetching → not "loading".
+      await waitFor(() => expect(result.current.isPriceLoading).toBe(false));
+    });
   });
 });
