@@ -112,6 +112,23 @@ export function useCurveState(
       : chainStepsQuery.data || [];
   const tail = steps.slice(Math.max(0, steps.length - 3));
 
+  // Loading signal for the price-bearing cards (#150). Show a Skeleton only
+  // while we have no price to paint AND a price query is *actively* fetching.
+  // Keying off isFetching (not isFetched/isError) means paused or errored
+  // queries — e.g. an upcoming season whose bond_steps were never populated, so
+  // the warm read 404s and the retry pauses offline — fall through to the
+  // resolved value (a genuine 0.0000) instead of a perpetual Skeleton.
+  const hasPriceData =
+    !!state?.currentStep || (Array.isArray(steps) && steps.length > 0);
+  const anyPriceFetching =
+    stateQuery.isFetching || stepsQuery.isFetching || chainStepsQuery.isFetching;
+  const isPriceLoading =
+    enabled &&
+    includeSteps &&
+    !!bondingCurveAddress &&
+    !hasPriceData &&
+    anyPriceFetching;
+
   return {
     curveSupply: state?.currentSupply ? BigInt(state.currentSupply) : 0n,
     curveReserves: state?.sofReserves ? BigInt(state.sofReserves) : 0n,
@@ -131,6 +148,7 @@ export function useCurveState(
       rangeTo: BigInt(s.rangeTo),
       price: BigInt(s.price),
     })),
+    isPriceLoading,
     refreshCurveState,
     debouncedRefresh,
   };

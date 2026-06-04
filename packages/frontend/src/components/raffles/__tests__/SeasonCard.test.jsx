@@ -6,7 +6,7 @@ import { SeasonCard } from '../SeasonCard';
 // Per-test override surface for useCurveState. Default = empty / starting-state
 // so existing variant tests keep working. Reset in afterEach so a test that
 // throws before its own cleanup can't leak the mock into later tests.
-const DEFAULT_CURVE_STATE = { curveSupply: 0n, curveStep: null, allBondSteps: [] };
+const DEFAULT_CURVE_STATE = { curveSupply: 0n, curveStep: null, allBondSteps: [], isPriceLoading: false };
 let curveStateMock = { ...DEFAULT_CURVE_STATE };
 vi.mock('@/hooks/useCurveState', () => ({
   useCurveState: () => curveStateMock,
@@ -284,6 +284,69 @@ describe('SeasonCard variants', () => {
     expect(screen.getByText(/currentPrice/i)).toBeInTheDocument();
     expect(screen.getByText(/^2\.0000/)).toBeInTheDocument();
     expect(screen.queryByText(/^0\.0000/)).not.toBeInTheDocument();
+  });
+
+  // Issue #150: while the curve data is still loading, the price value must
+  // render a Skeleton — never a premature "0.0000" that then snaps to the real
+  // price.
+  it('Active (1) shows a price Skeleton while loading, not a 0.0000 flash', () => {
+    curveStateMock = {
+      curveSupply: 0n,
+      curveStep: null,
+      allBondSteps: [],
+      isPriceLoading: true,
+    };
+    render(
+      <MemoryRouter>
+        <SeasonCard season={baseSeason(1)} renderBadge={noopBadge} winnerSummary={null} />
+      </MemoryRouter>
+    );
+    expect(screen.getByTestId('price-skeleton')).toBeInTheDocument();
+    expect(screen.queryByText(/^0\.0000/)).not.toBeInTheDocument();
+  });
+
+  it('Upcoming (0) shows a price Skeleton while loading, not a 0.0000 flash', () => {
+    curveStateMock = {
+      curveSupply: 0n,
+      curveStep: null,
+      allBondSteps: [],
+      isPriceLoading: true,
+    };
+    const FAR_FUTURE = BigInt(Math.floor(Date.now() / 1000) + 3600);
+    const season = {
+      id: 7,
+      status: 0,
+      totalTickets: 0n,
+      config: {
+        name: 'Loading Vol.1',
+        startTime: FAR_FUTURE,
+        endTime: FAR_FUTURE + 86400n,
+        bondingCurve: '0xa',
+      },
+    };
+    render(
+      <MemoryRouter>
+        <SeasonCard season={season} renderBadge={noopBadge} winnerSummary={null} />
+      </MemoryRouter>
+    );
+    expect(screen.getByTestId('price-skeleton')).toBeInTheDocument();
+    expect(screen.queryByText(/^0\.0000/)).not.toBeInTheDocument();
+  });
+
+  it('Active (1) shows 0.0000 once loading resolves genuinely empty (real zero, not Skeleton)', () => {
+    curveStateMock = {
+      curveSupply: 0n,
+      curveStep: null,
+      allBondSteps: [],
+      isPriceLoading: false,
+    };
+    render(
+      <MemoryRouter>
+        <SeasonCard season={baseSeason(1)} renderBadge={noopBadge} winnerSummary={null} />
+      </MemoryRouter>
+    );
+    expect(screen.queryByTestId('price-skeleton')).not.toBeInTheDocument();
+    expect(screen.getByText(/^0\.0000/)).toBeInTheDocument();
   });
 
   it('Completed (5) without suppressWinner still shows the winner (unchanged)', () => {

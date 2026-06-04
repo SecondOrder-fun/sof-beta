@@ -93,6 +93,10 @@ const BondingCurvePanel = ({
   // ended — the displayed step is the locked final tier). Default false
   // keeps the existing "Current Price" label for active/pending raffles.
   isCompleted = false,
+  // When true, the curve source is still resolving (#150). In full mode an
+  // empty chart shows a Skeleton instead of the "no data" message so the panel
+  // doesn't flash an empty-state before the steps arrive.
+  isLoading = false,
 }) => {
   const { t } = useTranslation("raffle");
   const sofDecimals = useSofDecimals();
@@ -257,8 +261,11 @@ const BondingCurvePanel = ({
     return (
       <div className={containerClassName}>
         <div className={graphWrapperClassName}>
-          {mini ? (
-            <Skeleton className="w-full h-full rounded-none" />
+          {mini || isLoading ? (
+            <Skeleton
+              data-testid={mini ? undefined : "curve-graph-skeleton"}
+              className={mini ? "w-full h-full rounded-none" : "w-full h-48"}
+            />
           ) : (
             <div className="text-sm text-muted-foreground">
               {t("noBondingCurveData")}
@@ -460,6 +467,7 @@ BondingCurvePanel.propTypes = {
   compact: PropTypes.bool,
   mini: PropTypes.bool,
   isCompleted: PropTypes.bool,
+  isLoading: PropTypes.bool,
 };
 
 export default BondingCurvePanel;

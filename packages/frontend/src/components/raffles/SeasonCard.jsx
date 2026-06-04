@@ -12,6 +12,7 @@ import BondingCurvePanel from "@/components/curve/CurveGraph";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import CountdownTimer from "@/components/common/CountdownTimer";
 import TimeElapsed from "@/components/common/TimeElapsed";
 import UsernameDisplay from "@/components/user/UsernameDisplay";
@@ -50,7 +51,7 @@ const SeasonCard = ({ season, renderBadge, winnerSummary, suppressWinner = false
         : statusNum === 4
           ? "settlingDistributing"
           : null;
-  const { curveSupply, curveStep, allBondSteps } = useCurveState(
+  const { curveSupply, curveStep, allBondSteps, isPriceLoading } = useCurveState(
     bondingCurveAddress,
     {
       // Poll only while the curve can change (active season). For pre-start
@@ -184,7 +185,11 @@ const SeasonCard = ({ season, renderBadge, winnerSummary, suppressWinner = false
               <div>
                 <div className="text-xs text-primary">{t("currentPrice")}</div>
                 <div className="font-mono text-base">
-                  {currentPriceLabel} SOF
+                  {isPriceLoading ? (
+                    <Skeleton data-testid="price-skeleton" className="h-6 w-24" />
+                  ) : (
+                    `${currentPriceLabel} SOF`
+                  )}
                 </div>
               </div>
               {tradingOpen && (
@@ -229,7 +234,11 @@ const SeasonCard = ({ season, renderBadge, winnerSummary, suppressWinner = false
                   })}
                 </div>
                 <div className="font-mono text-base">
-                  {startingPriceLabel} SOF
+                  {isPriceLoading ? (
+                    <Skeleton data-testid="price-skeleton" className="h-6 w-24" />
+                  ) : (
+                    `${startingPriceLabel} SOF`
+                  )}
                 </div>
               </div>
             </div>
