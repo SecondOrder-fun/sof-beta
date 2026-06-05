@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const hoisted = vi.hoisted(() => ({
   cacheRead: vi.fn(),
+  cacheInvalidate: vi.fn(),
   cacheInvalidatePattern: vi.fn(),
 }));
 
@@ -12,6 +13,7 @@ vi.mock("../../shared/redisCache.js", async (orig) => {
   return {
     ...actual,
     cacheRead: hoisted.cacheRead,
+    cacheInvalidate: hoisted.cacheInvalidate,
     cacheInvalidatePattern: hoisted.cacheInvalidatePattern,
   };
 });
@@ -23,10 +25,11 @@ vi.mock("../../shared/supabaseClient.js", () => ({
 vi.mock("../../src/lib/viemClient.js", () => ({ publicClient: {} }));
 
 import { infoFiPositionService } from "../../src/services/infoFiPositionService.js";
-import { POSITIONS_KEY_PREFIX } from "../../shared/redisCache.js";
+import { POSITIONS_KEY_PREFIX, MARKET_INFO_KEY_PREFIX } from "../../shared/redisCache.js";
 
 beforeEach(() => {
   hoisted.cacheRead.mockReset();
+  hoisted.cacheInvalidate.mockReset();
   hoisted.cacheInvalidatePattern.mockReset();
 });
 
@@ -69,8 +72,8 @@ describe("recordPosition invalidation", () => {
     expect(hoisted.cacheInvalidatePattern).toHaveBeenCalledWith(
       `${POSITIONS_KEY_PREFIX}net:42:*`,
     );
-    expect(hoisted.cacheInvalidatePattern).toHaveBeenCalledWith(
-      "market_info:42",
+    expect(hoisted.cacheInvalidate).toHaveBeenCalledWith(
+      `${MARKET_INFO_KEY_PREFIX}42`,
     );
   });
 });

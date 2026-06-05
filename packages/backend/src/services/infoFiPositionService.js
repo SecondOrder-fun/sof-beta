@@ -4,6 +4,7 @@ import { SimpleFPMMABI as simpleFpmmAbi } from '@sof/contracts';
 import { queryLogsInChunks } from "../utils/blockRangeQuery.js";
 import {
   cacheRead,
+  cacheInvalidate,
   cacheInvalidatePattern,
   POSITIONS_KEY_PREFIX,
   MARKET_INFO_KEY_PREFIX,
@@ -126,7 +127,7 @@ class InfoFiPositionService {
       // Trade just landed — bust this market's cached positions and market_info
       // volume so a trader sees their own update within one poll, not after TTL.
       await cacheInvalidatePattern(`${POSITIONS_KEY_PREFIX}net:${marketId}:*`);
-      await cacheInvalidatePattern(`market_info:${marketId}`);
+      await cacheInvalidate(`${MARKET_INFO_KEY_PREFIX}${marketId}`);
 
       return { success: true, data };
     } catch (error) {

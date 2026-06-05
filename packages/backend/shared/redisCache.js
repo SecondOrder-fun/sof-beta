@@ -2,8 +2,10 @@
 //
 // Read-through Redis cache helper. Used by accessService.getRouteConfig,
 // the /api/infofi/markets endpoint handler, DatabaseService's
-// season_contracts reads, and accessCache.js (which layers its own
-// FID-vs-wallet-vs-SMA-pair key logic on top of this generic core).
+// season_contracts reads, infoFiPositionService (getNetPosition +
+// getMarketInfo), raffleTransactionService.getSeasonTransactions, and
+// accessCache.js (which layers its own FID-vs-wallet-vs-SMA-pair key
+// logic on top of this generic core).
 //
 // The pattern is: try Redis → fall through to the loader on miss/error,
 // best-effort write-through, never throws. Designed so a Redis hiccup
