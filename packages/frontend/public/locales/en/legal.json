@@ -1,0 +1,492 @@
+{
+  "placeholderBanner": {
+    "title": "Placeholder document — not legally binding",
+    "body": "This document is a non-binding placeholder provided for development purposes only. It does not constitute a legal agreement, is not final, and is subject to change at any time without notice."
+  },
+  "disclaimer": {
+    "pageTitle": "Disclaimer",
+    "intro": "Please read this disclaimer carefully before using SecondOrder.fun. It explains the experimental nature of the platform and the risks involved. By accessing or using the platform, you acknowledge and accept everything described below.",
+    "sections": [
+      {
+        "heading": "Experimental, Alpha-Stage Software on a Testnet",
+        "body": [
+          "SecondOrder.fun is early-alpha software. It is under active development, may change or break without notice, and may contain incomplete features, errors, or unexpected behavior.",
+          "The platform currently runs entirely on a public test network (Base Sepolia testnet). It is not deployed to mainnet.",
+          "All tokens, balances, raffle tickets, $SOF, prizes, consolation pools, and InfoFi market positions on the platform are testnet artifacts. They have no monetary or real-world value and cannot be redeemed, exchanged, or sold for anything of value. Nothing you see in the interface represents real money."
+        ]
+      },
+      {
+        "heading": "Not Financial, Investment, Legal, or Tax Advice",
+        "body": [
+          "All content on this site and within the platform is provided for general informational and educational purposes only. It does not constitute, and should not be relied upon as, financial, investment, trading, accounting, legal, or tax advice of any kind.",
+          "Nothing on the platform is a recommendation, solicitation, or offer to buy, sell, or hold any token or asset, or to enter into any transaction or strategy.",
+          "We are not your broker, dealer, advisor, fiduciary, or agent. You are solely responsible for evaluating your own circumstances and decisions. Consult your own qualified, independent professionals before acting on anything you encounter here."
+        ]
+      },
+      {
+        "heading": "Crypto and Smart-Contract Risk",
+        "body": [
+          "Blockchain technology, digital assets, and smart contracts are inherently risky. Even on a testnet, interacting with the platform helps you understand risks that apply to real on-chain systems.",
+          "Risks include, but are not limited to:",
+          "- Smart-contract bugs, vulnerabilities, or exploits that could cause unexpected outcomes or loss of assets.",
+          "- Extreme price volatility on bonding curves and prediction markets.",
+          "- The possibility of total and irreversible loss of any assets involved in a transaction.",
+          "- Failed, stuck, front-run, or reverted transactions, and irreversible on-chain actions that cannot be undone.",
+          "Because the platform is experimental, these risks are heightened. Do not interact with the platform expecting it to behave like finished, audited, production software."
+        ]
+      },
+      {
+        "heading": "Randomness and Raffle Outcomes Are Not Guaranteed",
+        "body": [
+          "The raffle (Layer 1) selects winners using Chainlink VRF, a verifiable on-chain source of randomness. Outcomes are designed to be fair and provably random, but they are inherently uncertain.",
+          "Buying tickets, holding a larger position, or participating in any way does not guarantee that you will win, recover value, or receive any particular result. Winner pools, consolation pools, and payout percentages are parameters of each season and are not promises of any specific return.",
+          "InfoFi prediction-market probabilities (Layer 2) are estimates derived from on-chain positions and market sentiment. They are not predictions of actual outcomes and should not be treated as certainties."
+        ]
+      },
+      {
+        "heading": "Non-Custodial: You Control Your Keys and Funds",
+        "body": [
+          "SecondOrder.fun is non-custodial. We never take custody of, control, or have access to your private keys, wallet, smart account, or assets. You retain full control and full responsibility at all times.",
+          "You are solely responsible for securing your wallet, seed phrase, private keys, and devices, and for every transaction you authorize. We cannot reverse transactions, recover lost keys, restore access, or retrieve funds sent in error.",
+          "Connecting a wallet or smart account, signing messages, and submitting transactions are actions you take at your own risk and under your own control."
+        ]
+      },
+      {
+        "heading": "No Warranties — Provided \"As Is\"",
+        "body": [
+          "The platform, its smart contracts, and all related content and services are provided \"as is\" and \"as available,\" without warranties or representations of any kind, whether express, implied, or statutory.",
+          "To the fullest extent permitted by law, we disclaim all warranties, including any implied warranties of merchantability, fitness for a particular purpose, title, and non-infringement, as well as any warranties regarding accuracy, reliability, availability, security, or uninterrupted or error-free operation.",
+          "We do not warrant that the platform will be secure, free of bugs or vulnerabilities, continuously available, or that any defect will be corrected."
+        ]
+      },
+      {
+        "heading": "Third-Party Services and Networks",
+        "body": [
+          "The platform depends on third-party infrastructure and services that are outside our control, including the Base blockchain and its underlying networks, Chainlink VRF, RPC providers, wallet providers, the Farcaster network and identity services, and other external tools and integrations.",
+          "We do not control and are not responsible for the performance, availability, security, accuracy, or conduct of any third-party service or network. Outages, failures, downtime, changes, or vulnerabilities in these services may affect or interrupt the platform.",
+          "Any links or references to third-party resources are provided for convenience only and do not imply endorsement or responsibility on our part."
+        ]
+      },
+      {
+        "heading": "Regulatory Uncertainty and Jurisdictional Restrictions",
+        "body": [
+          "The legal and regulatory treatment of blockchain technology, digital assets, prediction markets, raffles, sweepstakes, and online gaming varies significantly between jurisdictions and continues to evolve. Rules that apply to you may differ from those that apply to others.",
+          "Even though the platform currently operates on a testnet with no real-world value, raffle, sweepstakes, gaming, and securities laws can be broad and fact-specific.",
+          "You are solely responsible for determining whether your access to or use of the platform is lawful in your jurisdiction, and for complying with all laws, regulations, and restrictions that apply to you. If access or participation is restricted or prohibited where you are located, you must not use the platform.",
+          "Nothing here is an offer or solicitation in any jurisdiction where such an offer or solicitation would be unlawful."
+        ]
+      },
+      {
+        "heading": "Forward-Looking Statements",
+        "body": [
+          "The platform, its documentation, and related materials may contain forward-looking statements about future plans, features, roadmaps, mechanics, a potential move to mainnet, token utility, or anticipated outcomes.",
+          "Forward-looking statements reflect current intentions and expectations only. They involve known and unknown risks and uncertainties, are not guarantees, and may change or be abandoned at any time without notice.",
+          "Actual results and the future state of the platform may differ materially from anything described or implied. Do not rely on forward-looking statements as promises or commitments, and do not make any decision based on the expectation that any future feature, value, or outcome will be delivered."
+        ]
+      }
+    ]
+  },
+  "terms": {
+    "pageTitle": "Terms of Service",
+    "intro": "These Terms of Service govern your access to and use of SecondOrder.fun, an early-alpha, testnet-only platform for structured, finite on-chain games and InfoFi prediction markets. Please read them carefully before using the service.",
+    "sections": [
+      {
+        "heading": "1. Acceptance of Terms",
+        "body": [
+          "By accessing or using SecondOrder.fun (the \"Service\"), including the website at secondorder.fun, its interfaces, smart contracts, and related applications, you agree to be bound by these Terms of Service (the \"Terms\"). If you do not agree with any part of these Terms, you must not access or use the Service.",
+          "These Terms form a binding agreement between you and the operators of SecondOrder.fun (\"we,\" \"us,\" or \"our\"). Your continued use of the Service after any update to these Terms constitutes acceptance of the updated Terms."
+        ]
+      },
+      {
+        "heading": "2. Eligibility",
+        "body": [
+          "To use the Service, you represent and warrant that:",
+          "- You are at least the age of majority in your jurisdiction (at least 18 years old) and are legally capable of entering into a binding agreement.",
+          "- You are not a resident of, located in, or accessing the Service from any jurisdiction where use of the Service would be illegal or otherwise prohibited.",
+          "- You are not subject to any economic or trade sanctions administered or enforced by any governmental authority, and you are not named on any list of sanctioned or restricted persons (including, without limitation, the lists maintained by the U.S. Office of Foreign Assets Control).",
+          "- Your use of the Service is lawful under the laws and regulations that apply to you.",
+          "You are solely responsible for ensuring that your use of the Service complies with all laws, rules, and regulations applicable to you. If you do not meet these requirements, you must not use the Service."
+        ]
+      },
+      {
+        "heading": "3. Description of the Service",
+        "body": [
+          "SecondOrder.fun turns speculative on-chain activity into structured, finite games. Layer 1 offers time-boxed \"seasons\" in which participants buy seasonal ticket-tokens on a bonding curve priced in the platform token, with a winner selected via Chainlink VRF and consolation value available to non-winners. Layer 2 offers InfoFi prediction markets with live, hybrid-priced probabilities.",
+          "The Service is in EARLY ALPHA and runs exclusively on a public TESTNET (Base Sepolia). It does not operate on a mainnet and involves no assets of real-world monetary value. Tokens, balances, prizes, and market positions within the Service are test-network artifacts only and are not redeemable for, and do not represent, money or anything of value.",
+          "The Service is experimental and provided on an as-available basis. We may add, modify, suspend, reset, or discontinue any feature, season, market, contract, or the entire Service at any time, with or without notice. Test-network state may be wiped or reset at any time. Nothing in the Service constitutes financial, investment, legal, or tax advice."
+        ]
+      },
+      {
+        "heading": "4. Accounts and Wallets",
+        "body": [
+          "The Service is non-custodial. We do not hold, custody, control, or have access to your wallet, private keys, seed phrases, or any assets associated with your wallet. You interact with the Service through a self-custodial wallet that you control, including via wallet connection, Sign-In-With-Farcaster, or a supported smart account (account abstraction) flow.",
+          "You are solely and entirely responsible for the security of your wallet, private keys, seed phrases, credentials, and devices, and for all activity that occurs through your wallet. We cannot recover, reset, freeze, or reverse access to your wallet or its contents.",
+          "We do not act as a broker, financial institution, exchange, custodian, or fiduciary, and no such relationship is created by your use of the Service. You alone are responsible for evaluating and authorizing every transaction you submit through the Service."
+        ]
+      },
+      {
+        "heading": "5. Acceptable Use and Prohibited Conduct",
+        "body": [
+          "You agree to use the Service only for lawful purposes and in accordance with these Terms. You must not, and must not attempt to:",
+          "- Use the Service for any illegal, fraudulent, or unauthorized purpose, or in violation of any applicable law, rule, or regulation, including sanctions and anti-money-laundering laws.",
+          "- Engage in market manipulation or abusive trading, including spoofing, wash trading, fictitious or self-dealing transactions, front-running, collusion, or any practice designed to distort prices, probabilities, or the orderly operation of any season or InfoFi market.",
+          "- Exploit, or attempt to exploit, bugs, vulnerabilities, errors, or unintended behavior in the Service, its smart contracts, or its randomness, pricing, or settlement mechanisms for unfair advantage.",
+          "- Circumvent, disable, or interfere with any access controls, rate limits, eligibility checks, authentication, or security features of the Service.",
+          "- Use bots, scripts, or automated means to gain an unfair advantage, manipulate game outcomes, or degrade the Service for others, or operate multiple wallets to evade limits or collude.",
+          "- Interfere with, disrupt, overload, or attack the Service, its backend, its infrastructure, or any third-party services or networks it relies on.",
+          "- Misrepresent your identity, impersonate any person or entity, or infringe the intellectual property or other rights of any party.",
+          "If you discover a security vulnerability, we encourage you to disclose it to us responsibly via the contact channel below rather than exploiting it."
+        ]
+      },
+      {
+        "heading": "6. On-Chain Transactions Are Final and Irreversible",
+        "body": [
+          "Transactions you submit to the blockchain are processed by decentralized networks and smart contracts that we do not control. Once broadcast and confirmed, a transaction is final, immutable, and cannot be reversed, canceled, refunded, or modified by us or by anyone.",
+          "You are solely responsible for the transactions you authorize, including verifying contract addresses, amounts, parameters, and recipients before signing. We are not responsible for losses arising from incorrect, mistaken, fraudulent, or unauthorized transactions; failed, dropped, or stuck transactions; network congestion or fees; or smart-contract behavior. Because the Service runs on a testnet, transactions involve test-network tokens with no monetary value."
+        ]
+      },
+      {
+        "heading": "7. Intellectual Property",
+        "body": [
+          "Except for content that is open-source or otherwise made publicly available under its own license, the Service and its original content, features, branding, logos, text, graphics, and software are owned by us or our licensors and are protected by intellectual property laws.",
+          "Subject to your compliance with these Terms, we grant you a limited, non-exclusive, non-transferable, revocable license to access and use the Service for its intended purpose. You may not copy, modify, distribute, sell, or create derivative works from any part of the Service except as expressly permitted by these Terms or an applicable open-source license. Smart contracts deployed on public networks are publicly readable by their nature; this does not grant you rights to our trademarks or branding."
+        ]
+      },
+      {
+        "heading": "8. Third-Party Services",
+        "body": [
+          "The Service integrates with and depends on third-party services and infrastructure that we do not control, including blockchain networks (Base), wallet providers and connectors, RPC providers, Chainlink VRF, Farcaster and identity providers such as Neynar, and hosting and data providers.",
+          "We do not endorse and are not responsible for the availability, accuracy, security, conduct, terms, or privacy practices of any third-party service. Your use of any third-party service is at your own risk and may be governed by that party's own terms. We are not liable for any loss or damage arising from your interaction with, or the failure of, any third-party service."
+        ]
+      },
+      {
+        "heading": "9. Disclaimers of Warranty",
+        "body": [
+          "The Service is provided on an \"as is\" and \"as available\" basis, without warranties of any kind, whether express, implied, or statutory. To the fullest extent permitted by law, we disclaim all warranties, including implied warranties of merchantability, fitness for a particular purpose, title, and non-infringement.",
+          "We do not warrant that the Service will be uninterrupted, secure, error-free, or free of harmful components, that defects will be corrected, that randomness or pricing mechanisms will perform as expected, or that any data, probability, or outcome will be accurate or reliable. You acknowledge that the Service is experimental alpha software on a testnet and that you use it at your own risk."
+        ]
+      },
+      {
+        "heading": "10. Limitation of Liability",
+        "body": [
+          "To the fullest extent permitted by law, in no event will we, our affiliates, or our contributors, officers, employees, or agents be liable for any indirect, incidental, special, consequential, exemplary, or punitive damages, or for any loss of profits, data, goodwill, tokens, or other intangible losses, arising out of or relating to your use of, or inability to use, the Service, whether based in contract, tort, or any other legal theory, and whether or not we have been advised of the possibility of such damages.",
+          "Because the Service operates on a testnet and involves no assets of real-world value, you acknowledge that any aggregate liability we may have for claims relating to the Service is limited to the maximum extent permitted by applicable law. Some jurisdictions do not allow certain limitations of liability, so some of the above limitations may not apply to you."
+        ]
+      },
+      {
+        "heading": "11. Indemnification",
+        "body": [
+          "You agree to indemnify, defend, and hold harmless us, our affiliates, and our respective contributors, officers, employees, and agents from and against any claims, liabilities, damages, losses, costs, and expenses (including reasonable legal fees) arising out of or related to your use of the Service, your violation of these Terms, your violation of any applicable law or the rights of any third party, or any transaction you authorize through the Service."
+        ]
+      },
+      {
+        "heading": "12. Changes to These Terms",
+        "body": [
+          "We may update or modify these Terms from time to time, particularly as the Service evolves out of alpha. When we make changes, we will update the date or version associated with these Terms and post the revised version on the Service.",
+          "Your continued use of the Service after changes take effect constitutes your acceptance of the revised Terms. If you do not agree to the updated Terms, you must stop using the Service."
+        ]
+      },
+      {
+        "heading": "13. Governing Law and Dispute Resolution",
+        "body": [
+          "These Terms and any dispute arising out of or relating to them or the Service will be governed by and construed in accordance with the laws of [jurisdiction to be determined], without regard to its conflict-of-laws principles.",
+          "Any dispute, claim, or controversy arising out of or relating to these Terms or the Service will be resolved through [dispute resolution mechanism to be determined, e.g., binding arbitration or the courts of [jurisdiction to be determined]]. To the extent permitted by law, you agree to resolve disputes on an individual basis and waive any right to participate in a class action. These provisions are placeholders and will be finalized before the Service leaves alpha."
+        ]
+      },
+      {
+        "heading": "14. Contact",
+        "body": [
+          "If you have questions about these Terms, wish to report a security vulnerability, or need to contact us for any reason, please reach out through the contact channels listed on secondorder.fun."
+        ]
+      }
+    ]
+  },
+  "privacy": {
+    "pageTitle": "Privacy Policy",
+    "intro": "This Privacy Policy explains what information SecondOrder.fun collects when you use the app, how we use it, and the choices you have. We are an early-alpha project running on a public testnet (Base Sepolia), and we have tried to be plain and honest about how a non-custodial blockchain app handles data.",
+    "sections": [
+      {
+        "heading": "Introduction and Scope",
+        "body": [
+          "SecondOrder.fun (\"SecondOrder.fun,\" \"we,\" \"us,\" or \"our\") operates the website and web application at secondorder.fun (the \"Service\"): a platform that turns memecoin-style speculation into structured, finite raffle \"seasons\" with on-chain prediction (InfoFi) markets layered on top.",
+          "This policy covers the SecondOrder.fun website, web app, and related backend services. It does not cover the public blockchains, third-party wallets, or external services you connect through us, each of which is operated by an independent party under its own terms and privacy practices.",
+          "The Service is in early alpha and runs on a public test network (Base Sepolia). The tokens and balances involved are testnet assets with no real-money value. By using the Service, you agree to the data practices described here."
+        ]
+      },
+      {
+        "heading": "Information We Collect",
+        "body": [
+          "Because SecondOrder.fun is a non-custodial blockchain application, most of what we \"collect\" is either public on-chain data or limited technical data needed to run the app. Specifically:",
+          "- Public wallet address and on-chain activity. When you connect a wallet, we see your public wallet address (including your smart account address) and the on-chain transactions you make through the Service, such as buying or selling raffle ticket-tokens, claiming consolation amounts, and trading in InfoFi markets. This information is public by nature of the blockchain.",
+          "- Optional Farcaster identity. If you choose to sign in with Farcaster or link a Farcaster account, we receive your Farcaster ID (FID) and associated public profile data (such as username and avatar) through a third-party Farcaster data provider. This is optional and only happens if you initiate it.",
+          "- Basic usage analytics. We collect aggregate, largely pseudonymous usage data, such as which pages and features are used, to understand how the app performs and where it breaks.",
+          "- Device and log data. Our hosting and backend infrastructure automatically logs technical data such as IP address, browser type, device and operating system information, request timestamps, and error logs. This is standard for operating a web service and is used for security, debugging, and reliability.",
+          "- Local-storage UI preferences. We store small amounts of data in your browser's local storage to remember interface preferences and session state. This stays on your device.",
+          "We associate activity with your public wallet address, which is pseudonymous: it is not your real name, but on-chain activity tied to an address can, in some circumstances, be linked back to a person. We do not attempt to de-anonymize or re-identify wallet holders."
+        ]
+      },
+      {
+        "heading": "What We Do Not Collect",
+        "body": [
+          "We have intentionally kept our footprint small. We do not:",
+          "- Take custody of your funds. SecondOrder.fun is non-custodial. You hold your own assets in your own wallet; we never hold, move, or control them on your behalf.",
+          "- Ask for your private keys or seed phrase. We will never request your private key, seed phrase, or recovery phrase. No legitimate part of the Service ever needs them. Anyone asking for them is attempting to scam you.",
+          "- Require traditional accounts. We do not require a name, email address, or password to use the core Service.",
+          "We have not built KYC or identity-verification collection into the alpha. If that ever changes, we will update this policy first."
+        ]
+      },
+      {
+        "heading": "How We Use Information",
+        "body": [
+          "We use the information described above to:",
+          "- Provide and operate the Service, including reading on-chain state to display raffle seasons, positions, probabilities, and market data.",
+          "- Power core game mechanics, such as detecting when a player crosses the position threshold that triggers automatic creation of an InfoFi prediction market.",
+          "- Display optional Farcaster identity (username, avatar) alongside wallet activity when you have linked it.",
+          "- Monitor, debug, secure, and improve the Service, and diagnose errors and abuse.",
+          "- Understand aggregate usage so we can prioritize features and fixes during the alpha.",
+          "We do not sell your personal information, and we do not use it for third-party advertising."
+        ]
+      },
+      {
+        "heading": "On-Chain Data Is Public and Permanent",
+        "body": [
+          "This is important to understand before you transact. Blockchains are public, transparent, and effectively permanent ledgers. Any transaction you make through the Service, including your wallet address and the details of that transaction, is recorded on the underlying blockchain (currently Base Sepolia).",
+          "That on-chain data is published to a decentralized network that we do not control. It can be read, copied, indexed, and analyzed by anyone, anywhere, and it generally cannot be changed or deleted, by us or by anyone else. Even after you stop using the Service, your historical on-chain activity remains visible.",
+          "Wallet activity is pseudonymous, not anonymous. Over time, on-chain behavior can be correlated and potentially linked to your real-world identity by third parties using tools we do not operate. Please keep this in mind when deciding what to do on-chain."
+        ]
+      },
+      {
+        "heading": "Third-Party Service Providers",
+        "body": [
+          "We rely on reputable third-party providers to run the Service. They process limited data on our behalf or as independent operators, and each has its own privacy policy:",
+          "- Frontend and backend hosting providers, which serve the website and run our application servers and may log technical request data.",
+          "- A managed database and caching provider, which stores application data such as market state and cached on-chain data.",
+          "- A Farcaster data provider, used to retrieve Farcaster profile and identity data when you sign in with or link Farcaster.",
+          "- RPC node providers, which relay reads and transactions to and from the blockchain and may observe associated request metadata such as IP address and wallet address.",
+          "- Analytics tooling, used to measure aggregate usage of the app.",
+          "We name these generically and may change providers as the project evolves. We aim to work with providers that maintain reasonable security and privacy practices, but their handling of data is governed by their own policies."
+        ]
+      },
+      {
+        "heading": "Cookies and Local Storage",
+        "body": [
+          "We use browser local storage to remember interface preferences and to maintain your session state on your device. We do not use third-party advertising or cross-site tracking cookies.",
+          "We may use essential or analytics cookies (or similar technologies) to keep the Service working and to measure aggregate usage. You can clear local storage and cookies through your browser settings at any time, though doing so may reset your preferences or sign you out."
+        ]
+      },
+      {
+        "heading": "Data Retention",
+        "body": [
+          "We retain off-chain data (such as logs, cached on-chain data, and analytics) only as long as needed for the purposes described in this policy, or as required for security and operational reasons, and then delete or aggregate it. As an alpha project, we may periodically reset or clear backend data.",
+          "On-chain data is different: it lives on the public blockchain permanently and is outside our control. We cannot edit, delete, or retract it. Any retention limits we set apply only to the off-chain data we hold."
+        ]
+      },
+      {
+        "heading": "Your Choices and Rights",
+        "body": [
+          "You retain meaningful control because the Service is non-custodial and largely pseudonymous:",
+          "- You choose whether to connect a wallet and which wallet to use, and you can disconnect at any time.",
+          "- You choose whether to link a Farcaster identity, and you can decline or unlink it.",
+          "- You can clear your browser's local storage and cookies to remove locally stored preferences.",
+          "Depending on where you live, you may have rights to access, correct, or delete certain personal data we hold, or to object to or restrict certain processing. To make a request, contact us using the details below. Please understand two practical limits: we may be unable to identify you from a pseudonymous wallet address alone, and we cannot alter or delete data that lives permanently on the public blockchain."
+        ]
+      },
+      {
+        "heading": "Children",
+        "body": [
+          "The Service is not directed to anyone under 18, and we do not knowingly collect information from people under 18. If you are under 18, please do not use the Service. If you believe a minor has provided us information, contact us and we will take appropriate steps."
+        ]
+      },
+      {
+        "heading": "International Users",
+        "body": [
+          "We operate online and may process and store data in countries other than where you live, including jurisdictions whose data-protection laws differ from yours. By using the Service, you understand that your information may be transferred to and processed in those locations.",
+          "Public blockchains are global and decentralized by design, so on-chain data you create is inherently distributed across a worldwide network."
+        ]
+      },
+      {
+        "heading": "Changes to This Policy",
+        "body": [
+          "We may update this Privacy Policy as the Service evolves, especially as it moves beyond alpha and testnet. When we make material changes, we will update the date and post the revised policy here. Your continued use of the Service after an update means you accept the revised policy."
+        ]
+      },
+      {
+        "heading": "Contact",
+        "body": [
+          "If you have questions about this Privacy Policy or how we handle data, you can reach us through the contact channels listed on secondorder.fun. As an alpha project, the fastest way to reach the team is usually through our official community and support channels linked from the site."
+        ]
+      }
+    ]
+  },
+  "faq": {
+    "pageTitle": "Frequently Asked Questions",
+    "intro": "Quick answers about how SecondOrder.fun works, from seasons and ticket pricing to prizes, prediction markets, and wallets. We're in early alpha on a testnet, so a few answers call that out where it matters.",
+    "faqItems": [
+      {
+        "question": "What is SecondOrder.fun?",
+        "answer": "SecondOrder.fun turns chaotic memecoin speculation into structured, fair, and finite games. The core is a raffle that runs in fixed 'seasons': players buy seasonal ticket-tokens on a bonding curve, one winner is picked at random, and everyone else recovers part of their value. On top of that sits a layer of InfoFi (Information Finance) prediction markets, where you can trade on outcomes like 'Will Player X win?' with live probabilities. Think of it as a game with a clear start, a clear end, and transparent rules instead of an open-ended gamble."
+      },
+      {
+        "question": "Is it live? Can I use real money yet?",
+        "answer": "Not yet. SecondOrder.fun is in early alpha and runs entirely on a testnet (Base Sepolia). The $SOF tokens, tickets, and prizes you interact with have no real-money value, and there's nothing to deposit from your bank or a mainnet wallet. The point right now is to test the mechanics, find bugs, and gather feedback before we consider a mainnet launch. Treat everything you see as a sandbox."
+      },
+      {
+        "question": "What is a season?",
+        "answer": "A season is a single, time-boxed raffle game, typically running about two weeks. During the season you can buy seasonal ticket-tokens on a bonding curve. When the season ends, a random winner is chosen, the grand prize is awarded, and non-winners can claim their consolation. Each season is self-contained: it has a clear beginning, a clear end, and a defined prize structure, so the game is always finite rather than open-ended."
+      },
+      {
+        "question": "What is $SOF?",
+        "answer": "$SOF is the platform token. It's the currency you use to buy seasonal raffle tickets on the bonding curve, and the prize and consolation pools are denominated in it. During alpha, $SOF is a testnet token with no real-money value. you'll typically obtain test $SOF through the app's flows rather than purchasing it."
+      },
+      {
+        "question": "What is the bonding curve, and how does ticket pricing work?",
+        "answer": "Each season's tickets are priced by a bonding curve rather than a fixed price or an order book. In plain terms: the more tickets that have been bought, the higher the price of the next ticket, and the price moves back down as tickets are sold back. The $SOF that players pay into the curve accumulates as the season's reserves, which later fund the prize and consolation pools. This makes pricing transparent and rule-based, and it means buying earlier in a season generally costs less per ticket than buying later."
+      },
+      {
+        "question": "How do I buy tickets?",
+        "answer": "Connect a supported wallet, open the active season, choose how many tickets you want, and confirm the transaction. The app quotes the current bonding-curve price before you commit. Buys run through batched smart-account transactions, so approving and purchasing can happen in a single confirmation. Since this is testnet, you'll be spending test $SOF, not real funds."
+      },
+      {
+        "question": "How is the winner chosen?",
+        "answer": "The winner is selected by Chainlink VRF (Verifiable Random Function), a provably fair source of on-chain randomness. The more tickets you hold, the better your odds, but the draw itself is random and can be verified on-chain. no one, including the SecondOrder.fun team, can predict or influence which ticket is selected."
+      },
+      {
+        "question": "What's the difference between the grand prize and the consolation pool?",
+        "answer": "At the end of a season, the bonding-curve reserves are split into two pools. The grand prize (the winner pool) is a large share, roughly 55-75% of reserves, and goes entirely to the single randomly selected winner. The consolation pool, roughly 50-70% of the remaining value, is shared among everyone who didn't win so they can recover a meaningful portion of what they put in. Exact percentages are set per season."
+      },
+      {
+        "question": "What happens if I don't win?",
+        "answer": "You're not wiped out. Non-winners can recover a portion of their value through the consolation pool via graduated liquidity / consolation claims. You won't get the grand prize, but the design is meant to give losers a soft landing rather than a total loss, which is a key part of making the game feel fair and finite."
+      },
+      {
+        "question": "What are InfoFi prediction markets?",
+        "answer": "InfoFi (Information Finance) markets are on-chain prediction markets layered on top of the raffle, such as 'Will Player X win this season?' Each market shows a live probability that blends two signals: roughly 70% from the player's actual on-chain raffle position and about 30% from market sentiment (how people are trading). Markets are created automatically by the backend when a player's position crosses a 1% threshold, so the most relevant contenders get their own markets."
+      },
+      {
+        "question": "Which wallets are supported?",
+        "answer": "It depends on where you're using the app. On a desktop browser, you connect a wallet through RainbowKit (MetaMask, Rabby, and other standard wallets). In the Farcaster MiniApp, you sign in with Sign-In-With-Farcaster (SIWF). In the Base App, you use Coinbase Wallet. In the wallet-based contexts you can optionally link your Farcaster identity for a richer experience."
+      },
+      {
+        "question": "What is a smart account (SMA)?",
+        "answer": "A smart account, sometimes shown as your SMA, is a smart-contract wallet powered by account abstraction (ERC-4337 / ERC-5792). The practical benefit is batched transactions: actions that would normally take several separate approvals, like approving a token and then buying tickets, can be bundled into a single confirmation. It's smoother than a traditional wallet, and it's still fully under your control."
+      },
+      {
+        "question": "Is this gambling?",
+        "answer": "We're honest that the raffle involves a random draw, and you should treat it accordingly. That said, the design intentionally differs from open-ended gambling: every season is finite, the rules and prize splits are fixed and transparent on-chain, and non-winners recover a portion of their value through the consolation pool rather than losing everything. During alpha there's also no real money involved at all, only testnet tokens. This page is informational and not financial or legal advice."
+      },
+      {
+        "question": "Are there fees?",
+        "answer": "Mechanics like the bonding curve and prize/consolation splits are defined per season, and protocol fees flow through the curve to the treasury rather than being charged as a separate line item. You'll also pay network gas to submit on-chain transactions. On testnet, both $SOF and gas are test-only and carry no real cost. Exact fee parameters can change as the alpha evolves."
+      },
+      {
+        "question": "How do I claim a prize or consolation?",
+        "answer": "Claims happen after a season ends and the winner has been drawn. If you won, you'll claim the grand prize; if you didn't, you'll claim your share of the consolation pool. In both cases you connect your wallet, open the finished season, and confirm the claim transaction, payouts are sent directly to your wallet on-chain. Because claims are on-chain, you keep custody throughout."
+      },
+      {
+        "question": "Is it safe, and is it non-custodial?",
+        "answer": "SecondOrder.fun is non-custodial: you connect your own wallet and hold your own funds and tickets the entire time. We never take custody of your assets, and payouts settle directly to your wallet on-chain. Always double-check transaction details before confirming, and remember this is early alpha software on a testnet, expect rough edges and only ever interact with test funds for now."
+      }
+    ]
+  },
+  "guides": {
+    "pageTitle": "Guides",
+    "intro": "Welcome to SecondOrder.fun. These guides walk you through everything from connecting a wallet to claiming prizes. Remember, we are in early alpha on the Base Sepolia testnet, so everything here uses test tokens with no real-money value, and it is a great time to experiment without risk.",
+    "sections": [
+      {
+        "heading": "Getting started: connecting a wallet",
+        "body": [
+          "SecondOrder.fun is a non-custodial app, which means you always hold your own funds and sign your own transactions. The first step is connecting a wallet. How you connect depends on where you are using the app.",
+          "Desktop browser (RainbowKit):",
+          "- Open SecondOrder.fun in your browser and click the Connect Wallet button.",
+          "- Choose your wallet from the RainbowKit list (for example MetaMask, Rabby, or Coinbase Wallet).",
+          "- Approve the connection request in your wallet, then sign the login message. This signature proves you own the address; it does not move any funds or cost gas.",
+          "- Make sure your wallet is set to the Base Sepolia testnet. The app will prompt you to switch networks if you are on the wrong one.",
+          "Farcaster MiniApp:",
+          "- Open SecondOrder.fun from inside a Farcaster client such as Warpcast. The app runs as a native MiniApp.",
+          "- You are signed in automatically using Sign-In-With-Farcaster (SIWF), so there is no separate connect step in most cases.",
+          "Base App:",
+          "- Open SecondOrder.fun inside the Base App and connect with Coinbase Wallet.",
+          "- You can optionally link your Farcaster identity for a richer profile, but it is not required to play.",
+          "Behind the scenes the app uses a smart account (also called your SMA) so that multi-step actions can be batched into a single confirmation. You do not need to set anything up for this; it just makes transactions smoother."
+        ]
+      },
+      {
+        "heading": "Getting test $SOF",
+        "body": [
+          "$SOF is the platform token used to buy raffle tickets and interact with markets. Because we are on the Base Sepolia testnet, the $SOF you use here is test currency with no monetary value. You will also need a small amount of Base Sepolia test ETH to pay network gas fees.",
+          "- First, get Base Sepolia test ETH from a public faucet (for example a Base or Sepolia faucet). You only need a small amount to cover gas.",
+          "- Make sure your wallet is connected to the Base Sepolia network and that the test ETH has arrived.",
+          "- Acquire test $SOF through the means provided in the app or the community channels for the current alpha. Faucets typically limit how much you can claim per address and how often, so claim what you need and come back later if you run low.",
+          "If a transaction fails with an out-of-gas or insufficient-funds error, it usually means your wallet is low on test ETH rather than test $SOF. Top up the test ETH and try again."
+        ]
+      },
+      {
+        "heading": "Joining a season and buying tickets",
+        "body": [
+          "A season is a roughly two-week raffle game. During a season you buy seasonal ticket-tokens, which represent your entries. The more tickets you hold, the larger your share of the entries and the higher your chance of winning.",
+          "Tickets are priced on a bonding curve, which means the price moves as more tickets are bought and sold. Early entries are generally cheaper, and the price rises as the pool grows. All ticket purchases are paid in $SOF.",
+          "- Go to the active season page and review the season details, including the current ticket price and how much time is left.",
+          "- Enter the number of tickets you want to buy. The app shows you the $SOF cost and a preview before you confirm.",
+          "- Confirm the transaction in your wallet. Thanks to batched transactions, any token approval and the purchase itself are usually bundled into one confirmation.",
+          "- Once the transaction is mined, your tickets appear in your position for that season.",
+          "You can buy more tickets later in the same season to increase your share, subject to the bonding-curve price at that time."
+        ]
+      },
+      {
+        "heading": "Tracking your position and win probability",
+        "body": [
+          "After you buy tickets, the app tracks your position for the active season. Your position shows how many tickets you hold, your share of the total entries, and your current estimated win probability.",
+          "- Your win probability is simply your share of all the tickets in the season. If you hold 5 percent of the tickets, you have roughly a 5 percent chance of being selected as the winner.",
+          "- This number updates as other players buy and sell tickets, so it can move up or down even if your own holdings do not change.",
+          "- The winner is chosen at the end of the season using Chainlink VRF, a source of verifiable on-chain randomness. This makes the draw provably fair, with no way for anyone (including us) to influence who wins.",
+          "Watching your probability over time is part of the strategy, and it also feeds directly into the InfoFi prediction markets described below."
+        ]
+      },
+      {
+        "heading": "Understanding prizes: grand prize and consolation pool",
+        "body": [
+          "Every season is designed to be finite and fair, with a clear payout structure. The $SOF that flows into the bonding curve forms the reserves, and those reserves are split between two pools.",
+          "Grand prize (winner pool):",
+          "- A pre-set portion of the bonding-curve reserves, in the range of roughly 55 to 75 percent, is set aside as the winner pool.",
+          "- At the end of the season, one ticket holder is selected at random via Chainlink VRF and receives the entire winner pool.",
+          "Consolation pool:",
+          "- The remaining reserves form a consolation pool so that not winning does not mean walking away with nothing.",
+          "- Non-winners can recover a portion of their value, typically in the range of about 50 to 70 percent, through graduated liquidity and consolation claims.",
+          "Because we are on testnet, all of these payouts are in test $SOF and carry no real-world value. The structure is what we are testing: a finite game where the upside is a clear grand prize and the downside is cushioned rather than total loss."
+        ]
+      },
+      {
+        "heading": "Using InfoFi prediction markets",
+        "body": [
+          "InfoFi, short for Information Finance, is the second layer of SecondOrder.fun. Alongside the raffle, you can trade on-chain prediction markets about the season itself, such as Will Player X win this season?",
+          "- Markets are created automatically by the backend when a player crosses a 1 percent position threshold, so the available markets reflect the players who actually have meaningful entries.",
+          "- Each market shows a live probability. Pricing is hybrid: about 70 percent comes from the on-chain raffle probability (the player's real share of tickets) and about 30 percent comes from market sentiment (how participants are actually trading).",
+          "- To participate, open a market, review the current probability, and place your position. As with all on-chain actions, you confirm the transaction in your wallet.",
+          "These markets let you express a view that goes beyond simply buying tickets. If you think a player is more or less likely to win than the raffle math alone suggests, the prediction market is where you act on that view. All positions use test funds during alpha."
+        ]
+      },
+      {
+        "heading": "Claiming prizes and consolation",
+        "body": [
+          "Payouts are not pushed to you automatically; you claim them once a season resolves. This keeps everything on-chain and under your control.",
+          "- After the season ends and the Chainlink VRF draw completes, open the season page to see the result.",
+          "- If you won, you will see a claim available for the grand prize (winner pool). Click to claim and confirm the transaction in your wallet.",
+          "- If you did not win, look for your consolation claim. Non-winners recover a portion of their value through the consolation pool, and you claim it the same way.",
+          "- Claiming is an on-chain transaction, so you will need a small amount of Base Sepolia test ETH for gas, just as you did when buying tickets.",
+          "If you do not see a claim you expect, double-check that the season has fully resolved (the randomness draw must be complete) and that your wallet is connected to the correct address and network."
+        ]
+      },
+      {
+        "heading": "Using the Farcaster mini-app",
+        "body": [
+          "SecondOrder.fun runs as a native MiniApp inside Farcaster, so you can play without leaving your feed.",
+          "- Open the app from a cast or the MiniApp directory in a Farcaster client such as Warpcast.",
+          "- You are signed in automatically with Sign-In-With-Farcaster, which links your Farcaster identity (your FID) to your session. There is usually no separate wallet-connect step.",
+          "- From inside the MiniApp you can browse the active season, buy tickets, track your position and win probability, and use InfoFi markets, just like on the desktop site.",
+          "- Your on-chain actions still happen through your wallet and use test funds on Base Sepolia, so the same gas and testnet notes apply.",
+          "The MiniApp is the most social way to play. Because seasons and markets are tied to real players, sharing and discussing them in Farcaster is part of the experience."
+        ]
+      }
+    ]
+  }
+}
