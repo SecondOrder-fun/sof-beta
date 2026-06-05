@@ -12,7 +12,10 @@ import { createClient as createQuickAuthClient } from "@farcaster/quick-auth";
 import { redisClient } from "../../shared/redisClient.js";
 import { AuthService } from "../../shared/auth.js";
 import { getUserAccess, ACCESS_LEVEL_NAMES } from "../../shared/accessService.js";
-import { resolveFidToWallet } from "../../shared/fidResolverService.js";
+import {
+  resolveFidToWallet,
+  resolveFidVerifiedAddresses,
+} from "../../shared/fidResolverService.js";
 import { addToAllowlist } from "../../shared/allowlistService.js";
 import { getLinkedFidForWallet } from "../../shared/farcasterLinkService.js";
 import { invalidateUserAccessCache } from "../../shared/accessCache.js";
@@ -285,12 +288,22 @@ export default async function authRoutes(fastify) {
 
       walletAddress = address.toLowerCase();
 
-      // Address-trust note (tracked in follow-up issue): we trust the supplied
-      // address as the FID's wallet. The Quick Auth JWT proves FID ownership
-      // but does NOT bind the FID to the supplied address. A user could
-      // technically claim multiple SOF airdrops by rotating addresses. This
-      // is acceptable for testnet alpha (SOF is mintable) but should be
-      // hardened with a verified-address cross-check (Neynar) before mainnet.
+      // Bind the FID to the supplied address (#156). The Quick Auth JWT proves
+      // FID ownership but NOT that the FID owns this address — without this
+      // check a user could rotate addresses to farm a fresh SOF airdrop per
+      // address. Cross-check against the FID's verified addresses (Neynar, or
+      // the Farcaster primary-address API) and fail closed: an empty list
+      // (resolution failure or FID with no verified address) is rejected.
+      const verifiedAddresses = await resolveFidVerifiedAddresses(fid);
+      if (!verifiedAddresses.includes(walletAddress)) {
+        fastify.log.warn(
+          { fid, walletAddress, verifiedCount: verifiedAddresses.length },
+          "Quick Auth address not verified for FID — rejecting",
+        );
+        return reply
+          .code(403)
+          .send({ error: "address not verified for this FID" });
+      }
 
       // Enrich the JWT with display claims via the existing FID resolver
       // (best-effort — failures don't block auth).

@@ -164,6 +164,87 @@ async function resolveFidViaNeynar(fid, apiKey) {
 }
 
 /**
+ * Resolve the full set of Ethereum addresses a FID provably controls.
+ *
+ * Used to bind a Quick Auth FID to a supplied wallet address before granting
+ * SMA/airdrop access — the JWT proves FID ownership but not that the FID owns
+ * the address. Returns the union of the FID's verified ETH addresses and its
+ * custody address (all lowercased, de-duplicated).
+ *
+ * Prefers Neynar (full `verified_addresses.eth_addresses[]`) when an API key is
+ * configured; otherwise falls back to Farcaster's primary-address API (single
+ * address). Returns `[]` on any failure or when the FID has no resolvable
+ * addresses — callers should treat an empty list as "not verified" (fail closed).
+ *
+ * @param {number} fid - Farcaster ID
+ * @returns {Promise<string[]>} lowercased addresses the FID controls
+ */
+export async function resolveFidVerifiedAddresses(fid) {
+  if (!fid || typeof fid !== "number") {
+    return [];
+  }
+
+  const neynarApiKey = process.env.NEYNAR_API_KEY;
+  if (neynarApiKey) {
+    try {
+      const url = `${NEYNAR_API_BASE}/farcaster/user/bulk?fids=${fid}`;
+      const response = await fetch(url, {
+        headers: { Accept: "application/json", api_key: neynarApiKey },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const user = data.users?.[0];
+        if (user) {
+          const addrs = [
+            user.verified_addresses?.primary?.eth_address,
+            ...(user.verified_addresses?.eth_addresses || []),
+            user.custody_address,
+          ];
+          return dedupeLowercaseAddresses(addrs);
+        }
+      }
+    } catch (error) {
+      console.warn(
+        `[FID Resolver] Neynar verified-address lookup failed for FID ${fid}:`,
+        error.message
+      );
+    }
+  }
+
+  // Fallback: Farcaster primary-address API (no key needed, single address).
+  try {
+    const { address } = await resolveFidViaFarcasterApi(fid);
+    return dedupeLowercaseAddresses([address]);
+  } catch (error) {
+    console.warn(
+      `[FID Resolver] Farcaster verified-address fallback failed for FID ${fid}:`,
+      error.message
+    );
+    return [];
+  }
+}
+
+/**
+ * Lowercase, drop falsy entries, and de-duplicate a list of addresses,
+ * preserving first-seen order.
+ * @param {Array<string|null|undefined>} addresses
+ * @returns {string[]}
+ */
+function dedupeLowercaseAddresses(addresses) {
+  const seen = new Set();
+  const out = [];
+  for (const addr of addresses) {
+    if (!addr) continue;
+    const lc = addr.toLowerCase();
+    if (seen.has(lc)) continue;
+    seen.add(lc);
+    out.push(lc);
+  }
+  return out;
+}
+
+/**
  * Bulk resolve multiple FIDs to wallet addresses and usernames
  * Uses Farcaster FName Registry API (no key needed) with Neynar fallback
  * @param {number[]} fids - Array of Farcaster IDs
@@ -262,5 +343,6 @@ export async function bulkResolveFidsToWallets(fids) {
 
 export default {
   resolveFidToWallet,
+  resolveFidVerifiedAddresses,
   bulkResolveFidsToWallets,
 };
