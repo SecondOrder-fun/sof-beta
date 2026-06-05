@@ -29,7 +29,7 @@ import { useEligibleRolloverCohort } from "@/hooks/useEligibleRolloverCohort";
 import { computeBuySplit } from "@/hooks/buysell/computeBuySplit";
 import { applyMaxSlippage } from "@/utils/buysell/slippage";
 import { useTransactionStatus } from "@/hooks/useTransactionStatus";
-import TransactionModal from "@/components/admin/TransactionModal";
+import TransactionStatusOverlay from "@/components/buysell/TransactionStatusOverlay";
 import RolloverBanner from "./RolloverBanner";
 
 const BuySellWidget = ({
@@ -488,14 +488,19 @@ const BuySellWidget = ({
           </form>
         </TabsContent>
       </Tabs>
-      <TransactionModal
-        mutation={buyStatus}
-        title={t("transactions:buyingTickets", { defaultValue: "Buying tickets" })}
-      />
-      <TransactionModal
-        mutation={sellStatus}
-        title={t("transactions:sellingTickets", { defaultValue: "Selling tickets" })}
-      />
+      {(() => {
+        // Only one trade is ever in-flight; show whichever status is active.
+        const buyActive =
+          buyStatus.isPending ||
+          buyStatus.isConfirming ||
+          buyStatus.isConfirmed ||
+          buyStatus.isError;
+        const activeStatus = buyActive ? buyStatus : sellStatus;
+        const title = buyActive
+          ? t("transactions:buyingTickets", { defaultValue: "Buying tickets" })
+          : t("transactions:sellingTickets", { defaultValue: "Selling tickets" });
+        return <TransactionStatusOverlay status={activeStatus} title={title} />;
+      })()}
     </div>
   );
 };
