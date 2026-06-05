@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k, o) => o?.defaultValue ?? k }),
+  initReactI18next: { type: "3rdParty", init: () => {} },
 }));
 vi.mock("@/hooks/useSofDecimals", () => ({ useSofDecimals: () => 18 }));
 

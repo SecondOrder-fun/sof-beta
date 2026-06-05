@@ -1,9 +1,9 @@
 import PropTypes from "prop-types";
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useFormatSOF } from "@/hooks/buysell/useFormatSOF";
+import { useFormatSOF } from "@/hooks/buysell";
 import { useSofDecimals } from "@/hooks/useSofDecimals";
-import { splitPrizePool, perLoserShareWei } from "@/lib/prizeMath";
+import { splitPrizePool, perLoserShareWei, GRAND_PRIZE_BPS } from "@/lib/prizeMath";
 
 /**
  * Combined Grand + Consolation prize card for the active right column.
@@ -14,7 +14,10 @@ import { splitPrizePool, perLoserShareWei } from "@/lib/prizeMath";
 const PrizePoolCard = ({ curveReservesWei, totalParticipants }) => {
   const { t } = useTranslation("raffle");
   const decimals = useSofDecimals();
-  const formatSOF = useFormatSOF(typeof decimals === "number" ? decimals : 18);
+  const formatSOF = useFormatSOF(decimals);
+
+  const grandPct = Number(GRAND_PRIZE_BPS) / 100;
+  const consolationPct = (10000 - Number(GRAND_PRIZE_BPS)) / 100;
 
   const { grandWei, consolationWei } = splitPrizePool(curveReservesWei);
   const shareWei = perLoserShareWei(consolationWei, totalParticipants);
@@ -33,7 +36,7 @@ const PrizePoolCard = ({ curveReservesWei, totalParticipants }) => {
             <span className="font-medium">
               🏆 {t("grandPrize", { defaultValue: "Grand Prize" })}
             </span>
-            <span className="text-xs text-muted-foreground">65%</span>
+            <span className="text-xs text-muted-foreground">{grandPct}%</span>
           </div>
           <div className="font-mono text-lg font-bold">{formatSOF(grandWei)} SOF</div>
         </div>
@@ -43,7 +46,7 @@ const PrizePoolCard = ({ curveReservesWei, totalParticipants }) => {
             <span className="font-medium">
               🎁 {t("consolationPool", { defaultValue: "Consolation Pool" })}
             </span>
-            <span className="text-xs text-muted-foreground">35%</span>
+            <span className="text-xs text-muted-foreground">{consolationPct}%</span>
           </div>
           <div className="font-mono text-lg font-bold">{formatSOF(consolationWei)} SOF</div>
 
