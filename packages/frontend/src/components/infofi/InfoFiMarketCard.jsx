@@ -24,7 +24,7 @@ import SignInRequiredOverlay from "@/components/auth/SignInRequiredOverlay";
  * InfoFiMarketCard - Displays a single InfoFi market with live hybrid pricing
  * Refactored to delegate to focused sub-components (following mobile pattern)
  */
-const InfoFiMarketCard = ({ market, marketInfo: batchMarketInfo, userPosition: batchUserPosition }) => {
+const InfoFiMarketCard = ({ market, marketInfo: batchMarketInfo, userPosition: batchUserPosition, isLive = true }) => {
   const { t } = useTranslation("market");
   const allSeasonsQuery = useAllSeasons();
   const fallbackSeasonId = allSeasonsQuery.data?.[0]?.id ?? null;
@@ -57,7 +57,8 @@ const InfoFiMarketCard = ({ market, marketInfo: batchMarketInfo, userPosition: b
   // Fetch user positions and market info — use batch data from parent if available,
   // otherwise fall back to individual hooks (for standalone / detail page usage)
   const individualPosition = useUserMarketPosition(
-    batchUserPosition ? null : effectiveMarketId
+    batchUserPosition ? null : effectiveMarketId,
+    { isLive }
   );
   const positionData = batchUserPosition || individualPosition.data;
   const yesPos = {
@@ -72,7 +73,8 @@ const InfoFiMarketCard = ({ market, marketInfo: batchMarketInfo, userPosition: b
   };
 
   const individualMarketInfo = useMarketInfo(
-    batchMarketInfo ? null : effectiveMarketId
+    batchMarketInfo ? null : effectiveMarketId,
+    { isLive }
   );
   const marketInfo = {
     data: batchMarketInfo || individualMarketInfo.data || { totalYesPool: 0n, totalNoPool: 0n },
@@ -269,6 +271,8 @@ InfoFiMarketCard.propTypes = {
   marketInfo: PropTypes.object,
   /** Batch-provided user position data. Skips individual fetch when provided. */
   userPosition: PropTypes.object,
+  /** Whether the market's season is live (status < 4). Gates polling on individual hooks. */
+  isLive: PropTypes.bool,
 };
 
 export default InfoFiMarketCard;

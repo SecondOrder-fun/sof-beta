@@ -36,7 +36,9 @@ const Curve = () => {
     enabled: seasonId != null,
   });
   const bondingCurveAddress = seasonDetailsQuery?.data?.bonding_curve_address ?? allSeasonsQuery.data?.[0]?.config?.bondingCurve ?? null;
-  const isActive = (seasonDetailsQuery?.data?.status ?? allSeasonsQuery.data?.[0]?.status) === 1;
+  const seasonStatus = seasonDetailsQuery?.data?.status ?? allSeasonsQuery.data?.[0]?.status;
+  const isActive = seasonStatus === 1;
+  const isLiveSeason = Number(seasonStatus) < 4;
 
   const {
     curveSupply,
@@ -136,7 +138,7 @@ const Curve = () => {
               <TabsTrigger value="holders">{t('market_token_holders')}</TabsTrigger>
             </TabsList>
             <TabsContent value="transactions">
-              <TransactionsTab bondingCurveAddress={bondingCurveAddress} />
+              <TransactionsTab bondingCurveAddress={bondingCurveAddress} isLive={isLiveSeason} />
             </TabsContent>
             <TabsContent value="token-info">
               <TokenInfoTab

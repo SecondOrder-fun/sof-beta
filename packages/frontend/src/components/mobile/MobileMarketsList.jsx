@@ -15,11 +15,12 @@ import MobileCardSkeleton from "@/components/common/skeletons/MobileCardSkeleton
  * Wrapper that gives each market card a navigate onClick + position data.
  * Uses batch-provided position when available, falls back to individual hook.
  */
-const MobileActiveMarketCard = ({ market, batchPosition }) => {
+const MobileActiveMarketCard = ({ market, batchPosition, isLive = true }) => {
   const navigate = useNavigate();
   // Only call individual hook when batch data is not available
   const { data: individualPosition } = useUserMarketPosition(
-    batchPosition ? null : market.id
+    batchPosition ? null : market.id,
+    { isLive }
   );
   const position = batchPosition || individualPosition;
 
@@ -46,13 +47,14 @@ const MobileActiveMarketCard = ({ market, batchPosition }) => {
 MobileActiveMarketCard.propTypes = {
   market: PropTypes.object.isRequired,
   batchPosition: PropTypes.object,
+  isLive: PropTypes.bool,
 };
 
 /**
  * MobileMarketsList - Carousel container with adaptive height.
  * Pattern: MobileRafflesList.jsx
  */
-const MobileMarketsList = ({ markets = [], isLoading, batchPositions = {} }) => {
+const MobileMarketsList = ({ markets = [], isLoading, batchPositions = {}, isLive = true }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [cardHeight, setCardHeight] = useState(null);
   const cardRef = useRef(null);
@@ -164,6 +166,7 @@ const MobileMarketsList = ({ markets = [], isLoading, batchPositions = {} }) => 
                 key={market.id}
                 market={market}
                 batchPosition={batchPositions[String(market.id)]}
+                isLive={isLive}
               />
             )}
           />
@@ -177,6 +180,7 @@ MobileMarketsList.propTypes = {
   markets: PropTypes.array,
   isLoading: PropTypes.bool,
   batchPositions: PropTypes.object,
+  isLive: PropTypes.bool,
 };
 
 export default MobileMarketsList;

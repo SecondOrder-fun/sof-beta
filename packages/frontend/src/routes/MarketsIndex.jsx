@@ -121,6 +121,18 @@ const DesktopMarketsIndex = () => {
     );
   }, [seasons]);
 
+  // Build a set of live (non-terminal, status < 4) season IDs. Cards in these
+  // seasons keep polling their individual position/market-info hooks; terminal
+  // seasons go quiet.
+  const liveSeasonIds = useMemo(() => {
+    const arr = Array.isArray(seasons) ? seasons : [];
+    return new Set(
+      arr
+        .filter((s) => Number(s?.status) < 4)
+        .map((s) => String(s.id ?? s.seasonId)),
+    );
+  }, [seasons]);
+
   // Filter and group markets by season and market type
   const groupedBySeason = useMemo(() => {
     if (!markets || typeof markets !== "object") return {};
@@ -360,6 +372,7 @@ const DesktopMarketsIndex = () => {
                         market={m}
                         marketInfo={batchMarketInfo[String(m.id)]}
                         userPosition={batchUserPositions[String(m.id)]}
+                        isLive={liveSeasonIds.has(seasonId)}
                       />
                       ))}
                     </div>
@@ -383,6 +396,7 @@ const DesktopMarketsIndex = () => {
                         market={m}
                         marketInfo={batchMarketInfo[String(m.id)]}
                         userPosition={batchUserPositions[String(m.id)]}
+                        isLive={liveSeasonIds.has(seasonId)}
                       />
                       ))}
                     </div>
@@ -406,6 +420,7 @@ const DesktopMarketsIndex = () => {
                         market={m}
                         marketInfo={batchMarketInfo[String(m.id)]}
                         userPosition={batchUserPositions[String(m.id)]}
+                        isLive={liveSeasonIds.has(seasonId)}
                       />
                       ))}
                     </div>
@@ -427,6 +442,7 @@ const DesktopMarketsIndex = () => {
                         market={m}
                         marketInfo={batchMarketInfo[String(m.id)]}
                         userPosition={batchUserPositions[String(m.id)]}
+                        isLive={liveSeasonIds.has(seasonId)}
                       />
                       ))}
                     </div>
