@@ -30,6 +30,15 @@ import { redisClient } from "./redisClient.js";
 export const ROUTE_CONFIG_KEY_PREFIX = "route_config:";
 export const MARKETS_KEY_PREFIX = "markets:";
 export const SEASON_CONTRACTS_KEY_PREFIX = "season_contracts:";
+// Per-user net position in a single market. Key:
+//   positions:net:{marketId}:{userAddress}
+export const POSITIONS_KEY_PREFIX = "positions:";
+// Market pool info (on-chain reserves + DB-derived volume). Key:
+//   market_info:{marketId}
+export const MARKET_INFO_KEY_PREFIX = "market_info:";
+// Paginated season transaction list. Key:
+//   raffle_tx:{seasonId}:{order}:{limit}:{offset}
+export const RAFFLE_TX_KEY_PREFIX = "raffle_tx:";
 
 // Track whether Redis is configured at all. `redisClient.getClient()`
 // throws when no URL is set; in dev environments without Redis we'd
