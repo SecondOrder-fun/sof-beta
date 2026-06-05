@@ -1,7 +1,7 @@
 import PropTypes from "prop-types";
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useFormatSOF } from "@/hooks/buysell";
+import { useFormatSOF } from "@/hooks/buysell/useFormatSOF";
 import { useSofDecimals } from "@/hooks/useSofDecimals";
 import { splitPrizePool, perLoserShareWei, GRAND_PRIZE_BPS } from "@/lib/prizeMath";
 
