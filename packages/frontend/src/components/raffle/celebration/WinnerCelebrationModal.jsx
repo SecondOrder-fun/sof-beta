@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { formatUnits } from 'viem';
 import { useTranslation } from 'react-i18next';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import UsernameDisplay from '@/components/user/UsernameDisplay';
 import { ClaimPrizeWidget } from '@/components/prizes/ClaimPrizeWidget';
 import CelebrationArtwork from './CelebrationArtwork';
@@ -39,6 +39,7 @@ function WinnerCelebrationModal({
   const { t } = useTranslation('raffle');
   const [open, setOpen] = useState(true);
   const dismissedRef = useRef(false);
+  const reduced = useReducedMotion();
 
   const dismiss = () => {
     if (dismissedRef.current) return;
@@ -107,9 +108,16 @@ function WinnerCelebrationModal({
           className="bg-background/80"
         >
           <motion.div
-            initial={{ scale: 0.92, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ type: 'spring', stiffness: 240, damping: 22, delay: 0 }}
+            // Soft ease-out settle (no spring overshoot) so the entrance reads
+            // as polished rather than bouncy; reduced-motion users just fade in.
+            // (issue #111)
+            initial={reduced ? { opacity: 0 } : { scale: 0.96, opacity: 0 }}
+            animate={reduced ? { opacity: 1 } : { scale: 1, opacity: 1 }}
+            transition={
+              reduced
+                ? { duration: 0.2 }
+                : { duration: 0.4, ease: [0.22, 1, 0.36, 1] }
+            }
             onClick={(e) => e.stopPropagation()}
             className="bg-card border border-border rounded-xl p-6 max-w-sm w-[90%] text-center shadow-2xl"
             style={{ position: 'relative' }}

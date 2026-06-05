@@ -46,4 +46,24 @@ describe('CelebrationArtwork', () => {
     expect(rays.getAttribute('data-animated')).toBe('false');
     mockReducedMotion = false;
   });
+
+  // Tone-down (issue #111): rays are a faint halo, far subtler than the
+  // original 0.85, and the actual winner ('win') glows a touch more than a
+  // spectator celebration.
+  const rayOpacity = (variant) => {
+    const { container } = render(
+      <CelebrationArtwork variant={variant} label="WINNER" />
+    );
+    const path = container.querySelector('[data-element="rays"] path');
+    return Number(path.getAttribute('opacity'));
+  };
+
+  it('renders toned-down ray opacity, differentiated by variant', () => {
+    mockReducedMotion = false;
+    const win = rayOpacity('win');
+    const celebrate = rayOpacity('celebrate');
+    expect(win).toBeGreaterThan(celebrate);
+    expect(win).toBeLessThan(0.5); // far below the original 0.85
+    expect(celebrate).toBeLessThan(0.5);
+  });
 });

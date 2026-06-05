@@ -1,20 +1,22 @@
 import PropTypes from 'prop-types';
 import { motion, useReducedMotion } from 'framer-motion';
 
-function Rays({ animated }) {
+function Rays({ animated, opacity }) {
   return (
     <svg
       data-element="rays"
       data-animated={animated ? 'true' : 'false'}
       viewBox="-50 -50 100 100"
-      width="180"
-      height="180"
+      width="150"
+      height="150"
       className="text-primary"
       style={{
         position: 'absolute',
         inset: '50% 50%',
         transform: 'translate(-50%, -50%)',
-        animation: animated ? 'sof-rays-spin 8s linear infinite' : 'none',
+        // A slow, faint shimmer rather than a fast spotlight sweep — celebratory
+        // without dominating the ticket + amount (see issue #111).
+        animation: animated ? 'sof-rays-spin 22s linear infinite' : 'none',
       }}
       aria-hidden="true"
     >
@@ -23,7 +25,7 @@ function Rays({ animated }) {
           key={i}
           d="M0 -45 L3 -10 L0 0 L-3 -10 Z"
           fill="currentColor"
-          opacity="0.85"
+          opacity={opacity}
           transform={`rotate(${i * 30})`}
         />
       ))}
@@ -31,7 +33,7 @@ function Rays({ animated }) {
     </svg>
   );
 }
-Rays.propTypes = { animated: PropTypes.bool.isRequired };
+Rays.propTypes = { animated: PropTypes.bool.isRequired, opacity: PropTypes.number.isRequired };
 
 function Ticket({ variant, label }) {
   const isCancelled = variant === 'cancelled';
@@ -93,6 +95,11 @@ function Box() {
   );
 }
 
+// Ray intensity per variant — the actual winner ('win') gets a touch more
+// glow than a spectator celebration; both are far subtler than the original
+// (0.85) so the rays read as a faint halo, not a spotlight (issue #111).
+const RAY_OPACITY = { win: 0.26, celebrate: 0.16 };
+
 function CelebrationArtwork({ variant, label }) {
   const reduced = useReducedMotion();
   const animated = !reduced && variant !== 'cancelled';
@@ -101,7 +108,9 @@ function CelebrationArtwork({ variant, label }) {
       data-element="artwork"
       style={{ position: 'relative', width: 200, height: 200, margin: '0 auto' }}
     >
-      {variant !== 'cancelled' && <Rays animated={animated} />}
+      {variant !== 'cancelled' && (
+        <Rays animated={animated} opacity={RAY_OPACITY[variant] ?? 0.16} />
+      )}
       <Box />
       <Ticket variant={variant} label={label} />
     </div>
