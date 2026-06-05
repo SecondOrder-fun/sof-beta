@@ -150,6 +150,25 @@ describe("TransactionsTab", () => {
       wrapper,
     });
 
-    expect(useRaffleTransactions).toHaveBeenCalledWith("0x123", 1);
+    expect(useRaffleTransactions).toHaveBeenCalledWith("0x123", 1, {
+      enablePolling: true,
+    });
+  });
+
+  it("disables polling when isLive is false (terminal season)", () => {
+    vi.mocked(useRaffleTransactions).mockReturnValue({
+      transactions: [],
+      isPending: false,
+      error: null,
+    });
+
+    render(
+      <TransactionsTab bondingCurveAddress="0x123" seasonId={1} isLive={false} />,
+      { wrapper }
+    );
+
+    expect(useRaffleTransactions).toHaveBeenCalledWith("0x123", 1, {
+      enablePolling: false,
+    });
   });
 });

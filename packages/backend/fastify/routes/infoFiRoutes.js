@@ -1,6 +1,5 @@
 // backend/fastify/routes/infoFiRoutes.js
 import { supabase, db } from "../../shared/supabaseClient.js";
-import { publicClient } from "../../src/lib/viemClient.js";
 import { infoFiPositionService } from "../../src/services/infoFiPositionService.js";
 import {
   historicalOddsService,
@@ -355,90 +354,12 @@ export default async function infoFiRoutes(fastify) {
   fastify.get("/markets/:marketId/info", async (request, reply) => {
     try {
       const { marketId } = request.params;
-
-      // Get market to find FPMM contract address
-      const { data: market, error: marketError } = await supabase
-        .from("infofi_markets")
-        .select("id, contract_address")
-        .eq("id", marketId)
-        .single();
-
-      if (marketError || !market) {
+      const info = await infoFiPositionService.getMarketInfo(marketId);
+      return reply.send(info);
+    } catch (error) {
+      if (error.code === "MARKET_NOT_FOUND") {
         return reply.code(404).send({ error: "Market not found" });
       }
-
-      // If no FPMM contract yet, return zeros
-      if (!market.contract_address) {
-        return reply.send({
-          totalYesPool: "0",
-          totalNoPool: "0",
-          volume: "0",
-        });
-      }
-
-      // Read on-chain FPMM reserves
-      let totalYesPool = "0";
-      let totalNoPool = "0";
-      try {
-        const simpleFpmmAbi = (await import("../../src/abis/SimpleFPMMAbi.js")).default;
-        const [yesReserve, noReserve] = await Promise.all([
-          publicClient.readContract({
-            address: market.contract_address,
-            abi: simpleFpmmAbi,
-            functionName: "yesReserve",
-          }),
-          publicClient.readContract({
-            address: market.contract_address,
-            abi: simpleFpmmAbi,
-            functionName: "noReserve",
-          }),
-        ]);
-        totalYesPool = yesReserve.toString();
-        totalNoPool = noReserve.toString();
-      } catch (chainError) {
-        fastify.log.warn(
-          { chainError: chainError.message, address: market.contract_address },
-          "Failed to read FPMM reserves from chain"
-        );
-      }
-
-      // Get volume from positions table (sum of all SOF amounts traded)
-      // Amounts are stored as human-readable (e.g. "10" = 10 SOF)
-      // Convert to wei for frontend compatibility
-      const { data: volumeData, error: volumeError } = await supabase
-        .from("infofi_positions")
-        .select("amount")
-        .eq("market_id", marketId);
-
-      let volumeWei = 0n;
-      const WEI = 10n ** 18n;
-      if (!volumeError && volumeData) {
-        for (const pos of volumeData) {
-          try {
-            // amount is stored as human-readable string like "10" or "10.5"
-            // Convert to wei: parseFloat → multiply by 1e18
-            const humanAmount = parseFloat(pos.amount || "0");
-            if (humanAmount > 0) {
-              // Use integer math to avoid floating point issues
-              // Multiply whole part and fractional part separately
-              const wholePart = BigInt(Math.floor(humanAmount));
-              const fracPart = BigInt(
-                Math.round((humanAmount - Math.floor(humanAmount)) * 1e18)
-              );
-              volumeWei += wholePart * WEI + fracPart;
-            }
-          } catch {
-            // Skip invalid amounts
-          }
-        }
-      }
-
-      return reply.send({
-        totalYesPool,
-        totalNoPool,
-        volume: volumeWei.toString(),
-      });
-    } catch (error) {
       fastify.log.error({ error }, "Failed to fetch market info");
       return reply.code(500).send({
         error: "Failed to fetch market info",
@@ -473,86 +394,27 @@ export default async function infoFiRoutes(fastify) {
         return reply.send({ results: {} });
       }
 
-      // Get all markets with their contract addresses
-      const { data: markets, error: marketsError } = await supabase
-        .from("infofi_markets")
-        .select("id, contract_address")
-        .in("id", marketIds.map(Number));
-
-      if (marketsError) {
-        fastify.log.error({ error: marketsError }, "Failed to fetch markets for batch-info");
-        return reply.code(500).send({
-          error: "Failed to fetch markets",
-          details: marketsError.message,
-        });
-      }
-
-      const simpleFpmmAbi = (await import("../../src/abis/SimpleFPMMAbi.js")).default;
-      const WEI = 10n ** 18n;
       const results = {};
 
-      // Process all markets in parallel
+      // Resolve each market's info via the cached service method, in parallel.
+      // Errors (incl. MARKET_NOT_FOUND) fall back to zeros so the batch never
+      // fails wholesale because of one bad id.
       await Promise.all(
-        (markets || []).map(async (market) => {
-          const mid = String(market.id);
-
-          let totalYesPool = "0";
-          let totalNoPool = "0";
-
-          // Read on-chain reserves if contract exists
-          if (market.contract_address) {
-            try {
-              const [yesReserve, noReserve] = await Promise.all([
-                publicClient.readContract({
-                  address: market.contract_address,
-                  abi: simpleFpmmAbi,
-                  functionName: "yesReserve",
-                }),
-                publicClient.readContract({
-                  address: market.contract_address,
-                  abi: simpleFpmmAbi,
-                  functionName: "noReserve",
-                }),
-              ]);
-              totalYesPool = yesReserve.toString();
-              totalNoPool = noReserve.toString();
-            } catch (chainError) {
-              fastify.log.warn(
-                { chainError: chainError.message, address: market.contract_address },
-                "Failed to read FPMM reserves from chain (batch)"
-              );
-            }
+        marketIds.map(async (id) => {
+          const mid = String(id);
+          try {
+            results[mid] = await infoFiPositionService.getMarketInfo(id);
+          } catch (error) {
+            fastify.log.warn(
+              { error: error.message, marketId: id },
+              "Failed to fetch market info (batch); returning zeros"
+            );
+            results[mid] = {
+              totalYesPool: "0",
+              totalNoPool: "0",
+              volume: "0",
+            };
           }
-
-          // Get volume from positions table
-          const { data: volumeData, error: volumeError } = await supabase
-            .from("infofi_positions")
-            .select("amount")
-            .eq("market_id", market.id);
-
-          let volumeWei = 0n;
-          if (!volumeError && volumeData) {
-            for (const pos of volumeData) {
-              try {
-                const humanAmount = parseFloat(pos.amount || "0");
-                if (humanAmount > 0) {
-                  const wholePart = BigInt(Math.floor(humanAmount));
-                  const fracPart = BigInt(
-                    Math.round((humanAmount - Math.floor(humanAmount)) * 1e18)
-                  );
-                  volumeWei += wholePart * WEI + fracPart;
-                }
-              } catch {
-                // Skip invalid amounts
-              }
-            }
-          }
-
-          results[mid] = {
-            totalYesPool,
-            totalNoPool,
-            volume: volumeWei.toString(),
-          };
         })
       );
 

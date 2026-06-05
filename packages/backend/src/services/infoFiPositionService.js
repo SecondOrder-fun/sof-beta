@@ -2,6 +2,15 @@ import { publicClient } from "../lib/viemClient.js";
 import { db } from "../../shared/supabaseClient.js";
 import { SimpleFPMMABI as simpleFpmmAbi } from '@sof/contracts';
 import { queryLogsInChunks } from "../utils/blockRangeQuery.js";
+import {
+  cacheRead,
+  cacheInvalidate,
+  cacheInvalidatePattern,
+  POSITIONS_KEY_PREFIX,
+  MARKET_INFO_KEY_PREFIX,
+} from "../../shared/redisCache.js";
+
+const POSITION_CACHE_TTL_SECONDS = 20;
 
 /**
  * Service for managing InfoFi positions
@@ -114,6 +123,12 @@ class InfoFiPositionService {
       console.log(
         `[recordPosition] Successfully inserted position with id: ${data.id}`
       );
+
+      // Trade just landed — bust this market's cached positions and market_info
+      // volume so a trader sees their own update within one poll, not after TTL.
+      await cacheInvalidatePattern(`${POSITIONS_KEY_PREFIX}net:${marketId}:*`);
+      await cacheInvalidate(`${MARKET_INFO_KEY_PREFIX}${marketId}`);
+
       return { success: true, data };
     } catch (error) {
       console.error("[recordPosition] Fatal error:", error);
@@ -378,22 +393,129 @@ class InfoFiPositionService {
    * @returns {Promise<Object>} Net position with YES/NO totals
    */
   async getNetPosition(userAddress, marketId) {
-    const positions = await this.getAggregatedPosition(userAddress, marketId);
+    const cacheKey = `${POSITIONS_KEY_PREFIX}net:${marketId}:${userAddress.toLowerCase()}`;
+    return cacheRead(
+      cacheKey,
+      async () => {
+        const positions = await this.getAggregatedPosition(
+          userAddress,
+          marketId
+        );
 
-    const yesPosition = positions.find((p) => p.outcome === "YES");
-    const noPosition = positions.find((p) => p.outcome === "NO");
+        const yesPosition = positions.find((p) => p.outcome === "YES");
+        const noPosition = positions.find((p) => p.outcome === "NO");
 
-    const yesAmount = parseFloat(yesPosition?.total_amount || 0);
-    const noAmount = parseFloat(noPosition?.total_amount || 0);
+        const yesAmount = parseFloat(yesPosition?.total_amount || 0);
+        const noAmount = parseFloat(noPosition?.total_amount || 0);
 
-    return {
-      yes: yesPosition?.total_amount || "0",
-      no: noPosition?.total_amount || "0",
-      net: (yesAmount - noAmount).toString(),
-      isHedged: !!(yesPosition && noPosition),
-      numTradesYes: yesPosition?.num_trades || 0,
-      numTradesNo: noPosition?.num_trades || 0,
-    };
+        return {
+          yes: yesPosition?.total_amount || "0",
+          no: noPosition?.total_amount || "0",
+          net: (yesAmount - noAmount).toString(),
+          isHedged: !!(yesPosition && noPosition),
+          numTradesYes: yesPosition?.num_trades || 0,
+          numTradesNo: noPosition?.num_trades || 0,
+        };
+      },
+      { ttlSeconds: POSITION_CACHE_TTL_SECONDS }
+    );
+  }
+
+  /**
+   * Get market pool info (reserves and volume), cached.
+   *
+   * Returns all values in WEI (raw 18-decimal BigInt strings) for frontend
+   * compatibility. Frontend uses formatUnits(value, 18) to display.
+   *
+   * @param {number|string} marketId - Market ID
+   * @returns {Promise<{totalYesPool: string, totalNoPool: string, volume: string}>}
+   * @throws {Error} with code "MARKET_NOT_FOUND" when the market does not exist
+   */
+  async getMarketInfo(marketId) {
+    return cacheRead(
+      `${MARKET_INFO_KEY_PREFIX}${marketId}`,
+      async () => {
+        // Get market to find FPMM contract address
+        const { data: market, error: marketError } = await db.client
+          .from("infofi_markets")
+          .select("id, contract_address")
+          .eq("id", marketId)
+          .single();
+
+        if (marketError || !market) {
+          const err = new Error("Market not found");
+          err.code = "MARKET_NOT_FOUND";
+          throw err;
+        }
+
+        // If no FPMM contract yet, return zeros
+        if (!market.contract_address) {
+          return { totalYesPool: "0", totalNoPool: "0", volume: "0" };
+        }
+
+        // Read on-chain FPMM reserves
+        let totalYesPool = "0";
+        let totalNoPool = "0";
+        try {
+          const [yesReserve, noReserve] = await Promise.all([
+            publicClient.readContract({
+              address: market.contract_address,
+              abi: simpleFpmmAbi,
+              functionName: "yesReserve",
+            }),
+            publicClient.readContract({
+              address: market.contract_address,
+              abi: simpleFpmmAbi,
+              functionName: "noReserve",
+            }),
+          ]);
+          totalYesPool = yesReserve.toString();
+          totalNoPool = noReserve.toString();
+        } catch (chainError) {
+          console.warn(
+            "Failed to read FPMM reserves from chain:",
+            chainError.message,
+            market.contract_address
+          );
+        }
+
+        // Get volume from positions table (sum of all SOF amounts traded).
+        // Amounts are stored as human-readable (e.g. "10" = 10 SOF);
+        // convert to wei for frontend compatibility.
+        const { data: volumeData, error: volumeError } = await db.client
+          .from("infofi_positions")
+          .select("amount")
+          .eq("market_id", marketId);
+
+        let volumeWei = 0n;
+        const WEI = 10n ** 18n;
+        if (!volumeError && volumeData) {
+          for (const pos of volumeData) {
+            try {
+              const humanAmount = parseFloat(pos.amount || "0");
+              if (humanAmount > 0) {
+                // Integer math to avoid floating point issues: split whole
+                // and fractional parts.
+                const wholePart = BigInt(Math.floor(humanAmount));
+                const fracPart = BigInt(
+                  Math.round((humanAmount - Math.floor(humanAmount)) * 1e18)
+                );
+                volumeWei += wholePart * WEI + fracPart;
+              }
+            } catch {
+              // Skip invalid amounts
+            }
+          }
+        }
+
+        return {
+          totalYesPool,
+          totalNoPool,
+          volume: volumeWei.toString(),
+        };
+      },
+      { ttlSeconds: 20 }
+    );
   }
 
   /**

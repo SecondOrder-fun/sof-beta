@@ -526,7 +526,7 @@ const RaffleDetails = () => {
                     <Card>
                       <CardHeader><CardTitle>{t("common:transactions")}</CardTitle></CardHeader>
                       <CardContent>
-                        <TransactionsTab bondingCurveAddress={bc} seasonId={seasonIdNumber} />
+                        <TransactionsTab bondingCurveAddress={bc} seasonId={seasonIdNumber} isLive={statusNum < 4} />
                       </CardContent>
                     </Card>
                     <Card>
@@ -739,6 +739,7 @@ const RaffleDetails = () => {
                           <TransactionsTab
                             bondingCurveAddress={bc}
                             seasonId={seasonIdNumber}
+                            isLive={statusNum < 4}
                           />
                         </TabsContent>
                         <TabsContent value="holders">

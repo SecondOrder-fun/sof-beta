@@ -5,9 +5,11 @@ import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 /**
  * Hook to fetch user's position in a specific InfoFi market from backend API
  * @param {number|string} marketId - Market ID
+ * @param {Object} [options]
+ * @param {boolean} [options.isLive=true] - When false, stops polling (settled markets)
  * @returns {Object} Query result with position data
  */
-export const useUserMarketPosition = (marketId) => {
+export const useUserMarketPosition = (marketId, { isLive = true } = {}) => {
   // SMA-bound read per spec §4.3 — InfoFi positions live at the SMA.
   const { sma: address } = useRaffleAccount();
 
@@ -37,17 +39,19 @@ export const useUserMarketPosition = (marketId) => {
         numTradesNo: data.numTradesNo || 0,
       };
     },
-    staleTime: 10_000, // 10 seconds
-    refetchInterval: 15_000, // Refetch every 15 seconds
+    staleTime: isLive ? 10_000 : Infinity,
+    refetchInterval: isLive ? 15_000 : false,
   });
 };
 
 /**
  * Hook to fetch market info (pools, volume) from backend API
  * @param {number|string} marketId - Market ID
+ * @param {Object} [options]
+ * @param {boolean} [options.isLive=true] - When false, stops polling (settled markets)
  * @returns {Object} Query result with market info
  */
-export const useMarketInfo = (marketId) => {
+export const useMarketInfo = (marketId, { isLive = true } = {}) => {
   return useQuery({
     queryKey: ["marketInfo", marketId],
     enabled: !!marketId,
@@ -73,7 +77,7 @@ export const useMarketInfo = (marketId) => {
         volume: BigInt(data.volume || 0),
       };
     },
-    staleTime: 15_000, // 15 seconds
-    refetchInterval: 20_000, // Refetch every 20 seconds
+    staleTime: isLive ? 15_000 : Infinity,
+    refetchInterval: isLive ? 20_000 : false,
   });
 };

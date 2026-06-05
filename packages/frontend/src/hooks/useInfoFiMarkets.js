@@ -56,35 +56,76 @@ async function fetchMarketsFromAPI(seasons, filters = {}) {
  * Wraps React Query to provide markets list with caching and refetching.
  * Fetches from backend API (synced from blockchain) to ensure database ID consistency.
  *
+ * Splits seasons into two queries to reduce egress:
+ * - Live seasons (status < 4) poll every 10s.
+ * - Terminal seasons (status >= 4) are fetched once and never refetched.
+ *
  * @param {Array} seasons - Optional array of seasons to fetch markets for
  * @param {Object} filters - Optional filters { isActive, marketType }
  */
 export function useInfoFiMarkets(seasons = [], filters = {}) {
-  const query = useQuery({
+  const liveSeasons = React.useMemo(
+    () => (seasons || []).filter((s) => Number(s?.status) < 4),
+    [seasons],
+  );
+  const terminalSeasons = React.useMemo(
+    () => (seasons || []).filter((s) => Number(s?.status) >= 4),
+    [seasons],
+  );
+
+  const liveQuery = useQuery({
     queryKey: [
       "infofi",
       "markets",
       "api",
-      seasons.map((s) => s.id).join(","),
+      "live",
+      liveSeasons.map((s) => s.id).join(","),
       JSON.stringify(filters),
     ],
-    queryFn: () => fetchMarketsFromAPI(seasons, filters),
+    queryFn: () => fetchMarketsFromAPI(liveSeasons, filters),
     staleTime: 10_000,
-    refetchInterval: 10_000,
-    enabled: true, // Always enabled, will use fallback if no seasons
+    refetchInterval: liveSeasons.length > 0 ? 10_000 : false,
+    enabled: liveSeasons.length > 0,
   });
 
+  const terminalQuery = useQuery({
+    queryKey: [
+      "infofi",
+      "markets",
+      "api",
+      "terminal",
+      terminalSeasons.map((s) => s.id).join(","),
+      JSON.stringify(filters),
+    ],
+    queryFn: () => fetchMarketsFromAPI(terminalSeasons, filters),
+    staleTime: Infinity,
+    refetchInterval: false,
+    enabled: terminalSeasons.length > 0,
+  });
+
+  // Terminal first so live data (fresher) wins on any seasonId overlap.
+  const markets = React.useMemo(
+    () => ({ ...(terminalQuery.data || {}), ...(liveQuery.data || {}) }),
+    [liveQuery.data, terminalQuery.data],
+  );
+
   // Convert grouped markets object to flat array for backward compatibility
-  const marketsArray = React.useMemo(() => {
-    if (!query.data || typeof query.data !== "object") return [];
-    return Object.values(query.data).flat();
-  }, [query.data]);
+  const marketsArray = React.useMemo(() => Object.values(markets).flat(), [markets]);
+
+  // A disabled RQ query reports isLoading: true (status pending + idle fetch),
+  // so guard each side with its season count — a disabled side never blocks.
+  const isLoading =
+    (liveSeasons.length > 0 && liveQuery.isLoading) ||
+    (terminalSeasons.length > 0 && terminalQuery.isLoading);
 
   return {
-    markets: query.data || {}, // Keep grouped format for components that need it
+    markets, // Keep grouped format for components that need it
     marketsArray, // Flat array for backward compatibility
-    isLoading: query.isLoading,
-    error: query.error,
-    refetch: query.refetch,
+    isLoading,
+    error: liveQuery.error || terminalQuery.error,
+    refetch: () => {
+      liveQuery.refetch();
+      terminalQuery.refetch();
+    },
   };
 }

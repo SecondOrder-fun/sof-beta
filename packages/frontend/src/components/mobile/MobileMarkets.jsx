@@ -93,6 +93,15 @@ const MobileMarkets = () => {
     return season ? Number(season.status) === 1 : false;
   }, [seasonsArr, selectedSeasonId]);
 
+  // Live = non-terminal season (status < 4). Gates polling on each card's
+  // individual position hook. Default to live when status is unknown (safe).
+  const isSelectedSeasonLive = useMemo(() => {
+    const season = seasonsArr.find(
+      (s) => String(s.id ?? s.seasonId) === selectedSeasonId,
+    );
+    return season ? Number(season.status) < 4 : true;
+  }, [seasonsArr, selectedSeasonId]);
+
   // Get markets for selected season from the all-seasons data.
   // Override is_active to false when the parent season isn't active.
   const seasonMarkets = useMemo(() => {
@@ -217,6 +226,7 @@ const MobileMarkets = () => {
             markets={filteredMarkets}
             isLoading={marketsLoading}
             batchPositions={batchPositions}
+            isLive={isSelectedSeasonLive}
           />
 
           {/* No Markets for this type */}

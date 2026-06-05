@@ -16,11 +16,14 @@ import { Skeleton } from '@/components/ui/skeleton';
  * TransactionsTab - Display raffle transactions with sorting, filtering, and pagination
  * @param {string} bondingCurveAddress - Bonding curve contract address
  * @param {number|string} seasonId - Season ID
+ * @param {boolean} isLive - Whether the season is live (status < 4). Gates polling.
  */
-const TransactionsTab = ({ bondingCurveAddress, seasonId }) => {
+const TransactionsTab = ({ bondingCurveAddress, seasonId, isLive = true }) => {
   const { t } = useTranslation('raffle');
   const queryClient = useQueryClient();
-  const { transactions, isPending, error } = useRaffleTransactions(bondingCurveAddress, seasonId);
+  const { transactions, isPending, error } = useRaffleTransactions(bondingCurveAddress, seasonId, {
+    enablePolling: isLive,
+  });
   
   // Real-time updates: invalidate query when new PositionUpdate events occur
   useCurveEvents(bondingCurveAddress, {
@@ -246,6 +249,7 @@ const TransactionsTab = ({ bondingCurveAddress, seasonId }) => {
 TransactionsTab.propTypes = {
   bondingCurveAddress: PropTypes.string,
   seasonId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  isLive: PropTypes.bool,
 };
 
 export default TransactionsTab;

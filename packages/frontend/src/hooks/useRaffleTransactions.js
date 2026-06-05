@@ -55,7 +55,7 @@ export const useRaffleTransactions = (
       });
     },
     enabled: !!bondingCurveAddress && !!seasonId,
-    staleTime: 30000,
+    staleTime: options.enablePolling !== false ? 30000 : Infinity,
     refetchInterval: options.enablePolling !== false ? 30000 : false,
   });
 
