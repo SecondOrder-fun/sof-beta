@@ -2,6 +2,13 @@ import { publicClient } from "../lib/viemClient.js";
 import { db } from "../../shared/supabaseClient.js";
 import { SimpleFPMMABI as simpleFpmmAbi } from '@sof/contracts';
 import { queryLogsInChunks } from "../utils/blockRangeQuery.js";
+import {
+  cacheRead,
+  cacheInvalidatePattern,
+  POSITIONS_KEY_PREFIX,
+} from "../../shared/redisCache.js";
+
+const POSITION_CACHE_TTL_SECONDS = 20;
 
 /**
  * Service for managing InfoFi positions
@@ -114,6 +121,12 @@ class InfoFiPositionService {
       console.log(
         `[recordPosition] Successfully inserted position with id: ${data.id}`
       );
+
+      // Trade just landed — bust this market's cached positions and market_info
+      // volume so a trader sees their own update within one poll, not after TTL.
+      await cacheInvalidatePattern(`${POSITIONS_KEY_PREFIX}net:${marketId}:*`);
+      await cacheInvalidatePattern(`market_info:${marketId}`);
+
       return { success: true, data };
     } catch (error) {
       console.error("[recordPosition] Fatal error:", error);
@@ -378,22 +391,32 @@ class InfoFiPositionService {
    * @returns {Promise<Object>} Net position with YES/NO totals
    */
   async getNetPosition(userAddress, marketId) {
-    const positions = await this.getAggregatedPosition(userAddress, marketId);
+    const cacheKey = `${POSITIONS_KEY_PREFIX}net:${marketId}:${userAddress.toLowerCase()}`;
+    return cacheRead(
+      cacheKey,
+      async () => {
+        const positions = await this.getAggregatedPosition(
+          userAddress,
+          marketId
+        );
 
-    const yesPosition = positions.find((p) => p.outcome === "YES");
-    const noPosition = positions.find((p) => p.outcome === "NO");
+        const yesPosition = positions.find((p) => p.outcome === "YES");
+        const noPosition = positions.find((p) => p.outcome === "NO");
 
-    const yesAmount = parseFloat(yesPosition?.total_amount || 0);
-    const noAmount = parseFloat(noPosition?.total_amount || 0);
+        const yesAmount = parseFloat(yesPosition?.total_amount || 0);
+        const noAmount = parseFloat(noPosition?.total_amount || 0);
 
-    return {
-      yes: yesPosition?.total_amount || "0",
-      no: noPosition?.total_amount || "0",
-      net: (yesAmount - noAmount).toString(),
-      isHedged: !!(yesPosition && noPosition),
-      numTradesYes: yesPosition?.num_trades || 0,
-      numTradesNo: noPosition?.num_trades || 0,
-    };
+        return {
+          yes: yesPosition?.total_amount || "0",
+          no: noPosition?.total_amount || "0",
+          net: (yesAmount - noAmount).toString(),
+          isHedged: !!(yesPosition && noPosition),
+          numTradesYes: yesPosition?.num_trades || 0,
+          numTradesNo: noPosition?.num_trades || 0,
+        };
+      },
+      { ttlSeconds: POSITION_CACHE_TTL_SECONDS }
+    );
   }
 
   /**
