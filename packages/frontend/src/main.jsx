@@ -77,6 +77,11 @@ import MarketsIndex, {
 import UsersIndex from "./routes/UsersIndex";
 import UserProfile from "./routes/UserProfile";
 import GetSof from "./routes/GetSof";
+import Guides from "./routes/Guides";
+import FAQ from "./routes/FAQ";
+import TermsOfService from "./routes/TermsOfService";
+import PrivacyPolicy from "./routes/PrivacyPolicy";
+import Disclaimer from "./routes/Disclaimer";
 import CreateSeasonPage from "./routes/CreateSeasonPage";
 import LocalizationAdmin from "./routes/LocalizationAdmin";
 import InfoFiMarketDetail from "./pages/InfoFiMarketDetail";
@@ -171,6 +176,26 @@ const router = createBrowserRouter([
       {
         path: "get-sof",
         element: <GetSof />,
+      },
+      {
+        path: "guides",
+        element: <Guides />,
+      },
+      {
+        path: "faq",
+        element: <FAQ />,
+      },
+      {
+        path: "terms",
+        element: <TermsOfService />,
+      },
+      {
+        path: "privacy",
+        element: <PrivacyPolicy />,
+      },
+      {
+        path: "disclaimer",
+        element: <Disclaimer />,
       },
       // Dev-only: UI Gym component showcase
       ...(import.meta.env.DEV
