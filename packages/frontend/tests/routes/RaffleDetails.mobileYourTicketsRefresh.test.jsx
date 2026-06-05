@@ -159,6 +159,10 @@ vi.mock("@/hooks/useConsolationStatus", () => ({
   }),
 }));
 
+vi.mock("@/hooks/useLiveParticipantCount", () => ({
+  useLiveParticipantCount: () => 0,
+}));
+
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import RaffleDetails from "@/routes/RaffleDetails.jsx";
 

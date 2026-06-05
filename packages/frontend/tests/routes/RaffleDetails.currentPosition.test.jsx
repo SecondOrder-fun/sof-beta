@@ -243,6 +243,10 @@ vi.mock("@/hooks/useConsolationStatus", () => ({
   }),
 }));
 
+vi.mock("@/hooks/useLiveParticipantCount", () => ({
+  useLiveParticipantCount: () => 0,
+}));
+
 import RaffleDetails from "@/routes/RaffleDetails.jsx";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

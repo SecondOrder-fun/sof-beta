@@ -17,6 +17,8 @@ import { useChainTime } from "@/hooks/useChainTime";
 import { useCurveState } from "@/hooks/useCurveState";
 import BondingCurvePanel from "@/components/curve/CurveGraph";
 import BuySellWidget from "@/components/curve/BuySellWidget";
+import PrizePoolCard from "@/components/prizes/PrizePoolCard";
+import { useLiveParticipantCount } from "@/hooks/useLiveParticipantCount";
 import TransactionsTab from "@/components/curve/TransactionsTab";
 import TokenInfoTab from "@/components/curve/TokenInfoTab";
 import HoldersTab from "@/components/curve/HoldersTab";
@@ -128,6 +130,11 @@ const RaffleDetails = () => {
     enabled: isActiveSeason || isPreStartSeason,
     includeSteps: !isCompletedSeason,
     includeFees: !isCompletedSeason,
+  });
+
+  const liveParticipantCount = useLiveParticipantCount(seasonIdNumber, {
+    enabled: isActiveSeason,
+    initialCount: Number(seasonDetailsQuery?.data?.totalParticipants ?? 0),
   });
   // removed inline estimator state used by old form
   // helpers now imported from lib/curveMath
@@ -547,9 +554,6 @@ const RaffleDetails = () => {
                             seasonId={seasonIdNumber}
                             curveSupply={curveSupply}
                             allBondSteps={allBondSteps}
-                            curveReserves={curveReserves}
-                            seasonStatus={seasonDetailsQuery.data.status}
-                            totalPrizePool={seasonDetailsQuery.data.totalPrizePool}
                           />
                         </AccordionContent>
                       </AccordionItem>
@@ -639,72 +643,78 @@ const RaffleDetails = () => {
                         </Card>
                       );
                     })()}
-                    <Card>
-                      <CardContent>
-                        {chainNow && (
-                          <BuySellWidget
-                            bondingCurveAddress={bc}
-                            seasonId={seasonIdNumber}
-                            initialTab={initialTradeTab}
-                            isGated={isSeasonGated}
-                            isVerified={isGatingVerified}
-                            onGatingRequired={handleGatingRequired}
-                            onTxSuccess={triggerStaggeredRefresh}
-                          />
-                        )}
-                        {/* Player position display - only visible when a wallet is connected */}
-                        {isConnected && (
-                          <SecondaryCard
-                            title={t("yourCurrentPosition")}
-                            right={
-                              isRefreshing ? (
-                                <Badge variant="outline" className="animate-pulse">
-                                  {t("updating")}
-                                </Badge>
-                              ) : null
-                            }
-                          >
-                            {localPosition ? (
-                              <div className="space-y-1">
-                                <div>
-                                  <span className="text-primary">
-                                    {t("tickets")}:
-                                  </span>{" "}
-                                  <span className="font-mono">
-                                    {localPosition.tickets.toString()}
-                                  </span>
+                    <div className="space-y-4">
+                      <Card>
+                        <CardContent>
+                          {chainNow && (
+                            <BuySellWidget
+                              bondingCurveAddress={bc}
+                              seasonId={seasonIdNumber}
+                              initialTab={initialTradeTab}
+                              isGated={isSeasonGated}
+                              isVerified={isGatingVerified}
+                              onGatingRequired={handleGatingRequired}
+                              onTxSuccess={triggerStaggeredRefresh}
+                            />
+                          )}
+                          {/* Player position display - only visible when a wallet is connected */}
+                          {isConnected && (
+                            <SecondaryCard
+                              title={t("yourCurrentPosition")}
+                              right={
+                                isRefreshing ? (
+                                  <Badge variant="outline" className="animate-pulse">
+                                    {t("updating")}
+                                  </Badge>
+                                ) : null
+                              }
+                            >
+                              {localPosition ? (
+                                <div className="space-y-1">
+                                  <div>
+                                    <span className="text-primary">
+                                      {t("tickets")}:
+                                    </span>{" "}
+                                    <span className="font-mono">
+                                      {localPosition.tickets.toString()}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-primary">
+                                      {t("winProbability")}:
+                                    </span>{" "}
+                                    <span className="font-mono">
+                                      {(() => {
+                                        try {
+                                          const bps = Number(localPosition.probBps);
+                                          return `${(bps / 100).toFixed(2)}%`;
+                                        } catch {
+                                          return "0.00%";
+                                        }
+                                      })()}
+                                    </span>
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">
+                                    {t("totalTicketsAtSnapshot")}:{" "}
+                                    <span className="font-mono">
+                                      {localPosition.total.toString()}
+                                    </span>
+                                  </div>
                                 </div>
-                                <div>
-                                  <span className="text-primary">
-                                    {t("winProbability")}:
-                                  </span>{" "}
-                                  <span className="font-mono">
-                                    {(() => {
-                                      try {
-                                        const bps = Number(localPosition.probBps);
-                                        return `${(bps / 100).toFixed(2)}%`;
-                                      } catch {
-                                        return "0.00%";
-                                      }
-                                    })()}
-                                  </span>
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                  {t("totalTicketsAtSnapshot")}:{" "}
-                                  <span className="font-mono">
-                                    {localPosition.total.toString()}
-                                  </span>
-                                </div>
-                              </div>
-                            ) : (
-                              <span className="text-muted-foreground">
-                                No position yet.
-                              </span>
-                            )}
-                          </SecondaryCard>
-                        )}
-                      </CardContent>
-                    </Card>
+                              ) : (
+                                <span className="text-muted-foreground">
+                                  No position yet.
+                                </span>
+                              )}
+                            </SecondaryCard>
+                          )}
+                          </CardContent>
+                      </Card>
+                      <PrizePoolCard
+                        curveReservesWei={curveReserves ?? 0n}
+                        totalParticipants={liveParticipantCount}
+                      />
+                    </div>
                   </div>
 
                   <Card className="mt-4">
@@ -730,9 +740,6 @@ const RaffleDetails = () => {
                             seasonId={seasonIdNumber}
                             curveSupply={curveSupply}
                             allBondSteps={allBondSteps}
-                            curveReserves={curveReserves}
-                            seasonStatus={seasonDetailsQuery.data.status}
-                            totalPrizePool={seasonDetailsQuery.data.totalPrizePool}
                           />
                         </TabsContent>
                         <TabsContent value="transactions">

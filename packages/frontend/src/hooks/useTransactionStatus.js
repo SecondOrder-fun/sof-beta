@@ -3,7 +3,8 @@ import { usePublicClient } from 'wagmi';
 
 /**
  * Adapter that turns any wagmi `useMutation` whose `mutationFn` returns a
- * transaction hash string into the shape `TransactionModal` consumes:
+ * transaction hash string into the shape the tx status surfaces consume
+ * (`TransactionStatusOverlay` for buy/sell, `TransactionModal` for admin):
  *   { isPending, isConfirming, isConfirmed, isError, hash, error, receipt }
  *
  * Lifecycle:

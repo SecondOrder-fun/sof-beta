@@ -10,6 +10,7 @@ import {
   startContractEventPolling,
 } from "../lib/contractEventPolling.js";
 import { createBlockCursor } from "../lib/blockCursor.js";
+import { buildConsolationPoolEvent } from "./buildConsolationPoolEvent.js";
 import { historicalOddsService } from "../../shared/historicalOddsService.js";
 
 /**
@@ -691,6 +692,7 @@ export async function startPositionUpdateListener(
             logger.warn(`[POSITION_UPDATE_LISTENER] curve_state write failed: ${e.message}`);
           }
 
+          let curveReservesWei = 0n;
           // Update curve_state with step/config/fees via multicall
           try {
             const { SOFBondingCurveABI } = await import('@sof/contracts');
@@ -704,6 +706,7 @@ export async function startPositionUpdateListener(
             });
             const step = results[0]?.status === 'success' ? results[0].result : null;
             const cfg = results[1]?.status === 'success' ? results[1].result : null;
+            curveReservesWei = cfg ? BigInt(cfg[1]) : 0n;
             const fees = results[2]?.status === 'success' ? results[2].result : null;
             await db.upsertCurveState(log.address, {
               current_step_index: step ? Number(step[0]) : null,
@@ -728,6 +731,20 @@ export async function startPositionUpdateListener(
             blockNumber: Number(log.blockNumber),
             txHash: log.transactionHash,
           });
+
+          // Live consolation-pool ticker (#106): participant count + pool on
+          // every PositionUpdate while the season is Active. PositionUpdate only
+          // fires during active trading, so no explicit status read is needed.
+          sseService.broadcast(
+            'raffle',
+            buildConsolationPoolEvent({
+              seasonId: seasonIdNum,
+              participantCount: participants.length,
+              reservesWei: curveReservesWei,
+              blockNumber: Number(log.blockNumber),
+              txHash: log.transactionHash,
+            }),
+          );
 
           // Only validate probabilities if markets were actually updated
           if (updatedCount > 0) {

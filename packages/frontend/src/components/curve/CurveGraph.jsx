@@ -243,7 +243,7 @@ const BondingCurvePanel = ({
   const safeGradientId = gradientId.replace(/:/g, "_");
 
   // Chart height by mode
-  const chartHeight = mini ? "100%" : compact ? 200 : 320;
+  const chartHeight = mini ? "100%" : compact ? 200 : 368;
 
   // Margins by mode
   const chartMargin = mini
