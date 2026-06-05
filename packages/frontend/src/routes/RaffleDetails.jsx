@@ -17,6 +17,8 @@ import { useChainTime } from "@/hooks/useChainTime";
 import { useCurveState } from "@/hooks/useCurveState";
 import BondingCurvePanel from "@/components/curve/CurveGraph";
 import BuySellWidget from "@/components/curve/BuySellWidget";
+import PrizePoolCard from "@/components/prizes/PrizePoolCard";
+import { useLiveParticipantCount } from "@/hooks/useLiveParticipantCount";
 import TransactionsTab from "@/components/curve/TransactionsTab";
 import TokenInfoTab from "@/components/curve/TokenInfoTab";
 import HoldersTab from "@/components/curve/HoldersTab";
@@ -128,6 +130,11 @@ const RaffleDetails = () => {
     enabled: isActiveSeason || isPreStartSeason,
     includeSteps: !isCompletedSeason,
     includeFees: !isCompletedSeason,
+  });
+
+  const liveParticipantCount = useLiveParticipantCount(seasonIdNumber, {
+    enabled: isActiveSeason,
+    initialCount: Number(seasonDetailsQuery?.data?.totalParticipants ?? 0),
   });
   // removed inline estimator state used by old form
   // helpers now imported from lib/curveMath
@@ -547,9 +554,6 @@ const RaffleDetails = () => {
                             seasonId={seasonIdNumber}
                             curveSupply={curveSupply}
                             allBondSteps={allBondSteps}
-                            curveReserves={curveReserves}
-                            seasonStatus={seasonDetailsQuery.data.status}
-                            totalPrizePool={seasonDetailsQuery.data.totalPrizePool}
                           />
                         </AccordionContent>
                       </AccordionItem>
@@ -639,8 +643,9 @@ const RaffleDetails = () => {
                         </Card>
                       );
                     })()}
-                    <Card>
-                      <CardContent>
+                    <div className="space-y-4">
+                      <Card>
+                        <CardContent>
                         {chainNow && (
                           <BuySellWidget
                             bondingCurveAddress={bc}
@@ -703,8 +708,13 @@ const RaffleDetails = () => {
                             )}
                           </SecondaryCard>
                         )}
-                      </CardContent>
-                    </Card>
+                        </CardContent>
+                      </Card>
+                      <PrizePoolCard
+                        curveReservesWei={curveReserves ?? 0n}
+                        totalParticipants={liveParticipantCount}
+                      />
+                    </div>
                   </div>
 
                   <Card className="mt-4">
@@ -730,9 +740,6 @@ const RaffleDetails = () => {
                             seasonId={seasonIdNumber}
                             curveSupply={curveSupply}
                             allBondSteps={allBondSteps}
-                            curveReserves={curveReserves}
-                            seasonStatus={seasonDetailsQuery.data.status}
-                            totalPrizePool={seasonDetailsQuery.data.totalPrizePool}
                           />
                         </TabsContent>
                         <TabsContent value="transactions">
