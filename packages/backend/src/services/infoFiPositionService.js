@@ -6,6 +6,7 @@ import {
   cacheRead,
   cacheInvalidatePattern,
   POSITIONS_KEY_PREFIX,
+  MARKET_INFO_KEY_PREFIX,
 } from "../../shared/redisCache.js";
 
 const POSITION_CACHE_TTL_SECONDS = 20;
@@ -416,6 +417,103 @@ class InfoFiPositionService {
         };
       },
       { ttlSeconds: POSITION_CACHE_TTL_SECONDS }
+    );
+  }
+
+  /**
+   * Get market pool info (reserves and volume), cached.
+   *
+   * Returns all values in WEI (raw 18-decimal BigInt strings) for frontend
+   * compatibility. Frontend uses formatUnits(value, 18) to display.
+   *
+   * @param {number|string} marketId - Market ID
+   * @returns {Promise<{totalYesPool: string, totalNoPool: string, volume: string}>}
+   * @throws {Error} with code "MARKET_NOT_FOUND" when the market does not exist
+   */
+  async getMarketInfo(marketId) {
+    return cacheRead(
+      `${MARKET_INFO_KEY_PREFIX}${marketId}`,
+      async () => {
+        // Get market to find FPMM contract address
+        const { data: market, error: marketError } = await db.client
+          .from("infofi_markets")
+          .select("id, contract_address")
+          .eq("id", marketId)
+          .single();
+
+        if (marketError || !market) {
+          const err = new Error("Market not found");
+          err.code = "MARKET_NOT_FOUND";
+          throw err;
+        }
+
+        // If no FPMM contract yet, return zeros
+        if (!market.contract_address) {
+          return { totalYesPool: "0", totalNoPool: "0", volume: "0" };
+        }
+
+        // Read on-chain FPMM reserves
+        let totalYesPool = "0";
+        let totalNoPool = "0";
+        try {
+          const [yesReserve, noReserve] = await Promise.all([
+            publicClient.readContract({
+              address: market.contract_address,
+              abi: simpleFpmmAbi,
+              functionName: "yesReserve",
+            }),
+            publicClient.readContract({
+              address: market.contract_address,
+              abi: simpleFpmmAbi,
+              functionName: "noReserve",
+            }),
+          ]);
+          totalYesPool = yesReserve.toString();
+          totalNoPool = noReserve.toString();
+        } catch (chainError) {
+          console.warn(
+            "Failed to read FPMM reserves from chain:",
+            chainError.message,
+            market.contract_address
+          );
+        }
+
+        // Get volume from positions table (sum of all SOF amounts traded).
+        // Amounts are stored as human-readable (e.g. "10" = 10 SOF);
+        // convert to wei for frontend compatibility.
+        const { data: volumeData, error: volumeError } = await db.client
+          .from("infofi_positions")
+          .select("amount")
+          .eq("market_id", marketId);
+
+        let volumeWei = 0n;
+        const WEI = 10n ** 18n;
+        if (!volumeError && volumeData) {
+          for (const pos of volumeData) {
+            try {
+              const humanAmount = parseFloat(pos.amount || "0");
+              if (humanAmount > 0) {
+                // Integer math to avoid floating point issues: split whole
+                // and fractional parts.
+                const wholePart = BigInt(Math.floor(humanAmount));
+                const fracPart = BigInt(
+                  Math.round((humanAmount - Math.floor(humanAmount)) * 1e18)
+                );
+                volumeWei += wholePart * WEI + fracPart;
+              }
+            } catch {
+              // Skip invalid amounts
+            }
+          }
+        }
+
+        return {
+          totalYesPool,
+          totalNoPool,
+          volume: volumeWei.toString(),
+        };
+      },
+      { ttlSeconds: 20 }
     );
   }
 
