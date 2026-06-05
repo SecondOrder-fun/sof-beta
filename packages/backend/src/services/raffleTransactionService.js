@@ -2,6 +2,13 @@ import { publicClient } from "../lib/viemClient.js";
 import { db } from "../../shared/supabaseClient.js";
 import { queryLogsInChunks } from "../utils/blockRangeQuery.js";
 import { SOFBondingCurveABI as SOFBondingCurveAbi } from '@sof/contracts';
+import {
+  cacheRead,
+  cacheInvalidatePattern,
+  RAFFLE_TX_KEY_PREFIX,
+} from "../../shared/redisCache.js";
+
+const RAFFLE_TX_CACHE_TTL_SECONDS = 30;
 
 /**
  * Service for recording and querying raffle transaction history
@@ -260,6 +267,13 @@ class RaffleTransactionService {
       // Refresh materialized view
       await this.refreshUserPositions(seasonId);
 
+      // Bust the season's cached transaction pages only when we actually
+      // inserted rows — no-op steady-state syncs would otherwise thrash the
+      // cache for nothing.
+      if (recorded > 0) {
+        await cacheInvalidatePattern(`${RAFFLE_TX_KEY_PREFIX}${seasonId}:*`);
+      }
+
       return {
         success: true,
         recorded,
@@ -393,22 +407,29 @@ class RaffleTransactionService {
       order = "desc",
     } = options;
 
-    // Scope to the season's current bonding curve so prior-deployment rows in
-    // the same season_id partition don't bleed in (#144).
-    const curveAddress = await this.getSeasonCurveAddress(seasonId);
-    let query = db.client
-      .from("raffle_transactions")
-      .select("*", { count: "exact" })
-      .eq("season_id", seasonId);
-    if (curveAddress) {
-      query = query.eq("bonding_curve_address", curveAddress);
-    }
-    const { data, error, count } = await query
-      .order("block_timestamp", { ascending: order === "asc" })
-      .range(offset, offset + limit - 1);
+    const cacheKey = `${RAFFLE_TX_KEY_PREFIX}${seasonId}:${order}:${limit}:${offset}`;
+    return cacheRead(
+      cacheKey,
+      async () => {
+        // Scope to the season's current bonding curve so prior-deployment rows
+        // in the same season_id partition don't bleed in (#144).
+        const curveAddress = await this.getSeasonCurveAddress(seasonId);
+        let query = db.client
+          .from("raffle_transactions")
+          .select("*", { count: "exact" })
+          .eq("season_id", seasonId);
+        if (curveAddress) {
+          query = query.eq("bonding_curve_address", curveAddress);
+        }
+        const { data, error, count } = await query
+          .order("block_timestamp", { ascending: order === "asc" })
+          .range(offset, offset + limit - 1);
 
-    if (error) throw error;
-    return { transactions: data, total: count };
+        if (error) throw error;
+        return { transactions: data, total: count };
+      },
+      { ttlSeconds: RAFFLE_TX_CACHE_TTL_SECONDS },
+    );
   }
 
   /**
