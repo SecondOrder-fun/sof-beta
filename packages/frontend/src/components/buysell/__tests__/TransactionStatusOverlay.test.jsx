@@ -49,4 +49,15 @@ describe("TransactionStatusOverlay", () => {
     fireEvent.click(screen.getByLabelText("Close"));
     expect(screen.queryByText(/Slippage exceeded/)).not.toBeInTheDocument();
   });
+
+  it("stays dismissed on a same-hash pending flap after user closes success", () => {
+    const success = { ...idle, isConfirmed: true, hash: "0xabc", receipt: { status: "success" } };
+    const { rerender } = render(<TransactionStatusOverlay status={success} title="Tickets purchased" />);
+    fireEvent.click(screen.getByLabelText("Close"));
+    expect(screen.queryByText("Tickets purchased")).not.toBeInTheDocument();
+    // wagmi re-emits a stale pending update for the SAME hash — overlay must NOT reappear
+    rerender(<TransactionStatusOverlay status={{ ...idle, isPending: true, hash: "0xabc" }} title="Tickets purchased" />);
+    expect(screen.queryByText("Tickets purchased")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Confirm in wallet/)).not.toBeInTheDocument();
+  });
 });

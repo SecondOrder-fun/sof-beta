@@ -26,10 +26,12 @@ const TransactionStatusOverlay = ({ status, title }) => {
   const isPending = Boolean((status?.isPending || status?.isConfirming) && !status?.isConfirmed && !status?.isError);
   const phase = isError ? "error" : isSuccess ? "success" : isPending ? "pending" : "idle";
 
-  // New activity (new hash or a fresh pending) clears a prior dismissal.
+  // A new transaction (new hash) clears a prior dismissal. Keying on hash
+  // alone means a stale isPending flap on the SAME hash won't resurrect an
+  // overlay the user explicitly dismissed.
   useEffect(() => {
     setDismissed(false);
-  }, [hash, isPending]);
+  }, [hash]);
 
   // Auto-decay success only.
   useEffect(() => {
@@ -48,7 +50,7 @@ const TransactionStatusOverlay = ({ status, title }) => {
   return (
     <div
       className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 rounded-md bg-background/90 px-4 text-center backdrop-blur-sm"
-      role="status"
+      role={phase === "error" ? "alert" : "status"}
     >
       <button
         type="button"
@@ -71,7 +73,7 @@ const TransactionStatusOverlay = ({ status, title }) => {
 
       {phase === "success" && (
         <>
-          <CheckCircle2 className="h-8 w-8 text-green-600" />
+          <CheckCircle2 className="h-8 w-8 text-success" />
           <div className="font-medium">{title}</div>
           {explorerUrl && (
             <a
