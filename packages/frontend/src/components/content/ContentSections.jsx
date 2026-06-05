@@ -50,9 +50,9 @@ const ContentSections = ({ sections }) => {
       {sections.map((section, i) => (
         <section key={i} className="space-y-3">
           {section?.heading && (
-            <h2 className="text-lg font-semibold text-foreground">
+            <h3 className="text-lg font-semibold text-foreground">
               {section.heading}
-            </h2>
+            </h3>
           )}
           {renderBody(section?.body, `s${i}`)}
         </section>
