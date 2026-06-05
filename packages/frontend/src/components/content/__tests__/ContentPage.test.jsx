@@ -54,4 +54,17 @@ describe("ContentPage", () => {
     render(<ContentPage docKey="faq" />);
     expect(screen.getByText("What is it?")).toBeInTheDocument();
   });
+
+  it("renders prose docs via ContentSections (not FaqList) with proper heading levels", () => {
+    render(<ContentPage docKey="disclaimer" placeholder />);
+    // Single page-level <h1> from PageTitle; section headings nest as <h3>.
+    expect(
+      screen.getByRole("heading", { name: "Disclaimer", level: 1 })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Alpha software", level: 3 })
+    ).toBeInTheDocument();
+    // A prose doc has no faqItems, so no FAQ accordion (no trigger buttons).
+    expect(screen.queryByRole("button")).toBeNull();
+  });
 });

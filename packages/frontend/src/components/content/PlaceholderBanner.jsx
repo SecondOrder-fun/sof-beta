@@ -9,7 +9,7 @@ const PlaceholderBanner = () => {
   const { t } = useTranslation("legal");
   return (
     <div
-      role="note"
+      role="status"
       className="mb-8 flex items-start gap-3 rounded-md border-2 border-warning bg-warning/10 p-4"
     >
       <AlertTriangle

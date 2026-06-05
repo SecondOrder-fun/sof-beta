@@ -9,10 +9,13 @@ import { cn } from "@/lib/utils";
  *
  * Renders a page-level title block with optional right-hand meta content.
  *
+ * Renders the page-level <h1> (one per page) so the document has a single
+ * top-level heading; section headings nest beneath it.
+ *
  * Structure (no background, inside page container):
  * <div class="flex flex-col space-y-1.5 p-6">
  *   <div class="flex items-baseline justify-between gap-3 flex-wrap">
- *     <h2 class="text-2xl font-bold text-foreground leading-none tracking-tight">Title</h2>
+ *     <h1 class="text-2xl font-bold text-foreground leading-none tracking-tight">Title</h1>
  *     <div class="text-xs text-muted-foreground">Right content</div>
  *   </div>
  * </div>
@@ -27,14 +30,14 @@ const PageTitle = ({
   return (
     <div className={cn("flex flex-col space-y-1.5 p-6", className)}>
       <div className="flex items-baseline justify-between gap-3 flex-wrap">
-        <h2
+        <h1
           className={cn(
             "text-2xl font-bold text-foreground leading-none tracking-tight",
             titleClassName
           )}
         >
           {title}
-        </h2>
+        </h1>
         {rightContent && (
           <div className={cn("text-xs text-muted-foreground", rightClassName)}>
             {rightContent}
