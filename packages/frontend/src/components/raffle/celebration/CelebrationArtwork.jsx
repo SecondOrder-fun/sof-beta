@@ -109,7 +109,7 @@ function CelebrationArtwork({ variant, label }) {
       style={{ position: 'relative', width: 200, height: 200, margin: '0 auto' }}
     >
       {variant !== 'cancelled' && (
-        <Rays animated={animated} opacity={RAY_OPACITY[variant] ?? 0.16} />
+        <Rays animated={animated} opacity={RAY_OPACITY[variant]} />
       )}
       <Box />
       <Ticket variant={variant} label={label} />
