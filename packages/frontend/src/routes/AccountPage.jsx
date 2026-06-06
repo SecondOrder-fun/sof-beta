@@ -2,6 +2,7 @@
 import { useAccount } from "wagmi";
 import { useTranslation } from "react-i18next";
 import { Card, CardContent } from "@/components/ui/card";
+import PageTitle from "@/components/layout/PageTitle";
 import useIsMobile from "@/hooks/useIsMobile";
 import MobilePortfolio from "@/components/mobile/MobilePortfolio";
 import ProfileContent from "@/components/account/ProfileContent";
@@ -26,16 +27,16 @@ const DesktopAccountPage = () => {
   if (!isConnected) {
     return (
       <div>
-        <h1 className="text-2xl font-bold text-foreground mb-4">
-          {t("account:myAccount")}
-        </h1>
-        <Card className="mb-4">
-          <CardContent className="pt-6">
-            <p className="text-center text-muted-foreground">
-              {t("account:connectWalletToViewAccount")}
-            </p>
-          </CardContent>
-        </Card>
+        <PageTitle title={t("account:myAccount")} />
+        <div className="px-6">
+          <Card className="mb-4">
+            <CardContent className="pt-6">
+              <p className="text-center text-muted-foreground">
+                {t("account:connectWalletToViewAccount")}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }
@@ -43,16 +44,16 @@ const DesktopAccountPage = () => {
   if (!isReady || !sma) {
     return (
       <div>
-        <h1 className="text-2xl font-bold text-foreground mb-4">
-          {t("account:myAccount")}
-        </h1>
-        <Card className="mb-4">
-          <CardContent className="pt-6">
-            <p className="text-center text-muted-foreground">
-              {t("account:loadingAccount", { defaultValue: "Loading account..." })}
-            </p>
-          </CardContent>
-        </Card>
+        <PageTitle title={t("account:myAccount")} />
+        <div className="px-6">
+          <Card className="mb-4">
+            <CardContent className="pt-6">
+              <p className="text-center text-muted-foreground">
+                {t("account:loadingAccount", { defaultValue: "Loading account..." })}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }
