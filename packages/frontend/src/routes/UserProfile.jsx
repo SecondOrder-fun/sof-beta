@@ -5,6 +5,7 @@ import { usePublicClient, useReadContract } from "wagmi";
 import { useQuery } from "@tanstack/react-query";
 import { SOFSmartAccountFactoryABI } from "@sof/contracts";
 import { Card, CardContent } from "@/components/ui/card";
+import PageTitle from "@/components/layout/PageTitle";
 import ProfileContent from "@/components/account/ProfileContent";
 import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import { getContractAddresses } from "@/config/contracts";
@@ -97,16 +98,16 @@ const UserProfile = () => {
   if (addressParam && codeProbe.isPending) {
     return (
       <div className="container mx-auto p-4">
-        <h1 className="text-2xl font-bold text-foreground mb-4">
-          {t("userProfile")}
-        </h1>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-center text-muted-foreground">
-              {t("loadingAccount", { defaultValue: "Loading account..." })}
-            </p>
-          </CardContent>
-        </Card>
+        <PageTitle title={t("userProfile")} />
+        <div className="px-6">
+          <Card>
+            <CardContent className="pt-6">
+              <p className="text-center text-muted-foreground">
+                {t("loadingAccount", { defaultValue: "Loading account..." })}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }
@@ -115,16 +116,16 @@ const UserProfile = () => {
   if (!resolvedAddress) {
     return (
       <div className="container mx-auto p-4">
-        <h1 className="text-2xl font-bold text-foreground mb-4">
-          {t("userProfile")}
-        </h1>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-center text-muted-foreground">
-              {t("connectWalletToViewAccount")}
-            </p>
-          </CardContent>
-        </Card>
+        <PageTitle title={t("userProfile")} />
+        <div className="px-6">
+          <Card>
+            <CardContent className="pt-6">
+              <p className="text-center text-muted-foreground">
+                {t("connectWalletToViewAccount")}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }
