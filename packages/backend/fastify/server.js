@@ -257,6 +257,7 @@ let unwatchRollover;
 let unwatchAccountCreated;
 const positionUpdateListeners = new Map(); // Map of seasonId -> unwatch function
 const tradeListeners = new Map(); // Map of fpmmAddress -> unwatch function
+let stopSharedHead; // halts the shared chain-head tracker on shutdown
 
 async function startListeners() {
   try {
@@ -264,6 +265,23 @@ async function startListeners() {
     const raffleAddress = chain.raffle;
 
     const infoFiFactoryAddress = chain.infofiFactory;
+
+    // Start the shared chain-head tracker BEFORE any listener. Each listener's
+    // contractEventPolling reads the cached head instead of issuing its own
+    // getBlockNumber + getBlock pair every tick — collapsing the per-listener
+    // RPC volume that was tripping Tenderly's rate limit. Must run before the
+    // first startContractEventPolling call, which binds to the tracker once.
+    try {
+      const { registerSharedHead } = await import("../src/lib/blockHead.js");
+      const { publicClient } = await import("../src/lib/viemClient.js");
+      const headTracker = registerSharedHead(publicClient, {
+        intervalMs: 4_000,
+      });
+      headTracker.start();
+      stopSharedHead = () => headTracker.stop();
+    } catch (err) {
+      app.log.error({ err }, "Failed to start shared chain-head tracker");
+    }
 
     // Warm the SOF metadata cache so /api/token/sof serves immediately.
     // One chain read at boot replaces a per-mount eth_call from every
@@ -754,6 +772,9 @@ async function shutdown(signal) {
   for (const [fpmmAddress, unwatch] of tradeListeners.entries()) {
     stops.push(safeStep(`Trade listener for FPMM ${fpmmAddress}`, unwatch));
   }
+
+  if (stopSharedHead)
+    stops.push(safeStep("Shared chain-head tracker", stopSharedHead));
 
   await Promise.allSettled(stops);
 

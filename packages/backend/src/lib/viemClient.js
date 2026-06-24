@@ -5,7 +5,6 @@ import process from "node:process";
 import { createPublicClient, createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { getChainByKey } from "../config/chain.js";
-import { registerSharedHead } from "./blockHead.js";
 
 // Select network from environment - NO FALLBACKS
 const NETWORK = process.env.NETWORK;
@@ -32,13 +31,6 @@ export const publicClient = createPublicClient({
   transport: buildRpcTransport(defaultChain.rpcUrl),
   pollingInterval: 4_000, // Force polling mode for public RPC compatibility
 });
-
-// Start the shared chain-head tracker for the singleton publicClient that all
-// event listeners use. This refreshes the head (getBlockNumber + getBlock)
-// once per interval; every contractEventPolling tick reads the cached value
-// instead of issuing its own pair — collapsing the per-listener RPC volume
-// that was tripping Tenderly's rate limit. unref'd so it never blocks exit.
-registerSharedHead(publicClient, { intervalMs: 4_000 }).start();
 
 /**
  * Build a viem PublicClient for a given network key (LOCAL/TESTNET).
