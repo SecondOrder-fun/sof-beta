@@ -1,4 +1,23 @@
 import { updateChainTimeCache } from "./chainTimeCache.js";
+import { getSharedHead } from "./blockHead.js";
+
+// Rate-limit backoff tuning. On a transient RPC error (notably Tenderly's
+// LimitExceededRpcError) the poller enters a cooldown so it stops re-firing
+// every interval and adding to the storm. Cooldown grows exponentially with
+// consecutive failures, capped, with a little jitter so listeners that failed
+// together don't all resume on the same tick.
+const BACKOFF_BASE_MS = 5_000;
+const BACKOFF_MAX_MS = 60_000;
+
+/**
+ * @param {number} failures consecutive failure count (>= 1)
+ * @returns {number} cooldown in ms
+ */
+function getPollBackoffMs(failures) {
+  const exp = Math.min(BACKOFF_MAX_MS, BACKOFF_BASE_MS * 2 ** (failures - 1));
+  // Jitter up to +20% to de-synchronize listeners that failed together.
+  return exp + Math.random() * exp * 0.2;
+}
 
 /**
  * @typedef {Object} ContractEventPollingParams
@@ -60,6 +79,35 @@ export async function startContractEventPolling(params) {
   let stopped = false;
   let lastProcessedBlock;
 
+  // Consecutive transient-failure count and the timestamp until which ticks
+  // are skipped while backing off. See getPollBackoffMs / the tick catch block.
+  let failureCount = 0;
+  let cooldownUntil = 0;
+
+  // Resolve the chain head, preferring the shared head tracker (one RPC pair
+  // per interval shared across all listeners) over a per-listener
+  // getBlockNumber/getBlock pair. Falls back to direct RPC when no tracker is
+  // registered for this client (e.g. unit tests with a bare mock client).
+  const sharedHead = getSharedHead(client);
+  const getCurrentBlock = async () => {
+    if (sharedHead) {
+      const head = await sharedHead.getHead();
+      return head.blockNumber;
+    }
+    const currentBlock = await client.getBlockNumber();
+    // Update chain time cache with the latest block (non-fatal if it fails).
+    // The shared tracker does this centrally when present.
+    try {
+      const block = await client.getBlock({ blockNumber: currentBlock });
+      if (block?.timestamp != null) {
+        updateChainTimeCache(Number(currentBlock), Number(block.timestamp));
+      }
+    } catch {
+      // non-fatal — cache stays stale, endpoint will return what it has
+    }
+    return currentBlock;
+  };
+
   // Determine start block: explicit param > persisted cursor > current block
   if (typeof startBlock === "bigint") {
     lastProcessedBlock = startBlock;
@@ -69,29 +117,22 @@ export async function startContractEventPolling(params) {
       // Resume from the block AFTER the last fully processed one
       lastProcessedBlock = persisted + 1n;
     } else {
-      const currentBlock = await client.getBlockNumber();
+      const currentBlock = await getCurrentBlock();
       lastProcessedBlock = currentBlock + 1n;
     }
   } else {
-    const currentBlock = await client.getBlockNumber();
+    const currentBlock = await getCurrentBlock();
     lastProcessedBlock = currentBlock + 1n;
   }
 
   const tick = async () => {
     if (stopped) return;
 
-    try {
-      const currentBlock = await client.getBlockNumber();
+    // Skip ticks while backing off from a recent transient/rate-limit error.
+    if (Date.now() < cooldownUntil) return;
 
-      // Update chain time cache with the latest block (non-fatal if it fails)
-      try {
-        const block = await client.getBlock({ blockNumber: currentBlock });
-        if (block?.timestamp != null) {
-          updateChainTimeCache(Number(currentBlock), Number(block.timestamp));
-        }
-      } catch (e) {
-        // non-fatal — cache stays stale, endpoint will return what it has
-      }
+    try {
+      const currentBlock = await getCurrentBlock();
 
       if (currentBlock < lastProcessedBlock) {
         // Chain rewound below our cursor — almost always a local-dev Anvil
@@ -152,7 +193,18 @@ export async function startContractEventPolling(params) {
       if (blockCursor) {
         await blockCursor.set(lastActuallyProcessed);
       }
+
+      // Successful tick — clear any active backoff.
+      failureCount = 0;
+      cooldownUntil = 0;
     } catch (error) {
+      // Transient errors (rate limits, gateway hiccups) trigger an
+      // exponential backoff so the poller stops hammering a throttled RPC.
+      // Non-transient errors are still surfaced but don't extend the cooldown.
+      if (isTransientRpcError(error)) {
+        failureCount += 1;
+        cooldownUntil = Date.now() + getPollBackoffMs(failureCount);
+      }
       if (typeof onError === "function") {
         onError(error);
       }
@@ -216,8 +268,19 @@ function isTransientRpcError(error) {
     error && typeof error === "object" && "message" in error
       ? String(error.message)
       : String(error);
+  const name =
+    error && typeof error === "object" && "name" in error
+      ? String(error.name)
+      : "";
 
   return (
+    // Tenderly (and other gateways) signal throttling via viem's
+    // LimitExceededRpcError / a "rate limit exceeded" message. Earlier this
+    // wasn't matched, so the live poller fell straight through to onError and
+    // re-fired on the next interval, amplifying the storm.
+    name === "LimitExceededRpcError" ||
+    message.includes("rate limit exceeded") ||
+    message.includes("Request exceeds defined limit") ||
     message.includes("responded with 503") ||
     message.includes("responded with 429") ||
     message.includes("ETIMEDOUT") ||
