@@ -29,7 +29,9 @@ import { getDeployment } from '@sof/contracts/deployments';
 Never copy ABI JSON files into the backend.
 
 ### Event Listeners
-7 on-chain event listeners run as long-lived processes started in `server.js`. Each uses a Supabase-backed block cursor for crash recovery and processes events idempotently (check-before-insert).
+On-chain event listeners run as long-lived processes started in `server.js` (`startListeners`). The fixed set (SeasonStarted, SeasonCompleted, SeasonStatus — itself 5 event pollers, MarketCreated, Rollover, AccountCreated, SponsorHat) is joined by per-season/per-market pollers (PositionUpdate per season, Trade per FPMM market), so the live poller count grows with active raffles. Each uses a Supabase-backed block cursor for crash recovery and processes events idempotently (check-before-insert).
+
+All pollers share one chain-head source: `startListeners` registers and starts a `blockHead.js` tracker for the `publicClient` singleton **before** any listener, so each `contractEventPolling` tick reads the cached head instead of issuing its own `getBlockNumber`/`getBlock` pair (keeps Tenderly RPC volume flat as raffles scale). The tracker is stopped in the shutdown gather.
 
 ### Error Handling
 - Return structured JSON: `reply.code(400).send({ error: "message" })`

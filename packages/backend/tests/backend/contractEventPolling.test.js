@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { startContractEventPolling } from "../../src/lib/contractEventPolling.js";
+import {
+  registerSharedHead,
+  __resetSharedHeads,
+} from "../../src/lib/blockHead.js";
 
 // Minimal ABI with a single event
 const testAbi = [
@@ -22,6 +26,7 @@ describe("startContractEventPolling", () => {
   });
 
   afterEach(() => {
+    __resetSharedHeads();
     vi.useRealTimers();
   });
 
@@ -309,6 +314,158 @@ describe("startContractEventPolling", () => {
 
     await vi.advanceTimersByTimeAsync(0);
     await expect(unwatch()).resolves.toBeUndefined();
+  });
+
+  it("reads the chain head from a shared tracker instead of its own getBlockNumber", async () => {
+    // When a shared head tracker is registered for the client, the poller must
+    // NOT issue its own getBlockNumber/getBlock — that redundant pair, fired by
+    // every listener every tick, was the dominant Tenderly RPC load.
+    const tracker = registerSharedHead(mockClient);
+    vi.spyOn(tracker, "getHead").mockResolvedValue({
+      blockNumber: 100n,
+      timestamp: 1700000000n,
+    });
+
+    mockClient.getBlock = vi.fn();
+    const blockCursor = {
+      get: vi.fn().mockResolvedValue(50n),
+      set: vi.fn().mockResolvedValue(undefined),
+    };
+    mockClient.getContractEvents.mockResolvedValue([]);
+
+    const unwatch = await startContractEventPolling({
+      client: mockClient,
+      address: "0xABC",
+      abi: testAbi,
+      eventName: "TestEvent",
+      pollingIntervalMs: 1_000,
+      blockCursor,
+      onLogs: vi.fn(),
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(tracker.getHead).toHaveBeenCalled();
+    expect(mockClient.getBlockNumber).not.toHaveBeenCalled();
+    expect(mockClient.getBlock).not.toHaveBeenCalled();
+    // Still scans from cursor+1 (51) up to the shared head (100).
+    expect(mockClient.getContractEvents).toHaveBeenCalledWith(
+      expect.objectContaining({ fromBlock: 51n }),
+    );
+
+    await unwatch();
+  });
+
+  it("backs off after a rate-limit error instead of retrying every tick", async () => {
+    // LimitExceededRpcError is what the Tenderly gateway returns. On hitting
+    // it the poller must enter a cooldown and skip subsequent ticks rather
+    // than re-firing getContractEvents on the very next interval and adding
+    // to the storm.
+    mockClient.getBlockNumber.mockResolvedValue(100n);
+    const rateLimitError = new Error(
+      "Request exceeds defined limit.\n\nDetails: rate limit exceeded",
+    );
+    rateLimitError.name = "LimitExceededRpcError";
+    mockClient.getContractEvents.mockRejectedValue(rateLimitError);
+
+    const blockCursor = {
+      get: vi.fn().mockResolvedValue(50n),
+      set: vi.fn().mockResolvedValue(undefined),
+    };
+    const onError = vi.fn();
+
+    const unwatch = await startContractEventPolling({
+      client: mockClient,
+      address: "0xABC",
+      abi: testAbi,
+      eventName: "TestEvent",
+      pollingIntervalMs: 1_000,
+      blockCursor,
+      onError,
+      onLogs: vi.fn(),
+    });
+
+    // First tick fails once.
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mockClient.getContractEvents).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledTimes(1);
+
+    // Next interval lands inside the cooldown window — no new RPC call.
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(mockClient.getContractEvents).toHaveBeenCalledTimes(1);
+
+    await unwatch();
+  });
+
+  it("backs off on an HTTP 429 (viem HttpRequestError), not just JSON-RPC limit errors", async () => {
+    // Tenderly can throttle via an HTTP 429 instead of a JSON-RPC
+    // LimitExceededRpcError. viem renders that as an HttpRequestError whose
+    // message says "Status: 429" (NOT "responded with 429") and which carries
+    // a numeric `.status`. The poller must recognize it and back off.
+    mockClient.getBlockNumber.mockResolvedValue(100n);
+    const httpError = new Error("HTTP request failed.\n\nStatus: 429\nURL: x");
+    httpError.name = "HttpRequestError";
+    httpError.status = 429;
+    mockClient.getContractEvents.mockRejectedValue(httpError);
+
+    const blockCursor = {
+      get: vi.fn().mockResolvedValue(50n),
+      set: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const unwatch = await startContractEventPolling({
+      client: mockClient,
+      address: "0xABC",
+      abi: testAbi,
+      eventName: "TestEvent",
+      pollingIntervalMs: 1_000,
+      blockCursor,
+      onError: vi.fn(),
+      onLogs: vi.fn(),
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mockClient.getContractEvents).toHaveBeenCalledTimes(1);
+
+    // In cooldown — no re-fire on the next interval.
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(mockClient.getContractEvents).toHaveBeenCalledTimes(1);
+
+    await unwatch();
+  });
+
+  it("resumes polling after the backoff cooldown expires", async () => {
+    mockClient.getBlockNumber.mockResolvedValue(100n);
+    const rateLimitError = new Error("rate limit exceeded");
+    rateLimitError.name = "LimitExceededRpcError";
+    mockClient.getContractEvents.mockRejectedValueOnce(rateLimitError);
+    // After the first failure, subsequent calls succeed.
+    mockClient.getContractEvents.mockResolvedValue([]);
+
+    const blockCursor = {
+      get: vi.fn().mockResolvedValue(50n),
+      set: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const unwatch = await startContractEventPolling({
+      client: mockClient,
+      address: "0xABC",
+      abi: testAbi,
+      eventName: "TestEvent",
+      pollingIntervalMs: 1_000,
+      blockCursor,
+      onError: vi.fn(),
+      onLogs: vi.fn(),
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mockClient.getContractEvents).toHaveBeenCalledTimes(1);
+
+    // Advance well past the maximum first-failure cooldown.
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(mockClient.getContractEvents.mock.calls.length).toBeGreaterThan(1);
+
+    await unwatch();
   });
 
   it("persists block on each successful tick", async () => {
