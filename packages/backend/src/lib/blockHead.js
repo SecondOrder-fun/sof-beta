@@ -25,12 +25,21 @@ const trackers = new Map();
  * @property {bigint|null} timestamp
  */
 
-function createTracker(client, intervalMs) {
+function createTracker(client, intervalMs, onError) {
   /** @type {BlockHead|null} */
   let head = null;
   /** @type {Promise<BlockHead>|null} */
   let inFlight = null;
   let intervalId = null;
+
+  // Surface refresh failures. Before the shared tracker, each listener fetched
+  // the head in its own tick, so a rate-limited getBlockNumber went to that
+  // listener's onError and was logged. Now one refresher owns head access — if
+  // its errors were silently swallowed, a sustained RPC outage would freeze the
+  // cached head and every listener would quietly stop indexing with no alarm.
+  const reportError = (err) => {
+    if (typeof onError === "function") onError(err);
+  };
 
   async function refresh() {
     // Single-flight: concurrent callers share one RPC round-trip.
@@ -70,33 +79,37 @@ function createTracker(client, intervalMs) {
     start() {
       if (intervalId !== null) return;
       intervalId = setInterval(() => {
-        void refresh().catch(() => {
-          // Transient RPC errors (incl. rate limits) leave the head stale;
-          // the next interval retries. Swallow so the timer never dies.
-        });
+        // Report transient RPC errors (incl. rate limits) but keep the head's
+        // last value and let the next interval retry — never let the timer die.
+        void refresh().catch(reportError);
       }, intervalMs);
       // Don't let the refresher keep the process alive on its own.
       if (typeof intervalId?.unref === "function") intervalId.unref();
-      void refresh().catch(() => {});
+      void refresh().catch(reportError);
     },
     stop() {
       if (intervalId !== null) {
         clearInterval(intervalId);
         intervalId = null;
       }
+      // Drop the closure (and its captured client) from the registry so a
+      // stopped tracker is fully reclaimed rather than lingering for the
+      // process lifetime.
+      trackers.delete(client);
     },
   };
 }
 
 /**
- * Register (or fetch) the shared head tracker for a client. Idempotent.
+ * Register (or fetch) the shared head tracker for a client. Idempotent — the
+ * onError from the first registration wins.
  * @param {object} client viem PublicClient
- * @param {{ intervalMs?: number }} [opts]
+ * @param {{ intervalMs?: number, onError?: (err: unknown) => void }} [opts]
  */
-export function registerSharedHead(client, { intervalMs = 4_000 } = {}) {
+export function registerSharedHead(client, { intervalMs = 4_000, onError } = {}) {
   let tracker = trackers.get(client);
   if (tracker) return tracker;
-  tracker = createTracker(client, intervalMs);
+  tracker = createTracker(client, intervalMs, onError);
   trackers.set(client, tracker);
   return tracker;
 }

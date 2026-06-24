@@ -276,6 +276,10 @@ async function startListeners() {
       const { publicClient } = await import("../src/lib/viemClient.js");
       const headTracker = registerSharedHead(publicClient, {
         intervalMs: 4_000,
+        // Surface refresh failures — a sustained RPC outage freezes the cached
+        // head and silently stalls all listeners, so it must be visible.
+        onError: (err) =>
+          app.log.error({ err }, "Shared chain-head refresh failed"),
       });
       headTracker.start();
       stopSharedHead = () => headTracker.stop();

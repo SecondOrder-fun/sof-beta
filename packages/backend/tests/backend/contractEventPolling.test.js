@@ -397,6 +397,43 @@ describe("startContractEventPolling", () => {
     await unwatch();
   });
 
+  it("backs off on an HTTP 429 (viem HttpRequestError), not just JSON-RPC limit errors", async () => {
+    // Tenderly can throttle via an HTTP 429 instead of a JSON-RPC
+    // LimitExceededRpcError. viem renders that as an HttpRequestError whose
+    // message says "Status: 429" (NOT "responded with 429") and which carries
+    // a numeric `.status`. The poller must recognize it and back off.
+    mockClient.getBlockNumber.mockResolvedValue(100n);
+    const httpError = new Error("HTTP request failed.\n\nStatus: 429\nURL: x");
+    httpError.name = "HttpRequestError";
+    httpError.status = 429;
+    mockClient.getContractEvents.mockRejectedValue(httpError);
+
+    const blockCursor = {
+      get: vi.fn().mockResolvedValue(50n),
+      set: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const unwatch = await startContractEventPolling({
+      client: mockClient,
+      address: "0xABC",
+      abi: testAbi,
+      eventName: "TestEvent",
+      pollingIntervalMs: 1_000,
+      blockCursor,
+      onError: vi.fn(),
+      onLogs: vi.fn(),
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mockClient.getContractEvents).toHaveBeenCalledTimes(1);
+
+    // In cooldown — no re-fire on the next interval.
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(mockClient.getContractEvents).toHaveBeenCalledTimes(1);
+
+    await unwatch();
+  });
+
   it("resumes polling after the backoff cooldown expires", async () => {
     mockClient.getBlockNumber.mockResolvedValue(100n);
     const rateLimitError = new Error("rate limit exceeded");

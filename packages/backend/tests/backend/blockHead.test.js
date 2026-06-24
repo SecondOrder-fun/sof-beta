@@ -89,6 +89,29 @@ describe("shared block-head tracker", () => {
     expect(client.getBlockNumber).toHaveBeenCalledTimes(2);
   });
 
+  it("reports refresh failures via onError instead of swallowing them", async () => {
+    // The lone refresher owns head access; if its getBlockNumber keeps failing
+    // the cached head freezes and all listeners silently stall. The failure
+    // must be surfaced so the stall is observable.
+    const onError = vi.fn();
+    client.getBlockNumber.mockRejectedValue(new Error("rate limit exceeded"));
+    const tracker = registerSharedHead(client, { intervalMs: 4_000, onError });
+
+    tracker.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(onError).toHaveBeenCalled();
+    expect(onError.mock.calls[0][0]).toBeInstanceOf(Error);
+  });
+
+  it("stop() removes the tracker from the registry", async () => {
+    const tracker = registerSharedHead(client);
+    expect(getSharedHead(client)).toBe(tracker);
+
+    tracker.stop();
+    expect(getSharedHead(client)).toBeNull();
+  });
+
   it("tolerates getBlock failure — head still has blockNumber, timestamp null", async () => {
     client.getBlock.mockRejectedValue(new Error("rate limit exceeded"));
     const tracker = registerSharedHead(client);

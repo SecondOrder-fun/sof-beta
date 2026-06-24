@@ -272,15 +272,28 @@ function isTransientRpcError(error) {
     error && typeof error === "object" && "name" in error
       ? String(error.name)
       : "";
+  // viem's HttpRequestError carries the HTTP status as a numeric `status`
+  // property. Throttling can surface either as that HTTP status (429/503) or
+  // as a JSON-RPC LimitExceededRpcError — match both.
+  const status =
+    error && typeof error === "object" && "status" in error
+      ? Number(error.status)
+      : NaN;
 
   return (
-    // Tenderly (and other gateways) signal throttling via viem's
-    // LimitExceededRpcError / a "rate limit exceeded" message. Earlier this
-    // wasn't matched, so the live poller fell straight through to onError and
-    // re-fired on the next interval, amplifying the storm.
+    // Throttling: Tenderly (and other gateways) signal it via viem's
+    // LimitExceededRpcError / a "rate limit exceeded" message (JSON-RPC), or
+    // via an HTTP 429/503. viem's HttpRequestError renders the latter as
+    // "Status: 429" in the message (NOT "responded with 429") and exposes
+    // `.status`. Earlier none of these matched, so the live poller fell
+    // straight through to onError and re-fired next interval, amplifying it.
     name === "LimitExceededRpcError" ||
+    status === 429 ||
+    status === 503 ||
     message.includes("rate limit exceeded") ||
     message.includes("Request exceeds defined limit") ||
+    message.includes("Status: 429") ||
+    message.includes("Status: 503") ||
     message.includes("responded with 503") ||
     message.includes("responded with 429") ||
     message.includes("ETIMEDOUT") ||
