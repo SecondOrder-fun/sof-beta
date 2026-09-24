@@ -38,6 +38,7 @@
   * [Detection](05-features/arbitrage/detection.md)
   * [Flow Diagram](05-features/arbitrage/flow-diagram.md)
 * [Consolation System](05-features/consolation/implementation.md)
+* [Token Launchpad](05-features/launchpad/design.md)
 * [Localization System](05-features/i18n/localization-system.md)
 * [Treasury System](05-features/treasury/system.md)
 
