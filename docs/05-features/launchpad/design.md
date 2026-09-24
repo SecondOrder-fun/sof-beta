@@ -31,19 +31,23 @@ acquires a *finite game* on top of it. Step ① is the part being built now.
 | Graduation venue | Uniswap v4 on Base |
 | Raffle denomination | The launched token, **not** `$SOF` |
 | Raffle creation rights | Stake-gated in the launched token, permissionless otherwise |
-| `$SOF` | Scrapped as the protocol currency |
+| Raffle requires graduation | **Yes** — hard requirement, not a flag (§9.2) |
+| Token decimals | **Always 18**, asserted at raffle creation (§6.3) |
+| Dev-buy | Optional, no minimum — and the *only* route to a starting stake (§5.1) |
+| Creator allocation | **None.** No free tokens, ever. |
+| InfoFi seed liquidity | Earmarked share of each token's supply, reserved at deploy time (§6.4) |
+| `$SOF` | Removed. Base Sepolia only, never on mainnet — nothing to migrate (§3) |
 
 ### Open questions that block implementation
 
-1. **Launch fee asset and size.** ETH is the only sane answer once `$SOF` is gone.
-   Flat (e.g. 0.001 ETH) or a share of the dev-buy?
-2. **Is the dev-buy mandatory?** The stated goal — "guarantees a major buy of the
-   new token by the dev" — implies a minimum. Mandatory-minimum changes the
-   contract shape (launch reverts below it) versus optional-but-incentivised.
-3. **Can a raffle open before graduation?** §9 argues strongly for *no*. Needs a ruling.
-4. **InfoFi collateral** for a season on token X: token X, or ETH/USDC? Coherent
-   versus liquid — §6.4.
-5. **Does `$SOF` get deleted or grandfathered?** §3 recommends grandfathering.
+1. **Launch fee size.** ETH is the only candidate once `$SOF` is gone. Flat
+   (e.g. 0.001 ETH) or a share of the dev-buy? Unresolved.
+2. **Supply split.** What percentages go to curve sale / graduation LP / InfoFi
+   seed? §5.2 carries placeholders that need real numbers.
+3. **Unused InfoFi seed.** If no market ever opens on a token, does its earmark
+   burn, or fall through to the LP position? §6.4.
+
+Everything else from the first pass is now settled and folded in below.
 
 ---
 
@@ -64,22 +68,36 @@ graduation path, which is genuinely new.
 
 ---
 
-## 3. The denomination shift — biggest risk item
+## 3. The denomination shift
 
-Scrapping `$SOF` touches far more than the launchpad. Current coupling:
+`$SOF` is removed outright. It was only ever deployed to Base Sepolia — there is
+no mainnet deployment, no holders, and no value to migrate. **The motivation is
+regulatory, not technical:** the platform issues no token of its own, so there is
+no protocol security, no buyback, and no fee-capture-to-token story anywhere in
+the design. Revenue is ETH (§ launch fees, curve fees) plus fee accrual in
+individual launch tokens.
+
+This is a straight deletion, not a migration. An earlier draft of this document
+recommended grandfathering `$SOF` as a legacy quote token to avoid orphaning
+deployed seasons; that recommendation assumed mainnet exposure that does not
+exist, and is withdrawn. Testnet seasons can be re-created from scratch.
+
+The code change is the same either way — `sofToken` becomes a per-season
+`quoteToken` parameter — but the `$SOF`-specific contracts get deleted rather
+than deprecated, and there is no compatibility shim to carry. Current coupling:
 
 | File | Coupling | Disposition |
 |---|---|---|
 | `curve/SOFBondingCurve.sol` | `immutable sofToken` (6 call sites) | **Rename** to `quoteToken`. No logic change. |
 | `core/Raffle.sol` | `immutable sofToken`, passed to distributor | Remove; quote token moves to `SeasonConfig`. |
 | `core/SeasonFactory.sol` | reads `IRaffle(raffle).sofToken()` | Take `quoteToken` as a parameter. |
-| `lib/IRaffle.sol` | `sofToken()` in the interface | Remove or keep as a deprecated alias for one release. |
+| `lib/IRaffle.sol` | `sofToken()` in the interface | Remove. |
 | `core/RolloverEscrow.sol` | `immutable sofToken`, treasury bonus | Per-token escrow; rollover only *within* a token (§6.5). |
 | `infofi/InfoFiMarketFactory.sol` | `immutable sofToken`, treasury-funded seed liquidity (9 call sites) | Per-season collateral (§6.4). Most invasive InfoFi change. |
 | `infofi/ConditionalTokenSOF.sol` | name only | Rename `ConditionalTokenERC20`. |
-| `exchange/SOFExchange.sol` | mints `$SOF` for ETH/USDC | Retire — there is nothing to mint. |
-| `faucet/SOFFaucet.sol` | dispenses `$SOF` | Repoint at a testnet mock quote token, or retire. |
-| `token/SOFToken.sol` | the token itself | Becomes a legacy deployment (see below). |
+| `exchange/SOFExchange.sol` | mints `$SOF` for ETH/USDC | **Delete** — there is nothing to mint. |
+| `faucet/SOFFaucet.sol` | dispenses `$SOF` | **Delete.** Testnet flow becomes: public Base Sepolia ETH faucet → launch a token → trade it. Nothing protocol-specific to dispense. |
+| `token/SOFToken.sol` | the token itself | **Delete.** |
 | `paymaster/SOFPaymaster.sol` | allowlists *SOF curve* targets | Registry-driven allowlist (§6.6). Gas is ETH — no token coupling. |
 | `sponsor/SponsorOnboarding.sol` | stake `$SOF` → Hats sponsor hat | Superseded by `SeasonCreationStake` (§5.6). |
 
@@ -88,23 +106,11 @@ Frontend: 96 files mention SOF; 15 reference the token/balance directly
 `curveRoutes`, `tradeListener`, `sofTransactionsService`, `seasonRoutes` all
 assume a single global currency.
 
-### Recommendation: generalize, don't delete
-
-A hard delete of `$SOF` orphans every deployed testnet season and forces a
-big-bang migration across three packages. The cheaper path with the same product
-outcome:
-
-> **Stop special-casing `$SOF`. Treat it as one quote token among many —
-> a grandfathered, non-launchpad one.**
-
-The code changes are identical (`sofToken` → `quoteToken` everywhere), existing
-seasons keep working, `SOFToken.sol` stays deployed but stops being minted or
-referenced by new code, and `SOFExchange`/`SOFFaucet` can be retired on their own
-schedule. "Scrapping `$SOF`" then becomes a *product* decision (no new utility, no
-buyback, not the denomination of anything new) rather than a migration cliff.
-
-This is a recommendation, not a blocker — if you want it gone from the codebase
-entirely, that's Phase 5 in §10 and it should still come *after* generalization.
+Sequencing note: the rename still lands as its own phase (§10, Phase 0) ahead of
+any launchpad code. Deleting `$SOF` and introducing the launchpad in one change
+would mix a large mechanical refactor with new logic and make the diff unreviewable.
+Phase 0 can quote seasons in a `MockERC20` to keep tests meaningful until
+`LaunchToken` exists.
 
 ---
 
@@ -163,23 +169,60 @@ struct LaunchParams {
 }
 ```
 
-- Reverts if `msg.value < launchFee + minDevBuy`.
+- Reverts if `msg.value < launchFee`. **There is no minimum dev-buy** — `devBuyWei`
+  may be zero.
 - Deploys `LaunchToken` + `LaunchCurve` via CREATE2 (deterministic addresses let
   the UI show the token page before the tx confirms).
-- Executes the dev-buy against the fresh curve **in the same transaction**, then
-  deposits the resulting tokens into `SeasonCreationStake` on the creator's behalf,
-  locked until graduation (§9.1).
+- If `devBuyWei > 0`, executes the dev-buy against the fresh curve **in the same
+  transaction**, then deposits the resulting tokens into `SeasonCreationStake` on
+  the creator's behalf, locked until graduation (§9.1).
+
+**The creator receives no free allocation.** The dev-buy is the only way tokens
+reach the creator, at the same curve price as everyone else, and it is the only
+route to a starting stake. Two consequences worth stating plainly, because they
+are unusual and the UI has to communicate them:
+
+- **A creator who launches with no dev-buy has no stake and cannot open the first
+  raffle on their own token.** Anyone who buys past the threshold can. The
+  launcher is not privileged — launching and controlling are separate, earned
+  things. This is intended.
+- Because the stake threshold is a share of *circulating* supply (§5.6) and the
+  dev buys at the bottom of the curve, a dev-buy that clears the threshold at
+  launch will be diluted below it as others buy. The `/launch` form must show
+  the projected end-state share, not the at-launch share, or creators will be
+  systematically surprised.
 - Emits `TokenLaunched(token, curve, creator, name, symbol, metadataURI, devBuyWei)`
   — the single event the indexer keys off.
 - Guards: symbol/name length caps, reserved-symbol denylist, per-block launch cap.
 
 ### 5.2 `launchpad/LaunchToken.sol`
 
-ERC-20 + ERC-2612 permit, 18 decimals, fixed max supply (e.g. 1 000 000 000).
-`MINTER_ROLE` held solely by its `LaunchCurve`; renounced at graduation so supply
-is provably fixed afterwards. Deliberately *not* `AccessControl`-heavy — a launched
-token should have as little owner surface as possible, because the owner is an
-anonymous creator.
+ERC-20 + ERC-2612 permit, **18 decimals — fixed, not configurable** (§6.3 depends
+on this), fixed max supply (e.g. 1 000 000 000). `MINTER_ROLE` held solely by its
+`LaunchCurve`; renounced at graduation so supply is provably fixed afterwards.
+Deliberately *not* `AccessControl`-heavy — a launched token should have as little
+owner surface as possible, because the owner is an anonymous creator.
+
+#### Supply allocation, fixed at deploy time
+
+Every launch splits its max supply into three buckets, in the constructor, with
+no creator discretion:
+
+| Bucket | Share | Purpose |
+|---|---|---|
+| **Curve sale** | ~70% *(placeholder)* | Mintable by `LaunchCurve` on buys. The only supply in circulation pre-graduation. |
+| **Graduation LP** | ~20% *(placeholder)* | Minted at graduation, paired with ETH reserves into the v4 position (§5.4). |
+| **InfoFi seed** | ~10% *(placeholder)* | Reserved for prediction-market seed liquidity (§6.4). Held by `InfoFiSeedVault`. |
+
+Percentages are placeholders — see open question 2 in §1. What matters structurally:
+
+- The split is **identical for every launch** and set in the constructor. Making it
+  creator-configurable reintroduces the free-allocation vector by another name.
+- The non-curve buckets are a **supply overhang** and must be surfaced in the UI
+  as such. A token whose curve shows 70% sold is 100% sold *of what is sellable*;
+  displaying that as "70% of supply" is misleading and will read as a hidden
+  team allocation. The token page should show circulating vs. reserved explicitly.
+- Neither reserved bucket is ever claimable by the creator, under any path.
 
 ### 5.3 `launchpad/LaunchCurve.sol`
 
@@ -247,11 +290,17 @@ function onSeasonSettled(address token, address creator) external;   // Raffle-o
 
 Threshold as a **percentage of circulating supply** (e.g. 1%) rather than an
 absolute, so it scales with the token and can't be trivially met on a large-cap
-launch or made impossible on a small one.
+launch or made impossible on a small one. Evaluated against circulating supply
+*at the moment of season creation*, not at launch — see the dilution note in §5.1.
 
-This is where the creator's escrowed dev-buy lands, satisfying both goals from
-the brief: the dev must buy meaningfully to launch, and any other holder can reach
-the same threshold and open their own season.
+Circulating supply for this purpose excludes the reserved buckets (§5.2);
+otherwise the LP and InfoFi earmarks inflate the denominator and make the
+threshold harder to reach than intended.
+
+This is where the creator's escrowed dev-buy lands. Note what it does *not* do:
+it gives the creator no special status. A creator who skipped the dev-buy has no
+stake and no season rights, and any holder who crosses the threshold has exactly
+the same rights the creator would have had.
 
 **Note:** Hats `StakingEligibility` is one module per hat per token — it does not
 generalize to N launch tokens without N hat trees. That's why this is a purpose-built
@@ -265,6 +314,34 @@ post-graduation) and route a slice of swap fees to the treasury — replacing th
 the **low bits of the hook's address**, so deployment requires CREATE2 salt mining,
 and the hook is in the path of every swap forever. Ship graduation without a hook
 first; add it only if the fee capture justifies the risk.
+
+### 5.8 `launchpad/InfoFiSeedVault.sol` — Phase 1 stub, Phase 4 logic
+
+Custodies the InfoFi seed bucket (§5.2) for every launch. Deployed and funded in
+Phase 1 so the supply split is correct from the first token; its release path stays
+disabled until InfoFi lands in Phase 4.
+
+```solidity
+mapping(address token => uint256) public reserved;   // unspent earmark
+function deposit(address token, uint256 amount) external;   // launchpad-only
+function seedMarket(address token, address market, uint256 amount) external;  // factory-only
+function sweepUnused(address token) external;               // see below
+```
+
+Two properties that must hold from day one, because they cannot be retrofitted
+once tokens are live:
+
+- **The vault can never transfer to the creator or to an admin EOA.** Its only
+  outbound path is `seedMarket`, into an InfoFi market for that same token.
+  Otherwise the earmark is just a team allocation wearing a different hat, and it
+  will be read that way.
+- **Unused earmarks need a terminal path.** Most tokens will never have an InfoFi
+  market. Leaving ~10% of supply locked forever in a vault is a permanent,
+  invisible overhang on every launch. `sweepUnused` should either burn it or add
+  it to the graduated LP position after a fixed window. Which one is open question
+  3 in §1 — but **the function must exist in the Phase 1 deployment even if it
+  reverts**, or every token launched before Phase 4 is permanently stuck with
+  dead supply.
 
 ---
 
@@ -281,10 +358,14 @@ struct SeasonConfig {
 
 ### 6.2 `curve/SOFBondingCurve.sol`
 
-Mechanical: `sofToken` → `quoteToken` (6 sites). Keep `function sofToken() external view returns (IERC20)`
-as a deprecated alias for one release so the exported ABI doesn't break the frontend
-in the same PR. Everything else — `initializeCurve`, fees, `PositionUpdate`, permit
-fallback — is unchanged.
+Mechanical: `sofToken` → `quoteToken` (6 sites). No deprecation alias — with `$SOF`
+deleted outright there is no external consumer to keep compatible, and the ABI
+export + frontend move in the same phase. Everything else — `initializeCurve`,
+fees, `PositionUpdate`, permit fallback — is unchanged.
+
+The contract name `SOFBondingCurve` should go too, since it no longer refers to
+anything. `TicketCurve` distinguishes it from `LaunchCurve` and says what it does.
+Renaming it is free in Phase 0 and awkward afterwards.
 
 One real check: the permit path calls `IERC20Permit(quoteToken).permit(...)` in a
 `try`. Launch tokens will support permit (§5.2) but arbitrary quote tokens might
@@ -299,9 +380,34 @@ the test covers a non-permit quote token.
   platform-run seasons still work).
 - `SeasonFactory.createSeasonContracts(...)` takes `quoteToken` and passes it to
   `new SOFBondingCurve(quoteToken, msg.sender)` instead of `IRaffle(raffle).sofToken()`.
-- `_createSeasonInternal` validates `quoteToken != address(0)` and — if the
-  graduation gate is adopted (§9.2) — that the token is registered in
-  `TokenLaunchpad` and `graduated == true`.
+- `_createSeasonInternal` validates `quoteToken != address(0)`, that the token is
+  registered in `TokenLaunchpad` with `graduated == true` (§9.2), and that its
+  decimals are 18 (below).
+
+#### Decimals are asserted, not accommodated
+
+Every launch token is 18 decimals by construction (§5.2), and season creation
+enforces it:
+
+```solidity
+uint8 d;
+try IERC20Metadata(quoteToken).decimals() returns (uint8 v) { d = v; }
+catch { revert QuoteTokenDecimalsUnavailable(); }
+if (d != 18) revert QuoteTokenDecimals(d);
+```
+
+`decimals()` is in `IERC20Metadata`, not the core ERC-20 interface, so a token can
+legally omit it — the `try/catch` must reject rather than assume. This is
+belt-and-braces given the launchpad-registry check already restricts quote tokens
+to launchpad-issued ones; it matters if a non-launchpad quote token is ever
+allowed in.
+
+The payoff is in the frontend (§8.2): the decimal pair stays exactly
+**(18 quote, 0 ticket)**, which is what the existing buy/sell math already
+assumes. This collapses that work from "generalize every calculation over
+arbitrary decimals" to "read the symbol dynamically, keep the 18-dp assumption,
+and assert it at the boundary." It is the single largest risk reduction of the
+decisions made so far.
 - `registerCurve` already exists for paymaster validation; it now registers
   many curves across many tokens (§6.6).
 
@@ -312,17 +418,24 @@ and seeds every market with `INITIAL_LIQUIDITY` pulled from a treasury balance i
 that one token (9 call sites). Multi-token means:
 
 - Collateral resolved per market from `Raffle.seasons[seasonId].quoteToken`.
-- Seed liquidity must exist **in that token**. The treasury will not hold every
-  launch token. Options:
-  - **(a) Creator-funded seed** — the season creator posts seed liquidity at
-    season creation, out of their stake. Coherent with the launch model.
-  - **(b) ETH/USDC collateral** — markets stay liquid and the treasury can seed
-    them, at the cost of breaking the "everything is denominated in the token" story.
-  - **(c) No InfoFi on launched tokens in v1** — ship the launchpad, keep InfoFi
-    on grandfathered seasons only.
+- Seed liquidity must exist **in that token**, and the treasury will never hold
+  every launch token. **Resolved: each token pre-funds its own seed.** A fixed
+  share of max supply is earmarked at deploy time into `InfoFiSeedVault` (§5.2,
+  §5.8); `InfoFiMarketFactory` draws `INITIAL_LIQUIDITY` from that vault instead
+  of from a treasury balance.
 
-  Recommendation: **(c) for v1, (a) for v2.** InfoFi multi-collateral is a whole
-  workstream and it is not on the critical path for the journey in §1.
+  This is strictly better than the alternatives considered — creator-funded seed
+  (taxes the creator and couples market creation to their solvency) and ETH/USDC
+  collateral (liquid, but breaks the "everything is denominated in the token"
+  story that makes the season coherent). Its cost is the supply overhang in §5.2
+  and the dead-earmark problem in §5.8; both are manageable, but only if handled
+  from the first launch.
+
+- **InfoFi ships in Phase 4, after the §1 journey is closed.** The vault and the
+  earmark land in Phase 1 — supply splits cannot be changed retroactively — but
+  market creation against launch tokens is deliberately last. Multi-collateral
+  InfoFi is its own workstream and nothing in launch → graduate → raffle depends
+  on it.
 - `ConditionalTokenSOF.sol` → `ConditionalTokenERC20.sol` (rename only).
 - `MarketTypeRegistry` / `InfoFiPriceOracle` / `InfoFiSettlement` are
   probability-domain and currency-agnostic — no change expected, verify.
@@ -413,9 +526,12 @@ The deepest UI change is that **"the currency" stops being a constant**:
 - `hooks/buysell/useFormatSOF.js` → `useFormatQuote(tokenAddress)` — reads
   `symbol`/`decimals` from the season's quote token
 - `hooks/buysell/computeBuySplit.js`, `useBalanceValidation.js`,
-  `usePriceEstimation.js` — all assume 18-decimal `$SOF`. Must take decimals as
-  input. **Watch the 18-dp quote / 0-dp ticket asymmetry** — that math is already
-  delicate and this doubles the number of decimal pairs it has to survive.
+  `usePriceEstimation.js` — these assume 18-decimal `$SOF` against 0-decimal
+  tickets, and **that assumption stays valid**: every quote token is 18 decimals
+  by construction and asserted on-chain (§6.3). The math does not need to
+  generalize. What changes is only the *symbol* and *address* it formats against.
+  Add a dev-mode assertion mirroring the contract check so a mis-wired token
+  fails loudly in the client rather than silently mispricing.
 - `components/buysell/BuyForm.jsx` / `SellForm.jsx` — label from the quote token,
   not hardcoded "SOF"
 - `routes/RaffleList.jsx` / `RaffleDetails.jsx` — show which token denominates each season
@@ -455,10 +571,11 @@ season-rights stake mutually reinforcing rather than two separate asks.
 **9.2 Raffle-before-graduation rug.** Worse than 9.1. A creator launches, buys,
 opens a raffle that locks other holders' tokens into the ticket curve, and dumps
 into the illiquid pre-graduation curve while their tokens are locked. Mitigation:
-**gate season creation on `graduated == true`.** Post-graduation there is a real
+**season creation requires `graduated == true`.** Post-graduation there is a real
 DEX market and a public price, and the creator's own allocation is unlocked and
-therefore at risk alongside everyone else's. Recommended as a hard requirement,
-not a flag.
+therefore at risk alongside everyone else's. **Adopted as a hard requirement**,
+enforced in `_createSeasonInternal` (§6.3) — not a config flag, because a flag
+is something that can be turned off under commercial pressure later.
 
 **9.3 Sniping at graduation.** MEV bots buy the first block of the new v4 pool.
 Mitigation: the optional hook (§5.7) with per-block caps, or a brief post-graduation
@@ -478,9 +595,20 @@ manipulation.
 `GraduationManager`. All curve state transitions (`graduated = true`, trading
 disabled) must be committed *before* the unlock call.
 
-**9.7 Regulatory.** Permissionless token issuance combined with raffles on those
-tokens is a different posture than an admin-run raffle in a protocol token. Flagged,
-not assessed — this needs counsel, not a design doc.
+**9.7 Reserved-supply misread.** The graduation-LP and InfoFi-seed buckets (§5.2)
+are ~30% of max supply sitting outside circulation, held by protocol contracts.
+Functionally this is not a team allocation — no path delivers it to the creator or
+an admin — but it has the same *shape* as one, and a launchpad's users are
+primed to look for exactly that. This is a disclosure problem, not a contract
+problem: the token page must show circulating / LP-reserved / InfoFi-reserved as
+three distinct figures, and `InfoFiSeedVault` must have no admin withdrawal path
+to point at. Getting this wrong costs trust that is very hard to win back.
+
+**9.8 Regulatory.** Removing `$SOF` removes the platform's own issued token, which
+is the point — the motivation for scrapping it is regulatory rather than technical
+(§3). What remains is still permissionless token issuance combined with raffles
+denominated in those tokens, which is its own posture. Flagged, not assessed —
+this needs counsel, not a design doc.
 
 ---
 
@@ -491,12 +619,11 @@ on its own.
 
 | Phase | Scope | Why here |
 |---|---|---|
-| **0 — Generalize the quote token** | `sofToken` → `quoteToken` across contracts/backend/frontend. `quoteToken` in `SeasonConfig`. No new features; existing seasons still work with `$SOF` as the quote token. | Isolates a large mechanical refactor from new logic. Everything after is additive. |
-| **1 — Launch + curve** | `LaunchToken`, `LaunchCurve`, `TokenLaunchpad`, `BondingMath`. No graduation. UI: `/launch`, `/tokens`, `/tokens/:address`. Backend: launch + trade listeners, discovery feed, metadata pipeline. | The deliverable actually asked for. Shippable and demoable without v4. |
+| **0 — Remove `$SOF`, parameterize the quote token** | `sofToken` → `quoteToken` across contracts/backend/frontend; `quoteToken` in `SeasonConfig`; delete `SOFToken`/`SOFExchange`/`SOFFaucet`. Seasons quote a `MockERC20` until Phase 1 exists. No new features. | Isolates a large mechanical refactor from new logic. Everything after is additive. |
+| **1 — Launch + curve** | `LaunchToken` (18 dp, three-bucket supply), `LaunchCurve`, `TokenLaunchpad`, `BondingMath`, `InfoFiSeedVault` (funded, release disabled). No graduation. UI: `/launch`, `/tokens`, `/tokens/:address` incl. circulating-vs-reserved display. Backend: launch + trade listeners, discovery feed, metadata pipeline. | The deliverable asked for. Shippable and demoable without v4. The supply split **must** be right here — it cannot be changed for tokens already launched. |
 | **2 — Graduation** | `GraduationManager`, v4 deps + remappings, Base addresses in `deployments/*.json`, LP lock. Graduation progress UI. | Self-contained; the highest-risk external integration gets its own audit surface. |
-| **3 — Raffles on launched tokens** | `SeasonCreationStake`, `canCreateSeason(account, token)`, graduation gate, `/tokens/:address/create-season`. Ticket curve runs against the launch token. | Closes the §1 journey. Depends on 0 + 2. |
-| **4 — InfoFi multi-collateral** | Per-season collateral, `ConditionalTokenERC20` rename, seed-liquidity model. | Deliberately last — see §6.4(c). |
-| **5 — Retire `$SOF` surfaces** | `SOFExchange`, `SOFFaucet`, buyback/fee-capture docs, tokenomics rewrite. | Only meaningful once nothing new depends on it. |
+| **3 — Raffles on launched tokens** | `SeasonCreationStake`, `canCreateSeason(account, token)`, graduation gate + 18-dp assertion, `/tokens/:address/create-season`. Ticket curve runs against the launch token. | Closes the §1 journey. Depends on 0 + 2. |
+| **4 — InfoFi on launched tokens** | Per-season collateral drawn from `InfoFiSeedVault`, `ConditionalTokenERC20` rename, `sweepUnused` enabled. | Deliberately last — §6.4. Nothing in the §1 journey depends on it. |
 
 ### Version and task tracking
 
