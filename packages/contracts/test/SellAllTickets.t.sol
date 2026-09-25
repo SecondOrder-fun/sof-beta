@@ -103,7 +103,7 @@ contract SellAllTicketsTest is Test {
         sof = new MockERC20_SellAll("SOF Token", "SOF", 18);
         sof.mint(deployer, 10_000_000 ether);
         address mockCoordinator = address(0x1);
-        raffle = new Raffle(address(sof), mockCoordinator, 0, bytes32(0));
+        raffle = new Raffle(mockCoordinator, 0, bytes32(0));
         factory = new MockSeasonFactory_SellAll(address(sof));
         raffle.setSeasonFactory(address(factory));
     }
@@ -123,6 +123,7 @@ contract SellAllTicketsTest is Test {
         cfg.winnerCount = 3;
         cfg.grandPrizeBps = 6500;
         cfg.treasuryAddress = treasury;
+        cfg.quoteToken = address(sof);
         uint256 seasonId = raffle.createSeason(cfg, _steps(), 10, 70);
 
         vm.warp(nowTs + 1);
@@ -164,6 +165,7 @@ contract SellAllTicketsTest is Test {
         cfg.winnerCount = 3;
         cfg.grandPrizeBps = 6500;
         cfg.treasuryAddress = treasury;
+        cfg.quoteToken = address(sof);
         seasonId = raffle.createSeason(cfg, steps, 10, 70);
         (RaffleTypes.SeasonConfig memory scfg,,,,) = raffle.getSeasonDetails(seasonId);
         curve = SOFBondingCurve(scfg.bondingCurve);

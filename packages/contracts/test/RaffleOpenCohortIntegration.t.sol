@@ -63,8 +63,8 @@ contract MockSOFOC {
 // Harness: re-use the same pattern from RaffleFinalizeSeason.t.sol
 // ---------------------------------------------------------------------------
 contract RaffleFinalizeHarnessOC is Raffle {
-    constructor(address sof, address coord, uint64 subId, bytes32 keyHash)
-        Raffle(sof, coord, subId, keyHash)
+    constructor(address coord, uint64 subId, bytes32 keyHash)
+        Raffle(coord, subId, keyHash)
     {}
 
     function testSetVrfState(uint256 seasonId, uint256 requestId, uint256[] calldata words) external {
@@ -107,7 +107,7 @@ contract RaffleOpenCohortIntegrationTest is Test {
         sof.mint(player2, 10000 ether);
 
         address mockCoordinator = address(0xCAFE);
-        raffle = new RaffleFinalizeHarnessOC(address(sof), mockCoordinator, 0, bytes32(0));
+        raffle = new RaffleFinalizeHarnessOC(mockCoordinator, 0, bytes32(0));
 
         factory = new SeasonFactory(address(raffle));
         raffle.setSeasonFactory(address(factory));
@@ -145,6 +145,7 @@ contract RaffleOpenCohortIntegrationTest is Test {
         cfg.winnerCount = 2;
         cfg.grandPrizeBps = 6500;
         cfg.treasuryAddress = treasury;
+        cfg.quoteToken = address(sof);
         seasonId = raffle.createSeason(cfg, _steps(), 50, 70);
         (RaffleTypes.SeasonConfig memory out,,,,) = raffle.getSeasonDetails(seasonId);
         SOFBondingCurve curve = SOFBondingCurve(out.bondingCurve);
@@ -216,6 +217,7 @@ contract RaffleOpenCohortIntegrationTest is Test {
         cfg.winnerCount = 2;
         cfg.grandPrizeBps = 6500;
         cfg.treasuryAddress = treasury;
+        cfg.quoteToken = address(sof);
         uint256 seasonId = raffle.createSeason(cfg, _steps(), 50, 70);
         (RaffleTypes.SeasonConfig memory out,,,,) = raffle.getSeasonDetails(seasonId);
         SOFBondingCurve curve = SOFBondingCurve(out.bondingCurve);

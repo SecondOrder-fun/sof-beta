@@ -61,9 +61,7 @@ contract FullSeasonFlowTest is Test {
         seasonFactory = new SeasonFactory(mockRaffle, mockTracker);
         
         // Deploy the real Raffle contract
-        raffle = new Raffle(
-            address(sof),
-            vrfCoordinator,
+        raffle = new Raffle(vrfCoordinator,
             1, // subscriptionId
             bytes32(0) // keyHash
         );

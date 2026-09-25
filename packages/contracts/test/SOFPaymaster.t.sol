@@ -52,7 +52,7 @@ contract SOFPaymasterTest is Test {
         // Real Raffle so we can exercise registerCurve / isSofCurve. The mock
         // VRF coordinator address is fine — the paymaster path doesn't touch
         // VRF. Pattern mirrors test/SeasonFactoryRollover.t.sol:28.
-        raffle = new Raffle(address(sof), VRF_COORDINATOR_PLACEHOLDER, 0, bytes32(0));
+        raffle = new Raffle(VRF_COORDINATOR_PLACEHOLDER, 0, bytes32(0));
 
         factory = new SOFSmartAccountFactory();
 

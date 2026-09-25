@@ -11,7 +11,6 @@ contract DeployRaffle is Script {
         vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
 
         Raffle raffle = new Raffle(
-            addrs.sofToken,
             addrs.vrfCoordinator,
             addrs.vrfSubscriptionId,
             addrs.vrfKeyHash

@@ -12,8 +12,8 @@ import {RaffleTypes} from "../../src/lib/RaffleTypes.sol";
 
 // Harness that exposes internal VRF fulfillment for testing
 contract RaffleTestHarness is Raffle {
-    constructor(address sof, address coord, uint256 subId, bytes32 keyHash)
-        Raffle(sof, coord, subId, keyHash)
+    constructor(address coord, uint256 subId, bytes32 keyHash)
+        Raffle(coord, subId, keyHash)
     {}
 
     /// @notice Simulate requestSeasonEnd by locking trading and setting VRFPending
@@ -67,9 +67,7 @@ contract FullSeasonFlowTest is Test {
 
         // Deploy Raffle harness with mock VRF coordinator
         address mockCoordinator = address(0xCAFE);
-        raffle = new RaffleTestHarness(
-            address(sof),
-            mockCoordinator,
+        raffle = new RaffleTestHarness(mockCoordinator,
             1, // subscriptionId
             bytes32(0) // keyHash
         );
@@ -107,6 +105,7 @@ contract FullSeasonFlowTest is Test {
         config.winnerCount = 3;
         config.grandPrizeBps = 6500; // 65%
         config.treasuryAddress = treasury;
+        config.quoteToken = address(sof);
 
         seasonId = raffle.createSeason(config, steps, 50, 70); // 0.5% buy fee, 0.7% sell fee
 

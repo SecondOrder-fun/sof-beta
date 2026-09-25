@@ -25,7 +25,7 @@ contract SeasonFactoryRolloverTest is Test {
 
     function setUp() public {
         sof = new SOFToken("SecondOrder Fun Token", "SOF", 1_000_000 ether);
-        raffle = new Raffle(address(sof), address(0xCAFE), 1, bytes32(0));
+        raffle = new Raffle(address(0xCAFE), 1, bytes32(0));
         seasonFactory = new SeasonFactory(address(raffle));
         raffle.setSeasonFactory(address(seasonFactory));
         raffle.grantRole(raffle.SEASON_FACTORY_ROLE(), address(seasonFactory));
@@ -48,6 +48,7 @@ contract SeasonFactoryRolloverTest is Test {
         cfg.winnerCount = 1;
         cfg.grandPrizeBps = 6500;
         cfg.treasuryAddress = treasury;
+        cfg.quoteToken = address(sof);
 
         id = raffle.createSeason(cfg, steps, 0, 0);
         (RaffleTypes.SeasonConfig memory deployed,,,,) = raffle.getSeasonDetails(id);

@@ -3,11 +3,6 @@
     "type": "constructor",
     "inputs": [
       {
-        "name": "_sofToken",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
         "name": "_vrfCoordinator",
         "type": "address",
         "internalType": "address"
@@ -1554,19 +1549,6 @@
   },
   {
     "type": "function",
-    "name": "sofToken",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "contract IERC20"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "sponsorHatId",
     "inputs": [],
     "outputs": [
@@ -2332,6 +2314,11 @@
         "internalType": "uint256"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidQuoteToken",
+    "inputs": []
   },
   {
     "type": "error",

@@ -8,6 +8,7 @@ import {SeasonFactory} from "../src/core/SeasonFactory.sol";
 import {RafflePrizeDistributor} from "../src/core/RafflePrizeDistributor.sol";
 import {SOFBondingCurve} from "../src/curve/SOFBondingCurve.sol";
 import {RaffleTypes} from "../src/lib/RaffleTypes.sol";
+import {IRafflePrizeDistributor} from "../src/lib/IRafflePrizeDistributor.sol";
 
 // Minimal mock SOF token (duplicated from existing tests for isolation)
 contract MockSOF {
@@ -58,14 +59,24 @@ contract MockSOF {
 
 // Harness exposing a way to simulate the VRF callback with custom words
 contract RaffleFinalizeHarness is Raffle {
-    constructor(address sof, address coord, uint64 subId, bytes32 keyHash)
-        Raffle(sof, coord, subId, keyHash)
+    constructor(address coord, uint64 subId, bytes32 keyHash)
+        Raffle(coord, subId, keyHash)
     {}
 
     function testSetVrfState(uint256 seasonId, uint256 requestId, uint256[] calldata words) external {
         seasonStates[seasonId].status = SeasonStatus.VRFPending;
         vrfRequestToSeason[requestId] = seasonId;
         fulfillRandomWords(requestId, words);
+    }
+
+    /// @notice Mirror the real lock step: lock trading and snapshot the prize pool from
+    ///         curve reserves, the way `requestSeasonEnd` does. Needed by any test that
+    ///         asserts on prize distribution, because `_executeFinalization` short-circuits
+    ///         and skips the distributor entirely when `totalPrizePool` is zero.
+    function testLockAndSnapshotPool(uint256 seasonId) external {
+        SOFBondingCurve(seasons[seasonId].bondingCurve).lockTrading();
+        seasonStates[seasonId].totalPrizePool = SOFBondingCurve(seasons[seasonId].bondingCurve).getSofReserves();
+        seasons[seasonId].isActive = false;
     }
 }
 
@@ -85,7 +96,7 @@ contract RaffleFinalizeSeasonTest is Test {
         sof.mint(player2, 10000 ether);
 
         address mockCoordinator = address(0xCAFE);
-        raffle = new RaffleFinalizeHarness(address(sof), mockCoordinator, 0, bytes32(0));
+        raffle = new RaffleFinalizeHarness(mockCoordinator, 0, bytes32(0));
 
         factory = new SeasonFactory(address(raffle));
         raffle.setSeasonFactory(address(factory));
@@ -109,6 +120,7 @@ contract RaffleFinalizeSeasonTest is Test {
         cfg.winnerCount = 2;
         cfg.grandPrizeBps = 6500;
         cfg.treasuryAddress = treasury;
+        cfg.quoteToken = address(sof);
         seasonId = raffle.createSeason(cfg, _steps(), 50, 70);
         (RaffleTypes.SeasonConfig memory out,,,,) = raffle.getSeasonDetails(seasonId);
         curve = SOFBondingCurve(out.bondingCurve);
@@ -161,5 +173,65 @@ contract RaffleFinalizeSeasonTest is Test {
         // Verify status is Completed
         ( , status, , , ) = raffle.getSeasonDetails(seasonId);
         assertEq(uint8(status), uint8(RaffleStorage.SeasonStatus.Completed));
+    }
+
+    /// Regression: the prize asset handed to the distributor must be the season's quote
+    /// token, not a protocol-wide one. `_executeFinalization` funds the distributor by
+    /// pulling reserves out of the curve — which holds the quote token — so declaring a
+    /// different token there leaves the distributor holding an asset it will not pay out.
+    ///
+    /// This was latent while every season shared one token and became reachable the
+    /// moment seasons could name their own.
+    function testFinalize_ConfiguresDistributorWithSeasonQuoteToken() public {
+        MockSOF other = new MockSOF("OTHER", "OTHER", 18);
+        other.mint(player1, 10_000 ether);
+        other.mint(player2, 10_000 ether);
+
+        RaffleTypes.SeasonConfig memory cfg;
+        cfg.name = "S-quote-asset";
+        cfg.startTime = block.timestamp + 1;
+        cfg.endTime = block.timestamp + 3 days;
+        cfg.winnerCount = 2;
+        cfg.grandPrizeBps = 6500;
+        cfg.treasuryAddress = treasury;
+        cfg.quoteToken = address(other);
+
+        uint256 seasonId = raffle.createSeason(cfg, _steps(), 50, 70);
+        (RaffleTypes.SeasonConfig memory out,,,,) = raffle.getSeasonDetails(seasonId);
+        SOFBondingCurve curve = SOFBondingCurve(out.bondingCurve);
+
+        vm.warp(block.timestamp + 1);
+        raffle.startSeason(seasonId);
+
+        vm.startPrank(player1);
+        other.approve(address(curve), type(uint256).max);
+        curve.buyTokens(10, 20 ether);
+        vm.stopPrank();
+
+        vm.startPrank(player2);
+        other.approve(address(curve), type(uint256).max);
+        curve.buyTokens(5, 20 ether);
+        vm.stopPrank();
+
+        // Lock and snapshot the pool, as requestSeasonEnd would, so finalization
+        // actually reaches the distributor instead of short-circuiting on a zero pool.
+        raffle.testLockAndSnapshotPool(seasonId);
+
+        uint256[] memory words = new uint256[](2);
+        words[0] = 12345;
+        words[1] = 67890;
+        raffle.testSetVrfState(seasonId, 99, words);
+        raffle.finalizeSeason(seasonId);
+
+        IRafflePrizeDistributor.SeasonPayouts memory payouts = distributor.getSeason(seasonId);
+        assertEq(payouts.token, address(other), "prize asset must be the season's quote token");
+        assertTrue(payouts.token != address(sof), "must not fall back to another season's token");
+
+        // And the distributor must actually hold that asset, in the amount it was configured for.
+        assertEq(
+            other.balanceOf(address(distributor)),
+            payouts.grandAmount + payouts.consolationAmount,
+            "distributor should hold the quote token it will pay out"
+        );
     }
 }

@@ -68,7 +68,7 @@ contract RaffleTest is Test {
 
         // Deploy Raffle with mock VRF coordinator (non-zero address)
         address mockCoordinator = address(0x1);
-        raffle = new Raffle(address(sof), mockCoordinator, 0, bytes32(0));
+        raffle = new Raffle(mockCoordinator, 0, bytes32(0));
 
         // Deploy and set a mock season factory that creates token/curve and wires raffle callbacks
         factory = new MockSeasonFactory(address(sof));
@@ -90,6 +90,7 @@ contract RaffleTest is Test {
         cfg.winnerCount = 2;
         cfg.grandPrizeBps = 6500; // 65% grand prize
         cfg.treasuryAddress = treasury; // fees go directly here
+        cfg.quoteToken = address(sof);
         RaffleTypes.BondStep[] memory steps = _defaultBondSteps();
         seasonId = raffle.createSeason(cfg, steps, 50, 70); // 0.5% buy, 0.7% sell
     }
@@ -178,6 +179,7 @@ contract RaffleTest is Test {
         cfg.winnerCount = 2;
         cfg.grandPrizeBps = 6500;
         cfg.treasuryAddress = treasury;
+        cfg.quoteToken = address(sof);
         cfg.maxParticipants = maxP;
         RaffleTypes.BondStep[] memory steps = _defaultBondSteps();
         seasonId = raffle.createSeason(cfg, steps, 50, 70);
@@ -332,7 +334,7 @@ contract RaffleSofCurveRegistryTest is Test {
         // so we can grant SEASON_FACTORY_ROLE here.
         sof = new MockERC20("SOF Token", "SOF", 18);
         address mockCoordinator = address(0x1);
-        raffle = new Raffle(address(sof), mockCoordinator, 0, bytes32(0));
+        raffle = new Raffle(mockCoordinator, 0, bytes32(0));
 
         raffle.grantRole(SEASON_FACTORY_ROLE, seasonFactory);
     }

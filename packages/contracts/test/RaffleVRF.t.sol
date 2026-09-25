@@ -13,7 +13,7 @@ import {IRafflePrizeDistributor} from "../src/lib/IRafflePrizeDistributor.sol";
 
 // Harness that exposes fulfillRandomWords and VRF state setter
 contract RaffleHarness is Raffle {
-    constructor(address sof, address coord, uint64 subId, bytes32 keyHash) Raffle(sof, coord, subId, keyHash) {}
+    constructor(address coord, uint64 subId, bytes32 keyHash) Raffle(coord, subId, keyHash) {}
 
     function testSetVrf(uint256 seasonId, uint256 requestId) external {
         seasonStates[seasonId].status = SeasonStatus.VRFPending;
@@ -117,7 +117,7 @@ contract RaffleVRFTest is Test {
         sof.mint(player1, 10000 ether);
         sof.mint(player2, 10000 ether);
         address mockCoordinator = address(0xCAFE);
-        raffle = new RaffleHarness(address(sof), mockCoordinator, 0, bytes32(0));
+        raffle = new RaffleHarness(mockCoordinator, 0, bytes32(0));
         // Wire SeasonFactory required by Raffle.createSeason
         SeasonFactory factory = new SeasonFactory(address(raffle));
         raffle.setSeasonFactory(address(factory));
@@ -143,6 +143,7 @@ contract RaffleVRFTest is Test {
         cfg.winnerCount = 2;
         cfg.grandPrizeBps = 6500;
         cfg.treasuryAddress = treasury;
+        cfg.quoteToken = address(sof);
         seasonId = raffle.createSeason(cfg, _steps(), 50, 70);
         (RaffleTypes.SeasonConfig memory out,,,,) = raffle.getSeasonDetails(seasonId);
         curve = SOFBondingCurve(out.bondingCurve);
@@ -240,6 +241,7 @@ contract RaffleVRFTest is Test {
         cfg.winnerCount = 3;
         cfg.grandPrizeBps = 6500;
         cfg.treasuryAddress = treasury;
+        cfg.quoteToken = address(sof);
         uint256 seasonId = raffle.createSeason(cfg, _steps(), 50, 70);
         (RaffleTypes.SeasonConfig memory out,,,,) = raffle.getSeasonDetails(seasonId);
         SOFBondingCurve curve = SOFBondingCurve(out.bondingCurve);
@@ -365,6 +367,7 @@ contract RaffleVRFTest is Test {
         cfg.winnerCount = 1;
         cfg.grandPrizeBps = 6500;
         cfg.treasuryAddress = treasury;
+        cfg.quoteToken = address(sof);
 
         vm.expectRevert(abi.encodeWithSignature("InvalidSeasonName()"));
         raffle.createSeason(cfg, _steps(), 50, 70);
@@ -480,6 +483,7 @@ contract RaffleVRFTest is Test {
         cfg.winnerCount = 3;
         cfg.grandPrizeBps = 6500;
         cfg.treasuryAddress = treasury;
+        cfg.quoteToken = address(sof);
         uint256 seasonId = raffle.createSeason(cfg, _steps(), 50, 70);
         (RaffleTypes.SeasonConfig memory out,,,,) = raffle.getSeasonDetails(seasonId);
         SOFBondingCurve curve = SOFBondingCurve(out.bondingCurve);

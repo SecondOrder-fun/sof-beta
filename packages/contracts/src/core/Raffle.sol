@@ -39,6 +39,7 @@ error InvalidSeasonName();
 error InvalidStartTime(uint256 startTime, uint256 currentTime);
 error InvalidEndTime(uint256 endTime, uint256 startTime);
 error InvalidTreasuryAddress();
+error InvalidQuoteToken();
 error UnauthorizedCaller();
 error NoVRFWords(uint256 seasonId);
 error UserNotVerified(uint256 seasonId, address user);
@@ -82,7 +83,6 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
     event SofCurveRegistered(address indexed curve);
 
     // Core
-    IERC20 public immutable sofToken;
     ISeasonFactory public seasonFactory;
     // Prize Distributor integration
     address public prizeDistributor;
@@ -104,11 +104,9 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         uint256 indexed seasonId, address indexed player, uint256 oldTickets, uint256 newTickets, uint256 totalTickets
     );
 
-    constructor(address _sofToken, address _vrfCoordinator, uint256 _vrfSubscriptionId, bytes32 _vrfKeyHash)
+    constructor(address _vrfCoordinator, uint256 _vrfSubscriptionId, bytes32 _vrfKeyHash)
         VRFConsumerBaseV2Plus(_vrfCoordinator)
     {
-        if (_sofToken == address(0)) revert InvalidAddress();
-        sofToken = IERC20(_sofToken);
         COORDINATOR = IVRFCoordinatorV2Plus(_vrfCoordinator);
         vrfSubscriptionId = _vrfSubscriptionId;
         vrfKeyHash = _vrfKeyHash;
@@ -260,12 +258,10 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         if (config.treasuryAddress == address(0)) revert InvalidTreasuryAddress();
         if (bondSteps.length == 0) revert InvalidBondSteps();
 
-        // Resolve the season's quote token. A zero value means "use the Raffle's default",
-        // which keeps existing callers working while the launchpad is built out; once every
-        // caller supplies one explicitly the default (and `sofToken`) can be removed.
-        if (config.quoteToken == address(0)) {
-            config.quoteToken = address(sofToken);
-        }
+        // Every season names the ERC-20 its tickets are priced in. There is no
+        // protocol-wide default: the quote token is per-season so that each launched
+        // token can denominate its own seasons.
+        if (config.quoteToken == address(0)) revert InvalidQuoteToken();
 
         // Derive winnerCount from tier config if provided
         if (tierConfigs.length > 0) {
@@ -541,9 +537,12 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         address curveAddr = cfg.bondingCurve;
         if (curveAddr == address(0)) revert InvalidAddress();
 
+        // The prize asset is the season's quote token — the same asset `extractSof` below
+        // pulls out of the curve. These must agree: configuring one token and funding with
+        // another leaves the distributor holding an asset it will not pay out.
         IRafflePrizeDistributor(prizeDistributor).configureSeason(
             seasonId,
-            address(sofToken),
+            cfg.quoteToken,
             grandWinner,
             grandAmount,
             consolationAmount,

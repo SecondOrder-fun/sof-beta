@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {Raffle} from "../src/core/Raffle.sol";
+import {Raffle, InvalidQuoteToken} from "../src/core/Raffle.sol";
 import {SeasonFactory} from "../src/core/SeasonFactory.sol";
 import {SOFBondingCurve} from "../src/curve/SOFBondingCurve.sol";
 import {SOFToken} from "../src/token/SOFToken.sol";
@@ -36,7 +36,7 @@ contract SeasonQuoteTokenTest is Test {
         defaultToken = new SOFToken("Default Quote", "DQ", 1_000_000 ether);
         launchToken = new QuoteToken18("Launched Token", "LAUNCH");
 
-        raffle = new Raffle(address(defaultToken), address(0xCAFE), 1, bytes32(0));
+        raffle = new Raffle(address(0xCAFE), 1, bytes32(0));
         seasonFactory = new SeasonFactory(address(raffle));
         raffle.setSeasonFactory(address(seasonFactory));
         raffle.grantRole(raffle.SEASON_FACTORY_ROLE(), address(seasonFactory));
@@ -71,15 +71,11 @@ contract SeasonQuoteTokenTest is Test {
         assertEq(cfg.quoteToken, address(launchToken), "persisted config should record the quote token");
     }
 
-    /// Back-compat: a zero quote token resolves to the Raffle's default and is persisted
-    /// as the resolved address, not left as zero.
-    function test_zeroQuoteTokenFallsBackToDefault() public {
-        (uint256 id, SOFBondingCurve curve) = _createSeason(address(0));
-
-        assertEq(address(curve.quoteToken()), address(defaultToken), "should fall back to the Raffle default");
-
-        (RaffleTypes.SeasonConfig memory cfg,,,,) = raffle.getSeasonDetails(id);
-        assertEq(cfg.quoteToken, address(defaultToken), "resolved token should be persisted, not zero");
+    /// There is no protocol-wide default quote token: every season must name one.
+    /// A zero address is a configuration error, not a request for a fallback.
+    function test_zeroQuoteTokenReverts() public {
+        vm.expectRevert(InvalidQuoteToken.selector);
+        _createSeason(address(0));
     }
 
     /// Two concurrent seasons on the same Raffle can use different quote tokens.

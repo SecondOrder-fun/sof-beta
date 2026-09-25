@@ -10,7 +10,7 @@ import {RafflePrizeDistributor} from "../src/core/RafflePrizeDistributor.sol";
 
 // Reuse the same harness pattern from RaffleVRF.t.sol
 contract AuditSnapshotHarness is Raffle {
-    constructor(address sof, address coord, uint64 subId, bytes32 keyHash) Raffle(sof, coord, subId, keyHash) {}
+    constructor(address coord, uint64 subId, bytes32 keyHash) Raffle(coord, subId, keyHash) {}
 
     function testFulfill(uint256 requestId, uint256[] calldata words) external {
         fulfillRandomWords(requestId, words);
@@ -102,7 +102,7 @@ contract AuditSnapshotTest is Test {
         sof.mint(player2, 10000 ether);
         sof.mint(player3, 10000 ether);
         address mockCoordinator = address(0xCAFE);
-        raffle = new AuditSnapshotHarness(address(sof), mockCoordinator, 0, bytes32(0));
+        raffle = new AuditSnapshotHarness(mockCoordinator, 0, bytes32(0));
         SeasonFactory factory = new SeasonFactory(address(raffle));
         raffle.setSeasonFactory(address(factory));
         raffle.grantRole(raffle.SEASON_FACTORY_ROLE(), address(factory));
@@ -125,6 +125,7 @@ contract AuditSnapshotTest is Test {
         cfg.winnerCount = 1;
         cfg.grandPrizeBps = 6500;
         cfg.treasuryAddress = treasury;
+        cfg.quoteToken = address(sof);
         seasonId = raffle.createSeason(cfg, _steps(), 50, 70);
         (RaffleTypes.SeasonConfig memory out,,,,) = raffle.getSeasonDetails(seasonId);
         curve = SOFBondingCurve(out.bondingCurve);

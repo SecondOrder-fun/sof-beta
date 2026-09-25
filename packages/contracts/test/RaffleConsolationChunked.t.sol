@@ -52,8 +52,8 @@ contract MockSOF {
 }
 
 contract RaffleHarness is Raffle {
-    constructor(address sof, address coord, uint64 subId, bytes32 keyHash)
-        Raffle(sof, coord, subId, keyHash)
+    constructor(address coord, uint64 subId, bytes32 keyHash)
+        Raffle(coord, subId, keyHash)
     {}
 
     /// @dev Forces a VRF callback so tests don't need a real coordinator.
@@ -74,7 +74,7 @@ contract RaffleConsolationChunkedTest is Test {
 
     function setUp() public {
         sof = new MockSOF("SOF", "SOF", 18);
-        raffle = new RaffleHarness(address(sof), address(0xC0DE), 0, bytes32(0));
+        raffle = new RaffleHarness(address(0xC0DE), 0, bytes32(0));
         factory = new SeasonFactory(address(raffle));
         raffle.setSeasonFactory(address(factory));
         raffle.grantRole(raffle.SEASON_FACTORY_ROLE(), address(factory));
@@ -104,6 +104,7 @@ contract RaffleConsolationChunkedTest is Test {
         cfg.winnerCount = 2;
         cfg.grandPrizeBps = 6500;
         cfg.treasuryAddress = treasury;
+        cfg.quoteToken = address(sof);
         seasonId = raffle.createSeason(cfg, _steps(), 50, 70);
         (RaffleTypes.SeasonConfig memory out,,,,) = raffle.getSeasonDetails(seasonId);
         curve = SOFBondingCurve(out.bondingCurve);
