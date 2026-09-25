@@ -70,8 +70,8 @@ the same direction.
 | Raffle creation rights | Stake-gated in the launched token, permissionless otherwise |
 | Raffle requires graduation | **No.** Raffles are available pre-graduation by design (§1.1). Eligibility is a tunable policy, not a binary gate (§6.3) |
 | Token decimals | **Always 18**, asserted at raffle creation (§6.3) |
-| Dev-buy | Optional, no minimum — and the *only* route to a starting stake (§5.1) |
-| Creator allocation | **None.** No free tokens, ever. |
+| Dev-buy | Optional, no minimum (§5.1) |
+| Creator allocation | **No free dev allocations.** Creators buy at the same price as everyone else (§5.1) |
 | InfoFi seed liquidity | Earmarked share of each token's supply, reserved at deploy time (§6.4) |
 | `$SOF` | Removed. Base Sepolia only, never on mainnet — nothing to migrate (§3) |
 
@@ -89,6 +89,23 @@ the same direction.
 5. **Graduation landing mid-season.** Now reachable, since seasons are not gated on
    graduation. Do float-derived thresholds snapshot at season creation or track
    live? §9.3. Blocks Phase 3.
+6. **Curve + graduation, or single-sided liquidity at launch?** *Largest open
+   architectural question.* Clanker — the dominant launcher on Base — has no
+   bonding curve and no graduation: it opens a Uniswap v4 pool at deploy time with
+   the token placed as single-sided liquidity across up to seven tick bands.
+   Adopting that shape would delete `LaunchCurve`, `GraduationManager`, the
+   graduation threshold, and open question 5 above along with §9.3 and §9.4
+   entirely. See [`clanker-comparison.md`](clanker-comparison.md) §2.1 and the
+   build-vs-integrate fork in §3 of that document. **Blocks Phase 1.**
+7. **Does InfoFi still need seed liquidity at all?** The entire InfoFi earmark
+   below (§5.2, §5.8) exists only because FPMM requires a seeded pool. A dynamic
+   pari-mutuel market needs none, which would collapse the supply split from three
+   buckets to two. See
+   [`../infofi-redesign/dpm-vs-fpmm.md`](../infofi-redesign/dpm-vs-fpmm.md).
+   **Blocks Phase 1** — supply splits cannot be changed for tokens already launched.
+
+Questions 6 and 7 both gate Phase 1, and both are cheap to settle now and
+expensive to reverse later. They should be resolved before any launchpad code.
 
 Everything else from the first pass is now settled and folded in below.
 
@@ -225,10 +242,11 @@ struct LaunchParams {
   a season can now be in flight pre-graduation (§1.1) and the creator must not be
   able to exit a float they shrank (§9.2).
 
-**The creator receives no free allocation.** The dev-buy is the only way tokens
-reach the creator, at the same curve price as everyone else, and it is the only
-route to a starting stake. Two consequences worth stating plainly, because they
-are unusual and the UI has to communicate them:
+**No free dev allocations.** That is the rule, stated positively: a creator gets
+tokens by buying them at the same price as everyone else, and by no other route.
+The dev-buy is how they do it, and a stake is a downstream effect of holding
+tokens rather than a separate grant. Two consequences worth stating plainly,
+because they are unusual and the UI has to communicate them:
 
 - **A creator who launches with no dev-buy has no stake and cannot open the first
   raffle on their own token.** Anyone who buys past the threshold can. The
@@ -259,8 +277,8 @@ no creator discretion:
 | Bucket | Share | Purpose |
 |---|---|---|
 | **Curve sale** | ~70% *(placeholder)* | Mintable by `LaunchCurve` on buys. The only supply in circulation pre-graduation. |
-| **Graduation LP** | ~20% *(placeholder)* | Minted at graduation, paired with ETH reserves into the v4 position (§5.4). |
-| **InfoFi seed** | ~10% *(placeholder)* | Reserved for prediction-market seed liquidity (§6.4). Held by `InfoFiSeedVault`. |
+| **Graduation LP** | ~20% *(placeholder)* | Minted at graduation, paired with ETH reserves into the v4 position (§5.4). Disappears as a separate bucket if single-sided-liquidity-at-launch is adopted — open question 6. |
+| **InfoFi seed** | ~10% *(placeholder)* | **Provisional.** Reserved for prediction-market seed liquidity (§6.4), held by `InfoFiSeedVault`. Exists *only* because FPMM needs a seeded pool; a pari-mutuel mechanism needs none and this bucket is then deleted outright — open question 7. |
 
 Percentages are placeholders — see open question 2 in §1. What matters structurally:
 
@@ -363,7 +381,14 @@ the **low bits of the hook's address**, so deployment requires CREATE2 salt mini
 and the hook is in the path of every swap forever. Ship graduation without a hook
 first; add it only if the fee capture justifies the risk.
 
-### 5.8 `launchpad/InfoFiSeedVault.sol` — Phase 1 stub, Phase 4 logic
+### 5.8 `launchpad/InfoFiSeedVault.sol` — provisional; Phase 1 stub, Phase 4 logic
+
+> **This contract may not be needed at all.** It exists solely to hold seed
+> liquidity for FPMM-based markets. If InfoFi moves to a dynamic pari-mutuel
+> mechanism there is no seed to hold and this section, its supply bucket, and the
+> two open questions attached to it all go away — see
+> [`../infofi-redesign/dpm-vs-fpmm.md`](../infofi-redesign/dpm-vs-fpmm.md) §5.
+> Decide before Phase 1.
 
 Custodies the InfoFi seed bucket (§5.2) for every launch. Deployed and funded in
 Phase 1 so the supply split is correct from the first token; its release path stays
@@ -497,7 +522,11 @@ that one token (9 call sites). Multi-token means:
 
 - Collateral resolved per market from `Raffle.seasons[seasonId].quoteToken`.
 - Seed liquidity must exist **in that token**, and the treasury will never hold
-  every launch token. **Resolved: each token pre-funds its own seed.** A fixed
+  every launch token. **Provisionally resolved: each token pre-funds its own seed.**
+  This whole sub-problem is downstream of the FPMM mechanism choice — a
+  pari-mutuel market needs no seed and the question does not arise. See
+  [`../infofi-redesign/dpm-vs-fpmm.md`](../infofi-redesign/dpm-vs-fpmm.md) before
+  building any of it. Under FPMM, the answer below stands. A fixed
   share of max supply is earmarked at deploy time into `InfoFiSeedVault` (§5.2,
   §5.8); `InfoFiMarketFactory` draws `INITIAL_LIQUIDITY` from that vault instead
   of from a treasury balance.

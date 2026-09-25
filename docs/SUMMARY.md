@@ -39,6 +39,8 @@
   * [Flow Diagram](05-features/arbitrage/flow-diagram.md)
 * [Consolation System](05-features/consolation/implementation.md)
 * [Token Launchpad](05-features/launchpad/design.md)
+  * [Prior art: Clanker v4](05-features/launchpad/clanker-comparison.md)
+* [InfoFi Redesign: DPM vs FPMM](05-features/infofi-redesign/dpm-vs-fpmm.md)
 * [Localization System](05-features/i18n/localization-system.md)
 * [Treasury System](05-features/treasury/system.md)
 
