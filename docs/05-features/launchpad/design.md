@@ -77,8 +77,11 @@ the same direction.
 
 ### Open questions that block implementation
 
-1. **Launch fee size.** ETH is the only candidate once `$SOF` is gone. Flat
-   (e.g. 0.001 ETH) or a share of the dev-buy? Unresolved.
+1. ~~**Launch fee size.**~~ **Resolved:** 0.0005–0.001 ETH, settable rather than
+   constant, and framed as anti-spam rather than revenue. No major launchpad earns
+   from launch fees — Clanker and pump.fun charge nothing — while trade fees earn
+   millions. Real revenue is a swap-fee cut converted to ETH at collection. Full
+   benchmarks and the reasoning in [`fee-benchmarks.md`](fee-benchmarks.md).
 2. **Supply split.** What percentages go to curve sale / graduation LP / InfoFi
    seed? §5.2 carries placeholders that need real numbers.
 3. **Unused InfoFi seed.** If no market ever opens on a token, does its earmark
@@ -103,6 +106,12 @@ the same direction.
    buckets to two. See
    [`../infofi-redesign/dpm-vs-fpmm.md`](../infofi-redesign/dpm-vs-fpmm.md).
    **Blocks Phase 1** — supply splits cannot be changed for tokens already launched.
+
+8. **Creator fee share.** Clanker gives creators 80% of LP fees; pump.fun gives a
+   fraction of a percent. That spread is a positioning choice, not an optimisation.
+   Given "no free dev allocations" (§5.1), a generous creator share is the coherent
+   counterpart — creators aren't granted tokens, so let them earn from the volume
+   they attract. See [`fee-benchmarks.md`](fee-benchmarks.md) §4.
 
 Questions 6 and 7 both gate Phase 1, and both are cheap to settle now and
 expensive to reverse later. They should be resolved before any launchpad code.
@@ -308,6 +317,13 @@ permanently — the v4 pool is the market from then on.
 
 Reserved supply (the portion never sold on the curve, e.g. 20%) is minted at
 graduation and paired with reserves as LP.
+
+**Invariant: the curve is quoted in the same asset its future v4 pool will be
+paired with.** ETH-quoted curve → ETH-paired pool. This is what keeps
+`GraduationManager` simple — no swap, no oracle, no price reconciliation at the
+handover. Pons states it explicitly for the same reason. Recorded here as a
+constraint so nobody later "improves" the curve by quoting it in USDC:
+that change would silently require a swap step inside graduation.
 
 ### 5.4 `launchpad/GraduationManager.sol`
 
@@ -732,9 +748,15 @@ block `graduate()` while a season is active (worst option — it would let a sea
 hold the token's graduation hostage). Snapshotting is the likely answer. Needs a
 decision before Phase 3 — open question 5 in §1.
 
-**9.4 Sniping at graduation.** MEV bots buy the first block of the new v4 pool.
-Mitigation: the optional hook (§5.7) with per-block caps, or a brief post-graduation
-trading delay. Acceptable to ship without and monitor.
+**9.4 Sniping.** MEV bots buy the first block of a new pool — at launch, and again at
+graduation if there is one. **Adopt a decaying snipe tax** rather than per-block caps
+or a trading delay: Pons uses a tax starting as high as 99% that decays to normal
+over ~60 seconds, with an exemption list (see
+[`fee-benchmarks.md`](fee-benchmarks.md) §3.4). It does not block legitimate early
+buyers, it converts MEV that would otherwise go to a bot into protocol and creator
+revenue, and the exemption list is a clean way to let a creator's own dev-buy execute
+at par. Applies at launch, which matters more if graduation does not survive open
+question 6.
 
 **9.5 Spam and impersonation.** Flat fee + gas is the only economic filter.
 Needs the moderation path in §7.3 to exist *before* launch day, not after.
@@ -753,9 +775,15 @@ will look like a coordinated dump. Two requirements follow:
   Staggering settlement across overlapping seasons would smooth it further, but
   that is a v2 refinement, not a launch requirement.
 
-**9.7 Graduation reentrancy.** The v4 `unlock` callback hands control back to
-`GraduationManager`. All curve state transitions (`graduated = true`, trading
-disabled) must be committed *before* the unlock call.
+**9.7 Graduation atomicity, not just reentrancy.** The v4 `unlock` callback hands
+control back to `GraduationManager`, so curve state transitions must be committed
+before the unlock call. But careful ordering is not enough: a single atomic
+graduation either wholly succeeds or wholly reverts, and if pool creation fails for
+an external reason (a v4-side revert, a tick problem, gas) the design either bricks
+or traps reserves. **Split graduation into two retryable phases** — drain reserves,
+then create and seed the pool — so a failure is recoverable by construction. Pons
+does exactly this (`PonsV2GraduationGuard` + `PonsV2GraduationExecutor`,
+"reserves can never be stranded"); see [`fee-benchmarks.md`](fee-benchmarks.md) §3.2.
 
 **9.8 Reserved-supply misread.** The graduation-LP and InfoFi-seed buckets (§5.2)
 are ~30% of max supply sitting outside circulation, held by protocol contracts.
