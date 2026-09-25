@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {SOFToken} from "../src/token/SOFToken.sol";
+import {MockERC20} from "../src/test-helpers/MockERC20.sol";
 import {RaffleToken} from "../src/token/RaffleToken.sol";
 import {SOFBondingCurve} from "../src/curve/SOFBondingCurve.sol";
 import {RolloverEscrow} from "../src/core/RolloverEscrow.sol";
@@ -13,7 +13,7 @@ import {RaffleTypes} from "../src/lib/RaffleTypes.sol";
 ///         blocker: the global `bondingCurve` slot is replaced by a per-cohort field,
 ///         so two simultaneously-active cohorts cannot cross-contaminate.
 contract RolloverPerCohortCurveTest is Test {
-    SOFToken public sof;
+    MockERC20 public sof;
     RolloverEscrow public escrow;
 
     SOFBondingCurve public curveA;
@@ -34,7 +34,7 @@ contract RolloverPerCohortCurveTest is Test {
     uint256 constant DEPOSIT      = 100e18;
 
     function setUp() public {
-        sof = new SOFToken("SOF", "SOF", 10_000_000e18);
+        sof = new MockERC20("SOF", "SOF", 10_000_000e18);
         escrow = new RolloverEscrow(address(sof), treasury, raffleAddr);
         escrow.grantRole(escrow.DISTRIBUTOR_ROLE(), distributor);
 

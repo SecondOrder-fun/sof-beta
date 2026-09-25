@@ -52,7 +52,7 @@ contract DeployPaymaster is Script {
         // from the constructor, so the post-deploy wiring is authorized.
         address[] memory initialAllowlist = new address[](7);
         initialAllowlist[0] = addrs.raffle;
-        initialAllowlist[1] = addrs.sofToken;
+        initialAllowlist[1] = addrs.quoteToken;
         initialAllowlist[2] = addrs.infoFiFactory;
         initialAllowlist[3] = addrs.infoFiSettlement;
         initialAllowlist[4] = addrs.fpmmManager; // InfoFiFPMMV2 instance

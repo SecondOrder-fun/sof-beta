@@ -7,7 +7,7 @@ import {RaffleStorage} from "../../src/core/RaffleStorage.sol";
 import {SeasonFactory} from "../../src/core/SeasonFactory.sol";
 import {RafflePrizeDistributor} from "../../src/core/RafflePrizeDistributor.sol";
 import {SOFBondingCurve} from "../../src/curve/SOFBondingCurve.sol";
-import {SOFToken} from "../../src/token/SOFToken.sol";
+import {MockERC20} from "../../src/test-helpers/MockERC20.sol";
 import {RaffleTypes} from "../../src/lib/RaffleTypes.sol";
 
 // Harness that exposes internal VRF fulfillment for testing
@@ -41,7 +41,7 @@ contract FullSeasonFlowTest is Test {
     // Core contracts
     RaffleTestHarness public raffle;
     SeasonFactory public seasonFactory;
-    SOFToken public sof;
+    MockERC20 public sof;
     RafflePrizeDistributor public distributor;
 
     // Test addresses
@@ -63,7 +63,7 @@ contract FullSeasonFlowTest is Test {
         treasury = address(0xFEE);
 
         // Deploy SOF token (name, symbol, initialSupply)
-        sof = new SOFToken("SecondOrder Fun Token", "SOF", 1_000_000 * 10 ** 18);
+        sof = new MockERC20("SecondOrder Fun Token", "SOF", 1_000_000 * 10 ** 18);
 
         // Deploy Raffle harness with mock VRF coordinator
         address mockCoordinator = address(0xCAFE);

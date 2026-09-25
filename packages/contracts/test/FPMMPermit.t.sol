@@ -2,12 +2,12 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {SOFToken} from "../src/token/SOFToken.sol";
+import {MockERC20} from "../src/test-helpers/MockERC20.sol";
 import {SimpleFPMM} from "../src/infofi/InfoFiFPMMV2.sol";
 import {ConditionalTokenSOF} from "../src/infofi/ConditionalTokenSOF.sol";
 
 contract FPMMPermitTest is Test {
-    SOFToken public sofToken;
+    MockERC20 public sofToken;
     ConditionalTokenSOF public ct;
     SimpleFPMM public fpmm;
 
@@ -23,7 +23,7 @@ contract FPMMPermitTest is Test {
 
         vm.startPrank(admin);
 
-        sofToken = new SOFToken("SOF", "SOF", 1_000_000e18);
+        sofToken = new MockERC20("SOF", "SOF", 1_000_000e18);
         ct = new ConditionalTokenSOF();
 
         // Prepare a condition

@@ -6,7 +6,7 @@ import {SOFPaymaster} from "src/paymaster/SOFPaymaster.sol";
 import {SOFSmartAccountFactory} from "src/account/SOFSmartAccountFactory.sol";
 import {SOFSmartAccount} from "src/account/SOFSmartAccount.sol";
 import {Raffle} from "src/core/Raffle.sol";
-import {SOFToken} from "src/token/SOFToken.sol";
+import {MockERC20} from "src/test-helpers/MockERC20.sol";
 import {ERC7821} from "@openzeppelin/contracts/account/extensions/draft-ERC7821.sol";
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
 import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
@@ -33,7 +33,7 @@ contract SOFPaymasterTest is Test {
     SOFPaymaster internal paymaster;
     SOFSmartAccountFactory internal factory;
     Raffle internal raffle;
-    SOFToken internal sof;
+    MockERC20 internal sof;
 
     /// @dev EntryPoint stand-in. The new paymaster only requires that
     ///      `validatePaymasterUserOp` reverts unless `msg.sender == entryPoint`,
@@ -46,8 +46,8 @@ contract SOFPaymasterTest is Test {
     address internal constant VRF_COORDINATOR_PLACEHOLDER = address(0xC00D);
 
     function setUp() public {
-        // Real SOFToken so allowlist entries are non-zero, real addresses.
-        sof = new SOFToken("SecondOrder Fun Token", "SOF", 1_000_000 ether);
+        // Real MockERC20 so allowlist entries are non-zero, real addresses.
+        sof = new MockERC20("SecondOrder Fun Token", "SOF", 1_000_000 ether);
 
         // Real Raffle so we can exercise registerCurve / isSofCurve. The mock
         // VRF coordinator address is fine — the paymaster path doesn't touch

@@ -7,14 +7,14 @@ import {SeasonFactory} from "../src/core/SeasonFactory.sol";
 import {RafflePrizeDistributor} from "../src/core/RafflePrizeDistributor.sol";
 import {RolloverEscrow} from "../src/core/RolloverEscrow.sol";
 import {SOFBondingCurve} from "../src/curve/SOFBondingCurve.sol";
-import {SOFToken} from "../src/token/SOFToken.sol";
+import {MockERC20} from "../src/test-helpers/MockERC20.sol";
 import {RaffleTypes} from "../src/lib/RaffleTypes.sol";
 
 /// @notice Verifies SeasonFactory auto-grants ESCROW_ROLE to the configured RolloverEscrow
 ///         on every newly-deployed bonding curve. Covers the gap where rollover spends
 ///         would revert on fresh seasons because nobody had a public path to grant the role.
 contract SeasonFactoryRolloverTest is Test {
-    SOFToken public sof;
+    MockERC20 public sof;
     Raffle public raffle;
     SeasonFactory public seasonFactory;
     RafflePrizeDistributor public distributor;
@@ -24,7 +24,7 @@ contract SeasonFactoryRolloverTest is Test {
     address public treasury = address(0xFEE);
 
     function setUp() public {
-        sof = new SOFToken("SecondOrder Fun Token", "SOF", 1_000_000 ether);
+        sof = new MockERC20("SecondOrder Fun Token", "SOF", 1_000_000 ether);
         raffle = new Raffle(address(0xCAFE), 1, bytes32(0));
         seasonFactory = new SeasonFactory(address(raffle));
         raffle.setSeasonFactory(address(seasonFactory));

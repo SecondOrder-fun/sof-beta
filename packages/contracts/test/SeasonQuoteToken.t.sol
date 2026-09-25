@@ -6,7 +6,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Raffle, InvalidQuoteToken} from "../src/core/Raffle.sol";
 import {SeasonFactory} from "../src/core/SeasonFactory.sol";
 import {SOFBondingCurve} from "../src/curve/SOFBondingCurve.sol";
-import {SOFToken} from "../src/token/SOFToken.sol";
+import {MockERC20} from "../src/test-helpers/MockERC20.sol";
 import {RaffleTypes} from "../src/lib/RaffleTypes.sol";
 
 contract QuoteToken18 is ERC20 {
@@ -24,7 +24,7 @@ contract QuoteToken18 is ERC20 {
 ///         denominates its own raffle seasons. Until every caller supplies one, a zero
 ///         `quoteToken` falls back to the Raffle's default so existing callers keep working.
 contract SeasonQuoteTokenTest is Test {
-    SOFToken public defaultToken;
+    MockERC20 public defaultToken;
     QuoteToken18 public launchToken;
     Raffle public raffle;
     SeasonFactory public seasonFactory;
@@ -33,7 +33,7 @@ contract SeasonQuoteTokenTest is Test {
     address public player = address(0xBEEF);
 
     function setUp() public {
-        defaultToken = new SOFToken("Default Quote", "DQ", 1_000_000 ether);
+        defaultToken = new MockERC20("Default Quote", "DQ", 1_000_000 ether);
         launchToken = new QuoteToken18("Launched Token", "LAUNCH");
 
         raffle = new Raffle(address(0xCAFE), 1, bytes32(0));

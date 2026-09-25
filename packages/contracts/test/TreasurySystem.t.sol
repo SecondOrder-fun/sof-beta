@@ -2,13 +2,13 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {SOFToken} from "../src/token/SOFToken.sol";
+import {MockERC20} from "../src/test-helpers/MockERC20.sol";
 import {SOFBondingCurve, AmountZero} from "../src/curve/SOFBondingCurve.sol";
 import {RaffleToken} from "../src/token/RaffleToken.sol";
 import {RaffleTypes} from "../src/lib/RaffleTypes.sol";
 
 contract TreasurySystemTest is Test {
-    SOFToken public sofToken;
+    MockERC20 public sofToken;
     SOFBondingCurve public bondingCurve;
     RaffleToken public raffleToken;
 
@@ -27,7 +27,7 @@ contract TreasurySystemTest is Test {
         vm.startPrank(admin);
 
         // Deploy SOF token (simplified - no treasury param)
-        sofToken = new SOFToken("SOF Token", "SOF", INITIAL_SUPPLY);
+        sofToken = new MockERC20("SOF Token", "SOF", INITIAL_SUPPLY);
 
         // Deploy bonding curve with admin parameter
         bondingCurve = new SOFBondingCurve(address(sofToken), admin);

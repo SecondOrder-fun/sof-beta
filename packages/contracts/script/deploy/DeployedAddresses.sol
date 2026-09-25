@@ -5,7 +5,7 @@ pragma solidity ^0.8.20;
 ///         Passed through the deploy chain so each script can read
 ///         dependencies and write its own address.
 struct DeployedAddresses {
-    address sofToken;
+    address quoteToken;
     address vrfCoordinator;
     uint256 vrfSubscriptionId;
     bytes32 vrfKeyHash;
@@ -19,10 +19,8 @@ struct DeployedAddresses {
     address infoFiFactory;
     address infoFiSettlement;
     address prizeDistributor;
-    address faucet;
     address sofSmartAccountFactory;
     address paymasterAddress;
     address rolloverEscrow;
     address usdc;
-    address sofExchange;
 }

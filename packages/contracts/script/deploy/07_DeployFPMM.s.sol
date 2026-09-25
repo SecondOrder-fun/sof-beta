@@ -14,7 +14,7 @@ contract DeployFPMM is Script {
 
         InfoFiFPMMV2 manager = new InfoFiFPMMV2(
             addrs.conditionalTokens,
-            addrs.sofToken,
+            addrs.quoteToken,
             deployer,
             deployer
         );

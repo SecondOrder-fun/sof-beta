@@ -106,7 +106,7 @@ contract ConfigureRoles is Script {
         // TREASURY_PRIVATE_KEY (if set) drives the approval; otherwise we
         // log the manual command and let ops handle it.
         address treasury = vm.envAddress("TREASURY_ADDRESS");
-        IERC20 sof = IERC20(addrs.sofToken);
+        IERC20 sof = IERC20(addrs.quoteToken);
         if (treasury == deployer) {
             try sof.approve(addrs.infoFiFactory, type(uint256).max) {
                 console2.log("Approved InfoFiFactory for SOF spending (treasury == deployer)");

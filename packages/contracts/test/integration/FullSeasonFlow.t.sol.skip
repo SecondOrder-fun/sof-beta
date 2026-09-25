@@ -5,7 +5,7 @@ import "forge-std/Test.sol";
 import "../../src/core/Raffle.sol";
 import "../../src/core/SeasonFactory.sol";
 import "../../src/curve/SOFBondingCurve.sol";
-import "../../src/token/SOFToken.sol";
+import "../../src/token/MockERC20.sol";
 import "../../src/infofi/InfoFiMarket.sol";
 import "../../src/infofi/InfoFiMarketFactory.sol";
 import "../../src/infofi/InfoFiPriceOracle.sol";
@@ -18,7 +18,7 @@ contract FullSeasonFlowTest is Test {
     // Core contracts
     Raffle public raffle;
     SeasonFactory public seasonFactory;
-    SOFToken public sof;
+    MockERC20 public sof;
     
     // InfoFi contracts
     InfoFiMarket public infoFiMarket;
@@ -46,7 +46,7 @@ contract FullSeasonFlowTest is Test {
         player3 = address(0x3);
         
         // Deploy SOF token
-        sof = new SOFToken("SecondOrder Fun Token", "SOF", 1_000_000 * 10**18, admin);
+        sof = new MockERC20("SecondOrder Fun Token", "SOF", 1_000_000 * 10**18, admin);
         
         // Deploy VRF mock
         vrfCoordinator = address(new VRFCoordinatorMock());

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {SOFToken} from "../src/token/SOFToken.sol";
+import {MockERC20} from "../src/test-helpers/MockERC20.sol";
 import {RaffleToken} from "../src/token/RaffleToken.sol";
 import {SOFBondingCurve} from "../src/curve/SOFBondingCurve.sol";
 import {RaffleTypes} from "../src/lib/RaffleTypes.sol";
@@ -29,7 +29,7 @@ import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
  * Task 1: Add `buyTokensFor` to SOFBondingCurve
  */
 contract RolloverEscrowTest is Test {
-    SOFToken public sofToken;
+    MockERC20 public sofToken;
     RaffleToken public raffleToken;
     SOFBondingCurve public curve;
 
@@ -44,7 +44,7 @@ contract RolloverEscrowTest is Test {
     function setUp() public {
         vm.startPrank(admin);
 
-        sofToken = new SOFToken("SOF", "SOF", INITIAL_SOF);
+        sofToken = new MockERC20("SOF", "SOF", INITIAL_SOF);
         // forge-lint: disable-next-line(erc20-unchecked-transfer)
         sofToken.transfer(escrow, ESCROW_SOF);
 
@@ -485,7 +485,7 @@ contract RolloverEscrowDepositTest is Test {
 // Task 4: spendFromRollover — spend rollover balance to buy tickets with bonus
 // =============================================================================
 contract RolloverEscrowSpendTest is Test {
-    SOFToken public sofToken;
+    MockERC20 public sofToken;
     RaffleToken public raffleToken;
     SOFBondingCurve public curve;
     RolloverEscrow public escrow;
@@ -510,7 +510,7 @@ contract RolloverEscrowSpendTest is Test {
         vm.startPrank(admin);
 
         // Deploy tokens
-        sofToken = new SOFToken("SOF", "SOF", 1_000_000e18);
+        sofToken = new MockERC20("SOF", "SOF", 1_000_000e18);
         sofToken.transfer(treasury, TREASURY_SOF);
 
         // Deploy curve (0 fees for simplicity)
@@ -668,7 +668,7 @@ contract RolloverEscrowSpendTest is Test {
 // Task 5: refund — returns unspent rollover balance to user without bonus
 // =============================================================================
 contract RolloverEscrowRefundTest is Test {
-    SOFToken public sofToken;
+    MockERC20 public sofToken;
     RolloverEscrow public escrow;
 
     address public admin       = address(0xAD);
@@ -686,7 +686,7 @@ contract RolloverEscrowRefundTest is Test {
     function setUp() public {
         vm.startPrank(admin);
 
-        sofToken = new SOFToken("SOF", "SOF", 1_000_000e18);
+        sofToken = new MockERC20("SOF", "SOF", 1_000_000e18);
 
         escrow = new RolloverEscrow(address(sofToken), treasury, raffle);
         escrow.grantRole(escrow.DISTRIBUTOR_ROLE(), distributor);
@@ -820,7 +820,7 @@ contract RolloverEscrowRefundTest is Test {
  *         indexers can track parameter changes without replaying full state.
  */
 contract RolloverEscrowAdminSetterTest is Test {
-    SOFToken public sofToken;
+    MockERC20 public sofToken;
     RolloverEscrow public escrow;
 
     address public admin = address(0xA9);
@@ -834,7 +834,7 @@ contract RolloverEscrowAdminSetterTest is Test {
 
     function setUp() public {
         vm.startPrank(admin);
-        sofToken = new SOFToken("SOF", "SOF", 1_000e18);
+        sofToken = new MockERC20("SOF", "SOF", 1_000e18);
         escrow = new RolloverEscrow(address(sofToken), treasury, raffle);
         vm.stopPrank();
     }

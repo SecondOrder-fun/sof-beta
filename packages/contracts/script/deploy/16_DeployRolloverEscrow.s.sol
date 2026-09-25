@@ -14,7 +14,7 @@ contract DeployRolloverEscrow is Script {
         vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
 
         RolloverEscrow escrow = new RolloverEscrow(
-            addrs.sofToken,
+            addrs.quoteToken,
             treasury,
             addrs.raffle
         );

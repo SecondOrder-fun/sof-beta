@@ -18,15 +18,14 @@ error SlippageExceeded(uint256 cost, uint256 maxAllowed);
 ```
 src/
 ├── core/       # Raffle, SeasonFactory, RaffleStorage, RafflePrizeDistributor
-├── curve/      # SOFBondingCurve, IRaffleToken
-├── token/      # SOFToken (ERC-20 + permit), RaffleToken
+├── curve/      # SOFBondingCurve (ticket curve, quoted in the season's quoteToken), IRaffleToken
+├── token/      # RaffleToken (per-season tickets, 0 decimals)
 ├── infofi/     # InfoFiMarketFactory, InfoFiFPMMV2, InfoFiPriceOracle, InfoFiSettlement, ConditionalTokenSOF, MarketTypeRegistry, RaffleOracleAdapter
-├── exchange/   # SOFExchange
 ├── airdrop/    # SOFAirdrop
-├── faucet/     # SOFFaucet
 ├── gating/     # SeasonGating, SeasonGatingStorage
 ├── sponsor/    # SponsorOnboarding
-└── lib/        # Interfaces + RaffleTypes, RaffleLogic
+├── lib/        # Interfaces + RaffleTypes, RaffleLogic
+└── test-helpers/ # MockERC20 (placeholder quote token), MockUSDC
 ```
 
 ## Testing
@@ -38,14 +37,14 @@ forge test --match-test testName    # Specific test
 forge test --match-contract Name    # Specific contract
 ```
 
-24 test files covering:
+Test files covering:
 - VRF flow and raffle lifecycle (`RaffleVRF.t.sol`)
 - Bonding curve operations (`SellAllTickets.t.sol`, `BondingCurvePermit.t.sol`)
 - Pricing invariants (`invariant/HybridPricingInvariant.t.sol`)
 - InfoFi FPMM (`InfoFiFPMM.t.sol`, `FPMMPermit.t.sol`)
 - Airdrop (`SOFAirdrop.t.sol`)
+- Per-season quote tokens (`SeasonQuoteToken.t.sol`)
 - Season gating (`SeasonGating.t.sol`, `SeasonGatingSignature.t.sol`)
-- Exchange (`SOFExchange.t.sol`)
 - Prize sponsorship (`PrizeSponsorship.t.sol`, `TreasurySystem.t.sol`)
 
 ### Skipped Tests
@@ -64,6 +63,8 @@ This generates `abi/index.js` with named exports consumed by frontend and backen
 
 Modular numbered scripts in `script/deploy/`:
 - `00_DeployVRFMock` — local only (skipped on testnet/mainnet via HelperConfig)
+- `01_DeployQuoteToken` — placeholder MockERC20 for seasons to be priced in, until the
+  launchpad supplies real quote tokens. Replaced `01_DeploySOFToken`.
 - `01-13` — one contract each, in dependency order
 - `14_ConfigureRoles` — all role grants and wiring
 - `DeployAll.s.sol` — orchestrator that chains 00-14 and auto-writes `deployments/{network}.json`
