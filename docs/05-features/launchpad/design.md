@@ -166,7 +166,8 @@ place sniping is handled. Net: one sniping surface instead of two.
 | InfoFi earmark | **1%** of supply, not 10% ([`float-lock-model.md`](float-lock-model.md) §4) |
 | Unused InfoFi seed | **Swept to the locked LP position.** No creator claim (§6.4.1) |
 | Operating posture | **Platform sells blank tickets; the season creator is the operator of record.** Permits reimbursed from creation fees. See [`float-lock-model.md`](float-lock-model.md) §6 for two design changes this posture requires |
-| Wind-down | **Must be designed in, not improvised.** Taking down the front end does not stop permissionless contracts ([`float-lock-model.md`](float-lock-model.md) §6.2) |
+| Pause controls | Security feature, not a regulatory retreat — contracts continuing without the front end is deliberate. Pause must never strand funds (§6.8, [`float-lock-model.md`](float-lock-model.md) §6.2) |
+| KYC | **When needed.** Build none now; keep the gating layer able to carry an attestation later ([`float-lock-model.md`](float-lock-model.md) §6.3) |
 | Season size cap | Delaware raffle thresholds: prize pool < **$5,000**, ticket price ≤ **$5** (top step), or run under a **$15 permit** filed ≥15 days ahead. Eligibility and a 20-events/year licence cap are unresolved and may override ([`float-lock-model.md`](float-lock-model.md) §2–3) |
 | `maxFloatLockedBps` | **10%**, ceiling 25% — but only binds below ~$44k mcap; the prize cap binds above ([`float-lock-model.md`](float-lock-model.md) §2.2) |
 
@@ -808,9 +809,9 @@ platform's maximum share is capped in the contract so it cannot be raised arbitr
 
 ### 6.8 Lifecycle controls (pause, settle, sunset)
 
-Required by the wind-down posture ([`float-lock-model.md`](float-lock-model.md) §6.2), and
-worth having regardless — the same switches cover an exploit, a compromised key or a chain
-migration.
+Security controls for an exploit, a compromised key, a bad deployment or a chain migration.
+**Not a regulatory retreat** — the protocol continuing without the front end is deliberate
+([`float-lock-model.md`](float-lock-model.md) §6.2). Cheap, standard, worth having on day one.
 
 | Control | Where | Behaviour |
 |---|---|---|

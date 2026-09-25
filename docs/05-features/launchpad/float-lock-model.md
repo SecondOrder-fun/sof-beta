@@ -286,15 +286,19 @@ Changes that cost little and align the mechanics with the story:
 None of this makes the position safe. It makes it *consistent*, which is the difference
 between a hard argument and a contradicted one.
 
-### 6.2 "Shut down the front ends" does not stop permissionless contracts
+### 6.2 Pause is a security control, not a regulatory retreat
 
-The stated wind-down is to take down the front ends and dissolve the company. **That does not
-stop the system.** The contracts are permissionless and on-chain: seasons keep opening,
-tickets keep selling, and settlement keeps running whether or not the UI exists — and the
-protocol keeps accruing fees to an address the dissolved company controlled, which is worse
-than either stopping cleanly or not stopping at all.
+An earlier draft of this section framed permissionless continuation as a flaw in the wind-down
+plan. That was the wrong framing. **The contracts continuing without the front end is
+deliberate and is part of the argument** — a protocol that runs whether or not any company
+operates it is the substance of the credible-neutrality position, not an oversight in it.
+Taking down the front end withdraws *the company's* participation; it is not meant to stop
+the protocol, and it should not.
 
-If wind-down is part of the plan, **it has to be built in now**:
+So the controls below exist for **security eventualities** — an exploit, a compromised key, a
+bad deployment, a chain migration — and for the narrow case of not accruing fees to an entity
+that no longer exists. They are cheap, they are standard, and they are worth having on day one
+for reasons that have nothing to do with regulators:
 
 - **A season-creation pause** on `Raffle` / `SeasonCreationStake` — stop new seasons without
   stranding live ones. `Pausable` is already imported in `SOFBondingCurve`; this is a small
@@ -306,11 +310,35 @@ If wind-down is part of the plan, **it has to be built in now**:
   cannot legally receive.
 - **Decide who holds the key**, and write it down. A pause nobody can reach is not a pause.
 
-This is ordinary operational hygiene for any on-chain system with a possible sunset — it is
-worth building regardless of the regulatory question, because the same switches cover an
-exploit, a compromised key, or a chain migration.
+The one design constraint that survives from the original framing: **a pause must never strand
+funds.** Settlement, consolation claims and ticket sell-backs stay reachable under every pause
+state. That is a correctness requirement for an exploit response just as much as for a sunset —
+if the answer to a live exploit is "pause everything", and pausing everything traps user funds,
+the control is unusable exactly when it is needed.
 
-### 6.3 Scope note
+### 6.3 KYC and compliance: design for later addition, build none of it now
+
+KYC is a "when needed" item, on the same reasoning as the rest of this section: there is no
+advantage in clearing regulatory hurdles for a platform nobody uses. The only thing worth doing
+now is making sure it *can* be added later without a migration — and most of that already
+exists.
+
+`SeasonGating` / `SeasonGatingStorage` already gate season entry on signatures and passwords,
+and the access layer already carries per-route levels 0–4 plus access groups. An attestation-
+based gate is the same shape as the signature gate already built. Three things to avoid baking
+in, all of them cheap to respect and expensive to retrofit:
+
+- **Do not assume a participant is only ever an address.** Keep the participant record able to
+  carry an external identifier later without a schema migration on a partitioned table.
+- **Keep gating checks at the boundary**, in the gating layer, rather than scattering
+  address-only assumptions through the ticket curve and distributor.
+- **Keep per-season records exportable** (§6.4) — the same event data serves tax reporting and
+  any later compliance ask.
+
+That is the whole cost of staying option-open. Building an actual KYC flow now would be
+premature.
+
+### 6.4 Scope note
 
 Tax and licensing operations (Elven or similar) are an operational dependency, not a design
 input — nothing in the contracts or the UI needs to change for it. The one design-adjacent
