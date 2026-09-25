@@ -12,6 +12,7 @@
 | **Clanker** | **None.** No deployment fee exists in `Clanker.sol` **(source)** | Base | Instant Uniswap v4 pool, no curve |
 | **pump.fun** | **No protocol fee.** ~0.02 SOL of Solana account rent only **(secondary)** | Solana | Curve → PumpSwap |
 | **Pons** | **0.0005 ETH**, and it is a *configurable* `launchFee`, not a constant — `setLaunchFee()`, collected in native ETH, forwarded to the protocol fee recipient **(source)** | Robinhood Chain | Curve → Uniswap v4, LP locked |
+| **Pools.trade** (Uniswap's own) | **None** *(secondary)* | Robinhood Chain | Token opens directly in a v4 pool at 0.25%, fees compounded into permanently locked liquidity |
 
 Meanwhile these platforms earn substantially: Pons reported **$5.03M in 24-hour fees**, leading the
 launchpad category, and Clanker passed **$8M weekly** *(both secondary)*. None of that is launch
@@ -129,11 +130,69 @@ the *live* values are configurable, but a ceiling is compiled in so no future ad
 fees arbitrarily. Our `SOFBondingCurve` already has a `FeeTooHigh` error and a fee ceiling — extend
 the same discipline to the launch curve and the hook.
 
-**Creator share is a real decision, not yet made.** Clanker gives creators 80% of LP fees;
-pump.fun gives a fraction of a percent. That spread is enormous and it is a positioning choice, not
-an optimisation. Given "no free dev allocations" (§5.1), a generous creator fee share is the
-coherent counterpart: creators are not granted tokens, so let them earn from the volume they
-attract. Worth its own decision — noted as a new open question in `design.md`.
+### 4.1 Creator share — DECIDED: 85% creator / 15% platform
+
+On the Epic Games Store model. This is the coherent counterpart to "no free dev allocations"
+(`design.md` §5.1): creators are not granted tokens, so they earn from the volume they attract.
+
+It also positions us slightly better than the market leader — Clanker is 80/20 — which makes it a
+usable talking point rather than parity.
+
+**A factual note on the reference, since it affects the talking points:** Epic's headline split is
+**88/12** for the Epic Games Store, and Unreal Engine's royalty is a separate **5% after the first
+$1M** of revenue. Neither is 15%. If the point is to invoke Epic's positioning, 88/12 matches the
+reference exactly and still beats Clanker; if 85/15 is our own number, the Epic comparison should be
+described as *the approach* (a headline creator-favourable split, loudly stated) rather than implying
+we matched their rate. Worth settling before any copy ships, because "like Epic's 88%" invites a
+correction that "we keep only 15%" does not.
+
+### 4.2 Framing the split in copy
+
+Two candidate framings, per the brief:
+
+- **Platform-minimising:** "We only take 15%." Foregrounds our restraint; invites comparison to
+  competitors' cuts. Epic used exactly this register.
+- **Creator-maximising:** "You keep 85%." Foregrounds the creator's outcome; reads as a benefit
+  rather than a concession.
+
+General direction from pricing-psychology practice is that the gain framing ("you keep 85%")
+outperforms the loss framing for the *recipient* of the benefit, while the platform-minimising
+framing works better as *competitive* positioning aimed at people already comparing platforms. Those
+are different audiences, and the answer plausibly differs between the `/launch` form (creator about
+to act → "you keep 85%") and the marketing page (creator comparing options → "we only take 15%").
+Using both, placed by audience, is defensible and probably better than picking one globally.
+
+### 4.3 A/B testing this is not currently feasible — and why
+
+**The repo has no analytics and no feature-flag library.** Verified: no PostHog, Mixpanel,
+Amplitude, `@vercel/analytics`, `@vercel/flags`, GrowthBook, Statsig or LaunchDarkly in any
+`package.json` or in `packages/frontend/src`. There is no event pipeline, so there is nothing to
+measure a variant against.
+
+What *is* already in place: all user-facing copy lives in `packages/frontend/public/locales/{lang}/*.json`,
+so rendering two copy variants is trivial — two keys and a selector. **The missing half is
+measurement, not rendering.**
+
+To make it feasible, in order of cost:
+
+1. **An event sink and a conversion metric.** Define the conversion first — almost certainly
+   *launch form opened → launch transaction confirmed*. Without that number a test cannot conclude.
+2. **A variant assignment that is stable per user.** Wallet address or FID hashed to a bucket,
+   persisted, so a user does not see the copy flip between sessions.
+3. **A flag mechanism.** Vercel's flags integration is the lowest-friction option given the frontend
+   already deploys there.
+
+Two practical cautions:
+
+- **Nine locales.** Copy lives in `de/en/es/fr/it/ja/pt/ru/zh`. A copy A/B test either runs
+  English-only (cleanest, and most launch traffic is likely English) or multiplies translation work
+  by the number of variants. Run it English-only and apply the winner everywhere.
+- **Launch volume has to be high enough to reach significance.** A framing difference on a
+  conversion of this kind is a small effect; detecting it needs a large denominator. Until the
+  launchpad has meaningful traffic, an A/B test will return noise. **Recommendation: ship one
+  framing chosen on judgement (§4.2), instrument the conversion from day one, and revisit a
+  test once there is volume to make it conclusive.** Instrumenting early is the part that
+  matters — it is cheap now and impossible retroactively.
 
 ## 5. What I could not verify
 

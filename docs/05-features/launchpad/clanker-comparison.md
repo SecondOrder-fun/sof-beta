@@ -211,6 +211,68 @@ What would push against Option B: needing a quote asset other than what Clanker 
 a supply other than 100B, or wanting the raffle to be inseparable from the launch rather than an
 extension of it.
 
+### 3.1 Does the commodity infrastructure exist on Robinhood Chain?
+
+**Yes — Clanker itself is there.** Clanker has been live on Robinhood Chain since **2026-07-08**, a
+week after Robinhood Chain's mainnet went live on 1 July 2026, and its fee data shows it active
+across Base, Arbitrum, Unichain, Ethereum, Monad and Robinhood *(secondary — DefiLlama adapter PR
+and coverage)*. Note this is *not* the "Arbitrum" entry in the v4-contracts README's address list,
+which is Arbitrum One; Robinhood Chain is a separate Arbitrum Orbit L2. **Verify the Robinhood Chain
+factory address on-chain before relying on it.**
+
+That materially strengthens Option B: the integration is **portable across both chains we might
+care about**, so choosing Clanker is not a bet on Base.
+
+Context on why the question matters: Robinhood Chain is an Arbitrum Orbit L2, mainnet 1 July 2026,
+permissionless (no partner status needed to deploy). Uniswap shipped v2/v3/v4 and UniswapX on day
+one and v4 took ~73% of DEX liquidity for tokenized stocks. Robinhood Chain platforms captured
+**almost 70% of all crypto launchpad fees on 31 August** *(The Defiant, secondary)* — the launchpad
+centre of gravity has moved off Base. Competitors there: Pons, Flap, hood.fun, NOXA Fun, Bankr,
+Virtuals, Clanker — and **Uniswap's own Pools.trade**, which out-launched Pons on its first day.
+
+An important distinction: Pons is a *product*, not infrastructure. Its factory
+(`PonsV2LaunchFactory.launchToken`) takes a `launchConfigId` and a `pairToken` but exposes **no
+extension interface** — there is no equivalent of `IClankerExtension` to plug a raffle into.
+Clanker's extension system is the unusual thing here, and it is the only reason Option B is
+available at all.
+
+### 3.2 What Option B costs in revenue
+
+Clanker takes **20% of the LP fee off the top**; the remaining 80% is split across
+`rewardRecipients[]` by `rewardBps[]`, where we would list ourselves alongside the creator. With the
+85/15 creator/platform split decided in [`fee-benchmarks.md`](fee-benchmarks.md) §4.1, applied to
+the portion we control:
+
+| | Creator | Us | Clanker |
+|---|---|---|---|
+| **Own infrastructure** | 85% | **15%** | — |
+| **On Clanker, our 15% preserved** | 65% | 15% | 20% |
+| **On Clanker, creator's 85% preserved** | 85% | **12%** | 20% |
+
+So the rent is **either 3 percentage points of gross swap fees (a 20% haircut on our own revenue),
+or 20 points off the creator's share — which breaks the "you keep 85%" headline.** Those are the
+only two options; the 20% comes off the top either way. If the 85% promise is load-bearing
+positioning, Option B costs us 12% instead of 15% of gross, and that is the real number.
+
+**But this only applies to the launch/trading layer.** Clanker takes nothing from the ticket curve,
+the raffle, or InfoFi — those are our contracts and our fees entirely. So the decision hinges on
+expected revenue mix:
+
+- If most revenue comes from **token swap fees**, the 20% rent is significant and Option A or C
+  looks better.
+- If most comes from the **raffle and InfoFi layers**, the rent applies to a minority of revenue and
+  buying audited contracts, LP locking, MEV protection, multi-chain reach and Clanker's distribution
+  for 3 points of gross is cheap.
+
+Given that launchpad swap volume dwarfs anything our raffle layer will do early on, the honest
+reading is that the rent is **large in year one and shrinking thereafter** as the raffle layer
+grows. That argues for Option C — our own launch layer, built with Pons's and Clanker's patterns —
+if we can afford the build, and Option B if time-to-market matters more than the 3 points.
+
+One further consideration that is not about money: on Clanker, **we do not control the token
+contract**, so any raffle-specific behaviour has to live outside it, and Clanker's 100B fixed supply
+and upgrade path become constraints we cannot change.
+
 ---
 
 ## 4. Base MCP — not what the brief implies
@@ -241,4 +303,5 @@ Useful for the dev loop, especially Phase 0–1 testnet work. Not an architectur
 - [Clanker documentation (GitBook)](https://clanker.gitbook.io/clanker-documentation/references/core-contracts/v4) — blocked here
 - [Introducing Clanker v4](https://paragraph.com/@dish/introducing-clanker-v4) · [Clanker v4 on Bankless](https://www.bankless.com/read/clanker-v4-token-creator) · [PoolFans guide](https://pool.fans/clank)
 - [github.com/bgdnvk/clanker](https://github.com/bgdnvk/clanker) — the unrelated DevOps CLI
+- [Robinhood Chain mainnet (Arbitrum)](https://blog.arbitrum.io/robinhood-chain-mainnet/) · [Uniswap live on Robinhood Chain](https://blog.uniswap.org/robinhood-chain-is-live) · [Clanker Robinhood Chain adapter PR](https://github.com/DefiLlama/dimension-adapters/pull/9232) · [Pools.trade out-launches Pons](https://thedefiant.io/news/defi/uniswaps-new-launchpad-out-launched-pons-on-its-first-day-on-robinhood-chain) · [Robinhood Chain launchpad fee boom](https://www.mexc.com/learn/article/pons-long-and-the-robinhood-chain-launchpad-boom-where-the-fees-are-coming-from/1)
 - [Base MCP catalog entry](https://archestra.ai/mcp-catalog/base__base-mcp) · [CDP for Agents](https://docs.cdp.coinbase.com/get-started/build-with-ai/cdp-for-agents) · [coverage](https://cryptobriefing.com/base-mcp-ai-agents-wallets-tokens/)

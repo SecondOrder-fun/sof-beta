@@ -1,7 +1,43 @@
 # InfoFi mechanism redesign: DPM vs FPMM
 
-> Why the current FPMM design forces an awkward supply earmark on the launchpad,
-> what a dynamic pari-mutuel market would replace it with, and what it costs.
+> **DECISION: rejected. FPMM is retained.** The two costs in §4 — payout no longer
+> being fixed at purchase (§4.2) and DPM's known incentive weaknesses (§4.1) —
+> outweigh the seed-liquidity saving. We keep FPMM and live with the liquidity
+> problem, which means the launchpad's InfoFi supply earmark is **permanent, not
+> provisional**: see [`../launchpad/design.md`](../launchpad/design.md) §5.2, §5.8.
+>
+> Retained as a decision record. The analysis below stands as written; §7's
+> recommendation to spike a DPM is superseded by this decision. Two items survive
+> it and should still be actioned: **adaptive fees** (§6) and the
+> **raffle-state-only market types** (§6), neither of which depends on the
+> mechanism choice.
+
+> Original framing: why the current FPMM design forces an awkward supply earmark on
+> the launchpad, what a dynamic pari-mutuel market would replace it with, and what
+> it costs.
+
+## 0. Why it was rejected
+
+The seed-liquidity problem is real, and DPM does solve it. It was rejected anyway
+because the two things it trades away are worse than the problem it fixes:
+
+- **Payout vagueness is a product defect, not a tuning parameter.** Under FPMM a
+  user buys a share that pays a known amount if it resolves their way. Under DPM
+  the payout depends on who else shows up afterwards. For a product whose entire
+  pitch is *"fair games through transparent rules"* and *"clearly stated rules"*
+  (`docs/01-product/framework.md`), a mechanism where the payoff cannot be stated
+  at the time of the bet is off-thesis. It would also silently break the arbitrage
+  detector, which assumes fixed-payout shares.
+- **The incentive weakness points the wrong way for a two-week season.** Truthful
+  betting not being a Nash equilibrium of the three-stage game, and the resulting
+  incentive to delay, is tolerable for hourly markets. Over a fourteen-day season
+  it rewards waiting — which is the opposite of what an information market on a
+  live raffle is for.
+
+The cost accepted in exchange: the InfoFi earmark stays, along with its supply
+overhang, the vault, the dead-earmark sweep path, and the disclosure burden. Those
+are known, bounded and already designed. Payout vagueness is neither bounded nor
+fixable.
 
 ## 1. The problem this solves
 
@@ -130,17 +166,30 @@ DPM's incentive-to-delay problem in §4.1, arrived at independently.
 
 Market types worth considering, given `MarketTypeRegistry.sol` already exists to register them:
 
-| Type | Question | Notes |
-|---|---|---|
-| Winner prediction *(current)* | Will player X win? | Ground truth from the raffle |
-| Timed price | Will the launch token be above P at time T? | Borrowed from Limitless. Needs a price oracle on the v4 pool — new dependency |
-| Position threshold | Will X hold >N% of tickets at season lock? | Pure raffle state, no external oracle, cheap to settle |
-| Participation | Will the season exceed N participants / N tokens locked? | Ties directly to the volatility-damper thesis |
-| Graduation timing | Will this token graduate before T? | Only meaningful if graduation survives §2.1 of the Clanker study |
+The goal is markets **on the launched token itself**, not only on the raffle — the token is the
+thing people care about, and a launchpad with an InfoFi layer on its tokens is a genuinely
+differentiated position. The constraint is that anything referencing the token's *price* needs an
+oracle on the v4 pool, which is a new dependency and a new manipulation surface (a thin pool is
+cheap to push around at the moment of settlement).
 
-The threshold and participation types are the cheapest to add — they settle purely from raffle
-state, need no external oracle, and are unavailable to any general prediction market because they
-are questions about *our* game.
+| Type | Question | Oracle needed | Notes |
+|---|---|---|---|
+| Winner prediction *(current)* | Will player X win? | No — raffle state | Ground truth on-chain already |
+| Position threshold | Will X hold >N% of tickets at season lock? | No — raffle state | Cheapest to add |
+| Participation | Will the season exceed N participants / N tokens locked? | No — raffle state | Ties to the volatility-damper thesis |
+| Supply locked | Will >N% of float be locked in seasons at time T? | No — curve state | Reads `maxFloatLockedBps` headroom |
+| Graduation timing | Will this token graduate before T? | No — curve state | Only if graduation survives open question 6 |
+| **Timed price** | Will the token be above P at time T? | **Yes — v4 pool** | Borrowed from Limitless. Deferred: needs a TWAP, and a thin pool makes settlement manipulable |
+
+**Sequencing that follows: ship the oracle-free types first.** The first five all settle from state
+we already own, need no new dependency, and have the useful property that **no general prediction
+market can offer them** — they are questions about our game, not about a price anyone can quote.
+Timed-price markets are the obvious crowd-pleaser and should come after, gated on a TWAP design
+that survives a thin-pool manipulation review.
+
+Note that "supply locked" and "graduation timing" are *token*-level markets that need no oracle —
+they are the cheapest way to get markets onto the token rather than only onto the raffle, which was
+the actual goal.
 
 ## 7. Recommendation
 

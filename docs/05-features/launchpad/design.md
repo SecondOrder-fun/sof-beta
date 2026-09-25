@@ -100,21 +100,23 @@ the same direction.
    graduation threshold, and open question 5 above along with §9.3 and §9.4
    entirely. See [`clanker-comparison.md`](clanker-comparison.md) §2.1 and the
    build-vs-integrate fork in §3 of that document. **Blocks Phase 1.**
-7. **Does InfoFi still need seed liquidity at all?** The entire InfoFi earmark
-   below (§5.2, §5.8) exists only because FPMM requires a seeded pool. A dynamic
-   pari-mutuel market needs none, which would collapse the supply split from three
-   buckets to two. See
-   [`../infofi-redesign/dpm-vs-fpmm.md`](../infofi-redesign/dpm-vs-fpmm.md).
-   **Blocks Phase 1** — supply splits cannot be changed for tokens already launched.
+7. ~~**Does InfoFi still need seed liquidity at all?**~~ **Resolved: yes.** A
+   dynamic pari-mutuel market would remove the seed requirement, but was rejected —
+   payout would no longer be fixed at purchase, which is off-thesis for a product
+   built on "clearly stated rules", and DPM's incentive to delay points the wrong
+   way over a two-week season. FPMM is retained and the earmark below is
+   **permanent**. See
+   [`../infofi-redesign/dpm-vs-fpmm.md`](../infofi-redesign/dpm-vs-fpmm.md) §0.
 
-8. **Creator fee share.** Clanker gives creators 80% of LP fees; pump.fun gives a
-   fraction of a percent. That spread is a positioning choice, not an optimisation.
-   Given "no free dev allocations" (§5.1), a generous creator share is the coherent
-   counterpart — creators aren't granted tokens, so let them earn from the volume
-   they attract. See [`fee-benchmarks.md`](fee-benchmarks.md) §4.
+8. ~~**Creator fee share.**~~ **Resolved: 85% creator / 15% platform**, on the
+   Epic Games Store model. Slightly better for creators than Clanker's 80/20, and
+   the coherent counterpart to "no free dev allocations" — creators aren't granted
+   tokens, so they earn from the volume they attract. See
+   [`fee-benchmarks.md`](fee-benchmarks.md) §4.1.
 
-Questions 6 and 7 both gate Phase 1, and both are cheap to settle now and
-expensive to reverse later. They should be resolved before any launchpad code.
+**Question 6 is the only remaining Phase 1 blocker** and is the largest open
+architectural decision in the launchpad. It is cheap to settle now and expensive to
+reverse later, so it should be resolved before any launchpad code.
 
 Everything else from the first pass is now settled and folded in below.
 
@@ -287,7 +289,7 @@ no creator discretion:
 |---|---|---|
 | **Curve sale** | ~70% *(placeholder)* | Mintable by `LaunchCurve` on buys. The only supply in circulation pre-graduation. |
 | **Graduation LP** | ~20% *(placeholder)* | Minted at graduation, paired with ETH reserves into the v4 position (§5.4). Disappears as a separate bucket if single-sided-liquidity-at-launch is adopted — open question 6. |
-| **InfoFi seed** | ~10% *(placeholder)* | **Provisional.** Reserved for prediction-market seed liquidity (§6.4), held by `InfoFiSeedVault`. Exists *only* because FPMM needs a seeded pool; a pari-mutuel mechanism needs none and this bucket is then deleted outright — open question 7. |
+| **InfoFi seed** | ~10% *(placeholder)* | Reserved for prediction-market seed liquidity (§6.4), held by `InfoFiSeedVault`. **Confirmed** — FPMM is retained, so the seed requirement is permanent (open question 7). |
 
 Percentages are placeholders — see open question 2 in §1. What matters structurally:
 
@@ -397,14 +399,12 @@ the **low bits of the hook's address**, so deployment requires CREATE2 salt mini
 and the hook is in the path of every swap forever. Ship graduation without a hook
 first; add it only if the fee capture justifies the risk.
 
-### 5.8 `launchpad/InfoFiSeedVault.sol` — provisional; Phase 1 stub, Phase 4 logic
+### 5.8 `launchpad/InfoFiSeedVault.sol` — Phase 1 stub, Phase 4 logic
 
-> **This contract may not be needed at all.** It exists solely to hold seed
-> liquidity for FPMM-based markets. If InfoFi moves to a dynamic pari-mutuel
-> mechanism there is no seed to hold and this section, its supply bucket, and the
-> two open questions attached to it all go away — see
-> [`../infofi-redesign/dpm-vs-fpmm.md`](../infofi-redesign/dpm-vs-fpmm.md) §5.
-> Decide before Phase 1.
+> **Confirmed needed.** FPMM is retained (open question 7), so seed liquidity is a
+> permanent requirement and this contract is not provisional. The alternative — a
+> pari-mutuel mechanism needing no seed — was considered and rejected; see
+> [`../infofi-redesign/dpm-vs-fpmm.md`](../infofi-redesign/dpm-vs-fpmm.md) §0.
 
 Custodies the InfoFi seed bucket (§5.2) for every launch. Deployed and funded in
 Phase 1 so the supply split is correct from the first token; its release path stays
@@ -538,11 +538,9 @@ that one token (9 call sites). Multi-token means:
 
 - Collateral resolved per market from `Raffle.seasons[seasonId].quoteToken`.
 - Seed liquidity must exist **in that token**, and the treasury will never hold
-  every launch token. **Provisionally resolved: each token pre-funds its own seed.**
-  This whole sub-problem is downstream of the FPMM mechanism choice — a
-  pari-mutuel market needs no seed and the question does not arise. See
-  [`../infofi-redesign/dpm-vs-fpmm.md`](../infofi-redesign/dpm-vs-fpmm.md) before
-  building any of it. Under FPMM, the answer below stands. A fixed
+  every launch token. **Resolved: each token pre-funds its own seed.** FPMM is
+  retained (open question 7), so this is the permanent answer rather than a
+  placeholder. A fixed
   share of max supply is earmarked at deploy time into `InfoFiSeedVault` (§5.2,
   §5.8); `InfoFiMarketFactory` draws `INITIAL_LIQUIDITY` from that vault instead
   of from a treasury balance.
