@@ -165,6 +165,8 @@ place sniping is handled. Net: one sniping surface instead of two.
 | VRF funding | A small per-raffle fee, pooled into a budget — whales fund minnows (§5.1) |
 | InfoFi earmark | **1%** of supply, not 10% ([`float-lock-model.md`](float-lock-model.md) §4) |
 | Unused InfoFi seed | **Swept to the locked LP position.** No creator claim (§6.4.1) |
+| Operating posture | **Platform sells blank tickets; the season creator is the operator of record.** Permits reimbursed from creation fees. See [`float-lock-model.md`](float-lock-model.md) §6 for two design changes this posture requires |
+| Wind-down | **Must be designed in, not improvised.** Taking down the front end does not stop permissionless contracts ([`float-lock-model.md`](float-lock-model.md) §6.2) |
 | Season size cap | Delaware raffle thresholds: prize pool < **$5,000**, ticket price ≤ **$5** (top step), or run under a **$15 permit** filed ≥15 days ahead. Eligibility and a 20-events/year licence cap are unresolved and may override ([`float-lock-model.md`](float-lock-model.md) §2–3) |
 | `maxFloatLockedBps` | **10%**, ceiling 25% — but only binds below ~$44k mcap; the prize cap binds above ([`float-lock-model.md`](float-lock-model.md) §2.2) |
 
@@ -803,6 +805,30 @@ So applying 85/15 to raffles means:
 
 Compiled-in ceilings apply here as on the launch curve: the live split is settable, the
 platform's maximum share is capped in the contract so it cannot be raised arbitrarily.
+
+### 6.8 Lifecycle controls (pause, settle, sunset)
+
+Required by the wind-down posture ([`float-lock-model.md`](float-lock-model.md) §6.2), and
+worth having regardless — the same switches cover an exploit, a compromised key or a chain
+migration.
+
+| Control | Where | Behaviour |
+|---|---|---|
+| **Pause season creation** | `Raffle`, `SeasonCreationStake` | New seasons blocked; live seasons unaffected |
+| **Pause launches** | `TokenLaunchpad` | New tokens blocked; existing pools untouched (they are plain v4 pools and keep trading regardless — this is a fact to accept, not a control to build) |
+| **Guaranteed settlement while paused** | `Raffle`, `RafflePrizeDistributor` | In-flight seasons must always be able to reach settlement and payout. **Never gate settlement behind the same switch as creation.** |
+| **Fee redirection / zeroing** | ticket curve, launch hook | Stop accruing to an address that may not be able to receive it |
+| **Sell-only mode** | ticket curve | Already exists (`sellOnly` for cancelled seasons) — reuse it rather than inventing a second path |
+
+Two rules that matter more than the switches themselves:
+
+1. **A pause must never strand funds.** Settlement, consolation claims and ticket sell-backs
+   stay open under every pause state. This is the same liveness requirement as the VRF budget
+   floor (§5.1), and both should be covered by an explicit "shutdown with seasons in flight"
+   test rather than assumed.
+2. **Write down who holds the key.** A pause nobody can reach is not a pause. This is a
+   deployment and ops decision, and it belongs in `deployments/{network}.json` alongside the
+   addresses.
 
 ## 7. Backend changes
 

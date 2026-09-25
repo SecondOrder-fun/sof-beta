@@ -246,3 +246,75 @@ the earmark percentage is.
    value- or supply-proportional figure.
 6. **Stagger season settlements** — still free, still the cheapest release mitigation, and now
    mainly relevant for the many-concurrent-seasons case.
+
+## 6. Operating posture (decided)
+
+**Positioning: the platform sells blank tickets; the season creator is the operator.**
+Permits are paid for out of creation-fee revenue. Beyond that, the posture is explicitly
+to ship, stay small, and resolve any challenge later — accepting that a serious challenge
+means either a funded legal fight or winding the company down.
+
+That is a founder's risk call and this document does not second-guess it. But two things in
+the design as specified **cut against the positioning it would need to defend**, and both are
+cheaper to change now than later.
+
+### 6.1 Paying the permit is the platform acting as operator
+
+If the defence is "the creator is the operator", then the platform paying that creator's
+permit is evidence for the other side. So is the platform choosing prize parameters, pooling
+VRF funding across seasons (§5.1 of `design.md` — "whales fund minnows" is a common pool the
+platform administers), and taking a percentage of raffle fees, which resembles a cut of the
+handle rather than software revenue.
+
+The Epic analogy holds for the *token* layer — Epic takes 12% of sales without being a
+publisher — but raffle law tends to care about **who profits from the wager**, which is a
+narrower question than who profits from the platform.
+
+Changes that cost little and align the mechanics with the story:
+
+- **Permit in the creator's name, funded by a rebate.** The creator applies; the platform
+  reimburses the $15 from fee revenue. Same cash flow, materially different paper trail.
+- **Creator sets the prize parameters** within protocol bounds, rather than the protocol
+  setting them. The UI can default them; the creator must affirm them.
+- **Explicit operator acknowledgement at season creation** — a checkbox the creator signs
+  stating they are the operator of record. Cheap, and it is the single most useful artifact to
+  have if this is ever argued.
+- **Keep the raffle fee structurally identical to the token fee** (same 88/12, same
+  collection path). Uniform software pricing reads differently from a bespoke cut of raffle
+  proceeds.
+
+None of this makes the position safe. It makes it *consistent*, which is the difference
+between a hard argument and a contradicted one.
+
+### 6.2 "Shut down the front ends" does not stop permissionless contracts
+
+The stated wind-down is to take down the front ends and dissolve the company. **That does not
+stop the system.** The contracts are permissionless and on-chain: seasons keep opening,
+tickets keep selling, and settlement keeps running whether or not the UI exists — and the
+protocol keeps accruing fees to an address the dissolved company controlled, which is worse
+than either stopping cleanly or not stopping at all.
+
+If wind-down is part of the plan, **it has to be built in now**:
+
+- **A season-creation pause** on `Raffle` / `SeasonCreationStake` — stop new seasons without
+  stranding live ones. `Pausable` is already imported in `SOFBondingCurve`; this is a small
+  addition, not a new subsystem.
+- **A guaranteed settlement path for in-flight seasons** even while paused, so a shutdown
+  never traps user funds. This is the same liveness requirement as the VRF budget floor
+  (§5.1 of `design.md`), and it should be tested as a first-class scenario rather than assumed.
+- **A fee-redirection or fee-zeroing switch**, so a dissolved entity stops accruing revenue it
+  cannot legally receive.
+- **Decide who holds the key**, and write it down. A pause nobody can reach is not a pause.
+
+This is ordinary operational hygiene for any on-chain system with a possible sunset — it is
+worth building regardless of the regulatory question, because the same switches cover an
+exploit, a compromised key, or a chain migration.
+
+### 6.3 Scope note
+
+Tax and licensing operations (Elven or similar) are an operational dependency, not a design
+input — nothing in the contracts or the UI needs to change for it. The one design-adjacent
+consequence is that **per-season records need to be exportable**: operator of record,
+participant count, gross ticket sales, prize value at settlement, and fee split. Those are all
+derivable from events the indexer already stores, provided the events carry them — worth
+confirming when the season schema is written rather than reconstructing later.
