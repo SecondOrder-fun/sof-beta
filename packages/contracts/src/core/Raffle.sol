@@ -260,6 +260,13 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         if (config.treasuryAddress == address(0)) revert InvalidTreasuryAddress();
         if (bondSteps.length == 0) revert InvalidBondSteps();
 
+        // Resolve the season's quote token. A zero value means "use the Raffle's default",
+        // which keeps existing callers working while the launchpad is built out; once every
+        // caller supplies one explicitly the default (and `sofToken`) can be removed.
+        if (config.quoteToken == address(0)) {
+            config.quoteToken = address(sofToken);
+        }
+
         // Derive winnerCount from tier config if provided
         if (tierConfigs.length > 0) {
             uint16 totalWinners = 0;

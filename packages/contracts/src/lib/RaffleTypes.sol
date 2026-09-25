@@ -9,6 +9,7 @@ library RaffleTypes {
         uint16 winnerCount;
         uint16 grandPrizeBps; // In basis points (e.g. 6500 = 65% of totalPrizePool to grand winner). 0 => use default in Raffle
         address treasuryAddress; // Where accumulated fees are sent (set by season creator)
+        address quoteToken; // ERC-20 that prices tickets on this season's curve. 0 => Raffle's default.
         address raffleToken;
         address bondingCurve;
         address sponsor; // Season sponsor (creator in permissionless mode, or explicit sponsor)

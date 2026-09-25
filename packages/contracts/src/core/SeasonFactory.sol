@@ -57,7 +57,9 @@ contract SeasonFactory is AccessControl {
 
         // Deploy curve for this season with the Raffle contract (msg.sender) as admin.
         // msg.sender is the Raffle contract which has proper admin controls for season management.
-        SOFBondingCurve curve = new SOFBondingCurve(address(IRaffle(raffleAddress).sofToken()), msg.sender);
+        // The curve is quoted in config.quoteToken; Raffle resolves that before calling us, so
+        // by this point it is always a concrete address.
+        SOFBondingCurve curve = new SOFBondingCurve(config.quoteToken, msg.sender);
         curveAddr = address(curve);
 
         // Grant RAFFLE_MANAGER_ROLE to this factory temporarily to initialize, and to Raffle permanently
