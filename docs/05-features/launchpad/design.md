@@ -59,6 +59,58 @@ removes sell pressure from the launch curve and therefore makes graduation
 monotonically more likely, never less. The raffle and the graduation path pull in
 the same direction.
 
+### 1.2 Liquidity model: the decision, and a premise that did not check out
+
+**Decided: bonding curve + graduation**, on two grounds — that it is what the EVM
+trenches expect, and that it is the simpler build. Both deserve scrutiny.
+
+**On trench expectations — partly confirmed, partly not.** The reasoning was "pump.fun
+does curve+graduation, and if Pons and Pools do too, that is what the trenches want":
+
+| Platform | Curve + graduation? |
+|---|---|
+| pump.fun | **Yes** |
+| Pons | **Yes** — curve, graduating at ~4.2 ETH into a locked v4 position |
+| Clanker | **No** — v4 pool from block one |
+| **Pools.trade** (Uniswap's own) | **No** — and this is the interesting one |
+
+Pools.trade has *no separate bonding-curve AMM and no graduation event*. Trades hit a
+real Uniswap v4 pool from the first block. **The "bonding curve" its UI shows is
+single-sided concentrated liquidity in a plain v4 pool, not a separate contract.**
+
+So two of the four comparables do without a curve — including the newest entrant, built
+by Uniswap, which out-launched Pons on its first day. The useful lesson is not "the
+trenches want a curve contract" but:
+
+> **The trenches want the bonding-curve *experience*. Pools.trade demonstrates you can
+> deliver that experience with single-sided v4 liquidity and no graduation at all.**
+
+**On simplicity — the ranking is not obvious either.** A v4 integration is required in
+both designs; the question is how many moving parts sit around it:
+
+| | Curve + graduation | Single-sided at launch |
+|---|---|---|
+| Curve contract | Yes | No |
+| Graduation path | Yes — the hard part | No |
+| Tick/liquidity math | At graduation | At launch |
+| Two price sources to reconcile | Yes (§7.4) | No |
+| Graduation mid-season (§9.3) | Open problem | Does not exist |
+| Graduation atomicity (§9.7) | Needs two-phase retry | Does not exist |
+| Sniping surface | Launch *and* graduation | Launch only |
+
+Single-sided removes an entire second lifecycle stage and three open problems this
+document is still carrying. It is plausibly the *simpler* build, not the harder one.
+
+**What genuinely argues for the curve:** graduation is a real engagement mechanic — a
+progress bar and a milestone users anticipate and promote — and the curve gives clean
+reserve accounting that the raffle layer can read. Those are product reasons, and they
+may well win. They are just different reasons than the ones the decision was made on.
+
+**Status: decided as curve + graduation, flagged for one re-read.** If graduation-as-
+engagement is the real motivation, the decision stands on its own merits. If the
+motivation was "simplest, and what the trenches expect", the evidence points the other
+way and this should be reopened before Phase 1.
+
 ### Decisions locked in
 
 | Decision | Choice |
@@ -74,6 +126,13 @@ the same direction.
 | Creator allocation | **No free dev allocations.** Creators buy at the same price as everyone else (§5.1) |
 | InfoFi seed liquidity | Earmarked share of each token's supply, reserved at deploy time (§6.4) |
 | `$SOF` | Removed. Base Sepolia only, never on mainnet — nothing to migrate (§3) |
+| Target chain | **Robinhood Chain** for launch; EVM so the port from Base is mechanical. Launchpad activity has moved there (§3.1 of [`clanker-comparison.md`](clanker-comparison.md)) |
+| Build vs integrate | **Own infrastructure.** The raffle layer is the differentiator; paying 20% of gross swap fees in rent is not worth it (§3.2 of [`clanker-comparison.md`](clanker-comparison.md)) |
+| Liquidity model | **Bonding curve + graduation** — but see the premise correction in §1.2 before treating this as final |
+| Starting price | **Settable by the creator**, with a standardised step ladder above it (§5.3) |
+| Fee split | **85% creator / 15% platform**, on both the launch curve and the raffle (§6.7) |
+| Launch fee | Very small; earmarked to operational costs — VRF and InfoFi seeding (§5.1, and the accounting caveat there) |
+| `maxFloatLockedBps` | **10%**, admin-settable, hard ceiling 25% ([`float-lock-model.md`](float-lock-model.md)) |
 
 ### Open questions that block implementation
 
@@ -84,22 +143,24 @@ the same direction.
    benchmarks and the reasoning in [`fee-benchmarks.md`](fee-benchmarks.md).
 2. **Supply split.** What percentages go to curve sale / graduation LP / InfoFi
    seed? §5.2 carries placeholders that need real numbers.
-3. **Unused InfoFi seed.** If no market ever opens on a token, does its earmark
-   burn, or fall through to the LP position? §6.4.
-4. **`maxFloatLockedBps`.** What share of circulating supply may one season absorb?
-   This is the dial that decides whether the ticket curve damps volatility or
-   becomes a squeeze mechanism (§6.3, §9.2). Needs a real number.
+3. ~~**Unused InfoFi seed.**~~ **Decided: claimable by the creator after
+   graduation if no market was ever created**, after which later season creators
+   post their own seed alongside their stake, refunded on season completion. See
+   §6.4.1 — this decision conflicts with "no free dev allocations" and needs a
+   second look.
+4. ~~**`maxFloatLockedBps`.**~~ **Modelled: start at 10%, ceiling 25%.** The rule
+   is "cap the lock at about one day's turnover", and the prize pool is not a
+   constraint — a 5% cap on a $1M token is still a $50k prize. Full model, and
+   three structural requirements that matter more than the number, in
+   [`float-lock-model.md`](float-lock-model.md).
 5. **Graduation landing mid-season.** Now reachable, since seasons are not gated on
    graduation. Do float-derived thresholds snapshot at season creation or track
    live? §9.3. Blocks Phase 3.
-6. **Curve + graduation, or single-sided liquidity at launch?** *Largest open
-   architectural question.* Clanker — the dominant launcher on Base — has no
-   bonding curve and no graduation: it opens a Uniswap v4 pool at deploy time with
-   the token placed as single-sided liquidity across up to seven tick bands.
-   Adopting that shape would delete `LaunchCurve`, `GraduationManager`, the
-   graduation threshold, and open question 5 above along with §9.3 and §9.4
-   entirely. See [`clanker-comparison.md`](clanker-comparison.md) §2.1 and the
-   build-vs-integrate fork in §3 of that document. **Blocks Phase 1.**
+6. **Curve + graduation, or single-sided liquidity at launch?** **Decided:
+   curve + graduation** — on the grounds that it is what the EVM trenches expect
+   and the simpler build. The first half of that holds for pump.fun and Pons; the
+   second half does not survive checking. See §1.2 — this one is worth re-reading
+   before it is locked in.
 7. ~~**Does InfoFi still need seed liquidity at all?**~~ **Resolved: yes.** A
    dynamic pari-mutuel market would remove the seed requirement, but was rejected —
    payout would no longer be fixed at purchase, which is off-thesis for a product
@@ -114,9 +175,9 @@ the same direction.
    tokens, so they earn from the volume they attract. See
    [`fee-benchmarks.md`](fee-benchmarks.md) §4.1.
 
-**Question 6 is the only remaining Phase 1 blocker** and is the largest open
-architectural decision in the launchpad. It is cheap to settle now and expensive to
-reverse later, so it should be resolved before any launchpad code.
+**Nothing now blocks Phase 1 outright**, but two decisions above were made on
+premises that did not survive checking and should be revisited before code:
+question 6 (§1.2) and question 3 (§6.4.1).
 
 Everything else from the first pass is now settled and folded in below.
 
@@ -242,6 +303,24 @@ struct LaunchParams {
 
 - Reverts if `msg.value < launchFee`. **There is no minimum dev-buy** — `devBuyWei`
   may be zero.
+
+**What the launch fee is for.** It is cost recovery, not revenue (see
+[`fee-benchmarks.md`](fee-benchmarks.md)): it funds Chainlink VRF and InfoFi seeding.
+Two accounting mismatches to resolve before implementing, because neither cost is
+actually per-launch:
+
+- **VRF is consumed per raffle, not per launch.** A token that launches and never
+  raffles prepays for randomness it never uses; a token with twenty seasons
+  underpays twenty-fold. Charging VRF at *season creation* — where the cost is
+  actually incurred, and where a creator is already posting a stake — is the
+  correct accounting. Keep the launch fee as a flat anti-spam charge and let it
+  fund general operations.
+- **InfoFi seed is denominated in the launched token, not ETH.** The seed comes
+  from the supply earmark (§5.2), so ETH from the launch fee cannot buy it without
+  a swap. The launch fee can fund the *gas and operational cost* of market
+  creation; it cannot fund the seed itself. If the intent is for the protocol to
+  hold seed in ETH instead, that is a different design — and it conflicts with
+  markets being collateralised in the launch token.
 - Deploys `LaunchToken` + `LaunchCurve` via CREATE2 (deterministic addresses let
   the UI show the token page before the tx confirms).
 - If `devBuyWei > 0`, executes the dev-buy against the fresh curve **in the same
@@ -319,6 +398,19 @@ permanently — the v4 pool is the market from then on.
 
 Reserved supply (the portion never sold on the curve, e.g. 20%) is minted at
 graduation and paired with reserves as LP.
+
+**Starting price is creator-set; the ladder above it is not.** The creator chooses
+`startPriceWei` — it is the one genuinely expressive parameter of a launch, and the
+thing that sets initial FDV. Everything above it is derived: a standardised
+geometric step ladder (fixed step count, fixed ratio between steps) computed from
+the start price. Creators pick where the curve begins, not its shape.
+
+This split is deliberate. A fully creator-configurable ladder lets a creator build a
+predatory curve — a near-flat first step to accumulate cheaply, then a wall — and
+every buyer would have to read a bespoke curve to spot it. A standard ladder means
+one number distinguishes any two launches, which is also what makes the discovery
+feed comparable. Bound `startPriceWei` between a floor and a ceiling so a launch
+cannot start at a dust price or an absurd FDV.
 
 **Invariant: the curve is quoted in the same asset its future v4 pool will be
 paired with.** ETH-quoted curve → ETH-paired pool. This is what keeps
@@ -561,6 +653,46 @@ that one token (9 call sites). Multi-token means:
 - `MarketTypeRegistry` / `InfoFiPriceOracle` / `InfoFiSettlement` are
   probability-domain and currency-agnostic — no change expected, verify.
 
+#### 6.4.1 Unused InfoFi seed — decided, but it breaks a stated rule
+
+**Decision:** if no market was ever created on a token, the creator may claim the unused
+InfoFi earmark after graduation. Season creators from that point on post their own seed
+liquidity alongside their stake, refunded on season completion (mirroring the Solana port's
+approach).
+
+The refund-on-completion half is clean and should be built as described. The creator-claim
+half has a problem worth resolving before it ships:
+
+**It is a free dev allocation.** §5.1 states the rule as *"creators buy at the same price as
+everyone else, and by no other route"*, and the whole 85/15 positioning rests on creators
+earning rather than being granted. A conditional, delayed grant of ~10% of supply is still a
+grant. Externally it will be read as one — "creator gets 10% if they keep markets from
+opening" is a worse headline than anything the reserved-supply disclosure problem (§9.8)
+already creates.
+
+**It also inverts an incentive.** The creator now benefits from *no* InfoFi market ever
+existing on their token. Markets are created when a player crosses the 1% position threshold,
+so a creator cannot block one directly — but they can decline to promote raffles, avoid
+seeding early seasons, and generally prefer a quiet token. That is the opposite of what the
+earmark is for.
+
+**Alternatives that keep the useful part** (not letting the earmark sit dead forever) without
+granting supply:
+
+1. **Sweep to the LP position.** Unused seed is added to the locked v4 liquidity. Benefits
+   every holder including the creator, grants nothing, deepens the market. *Recommended.*
+2. **Burn it.** Simple, legible, mildly deflationary, grants nothing.
+3. **Sweep to the next season's prize pool.** Keeps it inside the game; makes a raffle on a
+   market-less token more attractive, which is a useful nudge.
+4. **Creator claim, but vested and disclosed** — if the grant is genuinely wanted, run it
+   through `ClankerVault`-style lockup-plus-linear-vesting (§2.3 of
+   [`clanker-comparison.md`](clanker-comparison.md)) and state it on the token page from
+   launch. Honest, but still a grant, and still inverts the incentive.
+
+Option 1 gets the creator economic benefit the decision was reaching for — deeper liquidity
+on a token they hold — without a grant, without the perverse incentive, and without breaking
+the 85/15 story. Worth a second look before implementing the creator claim as decided.
+
 ### 6.5 `core/RolloverEscrow.sol`
 
 Currently escrows `$SOF` between seasons with a treasury-funded bonus. Per-token:
@@ -581,6 +713,41 @@ launches on the protocol's dime. Recommend: **launches are not sponsored** (crea
 pays gas + fee, as specified); only trading and raffle actions are.
 
 ---
+
+### 6.7 Fee split: 85% creator / 15% platform, both layers
+
+Applied to the launch curve *and* the raffle. On the launch side this replaces the flat
+protocol fee; on the raffle side it is a **new capability, not a rate change** — worth being
+precise, because the existing numbers are different from what they might look like:
+
+| What exists today | Value | Where |
+|---|---|---|
+| Ticket-curve buy fee | 0.10% (10 bps) | `CreateSeasonForm.jsx`, `MobileCreateSeason.jsx` |
+| Ticket-curve sell fee | 0.70% (70 bps) | same |
+| Recipient of both | **100% to `treasuryAddress`** | `SOFBondingCurve.extractFees` |
+| Grand vs consolation prize | 65 / 35 (`defaultGrandPrizeBps = 6500`) | `Raffle.sol` |
+| InfoFi hybrid pricing weight | 70 / 30 raffle-probability vs market-sentiment | `InfoFiPriceOracle` |
+
+**There is no 70/30 revenue split today.** The 70/30 in the codebase is the InfoFi hybrid
+*pricing* weight, which is not a fee at all; the prize split is 65/35. Today the ticket curve
+sends **all** fees to the treasury and the season creator receives nothing.
+
+So applying 85/15 to raffles means:
+
+1. Adding a **season-creator fee recipient** to the ticket curve — new state, new accrual, new
+   claim path. `SOFBondingCurve` currently has a single `treasuryAddress` and an
+   `accumulatedFees` counter; it needs a two-way split at accrual time.
+2. Deciding **who the raffle's "creator" is** for fee purposes. On a launched token the season
+   creator may not be the token creator — anyone who meets the stake can open a season (§5.1).
+   Three candidates: the season creator, the token creator, or a split. The season creator is
+   the one doing the work and taking the stake risk, so they are the natural recipient — but
+   that means the token creator earns nothing from raffles on their own token, which is worth
+   a conscious decision rather than a default.
+3. Keeping the fee *rates* as they are (0.10% / 0.70%) unless there is a reason to change them.
+   The split is orthogonal to the rate, and changing both at once makes the effect unmeasurable.
+
+Compiled-in ceilings apply here as on the launch curve: the live split is settable, the
+platform's maximum share is capped in the contract so it cannot be raised arbitrarily.
 
 ## 7. Backend changes
 
@@ -760,18 +927,27 @@ question 6.
 Needs the moderation path in §7.3 to exist *before* launch day, not after.
 
 **9.6 Reflexive lock/unlock around seasons.** Ticket purchases sink the launch token
-into the ticket curve, shrinking float and lifting price; settlement releases it.
+into the ticket curve, shrinking float; settlement releases it. **Correction to earlier
+drafts: locking float does not itself lift price.** Curve price is a function of tokens
+minted and pool price a function of pool reserves — a holder moving tokens into the
+ticket curve changes neither. What it removes is *potential sell pressure*, which is
+still the damper §1.1 claims, by a different mechanism. Sizing, and why the release is
+measured in days of volume rather than percent of supply, in
+[`float-lock-model.md`](float-lock-model.md).
 This is the intended mechanism — the volatility damper of §1.1 — but the release
 at settlement is the same mechanism running in reverse, and on a small token it
 will look like a coordinated dump. Two requirements follow:
 
 - **Show it.** A "% of float locked in seasons" figure on the token page, and a
   visible settlement date, so the unlock is anticipated rather than discovered.
-- **Bound it.** `maxFloatLockedBps` (§6.3) caps the size of both the squeeze and
-  the subsequent release. A damper that locks a bounded share is stabilising; one
-  that can lock most of the float just relocates the volatility to settlement day.
-  Staggering settlement across overlapping seasons would smooth it further, but
-  that is a v2 refinement, not a launch requirement.
+- **Bound it.** `maxFloatLockedBps` (§6.3) caps the release. Modelled at **10% with a
+  25% ceiling**; the rule is to cap the lock at roughly one day's turnover, and note
+  that a *fixed* cap is unsafe for a dormant token — at 10% and 2% turnover the
+  release is 1.5 days of volume.
+- **Enforce the cap globally across concurrent seasons on a token**, not per-season, or
+  it is bypassed by opening more seasons.
+- **Stagger settlements.** Not a v2 refinement — it is the cheapest mitigation available
+  and it is free if season end dates simply may not coincide.
 
 **9.7 Graduation atomicity, not just reentrancy.** The v4 `unlock` callback hands
 control back to `GraduationManager`, so curve state transitions must be committed

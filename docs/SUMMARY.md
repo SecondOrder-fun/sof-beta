@@ -41,6 +41,7 @@
 * [Token Launchpad](05-features/launchpad/design.md)
   * [Prior art: Clanker v4](05-features/launchpad/clanker-comparison.md)
   * [Launch Fee Benchmarks](05-features/launchpad/fee-benchmarks.md)
+  * [Float Lock Model](05-features/launchpad/float-lock-model.md)
 * [InfoFi Redesign: DPM vs FPMM](05-features/infofi-redesign/dpm-vs-fpmm.md)
 * [Localization System](05-features/i18n/localization-system.md)
 * [Treasury System](05-features/treasury/system.md)

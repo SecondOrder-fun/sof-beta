@@ -12,7 +12,7 @@
 | **Clanker** | **None.** No deployment fee exists in `Clanker.sol` **(source)** | Base | Instant Uniswap v4 pool, no curve |
 | **pump.fun** | **No protocol fee.** ~0.02 SOL of Solana account rent only **(secondary)** | Solana | Curve → PumpSwap |
 | **Pons** | **0.0005 ETH**, and it is a *configurable* `launchFee`, not a constant — `setLaunchFee()`, collected in native ETH, forwarded to the protocol fee recipient **(source)** | Robinhood Chain | Curve → Uniswap v4, LP locked |
-| **Pools.trade** (Uniswap's own) | **None** *(secondary)* | Robinhood Chain | Token opens directly in a v4 pool at 0.25%, fees compounded into permanently locked liquidity |
+| **Pools.trade** (Uniswap's own) | **None** *(secondary)* | Robinhood Chain | **No curve contract and no graduation** — a real v4 pool from block one, at 0.25%; the "curve" in its UI is single-sided concentrated liquidity. Creator gets 0.05% of 0.25% (**20%** of fees); the rest auto-compounds into locked liquidity |
 
 Meanwhile these platforms earn substantially: Pons reported **$5.03M in 24-hour fees**, leading the
 launchpad category, and Clanker passed **$8M weekly** *(both secondary)*. None of that is launch
