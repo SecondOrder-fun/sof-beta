@@ -31,7 +31,7 @@ export function useTradingLockStatus(client, bondingCurveAddress) {
         functionName: "curveConfig",
         args: [],
       });
-      // curveConfig returns: [totalSupply, sofReserves, currentStep, buyFee,
+      // curveConfig returns: [totalSupply, reserves, currentStep, buyFee,
       // sellFee, tradingLocked, initialized, initialPrice]
       return {
         tradingLocked: Boolean(config[5]),

@@ -60,7 +60,7 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
     // Curve configuration
     struct CurveConfig {
         uint256 totalSupply; // Current total supply of raffle tokens
-        uint256 sofReserves; // Current quote-token reserves (excluding accumulated fees). TODO: rename to `reserves` (frontend decodes this field by name)
+        uint256 reserves; // Current quote-token reserves (excluding accumulated fees)
         uint256 currentStep; // Current step index in the bond steps
         uint16 buyFee; // Buy fee in basis points (e.g., 10 = 0.1%)
         uint16 sellFee; // Sell fee in basis points (e.g., 70 = 0.7%)
@@ -97,7 +97,7 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
     );
 
     event TradingLockedEvent(uint256 timestamp);
-    event SofExtracted(address indexed to, uint256 amount);
+    event ReservesExtracted(address indexed to, uint256 amount);
     event CurveInitialized(address raffleToken, uint256 stepCount);
     event FeesExtracted(address indexed to, uint256 amount);
 
@@ -155,7 +155,7 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
 
         curveConfig = CurveConfig({
             totalSupply: 0,
-            sofReserves: 0,
+            reserves: 0,
             currentStep: 0,
             buyFee: _buyFee,
             sellFee: _sellFee,
@@ -251,7 +251,7 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
 
         // Update curve state
         curveConfig.totalSupply += tokenAmount;
-        curveConfig.sofReserves += baseCost;
+        curveConfig.reserves += baseCost;
         accumulatedFees += fee;
 
         // Update recipient's position
@@ -293,15 +293,15 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
 
         // Edge case: if selling all tokens, cap baseReturn to available reserves
         // This handles rounding errors in the discrete bonding curve calculation
-        if (tokenAmount == curveConfig.totalSupply && baseReturn > curveConfig.sofReserves) {
-            baseReturn = curveConfig.sofReserves;
+        if (tokenAmount == curveConfig.totalSupply && baseReturn > curveConfig.reserves) {
+            baseReturn = curveConfig.reserves;
         }
 
         uint256 fee = (baseReturn * curveConfig.sellFee) / 10000; // fee accrues to accumulatedFees
         uint256 payout = baseReturn - fee;
 
         if (payout < minQuoteAmount) revert SlippageExceeded(payout, minQuoteAmount);
-        if (curveConfig.sofReserves < baseReturn) revert InsufficientReserves(baseReturn, curveConfig.sofReserves);
+        if (curveConfig.reserves < baseReturn) revert InsufficientReserves(baseReturn, curveConfig.reserves);
 
         // Track old values before mutation
         uint256 oldTickets = playerTickets[msg.sender];
@@ -313,7 +313,7 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
 
         // Update curve state (reserves decrease by base return; fees accumulate separately)
         curveConfig.totalSupply -= tokenAmount;
-        curveConfig.sofReserves -= baseReturn;
+        curveConfig.reserves -= baseReturn;
         accumulatedFees += fee;
 
         // Update player position
@@ -364,15 +364,15 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
      * @param to Address to send the quote token to (usually prize distributor)
      * @param amount Amount of quote token to extract
      */
-    function extractSof(address to, uint256 amount) external onlyRole(RAFFLE_MANAGER_ROLE) {
+    function extractReserves(address to, uint256 amount) external onlyRole(RAFFLE_MANAGER_ROLE) {
         if (!curveConfig.tradingLocked) revert TradingNotLocked();
-        if (amount > curveConfig.sofReserves) revert InsufficientReserves(amount, curveConfig.sofReserves);
+        if (amount > curveConfig.reserves) revert InsufficientReserves(amount, curveConfig.reserves);
         if (to == address(0)) revert InvalidAddress();
 
         quoteToken.safeTransfer(to, amount);
-        curveConfig.sofReserves -= amount;
+        curveConfig.reserves -= amount;
 
-        emit SofExtracted(to, amount);
+        emit ReservesExtracted(to, amount);
     }
 
     /**
@@ -461,8 +461,8 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
     /**
      * @notice Getter for current quote-token reserves tracked by the curve
      */
-    function getSofReserves() external view returns (uint256) {
-        return curveConfig.sofReserves;
+    function getReserves() external view returns (uint256) {
+        return curveConfig.reserves;
     }
 
     /**

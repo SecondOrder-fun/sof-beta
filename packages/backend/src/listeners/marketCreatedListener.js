@@ -50,7 +50,7 @@ async function calculateProbability(seasonId, playerAddress, logger) {
     });
 
     // Handle both array and object return formats
-    // Viem can return structs as arrays [totalSupply, sofReserves, ...] or objects {totalSupply, sofReserves, ...}
+    // Viem can return structs as arrays [totalSupply, reserves, ...] or objects {totalSupply, reserves, ...}
     const totalSupply = Array.isArray(curveConfig)
       ? curveConfig[0]
       : curveConfig.totalSupply;

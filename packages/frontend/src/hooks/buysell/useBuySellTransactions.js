@@ -192,7 +192,7 @@ export function useBuySellTransactions(bondingCurveAddress, client) {
           functionName: "curveConfig",
           args: [],
         });
-        if (cfg[1] /* sofReserves */ < minSofAmount) {
+        if (cfg[1] /* reserves */ < minSofAmount) {
           throw new Error(
             t("transactions:insufficientCurveReserves", {
               defaultValue: "Insufficient curve reserves — cannot sell this amount",

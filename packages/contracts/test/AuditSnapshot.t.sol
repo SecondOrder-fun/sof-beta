@@ -26,7 +26,7 @@ contract AuditSnapshotHarness is Raffle {
 
     function testRequestSeasonEnd(uint256 seasonId, uint256 requestId) external {
         SOFBondingCurve(seasons[seasonId].bondingCurve).lockTrading();
-        seasonStates[seasonId].totalPrizePool = SOFBondingCurve(seasons[seasonId].bondingCurve).getSofReserves();
+        seasonStates[seasonId].totalPrizePool = SOFBondingCurve(seasons[seasonId].bondingCurve).getReserves();
         seasons[seasonId].isActive = false;
         seasonStates[seasonId].status = SeasonStatus.VRFPending;
         seasonStates[seasonId].vrfRequestTimestamp = block.timestamp;

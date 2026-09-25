@@ -75,7 +75,7 @@ contract RaffleFinalizeHarness is Raffle {
     ///         and skips the distributor entirely when `totalPrizePool` is zero.
     function testLockAndSnapshotPool(uint256 seasonId) external {
         SOFBondingCurve(seasons[seasonId].bondingCurve).lockTrading();
-        seasonStates[seasonId].totalPrizePool = SOFBondingCurve(seasons[seasonId].bondingCurve).getSofReserves();
+        seasonStates[seasonId].totalPrizePool = SOFBondingCurve(seasons[seasonId].bondingCurve).getReserves();
         seasons[seasonId].isActive = false;
     }
 }

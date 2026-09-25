@@ -20,7 +20,7 @@ contract RaffleTestHarness is Raffle {
     function testRequestSeasonEnd(uint256 seasonId, uint256 requestId) external {
         SOFBondingCurve(seasons[seasonId].bondingCurve).lockTrading();
         seasonStates[seasonId].totalPrizePool =
-            SOFBondingCurve(seasons[seasonId].bondingCurve).getSofReserves();
+            SOFBondingCurve(seasons[seasonId].bondingCurve).getReserves();
         seasons[seasonId].isActive = false;
         seasonStates[seasonId].status = SeasonStatus.VRFPending;
         seasonStates[seasonId].vrfRequestTimestamp = block.timestamp;
@@ -251,7 +251,7 @@ contract FullSeasonFlowTest is Test {
         vm.stopPrank();
 
         // Verify SOF reserves accumulated in curve
-        uint256 reserves = curve.getSofReserves();
+        uint256 reserves = curve.getReserves();
         assertTrue(reserves > 0, "Curve should hold SOF reserves");
     }
 }

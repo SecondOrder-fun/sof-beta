@@ -362,7 +362,7 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         // Lock trading on curve
         SOFBondingCurve curve = SOFBondingCurve(seasons[seasonId].bondingCurve);
         curve.lockTrading();
-        seasonStates[seasonId].totalPrizePool = curve.getSofReserves();
+        seasonStates[seasonId].totalPrizePool = curve.getReserves();
         seasons[seasonId].isActive = false;
         seasonStates[seasonId].status = SeasonStatus.EndRequested;
         emit SeasonLocked(seasonId);
@@ -404,7 +404,7 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         // Lock trading on curve
         SOFBondingCurve curve = SOFBondingCurve(seasons[seasonId].bondingCurve);
         curve.lockTrading();
-        seasonStates[seasonId].totalPrizePool = curve.getSofReserves();
+        seasonStates[seasonId].totalPrizePool = curve.getReserves();
         seasons[seasonId].isActive = false;
         seasonStates[seasonId].status = SeasonStatus.EndRequested;
         emit SeasonLocked(seasonId);
@@ -537,7 +537,7 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         address curveAddr = cfg.bondingCurve;
         if (curveAddr == address(0)) revert InvalidAddress();
 
-        // The prize asset is the season's quote token — the same asset `extractSof` below
+        // The prize asset is the season's quote token — the same asset `extractReserves` below
         // pulls out of the curve. These must agree: configuring one token and funding with
         // another leaves the distributor holding an asset it will not pay out.
         IRafflePrizeDistributor(prizeDistributor).configureSeason(
@@ -556,7 +556,7 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         // coordinator); touching N storage slots inline would OOG once N
         // exceeds ~1500 regardless of the limit chosen.
 
-        SOFBondingCurve(curveAddr).extractSof(prizeDistributor, totalPrizePool);
+        SOFBondingCurve(curveAddr).extractReserves(prizeDistributor, totalPrizePool);
 
         IRafflePrizeDistributor(prizeDistributor).fundSeason(seasonId, totalPrizePool);
 

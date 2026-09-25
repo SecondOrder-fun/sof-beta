@@ -171,7 +171,7 @@ contract TreasurySystemTest is Test {
         bondingCurve.buyTokens(tokenAmount, totalCost);
 
         // Reserves should only include base cost, not fees
-        assertEq(bondingCurve.getSofReserves(), baseCost, "Reserves should equal base cost");
+        assertEq(bondingCurve.getReserves(), baseCost, "Reserves should equal base cost");
         assertEq(bondingCurve.accumulatedFees(), fee, "Fees should be tracked separately");
 
         vm.stopPrank();

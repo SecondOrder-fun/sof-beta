@@ -157,7 +157,7 @@ contract CriticalCoverageGapsTest is Test {
     }
 
     // ========================================================================
-    // Test 1: SOFBondingCurve.extractSof() Tests
+    // Test 1: SOFBondingCurve.extractReserves() Tests
     // ========================================================================
 
     function test_ExtractSof_Success() public {
@@ -171,7 +171,7 @@ contract CriticalCoverageGapsTest is Test {
         curve.buyTokens(100, 200 ether);
         vm.stopPrank();
 
-        uint256 reservesBefore = curve.getSofReserves();
+        uint256 reservesBefore = curve.getReserves();
         assertGt(reservesBefore, 0, "Should have reserves after buy");
 
         // Lock trading (required before extraction)
@@ -180,9 +180,9 @@ contract CriticalCoverageGapsTest is Test {
         // Extract SOF via raffle contract (which has RAFFLE_MANAGER_ROLE)
         uint256 extractAmount = reservesBefore / 2;
         vm.prank(address(raffle));
-        curve.extractSof(treasury, extractAmount);
+        curve.extractReserves(treasury, extractAmount);
 
-        assertEq(curve.getSofReserves(), reservesBefore - extractAmount, "Reserves should decrease");
+        assertEq(curve.getReserves(), reservesBefore - extractAmount, "Reserves should decrease");
         assertEq(sof.balanceOf(treasury), extractAmount, "Treasury should receive SOF");
     }
 
@@ -200,7 +200,7 @@ contract CriticalCoverageGapsTest is Test {
         // Try to extract without locking trading - should revert
         vm.prank(address(raffle));
         vm.expectRevert(abi.encodeWithSignature("TradingNotLocked()"));
-        curve.extractSof(treasury, 1 ether);
+        curve.extractReserves(treasury, 1 ether);
     }
 
     function test_ExtractSof_RevertsWithInsufficientReserves() public {
@@ -214,7 +214,7 @@ contract CriticalCoverageGapsTest is Test {
         curve.buyTokens(10, 20 ether);
         vm.stopPrank();
 
-        uint256 reserves = curve.getSofReserves();
+        uint256 reserves = curve.getReserves();
         raffle.testLockTrading(seasonId);
 
         // Try to extract more than reserves
@@ -224,7 +224,7 @@ contract CriticalCoverageGapsTest is Test {
             reserves + 1,
             reserves
         ));
-        curve.extractSof(treasury, reserves + 1);
+        curve.extractReserves(treasury, reserves + 1);
     }
 
     function test_ExtractSof_RevertsWithZeroAddress() public {
@@ -241,7 +241,7 @@ contract CriticalCoverageGapsTest is Test {
 
         vm.prank(address(raffle));
         vm.expectRevert(abi.encodeWithSignature("InvalidAddress()"));
-        curve.extractSof(address(0), 1 ether);
+        curve.extractReserves(address(0), 1 ether);
     }
 
     function test_ExtractSof_RevertsWithNonRaffleManagerRole() public {
@@ -259,7 +259,7 @@ contract CriticalCoverageGapsTest is Test {
         // Try to extract as non-admin
         vm.prank(nonAdmin);
         vm.expectRevert();
-        curve.extractSof(treasury, 1 ether);
+        curve.extractReserves(treasury, 1 ether);
     }
 
     function test_ExtractSof_FullReservesExtraction() public {
@@ -272,13 +272,13 @@ contract CriticalCoverageGapsTest is Test {
         curve.buyTokens(100, 200 ether);
         vm.stopPrank();
 
-        uint256 fullReserves = curve.getSofReserves();
+        uint256 fullReserves = curve.getReserves();
         raffle.testLockTrading(seasonId);
 
         vm.prank(address(raffle));
-        curve.extractSof(treasury, fullReserves);
+        curve.extractReserves(treasury, fullReserves);
 
-        assertEq(curve.getSofReserves(), 0, "Reserves should be zero after full extraction");
+        assertEq(curve.getReserves(), 0, "Reserves should be zero after full extraction");
     }
 
     // ========================================================================

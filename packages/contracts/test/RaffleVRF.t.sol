@@ -45,7 +45,7 @@ contract RaffleHarness is Raffle {
     function testRequestSeasonEnd(uint256 seasonId, uint256 requestId) external {
         // simulate requestSeasonEnd: lock trading and set VRFPending + request mapping
         SOFBondingCurve(seasons[seasonId].bondingCurve).lockTrading();
-        seasonStates[seasonId].totalPrizePool = SOFBondingCurve(seasons[seasonId].bondingCurve).getSofReserves();
+        seasonStates[seasonId].totalPrizePool = SOFBondingCurve(seasons[seasonId].bondingCurve).getReserves();
         seasons[seasonId].isActive = false;
         seasonStates[seasonId].status = SeasonStatus.VRFPending;
         seasonStates[seasonId].vrfRequestTimestamp = block.timestamp;
@@ -277,7 +277,7 @@ contract RaffleVRFTest is Test {
         vm.startPrank(player1); sof.approve(address(curve), type(uint256).max); curve.buyTokens(4, 10 ether); vm.stopPrank();
         vm.startPrank(player2); sof.approve(address(curve), type(uint256).max); curve.buyTokens(3, 10 ether); vm.stopPrank();
 
-        uint256 reservesBefore = curve.getSofReserves();
+        uint256 reservesBefore = curve.getReserves();
 
         // Lock trading and set the prize pool
         raffle.testRequestSeasonEnd(seasonId, 999);
@@ -497,7 +497,7 @@ contract RaffleVRFTest is Test {
         curve.buyTokens(5, 10 ether);
         vm.stopPrank();
 
-        uint256 prizePool = curve.getSofReserves();
+        uint256 prizePool = curve.getReserves();
         assertGt(prizePool, 0, "Prize pool should be non-zero");
 
         // Set prize pool before VRF (simulating requestSeasonEnd capturing reserves)
