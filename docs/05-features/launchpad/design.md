@@ -106,10 +106,40 @@ progress bar and a milestone users anticipate and promote — and the curve give
 reserve accounting that the raffle layer can read. Those are product reasons, and they
 may well win. They are just different reasons than the ones the decision was made on.
 
-**Status: decided as curve + graduation, flagged for one re-read.** If graduation-as-
-engagement is the real motivation, the decision stands on its own merits. If the
-motivation was "simplest, and what the trenches expect", the evidence points the other
-way and this should be reopened before Phase 1.
+**RESOLVED: single-sided liquidity at launch.** The reasoning that settled it:
+
+> *"Number go up and keep mcap high is the real mechanic. Graduation is the UI."*
+
+That is the right read. Graduation's value was always the progress bar, not the
+contract — and a progress bar does not need a migration event behind it. Single-sided
+concentrated liquidity across tick bands gives a natural progress metric for free
+(bands consumed, mcap milestones), so the UI keeps the mechanic while the protocol
+drops the machinery.
+
+**What this deletes from this document:**
+
+| Removed | Was |
+|---|---|
+| `LaunchCurve.sol` | §5.3 |
+| `GraduationManager.sol` | §5.4 |
+| `graduationThresholdWei`, `graduated`, `graduate()` | §5.3 |
+| Two-phase retryable graduation | §9.7 |
+| Graduation landing mid-season | §9.3 — the whole problem |
+| Dual price source and handover | §7.4 |
+| `requireGraduated` policy dial | §6.3 |
+| Graduation-LP supply bucket as a separate concept | §5.2 — it *is* the liquidity now |
+
+`BondingMath.sol` (§5.5) survives but changes job: it becomes tick-and-liquidity math
+for placing single-sided positions, closer to Pons's `PonsTickMath` /
+`PonsLiquidityMath` than to a step curve. The ticket curve (`SOFBondingCurve` →
+`TicketCurve`) is **unaffected** — it is a separate mechanism for raffle tickets and
+keeps its step pricing.
+
+**One correction to the premise, since it was part of the reasoning:** single-sided
+does *not* remove sniping. It removes **graduation** sniping, because there is no
+graduation. Launch sniping is unchanged — a bot can still take the first band in the
+first block — so the decaying snipe tax (§9.4) is still needed, and is now the only
+place sniping is handled. Net: one sniping surface instead of two.
 
 ### Decisions locked in
 
@@ -128,11 +158,15 @@ way and this should be reopened before Phase 1.
 | `$SOF` | Removed. Base Sepolia only, never on mainnet — nothing to migrate (§3) |
 | Target chain | **Robinhood Chain** for launch; EVM so the port from Base is mechanical. Launchpad activity has moved there (§3.1 of [`clanker-comparison.md`](clanker-comparison.md)) |
 | Build vs integrate | **Own infrastructure.** The raffle layer is the differentiator; paying 20% of gross swap fees in rent is not worth it (§3.2 of [`clanker-comparison.md`](clanker-comparison.md)) |
-| Liquidity model | **Bonding curve + graduation** — but see the premise correction in §1.2 before treating this as final |
-| Starting price | **Settable by the creator**, with a standardised step ladder above it (§5.3) |
-| Fee split | **85% creator / 15% platform**, on both the launch curve and the raffle (§6.7) |
-| Launch fee | Very small; earmarked to operational costs — VRF and InfoFi seeding (§5.1, and the accounting caveat there) |
-| `maxFloatLockedBps` | **10%**, admin-settable, hard ceiling 25% ([`float-lock-model.md`](float-lock-model.md)) |
+| Liquidity model | **Single-sided liquidity in a v4 pool from block one.** No curve contract, no graduation event; graduation survives as UI framing only (§1.2) |
+| Starting price | **Settable by the creator**, with a standardised band ladder above it (§5.3) |
+| Fee split | **88% creator / 12% platform**, on both token and raffle revenue — matches Epic's store split exactly (§6.7) |
+| Launch fee | **None.** Charging moved to raffle creation, where the costs are actually incurred (§5.1) |
+| VRF funding | A small per-raffle fee, pooled into a budget — whales fund minnows (§5.1) |
+| InfoFi earmark | **1%** of supply, not 10% ([`float-lock-model.md`](float-lock-model.md) §4) |
+| Unused InfoFi seed | **Swept to the locked LP position.** No creator claim (§6.4.1) |
+| Season size cap | Delaware raffle thresholds: prize pool < **$5,000**, ticket price ≤ **$5** (top step), or run under a **$15 permit** filed ≥15 days ahead. Eligibility and a 20-events/year licence cap are unresolved and may override ([`float-lock-model.md`](float-lock-model.md) §2–3) |
+| `maxFloatLockedBps` | **10%**, ceiling 25% — but only binds below ~$44k mcap; the prize cap binds above ([`float-lock-model.md`](float-lock-model.md) §2.2) |
 
 ### Open questions that block implementation
 
@@ -304,23 +338,38 @@ struct LaunchParams {
 - Reverts if `msg.value < launchFee`. **There is no minimum dev-buy** — `devBuyWei`
   may be zero.
 
-**What the launch fee is for.** It is cost recovery, not revenue (see
-[`fee-benchmarks.md`](fee-benchmarks.md)): it funds Chainlink VRF and InfoFi seeding.
-Two accounting mismatches to resolve before implementing, because neither cost is
-actually per-launch:
+**There is no launch fee.** Charging moved to where the costs are actually incurred:
+raffle creation. Launching a token is free (gas only), matching Clanker and
+Pools.trade.
 
-- **VRF is consumed per raffle, not per launch.** A token that launches and never
-  raffles prepays for randomness it never uses; a token with twenty seasons
-  underpays twenty-fold. Charging VRF at *season creation* — where the cost is
-  actually incurred, and where a creator is already posting a stake — is the
-  correct accounting. Keep the launch fee as a flat anti-spam charge and let it
-  fund general operations.
-- **InfoFi seed is denominated in the launched token, not ETH.** The seed comes
-  from the supply earmark (§5.2), so ETH from the launch fee cannot buy it without
-  a swap. The launch fee can fund the *gas and operational cost* of market
-  creation; it cannot fund the seed itself. If the intent is for the protocol to
-  hold seed in ETH instead, that is a different design — and it conflicts with
-  markets being collateralised in the launch token.
+**VRF is funded from a pooled per-raffle fee.** A small slice of every raffle's fees
+accrues to a VRF budget that pays Chainlink across all seasons — whales fund minnows,
+as in free-to-play. This is correct accounting (the cost is per-raffle, so the charge
+is per-raffle) *and* it means a season on a quiet token is subsidised by a busy one
+rather than being priced out. Two implementation notes:
+
+- The budget is **denominated in whatever VRF bills in** (LINK or native), while
+  raffle fees accrue in the launched token. Something has to convert. The cleanest
+  route is the same in-pool conversion the trading hook already does
+  ([`fee-benchmarks.md`](fee-benchmarks.md) §3.3), under the same price-impact bound.
+- The budget needs a **floor check at season creation**: if the pooled budget cannot
+  cover one more VRF request, season creation should fail fast rather than stranding
+  a season that can never settle. This is a real liveness risk — a season locked
+  with no way to draw a winner is the worst failure mode in the system.
+
+**The InfoFi earmark is paid for, not granted.** Rather than minting 1% of supply to
+the seed vault at launch as free allocation, the earmark is **funded from trading
+fees**: a slice of purchase fees accrues into the vault until it reaches its 1%
+target, then stops. Nothing is minted outside the normal supply, nothing skews the
+pool at launch, and the vault fills in proportion to how much the token actually
+trades — which is also a decent proxy for how much InfoFi activity it will see.
+
+A bootstrap question remains: **the first season happens before fees have accumulated
+much.** Either the first market or two goes unseeded (and market creation is simply
+deferred until the vault can cover it), or a small genuine pre-mint covers the
+bootstrap. Deferral is cleaner and keeps "no free allocations" exactly true; it means
+InfoFi arrives on a token slightly after launch rather than immediately, which is
+acceptable given InfoFi is Phase 4 anyway.
 - Deploys `LaunchToken` + `LaunchCurve` via CREATE2 (deterministic addresses let
   the UI show the token page before the tx confirms).
 - If `devBuyWei > 0`, executes the dev-buy against the fresh curve **in the same
@@ -366,9 +415,15 @@ no creator discretion:
 
 | Bucket | Share | Purpose |
 |---|---|---|
-| **Curve sale** | ~70% *(placeholder)* | Mintable by `LaunchCurve` on buys. The only supply in circulation pre-graduation. |
-| **Graduation LP** | ~20% *(placeholder)* | Minted at graduation, paired with ETH reserves into the v4 position (§5.4). Disappears as a separate bucket if single-sided-liquidity-at-launch is adopted — open question 6. |
-| **InfoFi seed** | ~10% *(placeholder)* | Reserved for prediction-market seed liquidity (§6.4), held by `InfoFiSeedVault`. **Confirmed** — FPMM is retained, so the seed requirement is permanent (open question 7). |
+| **Pool liquidity** | ~100% | Placed as single-sided liquidity across tick bands in the v4 pool at launch (§1.2). This *is* the token's market; there is no separate sale and LP split any more. |
+| **InfoFi seed** | 1% *target, not a pre-mint* | Accrues from trading fees into `InfoFiSeedVault` until it reaches 1% of supply, then stops (§5.1). Nothing is minted for it at launch. |
+
+The three-bucket split in earlier drafts is gone. Single-sided liquidity removed the
+separate graduation-LP bucket (the liquidity *is* the placement), and funding the
+InfoFi seed from fees removed the seed bucket as a pre-mint. **The result is a token
+with no reserved supply at all at launch** — which dissolves the disclosure problem
+in §9.8 rather than mitigating it, and makes "no free dev allocations" literally true
+of every token from block one.
 
 Percentages are placeholders — see open question 2 in §1. What matters structurally:
 
@@ -968,7 +1023,11 @@ problem: the token page must show circulating / LP-reserved / InfoFi-reserved as
 three distinct figures, and `InfoFiSeedVault` must have no admin withdrawal path
 to point at. Getting this wrong costs trust that is very hard to win back.
 
-**9.9 Regulatory.** Removing `$SOF` removes the platform's own issued token, which
+**9.9 Regulatory.** *(Quantified in [`float-lock-model.md`](float-lock-model.md) §2–3, which
+is mechanism design against supplied thresholds, not legal advice. Two questions there —
+whether a for-profit launchpad qualifies at all, and whether a 20-events-per-year licence cap
+binds at platform level — can each invalidate the product as designed, and neither is an
+engineering question.)* Removing `$SOF` removes the platform's own issued token, which
 is the point — the motivation for scrapping it is regulatory rather than technical
 (§3). What remains is still permissionless token issuance combined with raffles
 denominated in those tokens, which is its own posture. Flagged, not assessed —
