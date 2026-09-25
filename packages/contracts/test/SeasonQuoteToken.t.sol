@@ -64,8 +64,8 @@ contract SeasonQuoteTokenTest is Test {
     function test_seasonCurveUsesConfiguredQuoteToken() public {
         (uint256 id, SOFBondingCurve curve) = _createSeason(address(launchToken));
 
-        assertEq(address(curve.sofToken()), address(launchToken), "curve should be quoted in the launch token");
-        assertTrue(address(curve.sofToken()) != address(defaultToken), "must not fall back to the default");
+        assertEq(address(curve.quoteToken()), address(launchToken), "curve should be quoted in the launch token");
+        assertTrue(address(curve.quoteToken()) != address(defaultToken), "must not fall back to the default");
 
         (RaffleTypes.SeasonConfig memory cfg,,,,) = raffle.getSeasonDetails(id);
         assertEq(cfg.quoteToken, address(launchToken), "persisted config should record the quote token");
@@ -76,7 +76,7 @@ contract SeasonQuoteTokenTest is Test {
     function test_zeroQuoteTokenFallsBackToDefault() public {
         (uint256 id, SOFBondingCurve curve) = _createSeason(address(0));
 
-        assertEq(address(curve.sofToken()), address(defaultToken), "should fall back to the Raffle default");
+        assertEq(address(curve.quoteToken()), address(defaultToken), "should fall back to the Raffle default");
 
         (RaffleTypes.SeasonConfig memory cfg,,,,) = raffle.getSeasonDetails(id);
         assertEq(cfg.quoteToken, address(defaultToken), "resolved token should be persisted, not zero");
@@ -89,8 +89,8 @@ contract SeasonQuoteTokenTest is Test {
         (, SOFBondingCurve curveA) = _createSeason(address(launchToken));
         (, SOFBondingCurve curveB) = _createSeason(address(defaultToken));
 
-        assertEq(address(curveA.sofToken()), address(launchToken));
-        assertEq(address(curveB.sofToken()), address(defaultToken));
+        assertEq(address(curveA.quoteToken()), address(launchToken));
+        assertEq(address(curveB.quoteToken()), address(defaultToken));
         assertTrue(address(curveA) != address(curveB), "seasons should have distinct curves");
     }
 

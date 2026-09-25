@@ -38,8 +38,9 @@ error FeeTooHigh(uint256 fee);
 error TradingSellOnly();
 
 /**
- * @title SOF Bonding Curve
- * @notice Mint.club-inspired DBC bonding curve that only accepts $SOF as payment
+ * @title Ticket Bonding Curve
+ * @notice Mint.club-inspired DBC bonding curve. Priced in a single ERC-20 quote token,
+ *         fixed at construction (the season's `SeasonConfig.quoteToken`).
  * @dev Discrete Bonding Curve with step-based pricing and season locking capability
  */
 contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
@@ -50,7 +51,7 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
     bytes32 public constant ESCROW_ROLE = keccak256("ESCROW_ROLE");
 
     // Core contracts
-    IERC20 public immutable sofToken;
+    IERC20 public immutable quoteToken;
     IRaffleToken public raffleToken;
     // Raffle callback wiring
     address public raffle;
@@ -59,7 +60,7 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
     // Curve configuration
     struct CurveConfig {
         uint256 totalSupply; // Current total supply of raffle tokens
-        uint256 sofReserves; // Current $SOF reserves in the curve (excluding accumulated fees)
+        uint256 sofReserves; // Current quote-token reserves (excluding accumulated fees). TODO: rename to `reserves` (frontend decodes this field by name)
         uint256 currentStep; // Current step index in the bond steps
         uint16 buyFee; // Buy fee in basis points (e.g., 10 = 0.1%)
         uint16 sellFee; // Sell fee in basis points (e.g., 70 = 0.7%)
@@ -100,10 +101,10 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
     event CurveInitialized(address raffleToken, uint256 stepCount);
     event FeesExtracted(address indexed to, uint256 amount);
 
-    constructor(address _sofToken, address _admin) {
-        if (_sofToken == address(0)) revert InvalidAddress();
+    constructor(address _quoteToken, address _admin) {
+        if (_quoteToken == address(0)) revert InvalidAddress();
         if (_admin == address(0)) revert InvalidAddress();
-        sofToken = IERC20(_sofToken);
+        quoteToken = IERC20(_quoteToken);
         // Grant admin roles to both the deployer and the factory (msg.sender)
         // Factory needs DEFAULT_ADMIN_ROLE to grant other roles during initialization
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender); // SeasonFactory
@@ -181,46 +182,46 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
     }
 
     /**
-     * @notice Buy raffle tokens with $SOF
+     * @notice Buy raffle tokens with the quote token
      * @param tokenAmount Amount of raffle tokens to buy
-     * @param maxSofAmount Maximum $SOF willing to spend (slippage protection)
+     * @param maxQuoteAmount Maximum quote token willing to spend (slippage protection)
      */
-    function buyTokens(uint256 tokenAmount, uint256 maxSofAmount) external nonReentrant whenNotPaused {
-        _buyTokens(msg.sender, tokenAmount, maxSofAmount);
+    function buyTokens(uint256 tokenAmount, uint256 maxQuoteAmount) external nonReentrant whenNotPaused {
+        _buyTokens(msg.sender, tokenAmount, maxQuoteAmount);
     }
 
     function buyTokensWithPermit(
         uint256 tokenAmount,
-        uint256 maxSofAmount,
+        uint256 maxQuoteAmount,
         uint256 deadline,
         uint8 v,
         bytes32 r,
         bytes32 s
     ) external nonReentrant whenNotPaused {
-        try IERC20Permit(address(sofToken)).permit(
-            msg.sender, address(this), maxSofAmount, deadline, v, r, s
+        try IERC20Permit(address(quoteToken)).permit(
+            msg.sender, address(this), maxQuoteAmount, deadline, v, r, s
         ) {} catch {}
-        _buyTokens(msg.sender, tokenAmount, maxSofAmount);
+        _buyTokens(msg.sender, tokenAmount, maxQuoteAmount);
     }
 
     /**
      * @notice Buy raffle tokens on behalf of a recipient — payer is msg.sender (the escrow)
-     * @dev Requires ESCROW_ROLE. SOF is pulled from msg.sender; raffle tokens are minted to recipient.
+     * @dev Requires ESCROW_ROLE. Quote token is pulled from msg.sender; raffle tokens are minted to recipient.
      * @param recipient  Address that will receive the raffle tokens and have their position tracked
      * @param tokenAmount Amount of raffle tokens to buy
-     * @param maxSofAmount Maximum SOF the escrow is willing to spend (slippage protection)
+     * @param maxQuoteAmount Maximum quote token the escrow is willing to spend (slippage protection)
      */
-    function buyTokensFor(address recipient, uint256 tokenAmount, uint256 maxSofAmount)
+    function buyTokensFor(address recipient, uint256 tokenAmount, uint256 maxQuoteAmount)
         external
         onlyRole(ESCROW_ROLE)
         nonReentrant
         whenNotPaused
     {
         if (recipient == address(0)) revert InvalidAddress();
-        _buyTokensFor(msg.sender, recipient, tokenAmount, maxSofAmount);
+        _buyTokensFor(msg.sender, recipient, tokenAmount, maxQuoteAmount);
     }
 
-    function _buyTokensFor(address payer, address recipient, uint256 tokenAmount, uint256 maxSofAmount) internal {
+    function _buyTokensFor(address payer, address recipient, uint256 tokenAmount, uint256 maxQuoteAmount) internal {
         if (!curveConfig.initialized) revert CurveNotInitialized();
         if (curveConfig.tradingLocked) revert TradingLocked();
         if (curveConfig.sellOnly) revert TradingSellOnly();
@@ -231,7 +232,7 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
         uint256 baseCost = calculateBuyPrice(tokenAmount);
         uint256 fee = (baseCost * curveConfig.buyFee) / 10000;
         uint256 totalCost = baseCost + fee;
-        if (totalCost > maxSofAmount) revert SlippageExceeded(totalCost, maxSofAmount);
+        if (totalCost > maxQuoteAmount) revert SlippageExceeded(totalCost, maxQuoteAmount);
 
         uint256 preTotal = curveConfig.totalSupply;
         uint256 oldTickets = playerTickets[recipient];
@@ -242,8 +243,8 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
             if (preTotal + tokenAmount > lastCap) revert ExceedsMaxSupply(preTotal + tokenAmount, lastCap);
         }
 
-        // Transfer SOF from payer (the escrow contract)
-        sofToken.safeTransferFrom(payer, address(this), totalCost);
+        // Transfer quote token from payer (the escrow contract)
+        quoteToken.safeTransferFrom(payer, address(this), totalCost);
 
         // Mint raffle tokens to recipient (the end user)
         _mintRaffleTokens(recipient, tokenAmount);
@@ -272,16 +273,16 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
         }
     }
 
-    function _buyTokens(address buyer, uint256 tokenAmount, uint256 maxSofAmount) internal {
-        _buyTokensFor(buyer, buyer, tokenAmount, maxSofAmount);
+    function _buyTokens(address buyer, uint256 tokenAmount, uint256 maxQuoteAmount) internal {
+        _buyTokensFor(buyer, buyer, tokenAmount, maxQuoteAmount);
     }
 
     /**
-     * @notice Sell raffle tokens for $SOF
+     * @notice Sell raffle tokens for the quote token
      * @param tokenAmount Amount of raffle tokens to sell
-     * @param minSofAmount Minimum $SOF expected to receive (slippage protection)
+     * @param minQuoteAmount Minimum quote token expected to receive (slippage protection)
      */
-    function sellTokens(uint256 tokenAmount, uint256 minSofAmount) external nonReentrant whenNotPaused {
+    function sellTokens(uint256 tokenAmount, uint256 minQuoteAmount) external nonReentrant whenNotPaused {
         if (!curveConfig.initialized) revert CurveNotInitialized();
         if (curveConfig.tradingLocked) revert TradingLocked();
         if (tokenAmount == 0) revert AmountZero();
@@ -299,7 +300,7 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
         uint256 fee = (baseReturn * curveConfig.sellFee) / 10000; // fee accrues to accumulatedFees
         uint256 payout = baseReturn - fee;
 
-        if (payout < minSofAmount) revert SlippageExceeded(payout, minSofAmount);
+        if (payout < minQuoteAmount) revert SlippageExceeded(payout, minQuoteAmount);
         if (curveConfig.sofReserves < baseReturn) revert InsufficientReserves(baseReturn, curveConfig.sofReserves);
 
         // Track old values before mutation
@@ -307,8 +308,8 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
         // Burn raffle tokens from seller (assumes burnFrom)
         _burnRaffleTokens(msg.sender, tokenAmount);
 
-        // Transfer $SOF to seller (after fee)
-        sofToken.safeTransfer(msg.sender, payout);
+        // Transfer quote token to seller (after fee)
+        quoteToken.safeTransfer(msg.sender, payout);
 
         // Update curve state (reserves decrease by base return; fees accumulate separately)
         curveConfig.totalSupply -= tokenAmount;
@@ -359,25 +360,25 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
     event TradingUnlockedSellOnly(uint256 timestamp);
 
     /**
-     * @notice Extract $SOF reserves for prize distribution
-     * @param to Address to send the $SOF to (usually prize distributor)
-     * @param amount Amount of $SOF to extract
+     * @notice Extract quote-token reserves for prize distribution
+     * @param to Address to send the quote token to (usually prize distributor)
+     * @param amount Amount of quote token to extract
      */
     function extractSof(address to, uint256 amount) external onlyRole(RAFFLE_MANAGER_ROLE) {
         if (!curveConfig.tradingLocked) revert TradingNotLocked();
         if (amount > curveConfig.sofReserves) revert InsufficientReserves(amount, curveConfig.sofReserves);
         if (to == address(0)) revert InvalidAddress();
 
-        sofToken.safeTransfer(to, amount);
+        quoteToken.safeTransfer(to, amount);
         curveConfig.sofReserves -= amount;
 
         emit SofExtracted(to, amount);
     }
 
     /**
-     * @notice Calculate the $SOF cost to buy a certain amount of tokens (base cost, excl. fee)
+     * @notice Calculate the quote-token cost to buy a certain amount of tokens (base cost, excl. fee)
      * @param tokenAmount Amount of tokens to buy
-     * @return Total $SOF base cost
+     * @return Total quote-token base cost
      */
     function calculateBuyPrice(uint256 tokenAmount) public view returns (uint256) {
         if (tokenAmount == 0) return 0;
@@ -409,9 +410,9 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
     }
 
     /**
-     * @notice Calculate the $SOF received from selling a certain amount of tokens (base return, excl. fee)
+     * @notice Calculate the quote token received from selling a certain amount of tokens (base return, excl. fee)
      * @param tokenAmount Amount of tokens to sell
-     * @return $SOF base amount to be returned
+     * @return Quote-token base amount to be returned
      */
     function calculateSellPrice(uint256 tokenAmount) public view returns (uint256) {
         if (tokenAmount == 0) return 0;
@@ -458,7 +459,7 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
     }
 
     /**
-     * @notice Getter for current $SOF reserves tracked by the curve
+     * @notice Getter for current quote-token reserves tracked by the curve
      */
     function getSofReserves() external view returns (uint256) {
         return curveConfig.sofReserves;
@@ -474,8 +475,8 @@ contract SOFBondingCurve is AccessControl, ReentrancyGuard, Pausable {
         uint256 feesToExtract = accumulatedFees;
         accumulatedFees = 0;
 
-        // Transfer fees directly to treasury address (no SOFToken intermediary)
-        sofToken.safeTransfer(treasuryAddress, feesToExtract);
+        // Transfer fees directly to treasury address (no token-contract intermediary)
+        quoteToken.safeTransfer(treasuryAddress, feesToExtract);
 
         emit FeesExtracted(treasuryAddress, feesToExtract);
     }

@@ -3,7 +3,7 @@
     "type": "constructor",
     "inputs": [
       {
-        "name": "_sofToken",
+        "name": "_quoteToken",
         "type": "address",
         "internalType": "address"
       },
@@ -114,7 +114,7 @@
         "internalType": "uint256"
       },
       {
-        "name": "maxSofAmount",
+        "name": "maxQuoteAmount",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -137,7 +137,7 @@
         "internalType": "uint256"
       },
       {
-        "name": "maxSofAmount",
+        "name": "maxQuoteAmount",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -155,7 +155,7 @@
         "internalType": "uint256"
       },
       {
-        "name": "maxSofAmount",
+        "name": "maxQuoteAmount",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -509,6 +509,19 @@
   },
   {
     "type": "function",
+    "name": "quoteToken",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IERC20"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "raffle",
     "inputs": [],
     "outputs": [
@@ -592,7 +605,7 @@
         "internalType": "uint256"
       },
       {
-        "name": "minSofAmount",
+        "name": "minQuoteAmount",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -617,19 +630,6 @@
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "sofToken",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "contract IERC20"
-      }
-    ],
-    "stateMutability": "view"
   },
   {
     "type": "function",
