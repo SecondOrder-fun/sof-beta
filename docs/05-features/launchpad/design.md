@@ -9,18 +9,55 @@ The launchpad inverts the platform's denomination model. Today there is one
 protocol currency (`$SOF`) and seasons are created by admins. The target:
 
 ```
-  ① LAUNCH                ② TRADE                 ③ GRADUATE              ④ RAFFLE
-  ─────────               ────────                ───────────             ─────────
-  Anyone deploys a        Anyone buys/sells       Curve reserves hit      Any holder with
-  token. Pays gas +       on an ETH-quoted        a threshold →           enough stake opens
-  a flat launch fee.      bonding curve.          LP seeded on            a raffle season.
-  Optional dev-buy,       Price discovery         Uniswap v4 (Base),      TICKETS ARE PRICED
-  escrowed as stake.      pre-market.             LP locked, curve        IN THE LAUNCHED
-                                                  retires.                TOKEN.
+  ① LAUNCH                ② TRADE                        ③ GRADUATE
+  ─────────               ────────                       ───────────
+  Anyone deploys a        Anyone buys/sells               Curve reserves hit a
+  token. Pays gas +       on an ETH-quoted                threshold → LP seeded
+  a flat launch fee.      bonding curve.                  on Uniswap v4 (Base),
+  Optional dev-buy,       Price discovery                 LP locked, curve retires.
+  escrowed as stake.      pre-market.
+                               │                                   │
+                               └──────────────┬────────────────────┘
+                                              ▼
+                                       ④ RAFFLE  — available throughout
+                                       ─────────
+                                       Any holder with enough stake opens a
+                                       season. TICKETS ARE PRICED IN THE
+                                       LAUNCHED TOKEN. Not sequenced after
+                                       graduation — see §1.1.
 ```
 
-Step ④ is the SecondOrder thesis applied to the launchpad: a launched token
-acquires a *finite game* on top of it. Step ① is the part being built now.
+Steps ① → ③ are a pipeline. **Step ④ is not a fourth stage — it is a capability
+available at any point on the token's life**, including minutes after launch.
+Step ① is the part being built now.
+
+### 1.1 Why the raffle is not gated on graduation
+
+The raffle exists on a launched token for two reasons, and both of them argue for
+availability *early*:
+
+1. **Utility.** It gives holders something to actually do with the token beyond
+   hold-and-hope. A token with no utility until it graduates has no utility during
+   the phase where it most needs a reason to exist.
+2. **A volatility damper.** The ticket bonding curve is a natural lock: tokens
+   spent on tickets leave circulation for the season's duration. That damping is
+   worth most when the float is thin and the price is violent — which is precisely
+   the pre-graduation phase.
+
+Gating raffles on graduation would withhold the mechanism exactly when it does the
+most good. An earlier draft of this document proposed that gate on anti-rug
+grounds; it is withdrawn. §9.2 records the residual risk it was protecting against
+and how that risk is handled without a gate.
+
+This is deliberately **not** a fixed rule in either direction. Eligibility to open
+a season is a tunable policy (§6.3) whose thresholds can all be set to zero.
+Graduation is one optional signal among several, never a precondition.
+
+A useful second-order effect: because ticket purchases move tokens *out* of
+circulation without touching the launch curve's ETH reserves, an active season
+removes sell pressure from the launch curve and therefore makes graduation
+monotonically more likely, never less. The raffle and the graduation path pull in
+the same direction.
 
 ### Decisions locked in
 
@@ -31,7 +68,7 @@ acquires a *finite game* on top of it. Step ① is the part being built now.
 | Graduation venue | Uniswap v4 on Base |
 | Raffle denomination | The launched token, **not** `$SOF` |
 | Raffle creation rights | Stake-gated in the launched token, permissionless otherwise |
-| Raffle requires graduation | **Yes** — hard requirement, not a flag (§9.2) |
+| Raffle requires graduation | **No.** Raffles are available pre-graduation by design (§1.1). Eligibility is a tunable policy, not a binary gate (§6.3) |
 | Token decimals | **Always 18**, asserted at raffle creation (§6.3) |
 | Dev-buy | Optional, no minimum — and the *only* route to a starting stake (§5.1) |
 | Creator allocation | **None.** No free tokens, ever. |
@@ -46,6 +83,12 @@ acquires a *finite game* on top of it. Step ① is the part being built now.
    seed? §5.2 carries placeholders that need real numbers.
 3. **Unused InfoFi seed.** If no market ever opens on a token, does its earmark
    burn, or fall through to the LP position? §6.4.
+4. **`maxFloatLockedBps`.** What share of circulating supply may one season absorb?
+   This is the dial that decides whether the ticket curve damps volatility or
+   becomes a squeeze mechanism (§6.3, §9.2). Needs a real number.
+5. **Graduation landing mid-season.** Now reachable, since seasons are not gated on
+   graduation. Do float-derived thresholds snapshot at season creation or track
+   live? §9.3. Blocks Phase 3.
 
 Everything else from the first pass is now settled and folded in below.
 
@@ -175,7 +218,12 @@ struct LaunchParams {
   the UI show the token page before the tx confirms).
 - If `devBuyWei > 0`, executes the dev-buy against the fresh curve **in the same
   transaction**, then deposits the resulting tokens into `SeasonCreationStake` on
-  the creator's behalf, locked until graduation (§9.1).
+  the creator's behalf.
+
+  The lock releases at `max(graduation, settlement of every season the stake
+  backs)` — both conditions, not either. Graduation alone is not enough, because
+  a season can now be in flight pre-graduation (§1.1) and the creator must not be
+  able to exit a float they shrank (§9.2).
 
 **The creator receives no free allocation.** The dev-buy is the only way tokens
 reach the creator, at the same curve price as everyone else, and it is the only
@@ -306,7 +354,7 @@ the same rights the creator would have had.
 generalize to N launch tokens without N hat trees. That's why this is a purpose-built
 contract rather than an extension of `SponsorOnboarding.sol`.
 
-### 5.7 `launchpad/UniV4LaunchHook.sol` — optional, Phase 2+
+### 5.7 `launchpad/UniV4LaunchHook.sol` — optional, Phase 3+
 
 A v4 hook can enforce anti-sniping (per-block buy caps for the first N blocks
 post-graduation) and route a slice of swap fees to the treasury — replacing the
@@ -381,8 +429,38 @@ the test covers a non-permit quote token.
 - `SeasonFactory.createSeasonContracts(...)` takes `quoteToken` and passes it to
   `new SOFBondingCurve(quoteToken, msg.sender)` instead of `IRaffle(raffle).sofToken()`.
 - `_createSeasonInternal` validates `quoteToken != address(0)`, that the token is
-  registered in `TokenLaunchpad` with `graduated == true` (§9.2), and that its
-  decimals are 18 (below).
+  registered in `TokenLaunchpad`, that its decimals are 18 (below), and that it
+  passes the eligibility policy (immediately below).
+
+#### Season eligibility is a tunable policy, not a graduation gate
+
+Per §1.1 a season may open at any point in a token's life. What the protocol needs
+is not a binary gate but a set of dials that can be tightened if a specific abuse
+shows up, and left wide open otherwise:
+
+```solidity
+struct SeasonPolicy {
+    uint256 minCurveReservesWei;  // token must have attracted this much ETH
+    uint32  minHolders;           // some distribution before a game opens
+    uint32  minTokenAgeSeconds;   // no raffle on a 30-second-old token
+    uint16  maxFloatLockedBps;    // cap on circulating supply one season may absorb
+    bool    requireGraduated;     // default FALSE
+}
+```
+
+Every field defaults to permissive (`0` / `false`). `requireGraduated` exists as a
+dial only — it is **off by default and should stay off**; it is present so the
+option does not require a redeploy if something pathological emerges.
+
+`maxFloatLockedBps` is the one that carries real weight, and it is the mechanism
+that makes §1.1's "volatility damper" claim true rather than aspirational. A
+season able to absorb 80% of float is not a damper, it is a squeeze: it removes
+almost all sell-side liquidity and hands whoever holds the rest a thin market to
+push around. A cap somewhere well below half of float keeps the lock stabilising.
+This needs a real number — see open question 4 in §1.
+
+Policy is global, not per-token, and set by governance/admin. Per-token policy
+would let a creator loosen their own constraints, which defeats the point.
 
 #### Decimals are asserted, not accommodated
 
@@ -563,39 +641,94 @@ Permissionless launch is a materially different threat model than admin-created
 seasons. The ones that need a design answer, not just a note:
 
 **9.1 Dev rug via the dev-buy.** Creator buys the bottom of their own curve, promotes,
-dumps into buyers. Mitigation: the dev-buy is escrowed in `SeasonCreationStake` and
-locked until graduation (and optionally vested after). This is why the dev-buy and
-the season stake are the *same deposit* — it makes the anti-rug lock and the
-season-rights stake mutually reinforcing rather than two separate asks.
+dumps into buyers. Mitigation: the dev-buy is escrowed in `SeasonCreationStake`,
+locked until graduation *and* the settlement of any season it backs (§5.1), and
+optionally vested after. This is why the dev-buy and the season stake are the
+*same deposit* — it makes the anti-rug lock and the season-rights stake mutually
+reinforcing rather than two separate asks.
 
-**9.2 Raffle-before-graduation rug.** Worse than 9.1. A creator launches, buys,
-opens a raffle that locks other holders' tokens into the ticket curve, and dumps
-into the illiquid pre-graduation curve while their tokens are locked. Mitigation:
-**season creation requires `graduated == true`.** Post-graduation there is a real
-DEX market and a public price, and the creator's own allocation is unlocked and
-therefore at risk alongside everyone else's. **Adopted as a hard requirement**,
-enforced in `_createSeasonInternal` (§6.3) — not a config flag, because a flag
-is something that can be turned off under commercial pressure later.
+**9.2 Squeeze via an early season.** The concern: someone accumulates on the curve,
+opens a raffle, watches other holders move tokens into the ticket curve, and sells
+into the reduced float while those tokens are locked.
 
-**9.3 Sniping at graduation.** MEV bots buy the first block of the new v4 pool.
+An earlier draft proposed blocking seasons until graduation to prevent this. That
+is withdrawn (§1.1), and part of the reasoning behind it was simply wrong: it
+described the pre-graduation curve as illiquid. It is not. A bonding curve is
+two-sided and deterministic — it will always buy tokens back at the curve price
+from its ETH reserves, and a seller walking the curve down moves price along a
+published schedule. That is *more* predictable than a thin DEX pool, not less.
+Pre-graduation exit is guaranteed in a way post-graduation exit is not.
+
+The residual risk is narrower than the original framing, and is handled without a
+gate:
+
+- **The season creator's own tokens are locked.** The stake sits in
+  `SeasonCreationStake` with `activeSeasons > 0` blocking withdrawal, so the
+  creator cannot be the one selling into a float they shrank. Make the lock run
+  until the season *settles*, not merely until it ends.
+- **`maxFloatLockedBps` caps the shrinkage** (§6.3). This is the real mitigation:
+  if one season cannot absorb more than a bounded share of float, there is no
+  squeeze to execute.
+- **Ticket holders can exit during the season.** The ticket curve is two-sided
+  until season lock, and `sellOnly` mode already exists for cancelled seasons.
+  The genuinely illiquid window is lock → settlement; it should be kept short and
+  shown in the UI as a countdown, because that window is the one real
+  "your tokens are committed" period and users must not discover it late.
+- **A non-creator whale is the remaining uncovered case.** They pay a stake they
+  cannot withdraw and are capped by `maxFloatLockedBps`, which makes the attack
+  expensive and bounded rather than impossible. Tighten the dials if it is ever
+  observed in the wild.
+
+**9.3 Graduation landing mid-season.** *New consequence of allowing pre-graduation
+raffles, and the one genuinely unresolved item this change introduces.* A season
+can now be in flight when its token graduates, and graduation is not a quiet event:
+
+- The launch curve retires, so the token's reference market changes venue
+  mid-game. Arbitrage opens between the new v4 pool and the ticket curve, which
+  prices tickets off its own step schedule.
+- The graduation-LP bucket (~20% of max supply, §5.2) is **minted at graduation**.
+  Circulating supply jumps discontinuously in the middle of a season. Anything
+  denominated in a share of circulating supply moves with it — the
+  `SeasonCreationStake` threshold, `maxFloatLockedBps` headroom, and any
+  probability or position display derived from float.
+- The season's prize pool is ticket-curve reserves denominated in a token whose
+  price just re-based against a new venue.
+
+None of this breaks the ticket curve mechanically — it holds launch tokens and
+mints tickets regardless of what the quote token trades at elsewhere. But the
+*numbers shown to users* will move sharply, and stake eligibility could flip
+mid-season. Options: snapshot float-derived thresholds at season creation and hold
+them for the season's duration; or recompute live and accept the discontinuity; or
+block `graduate()` while a season is active (worst option — it would let a season
+hold the token's graduation hostage). Snapshotting is the likely answer. Needs a
+decision before Phase 3 — open question 5 in §1.
+
+**9.4 Sniping at graduation.** MEV bots buy the first block of the new v4 pool.
 Mitigation: the optional hook (§5.7) with per-block caps, or a brief post-graduation
 trading delay. Acceptable to ship without and monitor.
 
-**9.4 Spam and impersonation.** Flat fee + gas is the only economic filter.
+**9.5 Spam and impersonation.** Flat fee + gas is the only economic filter.
 Needs the moderation path in §7.3 to exist *before* launch day, not after.
 
-**9.5 Reflexive lock/unlock around seasons.** Ticket purchases sink the launch token
+**9.6 Reflexive lock/unlock around seasons.** Ticket purchases sink the launch token
 into the ticket curve, shrinking float and lifting price; settlement releases it.
-This is the intended mechanism — but it should be **shown in the UI** (a "% of
-supply locked in seasons" figure on the token page), because a large season on a
-small token will move the price visibly and users will otherwise read it as
-manipulation.
+This is the intended mechanism — the volatility damper of §1.1 — but the release
+at settlement is the same mechanism running in reverse, and on a small token it
+will look like a coordinated dump. Two requirements follow:
 
-**9.6 Graduation reentrancy.** The v4 `unlock` callback hands control back to
+- **Show it.** A "% of float locked in seasons" figure on the token page, and a
+  visible settlement date, so the unlock is anticipated rather than discovered.
+- **Bound it.** `maxFloatLockedBps` (§6.3) caps the size of both the squeeze and
+  the subsequent release. A damper that locks a bounded share is stabilising; one
+  that can lock most of the float just relocates the volatility to settlement day.
+  Staggering settlement across overlapping seasons would smooth it further, but
+  that is a v2 refinement, not a launch requirement.
+
+**9.7 Graduation reentrancy.** The v4 `unlock` callback hands control back to
 `GraduationManager`. All curve state transitions (`graduated = true`, trading
 disabled) must be committed *before* the unlock call.
 
-**9.7 Reserved-supply misread.** The graduation-LP and InfoFi-seed buckets (§5.2)
+**9.8 Reserved-supply misread.** The graduation-LP and InfoFi-seed buckets (§5.2)
 are ~30% of max supply sitting outside circulation, held by protocol contracts.
 Functionally this is not a team allocation — no path delivers it to the creator or
 an admin — but it has the same *shape* as one, and a launchpad's users are
@@ -604,7 +737,7 @@ problem: the token page must show circulating / LP-reserved / InfoFi-reserved as
 three distinct figures, and `InfoFiSeedVault` must have no admin withdrawal path
 to point at. Getting this wrong costs trust that is very hard to win back.
 
-**9.8 Regulatory.** Removing `$SOF` removes the platform's own issued token, which
+**9.9 Regulatory.** Removing `$SOF` removes the platform's own issued token, which
 is the point — the motivation for scrapping it is regulatory rather than technical
 (§3). What remains is still permissionless token issuance combined with raffles
 denominated in those tokens, which is its own posture. Flagged, not assessed —
@@ -621,8 +754,8 @@ on its own.
 |---|---|---|
 | **0 — Remove `$SOF`, parameterize the quote token** | `sofToken` → `quoteToken` across contracts/backend/frontend; `quoteToken` in `SeasonConfig`; delete `SOFToken`/`SOFExchange`/`SOFFaucet`. Seasons quote a `MockERC20` until Phase 1 exists. No new features. | Isolates a large mechanical refactor from new logic. Everything after is additive. |
 | **1 — Launch + curve** | `LaunchToken` (18 dp, three-bucket supply), `LaunchCurve`, `TokenLaunchpad`, `BondingMath`, `InfoFiSeedVault` (funded, release disabled). No graduation. UI: `/launch`, `/tokens`, `/tokens/:address` incl. circulating-vs-reserved display. Backend: launch + trade listeners, discovery feed, metadata pipeline. | The deliverable asked for. Shippable and demoable without v4. The supply split **must** be right here — it cannot be changed for tokens already launched. |
-| **2 — Graduation** | `GraduationManager`, v4 deps + remappings, Base addresses in `deployments/*.json`, LP lock. Graduation progress UI. | Self-contained; the highest-risk external integration gets its own audit surface. |
-| **3 — Raffles on launched tokens** | `SeasonCreationStake`, `canCreateSeason(account, token)`, graduation gate + 18-dp assertion, `/tokens/:address/create-season`. Ticket curve runs against the launch token. | Closes the §1 journey. Depends on 0 + 2. |
+| **2 — Raffles on launched tokens** | `SeasonCreationStake`, `canCreateSeason(account, token)`, `SeasonPolicy` + 18-dp assertion, `/tokens/:address/create-season`. Ticket curve runs against the launch token. | **Moved ahead of graduation.** Since seasons are not gated on graduation (§1.1), this depends only on Phase 0 + 1 — so the full product loop (launch → trade → raffle) ships without touching Uniswap v4. |
+| **3 — Graduation** | `GraduationManager`, v4 deps + remappings, Base addresses in `deployments/*.json`, LP lock. Graduation progress UI. Mid-season graduation handling (§9.3). | Self-contained; the highest-risk external integration gets its own audit surface, and now nothing else is waiting on it. |
 | **4 — InfoFi on launched tokens** | Per-season collateral drawn from `InfoFiSeedVault`, `ConditionalTokenERC20` rename, `sweepUnused` enabled. | Deliberately last — §6.4. Nothing in the §1 journey depends on it. |
 
 ### Version and task tracking
