@@ -22,8 +22,7 @@ import { encodeFunctionData } from "viem";
 import { useSmartTransactions } from "@/hooks/useSmartTransactions";
 import { applyMaxSlippage, applyMinSlippage } from "@/utils/buysell/slippage";
 import { SOFBondingCurveAbi, ERC20Abi } from "@/utils/abis";
-import { getContractAddresses } from "@/config/contracts";
-import { getStoredNetworkKey } from "@/lib/wagmi";
+import { useSeasonQuoteToken } from "@/hooks/useSeasonQuoteToken";
 
 /**
  * @param {string} bondingCurveAddress
@@ -32,7 +31,9 @@ import { getStoredNetworkKey } from "@/lib/wagmi";
  */
 export function useBuySellTransactions(bondingCurveAddress, client) {
   const { t } = useTranslation(["common", "transactions"]);
-  const contracts = getContractAddresses(getStoredNetworkKey());
+  // The curve only accepts its own season's quote token; approving a
+  // platform-wide address would target the wrong ERC-20.
+  const { quoteToken } = useSeasonQuoteToken(bondingCurveAddress);
   const { executeBatch } = useSmartTransactions();
 
   const buyMutation = useMutation({
@@ -104,7 +105,7 @@ export function useBuySellTransactions(bondingCurveAddress, client) {
                 : rolloverAmount + (rolloverAmount * 1000n) / 10000n,
           }),
           {
-            to: contracts.SOF,
+            to: quoteToken,
             data: encodeFunctionData({
               abi: ERC20Abi,
               functionName: "approve",
@@ -137,7 +138,7 @@ export function useBuySellTransactions(bondingCurveAddress, client) {
         // Normal buy: SMA approves curve, SMA calls buyTokens.
         calls = [
           {
-            to: contracts.SOF,
+            to: quoteToken,
             data: encodeFunctionData({
               abi: ERC20Abi,
               functionName: "approve",

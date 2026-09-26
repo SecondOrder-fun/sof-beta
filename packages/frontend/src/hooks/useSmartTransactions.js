@@ -2,9 +2,8 @@ import { useMemo, useCallback, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAccount, useChainId, useCapabilities, useSendCalls, useCallsStatus, usePublicClient, useWalletClient } from 'wagmi';
 import { waitForCallsStatus } from '@wagmi/core';
-import { encodeFunctionData, http } from 'viem';
+import { http } from 'viem';
 import { createBundlerClient, createPaymasterClient } from 'viem/account-abstraction';
-import { ERC20Abi } from '@/utils/abis';
 import { getContractAddresses } from '@/config/contracts';
 import { getStoredNetworkKey } from '@/lib/wagmi';
 import { config as wagmiConfig } from '@/lib/wagmiConfig';
@@ -90,10 +89,8 @@ async function normalizeBatchResult(result) {
 
 /**
  * SOF fee rate charged per sponsored transaction batch (0.05%).
- * Fee = sofAmount * SOF_FEE_BPS / 10_000
  * Transferred to treasury as the first call in every ERC-5792 batch.
  */
-const SOF_FEE_BPS = 5n; // 0.05% (5 basis points)
 
 export function invalidateUltraFreshTouching(queryClient, callTargets) {
   if (!Array.isArray(callTargets) || callTargets.length === 0) return;
@@ -169,40 +166,17 @@ export function useSmartTransactions() {
   }, [capabilities, chainId]);
 
   /**
-   * Build the SOF fee transfer call that gets prepended to every sponsored batch.
-   * Fee is 0.05% of the SOF amount involved in the transaction.
-   * @param {bigint} sofAmount - SOF amount to calculate fee from
-   */
-  const buildFeeCall = useCallback((sofAmount) => {
-    const contracts = getContractAddresses(getStoredNetworkKey());
-    const treasury = contracts.SOF_EXCHANGE;
-    // SOFExchange isn't deployed on every network (not on local Anvil for
-    // example). When the address is empty, skip the fee call rather than
-    // emit a transfer(0x"", ...) that viem rejects as invalid.
-    if (!treasury || treasury === "0x" || !/^0x[0-9a-fA-F]{40}$/.test(treasury)) {
-      return null;
-    }
-    const fee = (sofAmount * SOF_FEE_BPS) / 10_000n;
-    return {
-      to: contracts.SOF,
-      data: encodeFunctionData({
-        abi: ERC20Abi,
-        functionName: 'transfer',
-        args: [treasury, fee],
-      }),
-    };
-  }, []);
-
-  /**
    * Execute a batch of calls via ERC-5792 with automatic paymaster sponsorship.
    * Routes to Coinbase CDP paymaster for Coinbase wallets, or Pimlico (session-gated)
    * for all other wallets. If the paymaster attempt fails, retries the batch without
    * sponsorship so batching is preserved.
-   * When paymaster is active, prepends a SOF fee transfer (0.05% of sofAmount).
    *
    * @param {Array<{to: string, data: string, value?: bigint}>} calls - Raw calls to batch
    * @param {object} options - Additional options for sendCalls
-   * @param {bigint} [options.sofAmount] - SOF amount for fee calculation (required when paymaster is active)
+   * @param {bigint} [options.sofAmount] - Deprecated and ignored. The client-side
+   *   0.05% fee transfer was removed with SOFExchange, which was its recipient;
+   *   protocol fees are charged on-chain by the curve instead. Still destructured
+   *   so it is not forwarded to the wallet as an unknown option.
    * @param {boolean} [options.bypassSponsorship] - **Use sparingly.** Forces the
    *   per-call EOA-direct send path (skips Path A counterfactual SMA + UserOp).
    *   Only needed when the target contract specifically checks an EOA signature
@@ -211,7 +185,7 @@ export function useSmartTransactions() {
    *   that 14_ConfigureRoles grants admin roles to admin SMAs.
    */
   const executeBatch = useCallback(async (calls, options = {}) => {
-    const { sofAmount, bypassSponsorship, ...sendOptions } = options;
+    const { sofAmount: _sofAmount, bypassSponsorship, ...sendOptions } = options;
 
     const isCoinbaseWallet = connector?.id === 'coinbaseWalletSDK';
     const hasAtomic = chainCaps.atomicStatus === 'ready' || chainCaps.atomicStatus === 'supported';
@@ -343,10 +317,6 @@ export function useSmartTransactions() {
         url: `${apiBase}/paymaster/coinbase`,
         optional: true,
       };
-      if (sofAmount && sofAmount > 0n) {
-        const feeCall = buildFeeCall(sofAmount);
-        finalCalls = feeCall ? [feeCall, ...calls] : calls;
-      }
     } else if (!isCoinbaseWallet && apiBase && backendJwt) {
       const now = Date.now();
       let sessionToken;
@@ -363,10 +333,6 @@ export function useSmartTransactions() {
           url: `${apiBase}/paymaster/pimlico?session=${sessionToken}`,
           optional: true,
         };
-        if (sofAmount && sofAmount > 0n) {
-          const feeCall = buildFeeCall(sofAmount);
-          finalCalls = feeCall ? [feeCall, ...calls] : calls;
-        }
       }
     }
 
@@ -394,14 +360,13 @@ export function useSmartTransactions() {
     const finalHash = await normalizeBatchResult(sendResult);
     invalidateUltraFreshTouching(queryClient, finalCalls.map((c) => c.to));
     return finalHash;
-  }, [address, apiBase, backendJwt, chainId, connector, sendCallsAsync, buildFeeCall, chainCaps.atomicStatus, walletClient, publicClient, walletType, queryClient]);
+  }, [address, apiBase, backendJwt, chainId, connector, sendCallsAsync, chainCaps.atomicStatus, walletClient, publicClient, walletType, queryClient]);
 
   return {
     ...chainCaps,
     executeBatch,
     batchId,
     callsStatus,
-    sofFeeBps: SOF_FEE_BPS,
     needsSmartAccountUpgrade: chainCaps.atomicStatus === 'ready',
   };
 }

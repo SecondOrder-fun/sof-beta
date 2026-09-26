@@ -16,7 +16,8 @@ import {
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { useRaffle } from "@/hooks/useRaffle";
-import { useSOFToken } from "@/hooks/useSOFToken";
+import { useQuoteToken } from "@/hooks/useQuoteToken";
+import { useSeasonQuoteToken } from "@/hooks/useSeasonQuoteToken";
 import { useSeasonGating } from "@/hooks/useSeasonGating";
 import { formatAddress, formatTimestamp } from "@/lib/utils";
 import CountdownTimer from "@/components/common/CountdownTimer";
@@ -30,7 +31,11 @@ const RaffleDetailsCard = ({ seasonId }) => {
   const { address, isConnected } = useAccount();
   const { seasonDetails, userPosition, winners, isLoading, error, buyTickets } =
     useRaffle(seasonId);
-  const { balance: sofBalance } = useSOFToken();
+  // Priced in the season's own quote token, not a platform-wide one.
+  const { quoteToken: seasonQuoteToken } = useSeasonQuoteToken(
+    seasonDetails?.bondingCurve
+  );
+  const { balance: sofBalance } = useQuoteToken(seasonQuoteToken);
   const { isVerified, hasGates, refetchVerified } = useSeasonGating(seasonId);
 
   const [ticketAmount, setTicketAmount] = useState("");

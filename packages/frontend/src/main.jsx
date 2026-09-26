@@ -76,7 +76,6 @@ import MarketsIndex, {
 } from "./routes/MarketsIndex";
 import UsersIndex from "./routes/UsersIndex";
 import UserProfile from "./routes/UserProfile";
-import GetSof from "./routes/GetSof";
 import Guides from "./routes/Guides";
 import FAQ from "./routes/FAQ";
 import TermsOfService from "./routes/TermsOfService";
@@ -172,10 +171,6 @@ const router = createBrowserRouter([
       {
         path: "portfolio",
         element: <AccountPage />,
-      },
-      {
-        path: "get-sof",
-        element: <GetSof />,
       },
       {
         path: "guides",

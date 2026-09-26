@@ -8,6 +8,7 @@ import { getStoredNetworkKey } from '@/lib/wagmi';
 import { RaffleAbi, ERC20Abi, SOFBondingCurveAbi } from '@/utils/abis';
 import { useSmartTransactions } from '@/hooks/useSmartTransactions';
 import { useRaffleAccount } from '@/hooks/useRaffleAccount';
+import { useSeasonQuoteToken } from '@/hooks/useSeasonQuoteToken';
 
 // Create aliases for consistency with code usage
 const CurveAbi = SOFBondingCurveAbi;
@@ -104,6 +105,12 @@ export function useRaffle(seasonId) {
     enabled: Boolean(contracts.RAFFLE && seasonId),
     staleTime: 30000, // 30 seconds
   });
+
+  // Tickets are priced in this season's own quote token; approvals must target
+  // that ERC-20, not a platform-wide one, or every buy reverts.
+  const { quoteToken: seasonQuoteToken } = useSeasonQuoteToken(
+    seasonDetails?.curveAddress
+  );
   
   // Query for user's position in the raffle
   const {
@@ -200,7 +207,7 @@ export function useRaffle(seasonId) {
       // Batch approve + buyTokens into a single executeBatch call
       const batchId = await executeBatch([
         {
-          to: contracts.SOF,
+          to: seasonQuoteToken,
           data: encodeFunctionData({
             abi: ERC20Abi,
             functionName: 'approve',

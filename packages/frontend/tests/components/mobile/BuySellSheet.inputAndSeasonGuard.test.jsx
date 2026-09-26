@@ -31,8 +31,8 @@ vi.mock("@/hooks/useCurve", () => ({
 }));
 
 vi.mock("@/hooks/useSofDecimals", () => ({ useSofDecimals: () => 18 }));
-vi.mock("@/hooks/useSOFToken", () => ({
-  useSOFToken: () => ({
+vi.mock("@/hooks/useQuoteToken", () => ({
+  useQuoteToken: () => ({
     balance: "1000",
     isLoading: false,
     refetchBalance: vi.fn(),

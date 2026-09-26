@@ -44,10 +44,8 @@ const CONTRACTS_TO_EXPORT = [
   { source: 'InfoFiFPMMV2.sol/SOLPToken.json', name: 'SOLPToken' },
   { source: 'ConditionalTokenSOF.sol/ConditionalTokenSOF.json', name: 'ConditionalTokenSOF' },
 
-  // Bonding Curve & Tokens
+  // Bonding Curve
   { source: 'SOFBondingCurve.sol/SOFBondingCurve.json', name: 'SOFBondingCurve' },
-  { source: 'SOFToken.sol/SOFToken.json', name: 'SOFToken' },
-  { source: 'SOFFaucet.sol/SOFFaucet.json', name: 'SOFFaucet' },
 
   // Season Management
   { source: 'SeasonFactory.sol/SeasonFactory.json', name: 'SeasonFactory' },
@@ -63,7 +61,6 @@ const CONTRACTS_TO_EXPORT = [
 
   // Exchange (SOFAirdrop deleted in the gasless rewrite — backend relayer
   // does direct transfers now per spec §5.3)
-  { source: 'SOFExchange.sol/SOFExchange.json', name: 'SOFExchange' },
 
   // ERC-4337 account abstraction (gasless rewrite)
   { source: 'SOFSmartAccount.sol/SOFSmartAccount.json', name: 'SOFSmartAccount' },

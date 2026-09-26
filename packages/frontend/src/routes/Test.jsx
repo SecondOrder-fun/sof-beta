@@ -3,13 +3,13 @@ import { useAccount } from 'wagmi';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useSOFToken } from '@/hooks/useSOFToken';
+import { useQuoteToken } from '@/hooks/useQuoteToken';
 import { getContractAddresses } from '@/config/contracts';
 import { getStoredNetworkKey } from '@/lib/wagmi';
 
 const Test = () => {
   const { isConnected, address } = useAccount();
-  const { balance: sofBalance } = useSOFToken();
+  const { balance: sofBalance } = useQuoteToken();
   const netKey = getStoredNetworkKey();
   const contracts = getContractAddresses(netKey);
 
@@ -67,11 +67,11 @@ const Test = () => {
               <div className="space-y-2">
                 <div className="flex justify-between">
                   <span className="font-medium">SOF Token:</span>
-                  <span className="font-mono">{contracts.SOF || 'Not configured'}</span>
+                  <span className="font-mono">{contracts.QUOTE_TOKEN || 'Not configured'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="font-medium">SOF Faucet:</span>
-                  <span className="font-mono">{contracts.SOF_FAUCET || 'Not configured'}</span>
+                  <span className="font-mono">{'removed'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="font-medium">Raffle:</span>

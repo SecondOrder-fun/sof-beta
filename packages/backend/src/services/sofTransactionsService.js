@@ -143,7 +143,7 @@ export async function fetchSofTransactions({ blockscoutClient, db, network }, us
     throw new Error("user address required");
   }
   const userLower = lower(user);
-  const sofAddress = sofMetadataCache.address || getDeployment(network)?.SOFToken;
+  const sofAddress = sofMetadataCache.address || getDeployment(network)?.QuoteToken;
   if (!sofAddress) {
     throw new Error("SOF token address missing from deployment");
   }
@@ -176,7 +176,6 @@ export async function fetchSofTransactions({ blockscoutClient, db, network }, us
   const deployment = getDeployment(network) || {};
   const knownContracts = {
     prizeDistributor: lower(deployment.RafflePrizeDistributor),
-    faucet: lower(deployment.SOFFaucet),
     airdrop: lower(deployment.SOFAirdrop),
   };
 

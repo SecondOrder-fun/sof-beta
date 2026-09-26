@@ -6,14 +6,14 @@ describe('config/contracts', () => {
   it('returns an object with expected keys for LOCAL', () => {
     const addr = getContractAddresses('LOCAL')
     expect(addr).toHaveProperty('RAFFLE')
-    expect(addr).toHaveProperty('SOF')
+    expect(addr).toHaveProperty('QUOTE_TOKEN')
     expect(addr).toHaveProperty('SOF_SMART_ACCOUNT_FACTORY')
   })
 
   it('returns an object with expected keys for TESTNET', () => {
     const addr = getContractAddresses('TESTNET')
     expect(addr).toHaveProperty('RAFFLE')
-    expect(addr).toHaveProperty('SOF')
+    expect(addr).toHaveProperty('QUOTE_TOKEN')
     expect(addr).toHaveProperty('SOF_SMART_ACCOUNT_FACTORY')
   })
 

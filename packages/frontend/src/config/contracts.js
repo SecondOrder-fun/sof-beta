@@ -5,7 +5,7 @@
 /**
  * @typedef {Object} ContractAddresses
  * @property {`0x${string}` | string} RAFFLE
- * @property {`0x${string}` | string} SOF
+ * @property {`0x${string}` | string} QUOTE_TOKEN
  * @property {`0x${string}` | string} SEASON_FACTORY
  * @property {`0x${string}` | string} SEASON_GATING
  * @property {`0x${string}` | string} INFOFI_FACTORY
@@ -15,8 +15,6 @@
  * @property {`0x${string}` | string} CONDITIONAL_TOKENS // Gnosis Conditional Tokens
  * @property {`0x${string}` | string} VRF_COORDINATOR
  * @property {`0x${string}` | string} PRIZE_DISTRIBUTOR
- * @property {`0x${string}` | string} SOF_FAUCET
- * @property {`0x${string}` | string} SOF_EXCHANGE
  * @property {`0x${string}` | string} USDC
  * @property {`0x${string}` | string} SOF_SMART_ACCOUNT_FACTORY
  * @property {`0x${string}` | string} ROLLOVER_ESCROW
@@ -67,7 +65,10 @@ export function getContractAddresses(key) {
 
   return {
     RAFFLE: s(deployment.Raffle),
-    SOF: s(deployment.SOFToken),
+    // Placeholder quote token until the launchpad supplies real ones. Seasons
+    // name their own quoteToken; this is only the platform-level default used
+    // by non-season-scoped views (profile, sponsor staking).
+    QUOTE_TOKEN: s(deployment.QuoteToken),
     SEASON_FACTORY: s(deployment.SeasonFactory),
     SEASON_GATING: s(deployment.SeasonGating),
     INFOFI_FACTORY: s(deployment.InfoFiFactory),
@@ -77,8 +78,6 @@ export function getContractAddresses(key) {
     CONDITIONAL_TOKENS: s(deployment.ConditionalTokens),
     VRF_COORDINATOR: s(deployment.VRFCoordinator),
     PRIZE_DISTRIBUTOR: s(deployment.PrizeDistributor),
-    SOF_FAUCET: s(deployment.SOFFaucet),
-    SOF_EXCHANGE: s(deployment.SOFExchange),
     USDC: s(deployment.USDC),
     MARKET_TYPE_REGISTRY: s(deployment.MarketTypeRegistry),
     RAFFLE_ORACLE_ADAPTER: s(deployment.RaffleOracleAdapter),

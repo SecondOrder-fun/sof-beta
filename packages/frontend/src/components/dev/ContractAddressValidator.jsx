@@ -31,10 +31,9 @@ export function ContractAddressValidator() {
     //console.log('[ContractAddressValidator] Using addresses:', contracts);
 
     const contractsToValidate = {
-      "SOF Token": contracts.SOF,
+      "Quote Token": contracts.QUOTE_TOKEN,
       Raffle: contracts.RAFFLE,
       "Season Factory": contracts.SEASON_FACTORY,
-      "SOF Faucet": contracts.SOF_FAUCET,
       "Prize Distributor": contracts.PRIZE_DISTRIBUTOR,
     };
 

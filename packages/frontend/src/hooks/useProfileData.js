@@ -8,7 +8,7 @@ import {
   RafflePrizeDistributorAbi as PrizeDistributorAbi,
 } from "@/utils/abis";
 import { useAllSeasons } from "./useAllSeasons";
-import { useSOFBalance } from "@/hooks/useSOFBalance";
+import { useQuoteBalance } from "@/hooks/useQuoteBalance";
 import { getPrizeDistributor } from "@/services/onchainRaffleDistributor";
 
 /**
@@ -27,10 +27,10 @@ export function useProfileData(address) {
   const allSeasonsQuery = useAllSeasons();
   const seasons = allSeasonsQuery.data || [];
 
-  // SOF balance — useSOFBalance is canonical (ultra-fresh, central invalidation).
+  // Quote-token balance — useQuoteBalance is canonical (ultra-fresh, central invalidation).
   // Exposed as sofBalanceQuery shim for backward compat with callers that
   // destructure { data, isLoading, refetch }.
-  const _sofBalance = useSOFBalance();
+  const _sofBalance = useQuoteBalance();
   const sofBalanceQuery = {
     data: _sofBalance.balanceRaw,
     isLoading: _sofBalance.isLoading,

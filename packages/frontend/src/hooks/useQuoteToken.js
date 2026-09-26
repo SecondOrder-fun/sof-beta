@@ -1,4 +1,4 @@
-// src/hooks/useSOFToken.js
+// src/hooks/useQuoteToken.js
 import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useAccount, usePublicClient } from 'wagmi';
@@ -10,11 +10,18 @@ import { useSmartTransactions } from '@/hooks/useSmartTransactions';
 import { useRaffleAccount } from '@/hooks/useRaffleAccount';
 
 /**
- * Hook for interacting with the SOF token contract.
+ * Hook for interacting with a quote token contract.
+ *
+ * Seasons are priced in a per-season quote token, so season-scoped callers
+ * should pass that season's token (see useSeasonQuoteToken). Callers that are
+ * not season-scoped fall back to the platform-level placeholder quote token.
  *
  * Reads (balance, allowance) resolve at the SMA per spec §4.3.
+ *
+ * @param {`0x${string}` | undefined} [tokenAddress] Token to operate on.
+ *   Defaults to the platform quote token.
  */
-export function useSOFToken() {
+export function useQuoteToken(tokenAddress) {
   const { isConnected } = useAccount();
   // Reads against the smart account; writes still originate from the
   // connected wallet via executeBatch.
@@ -23,10 +30,11 @@ export function useSOFToken() {
   const { executeBatch } = useSmartTransactions();
   const netKey = getStoredNetworkKey();
   const contracts = getContractAddresses(netKey);
+  const token = tokenAddress || contracts.QUOTE_TOKEN;
 
   const [error, setError] = useState('');
 
-  // Query for SOF balance.
+  // Query for the quote-token balance.
   // Important: the balance query is disabled until the RaffleAccountProvider
   // resolves the user's SMA address. While disabled, react-query reports
   // `isLoading: false` (it's not loading, it's *not started*) — which
@@ -34,20 +42,20 @@ export function useSOFToken() {
   // button to disabled. We expose a separate `isLoading` below that returns
   // true until the SMA is known AND the balance query has run, so consumers
   // can tell pending from zero.
-  const balanceEnabled = Boolean(address && isConnected && contracts.SOF && accountReady);
+  const balanceEnabled = Boolean(address && isConnected && token && accountReady);
   const {
     data: balance = '0',
     isFetching: isFetchingBalance,
     isSuccess: balanceFetched,
     refetch: refetchBalance
   } = useQuery({
-    queryKey: ['sofBalance', address, contracts.SOF],
+    queryKey: ['quoteBalance', address, token],
     queryFn: async () => {
-      if (!address || !isConnected || !contracts.SOF) return '0';
+      if (!address || !isConnected || !token) return '0';
 
       try {
         const balance = await publicClient.readContract({
-          address: contracts.SOF,
+          address: token,
           abi: ERC20Abi,
           functionName: 'balanceOf',
           args: [address],
@@ -72,29 +80,29 @@ export function useSOFToken() {
     data: tokenDetails,
     isLoading: isLoadingDetails
   } = useQuery({
-    queryKey: ['sofTokenDetails', contracts.SOF],
+    queryKey: ['quoteTokenDetails', token],
     queryFn: async () => {
-      if (!contracts.SOF) return null;
+      if (!token) return null;
       
       try {
         const [name, symbol, totalSupply, decimals] = await Promise.all([
           publicClient.readContract({
-            address: contracts.SOF,
+            address: token,
             abi: ERC20Abi,
             functionName: 'name',
           }),
           publicClient.readContract({
-            address: contracts.SOF,
+            address: token,
             abi: ERC20Abi,
             functionName: 'symbol',
           }),
           publicClient.readContract({
-            address: contracts.SOF,
+            address: token,
             abi: ERC20Abi,
             functionName: 'totalSupply',
           }),
           publicClient.readContract({
-            address: contracts.SOF,
+            address: token,
             abi: ERC20Abi,
             functionName: 'decimals',
           })
@@ -110,14 +118,14 @@ export function useSOFToken() {
         return null;
       }
     },
-    enabled: Boolean(contracts.SOF),
+    enabled: Boolean(token),
     staleTime: 60 * 60 * 1000, // 1 hour
   });
   
   // Mutation for token transfer
   const transferMutation = useMutation({
     mutationFn: async ({ to, amount }) => {
-      if (!isConnected || !contracts.SOF) {
+      if (!isConnected || !token) {
         throw new Error('Wallet not connected or token not configured');
       }
 
@@ -131,7 +139,7 @@ export function useSOFToken() {
       const parsedAmount = parseUnits(amount, decimals);
 
       const hash = await executeBatch([{
-        to: contracts.SOF,
+        to: token,
         data: encodeFunctionData({
           abi: ERC20Abi,
           functionName: 'transfer',
@@ -149,7 +157,7 @@ export function useSOFToken() {
   // Mutation for token approval
   const approveMutation = useMutation({
     mutationFn: async ({ spender, amount }) => {
-      if (!isConnected || !contracts.SOF) {
+      if (!isConnected || !token) {
         throw new Error('Wallet not connected or token not configured');
       }
 
@@ -165,7 +173,7 @@ export function useSOFToken() {
         : parseUnits(amount, decimals);
 
       const hash = await executeBatch([{
-        to: contracts.SOF,
+        to: token,
         data: encodeFunctionData({
           abi: ERC20Abi,
           functionName: 'approve',
@@ -182,13 +190,13 @@ export function useSOFToken() {
   
   // Query for allowance
   const getAllowance = async (spender) => {
-    if (!address || !isConnected || !contracts.SOF || !spender) {
+    if (!address || !isConnected || !token || !spender) {
       return '0';
     }
     
     try {
       const allowance = await publicClient.readContract({
-        address: contracts.SOF,
+        address: token,
         abi: ERC20Abi,
         functionName: 'allowance',
         args: [address, spender],

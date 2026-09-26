@@ -15,7 +15,7 @@ vi.mock("@/hooks/useSmartTransactions", () => ({
 vi.mock("@/lib/wagmi", () => ({ getStoredNetworkKey: () => "TESTNET" }));
 vi.mock("@/config/contracts", () => ({
   // Inlined — vi.mock factories are hoisted, can't close over module-scope consts
-  getContractAddresses: () => ({ SOF: "0x1111111111111111111111111111111111111111" }),
+  getContractAddresses: () => ({ QUOTE_TOKEN: "0x1111111111111111111111111111111111111111" }),
 }));
 vi.mock("@/services/onchainRolloverEscrow", () => ({
   buildSpendFromRolloverCall: ({ seasonId, sofAmount, ticketAmount, maxTotalSof }) => ({
@@ -24,6 +24,14 @@ vi.mock("@/services/onchainRolloverEscrow", () => ({
   }),
 }));
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (k) => k }) }));
+
+// Quote token is read off the curve on-chain; stub it for unit tests.
+vi.mock("@/hooks/useSeasonQuoteToken", () => ({
+  useSeasonQuoteToken: () => ({
+    quoteToken: "0x1111111111111111111111111111111111111111",
+    isLoading: false,
+  }),
+}));
 
 import { useBuySellTransactions } from "@/hooks/buysell/useBuySellTransactions";
 

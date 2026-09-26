@@ -198,7 +198,9 @@ export function useInfoFiMarket(marketId) {
 
       const hash = await executeBatch([
         {
-          to: contracts.SOF,
+          // TODO: follow the season's collateral once InfoFiMarketFactory
+          // resolves it per season; until then this is the platform default.
+          to: contracts.QUOTE_TOKEN,
           data: encodeFunctionData({
             abi: ERC20Abi,
             functionName: 'approve',

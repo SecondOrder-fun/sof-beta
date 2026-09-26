@@ -134,9 +134,6 @@ const Header = () => {
             <NavLink to="/portfolio" className={navLinkClass}>
               {t("portfolio")}
             </NavLink>
-            <NavLink to="/get-sof" className={navLinkClass}>
-              {t("getSOF")}
-            </NavLink>
           </nav>
         </div>
         <div className="flex items-center space-x-4">

@@ -16,14 +16,11 @@ export {
   SOLPTokenABI as SOLPTokenAbi,
   ConditionalTokenSOFABI as ConditionalTokensMockAbi,
   SOFBondingCurveABI as SOFBondingCurveAbi,
-  SOFTokenABI as SOFTokenAbi,
-  SOFFaucetABI as SOFFaucetAbi,
   SeasonFactoryABI as SeasonFactoryAbi,
   ERC20ABI as ERC20Abi,
   AccessControlABI as AccessControlAbi,
   HatsABI as HatsAbi,
   StakingEligibilityABI as StakingEligibilityAbi,
-  SOFExchangeABI as SOFExchangeAbi,
 } from '@sof/contracts';
 
 // Minimal ERC-721 ABI for approve calls (not in Foundry build)

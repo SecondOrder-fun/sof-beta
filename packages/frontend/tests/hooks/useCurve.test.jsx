@@ -18,7 +18,16 @@ vi.mock("@/lib/wagmi", () => ({
 
 vi.mock("@/config/contracts", () => ({
   getContractAddresses: () => ({
-    SOF: "0x0000000000000000000000000000000000000aAa",
+    QUOTE_TOKEN: "0x0000000000000000000000000000000000000aAa",
+  }),
+}));
+
+// The curve resolves its own quote token on-chain; stub it so these tests
+// stay unit-level and do not need a WagmiProvider.
+vi.mock("@/hooks/useSeasonQuoteToken", () => ({
+  useSeasonQuoteToken: () => ({
+    quoteToken: "0x0000000000000000000000000000000000000aAa",
+    isLoading: false,
   }),
 }));
 

@@ -3,10 +3,9 @@
 
 import { useMutation } from '@tanstack/react-query';
 import { encodeFunctionData } from 'viem';
-import { getStoredNetworkKey } from '@/lib/wagmi';
-import { getContractAddresses } from '@/config/contracts';
 import { SOFBondingCurveAbi, ERC20Abi } from '@/utils/abis';
 import { useSmartTransactions } from '@/hooks/useSmartTransactions';
+import { useSeasonQuoteToken } from '@/hooks/useSeasonQuoteToken';
 
 /**
  * @notice Hook for SOFBondingCurve contract interactions.
@@ -14,17 +13,19 @@ import { useSmartTransactions } from '@/hooks/useSmartTransactions';
  * @returns {object} An object containing mutation functions for curve actions.
  */
 export function useCurve(bondingCurveAddress) {
-  const netKey = getStoredNetworkKey();
-  const contracts = getContractAddresses(netKey);
   const { executeBatch } = useSmartTransactions();
+  // Approve the token this curve actually accepts. Each season names its own
+  // quote token, so a platform-wide address would approve the wrong ERC-20 and
+  // every buy would revert.
+  const { quoteToken } = useSeasonQuoteToken(bondingCurveAddress);
 
   /**
-   * @notice Approves the bonding curve to spend the user's SOF tokens.
+   * @notice Approves the bonding curve to spend the user's quote tokens.
    */
   const approveMutation = useMutation({
     mutationFn: async ({ amount }) => {
       return await executeBatch([{
-        to: contracts.SOF,
+        to: quoteToken,
         data: encodeFunctionData({
           abi: ERC20Abi,
           functionName: 'approve',

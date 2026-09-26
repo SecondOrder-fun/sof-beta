@@ -7,7 +7,7 @@
 import PropTypes from "prop-types";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Ticket, TrendingUp, Wallet, Trophy, ArrowLeftRight } from "lucide-react";
+import { Ticket, TrendingUp, Wallet, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSafeArea } from "@/hooks/useSafeArea";
 
@@ -42,12 +42,6 @@ export const BottomNav = ({ className = "" }) => {
       icon: Trophy,
       path: "/leaderboard",
     },
-    {
-      id: "get-sof",
-      label: t("navigation:getSOF"),
-      icon: ArrowLeftRight,
-      path: "/get-sof",
-    },
   ];
 
   const getActiveTab = () => {
@@ -59,7 +53,6 @@ export const BottomNav = ({ className = "" }) => {
     if (path.startsWith("/portfolio")) return "portfolio";
     if (path.startsWith("/leaderboard") || path.startsWith("/users"))
       return "ranking";
-    if (path.startsWith("/get-sof")) return "get-sof";
     return "raffles";
   };
 

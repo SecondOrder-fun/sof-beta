@@ -3,7 +3,6 @@
   "chainId": 84532,
   "deployedAt": "2026-05-13T10:25:08.533Z",
   "contracts": {
-    "SOFToken": "0xa118a7021891401dfe4211cc1bde1d9af8fe2c06",
     "Raffle": "0xf65eb1e50bd3587a2e335714a778a1c12a0e73cd",
     "SeasonFactory": "0xb492715ad4d1fd1badfc44137a79e8dba4c0054f",
     "SOFBondingCurve": "0x0000000000000000000000000000000000000000",
@@ -15,13 +14,12 @@
     "MarketTypeRegistry": "0x24737f7d53bc56bf4924ce9749ed432a7e26c186",
     "VRFCoordinator": "0x5C210eF41CD1a72de73bF76eC39637bB0d3d7BEE",
     "PrizeDistributor": "0x63d3d04cfc6d8f70370c4e85da5436e76a9e16e1",
-    "SOFFaucet": "0xe963c9fcb59eb1588c2b0b401ca0dd363e1cc6f4",
     "RaffleOracleAdapter": "0x8d82fcd451d106800cbdc302b74414f38f76e832",
     "SeasonGating": "0x0000000000000000000000000000000000000000",
-    "SOFExchange": "0x83ed0474b989c63918765161a1ba58071cdec0cc",
     "USDC": "0x0000000000000000000000000000000000000000",
     "SOFSmartAccountFactory": "0xea28a1c9ca06051e4384c62dd20ca5f7c16bce39",
     "Paymaster": "0x417fc2c5d4b5e40203aaec34ac24c4263c14ec50",
-    "RolloverEscrow": "0xf2bf9595e082a93befc09596fecd8edd98786822"
+    "RolloverEscrow": "0xf2bf9595e082a93befc09596fecd8edd98786822",
+    "QuoteToken": "0xa118a7021891401dfe4211cc1bde1d9af8fe2c06"
   }
 }
