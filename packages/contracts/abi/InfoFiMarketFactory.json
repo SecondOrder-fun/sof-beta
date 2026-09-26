@@ -23,11 +23,6 @@
         "internalType": "address"
       },
       {
-        "name": "_sofToken",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
         "name": "_marketTypeRegistry",
         "type": "address",
         "internalType": "address"
@@ -301,6 +296,25 @@
         "name": "",
         "type": "address[]",
         "internalType": "address[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getSeasonQuoteToken",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -665,19 +679,6 @@
   },
   {
     "type": "function",
-    "name": "sofToken",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "contract IERC20"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "supportsInterface",
     "inputs": [
       {
@@ -968,6 +969,12 @@
     "name": "TreasuryLow",
     "inputs": [
       {
+        "name": "quoteToken",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
         "name": "currentBalance",
         "type": "uint256",
         "indexed": false,
@@ -1072,6 +1079,17 @@
     "type": "error",
     "name": "NotInFailedState",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "QuoteTokenNotSet",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
