@@ -200,7 +200,28 @@ contract DeployAll is Script {
             addrs = new AddVRFConsumer().run(addrs);
         }
 
-        // --- 4. Write deployment JSON (merge with existing file) ---
+        // --- 4. Build the deployment JSON (reference only — nothing writes it;
+        //         see the note in _buildDeploymentJson) ---
+        _buildDeploymentJson(addrs, deploymentPath);
+        console2.log("Skipping in-script JSON write.");
+        console2.log("Run: node scripts/extract-deployment-addresses.js --network <network>");
+        console2.log("=== DeployAll complete ===");
+    }
+
+    /**
+     * @notice Builds the deployments/<network>.json payload from the in-memory addresses.
+     * @dev Kept for reference only — nothing writes the result. See the note at the call
+     *      site in run(): deployments/<network>.json is regenerated from the broadcast log
+     *      by scripts/extract-deployment-addresses.js, which is authoritative under --resume.
+     *      Lives in its own function so run() does not blow the Yul stack under via_ir.
+     * @param addrs The accumulated deployed addresses
+     * @param deploymentPath Path of the existing JSON file, read to preserve unmanaged keys
+     * @return The JSON document
+     */
+    function _buildDeploymentJson(DeployedAddresses memory addrs, string memory deploymentPath)
+        private
+        returns (string memory)
+    {
         string memory networkName;
         if (block.chainid == 31337) networkName = "local";
         else if (block.chainid == 84532) networkName = "base-sepolia";
@@ -239,59 +260,31 @@ contract DeployAll is Script {
             }
         }
 
-        // Split JSON construction to avoid Yul stack-too-deep
-        string memory part1 = string.concat(
-            '{\n  "network": "', networkName, '",\n',
-            '  "chainId": ', vm.toString(block.chainid), ',\n',
-            '  "deployedAt": "', vm.toString(block.timestamp), '",\n',
-            '  "contracts": {\n',
-            '    "QuoteToken": "', vm.toString(addrs.quoteToken), '",\n',
-            '    "Raffle": "', vm.toString(addrs.raffle), '",\n',
-            '    "SeasonFactory": "', vm.toString(addrs.seasonFactory), '",\n'
-        );
-        string memory part2 = string.concat(
-            '    "InfoFiPriceOracle": "', vm.toString(addrs.infoFiOracle), '",\n',
-            '    "ConditionalTokens": "', vm.toString(addrs.conditionalTokens), '",\n',
-            '    "RaffleOracleAdapter": "', vm.toString(addrs.oracleAdapter), '",\n',
-            '    "InfoFiFPMM": "', vm.toString(addrs.fpmmManager), '",\n',
-            '    "MarketTypeRegistry": "', vm.toString(addrs.marketTypeRegistry), '",\n',
-            '    "InfoFiFactory": "', vm.toString(addrs.infoFiFactory), '",\n'
-        );
-        string memory part3 = string.concat(
-            '    "InfoFiSettlement": "', vm.toString(addrs.infoFiSettlement), '",\n',
-            '    "PrizeDistributor": "', vm.toString(addrs.prizeDistributor), '",\n',
-            '    "SOFSmartAccountFactory": "', vm.toString(addrs.sofSmartAccountFactory), '",\n',
-            '    "Paymaster": "', vm.toString(addrs.paymasterAddress), '",\n',
-            '    "RolloverEscrow": "', vm.toString(addrs.rolloverEscrow), '",\n'
-        );
-        string memory part4 = string.concat(
-            // Newly managed addresses (0.25.0). USDC may be address(0) on
-            // non-local until HelperConfig grows a per-network USDC field.
-            '    "USDC": "', vm.toString(addrs.usdc), '"',
-            preservedSection,
-            '\n  }\n}'
-        );
-        string memory json = string.concat(part1, part2, part3, part4);
+        // Built one field at a time: a few big string.concat() calls keep too many
+        // live memory pointers for via_ir's stack.
+        string memory json = string.concat('{\n  "network": "', networkName, '",\n');
+        json = string.concat(json, '  "chainId": ', vm.toString(block.chainid), ',\n');
+        json = string.concat(json, '  "deployedAt": "', vm.toString(block.timestamp), '",\n');
+        json = string.concat(json, '  "contracts": {\n');
+        json = string.concat(json, '    "QuoteToken": "', vm.toString(addrs.quoteToken), '",\n');
+        json = string.concat(json, '    "Raffle": "', vm.toString(addrs.raffle), '",\n');
+        json = string.concat(json, '    "SeasonFactory": "', vm.toString(addrs.seasonFactory), '",\n');
+        json = string.concat(json, '    "InfoFiPriceOracle": "', vm.toString(addrs.infoFiOracle), '",\n');
+        json = string.concat(json, '    "ConditionalTokens": "', vm.toString(addrs.conditionalTokens), '",\n');
+        json = string.concat(json, '    "RaffleOracleAdapter": "', vm.toString(addrs.oracleAdapter), '",\n');
+        json = string.concat(json, '    "InfoFiFPMM": "', vm.toString(addrs.fpmmManager), '",\n');
+        json = string.concat(json, '    "MarketTypeRegistry": "', vm.toString(addrs.marketTypeRegistry), '",\n');
+        json = string.concat(json, '    "InfoFiFactory": "', vm.toString(addrs.infoFiFactory), '",\n');
+        json = string.concat(json, '    "InfoFiSettlement": "', vm.toString(addrs.infoFiSettlement), '",\n');
+        json = string.concat(json, '    "PrizeDistributor": "', vm.toString(addrs.prizeDistributor), '",\n');
+        json = string.concat(json, '    "SOFSmartAccountFactory": "', vm.toString(addrs.sofSmartAccountFactory), '",\n');
+        json = string.concat(json, '    "Paymaster": "', vm.toString(addrs.paymasterAddress), '",\n');
+        json = string.concat(json, '    "RolloverEscrow": "', vm.toString(addrs.rolloverEscrow), '",\n');
+        // Newly managed addresses (0.25.0). USDC may be address(0) on
+        // non-local until HelperConfig grows a per-network USDC field.
+        json = string.concat(json, '    "USDC": "', vm.toString(addrs.usdc), '"');
+        json = string.concat(json, preservedSection, "\n  }\n}");
 
-        // NOTE: Disabled. Use scripts/extract-deployment-addresses.js instead —
-        // run it after every `forge script ... --broadcast` (or --resume) to
-        // regenerate deployments/<network>.json from the broadcast log.
-        //
-        // Why: this in-script writer reads addresses from the in-memory `addrs`
-        // struct, which gets corrupted when --resume is used to recover from
-        // a partial broadcast. The struct ends up mixing real addresses (for
-        // newly-broadcast slots) with simulator-predicted addresses (for
-        // already-broadcast slots), and on the 2026-05-02 redeploy the slots
-        // ended up shifted such that "Raffle" pointed at InfoFiPriceOracle's
-        // address. The broadcast log doesn't have this problem because each
-        // entry is forge's authoritative record of the actual deployed address.
-        //
-        // Keeping the JSON-building code above for reference, but the file
-        // write is gone — single source of truth via the JS extractor.
-        // vm.writeFile(deploymentPath, json);
-        json; // silence unused-local-warning
-        console2.log("Skipping in-script JSON write.");
-        console2.log("Run: node scripts/extract-deployment-addresses.js --network <network>");
-        console2.log("=== DeployAll complete ===");
+        return json;
     }
 }

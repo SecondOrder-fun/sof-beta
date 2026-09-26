@@ -17,7 +17,6 @@ contract DeployInfoFiFactory is Script {
             addrs.infoFiOracle,
             addrs.oracleAdapter,
             addrs.fpmmManager,
-            addrs.quoteToken,
             addrs.marketTypeRegistry,
             deployer,
             deployer
