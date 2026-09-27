@@ -35,7 +35,7 @@ contract RolloverPerCohortCurveTest is Test {
 
     function setUp() public {
         sof = new MockERC20("SOF", "SOF", 10_000_000e18);
-        escrow = new RolloverEscrow(address(sof), treasury, raffleAddr);
+        escrow = new RolloverEscrow(treasury, raffleAddr);
         escrow.grantRole(escrow.DISTRIBUTOR_ROLE(), distributor);
 
         (curveA, tokenA) = _deployCurve("Season A", NEXT_A);
@@ -71,7 +71,7 @@ contract RolloverPerCohortCurveTest is Test {
     }
 
     function _openFundActivate(uint256 seasonId, uint256 nextSeasonId, address curve) internal {
-        escrow.openCohort(seasonId, 600);
+        escrow.openCohort(seasonId, 600, address(sof));
 
         vm.startPrank(distributor);
         sof.transfer(address(escrow), DEPOSIT);
@@ -105,7 +105,7 @@ contract RolloverPerCohortCurveTest is Test {
     }
 
     function test_activateCohortRejectsZeroCurve() public {
-        escrow.openCohort(99, 600);
+        escrow.openCohort(99, 600, address(sof));
         vm.expectRevert(); // BondingCurveNotSet
         escrow.activateCohort(99, 100, address(0));
     }

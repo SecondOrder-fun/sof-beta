@@ -8,6 +8,7 @@ import {SeasonFactory} from "../src/core/SeasonFactory.sol";
 import {InfoFiMarketFactory} from "../src/infofi/InfoFiMarketFactory.sol";
 import {MarketTypeRegistry} from "../src/infofi/MarketTypeRegistry.sol";
 import {MockERC20} from "../src/test-helpers/MockERC20.sol";
+import {MockUSDC} from "../src/test-helpers/MockUSDC.sol";
 import {RaffleTypes} from "../src/lib/RaffleTypes.sol";
 
 interface IQuoteTokenSource {
@@ -203,5 +204,44 @@ contract InfoFiFactoryQuoteTokenTest is Test {
         vm.expectEmit(true, false, false, true, address(factory));
         emit TreasuryLow(address(tokenB), 500e18, SEED);
         _crossThreshold(seasonB, playerB);
+    }
+}
+
+/// @notice `seedAmountFor` scales the seed by the token's own decimals.
+///
+///         The old hardcoded 100e18 assumed 18 decimals. Once collateral became
+///         per-season that assumption stopped being safe: on a 6-decimal token 100e18
+///         is 100 trillion units. This only fixes the DECIMALS problem — 100 whole
+///         tokens is still a wildly different VALUE per token, which the seed-vault
+///         phase has to solve.
+contract InfoFiSeedAmountTest is Test {
+    /// @dev seedAmountFor only reads the token, so the other constructor args are
+    ///      irrelevant here; non-zero placeholders keep the ctor's zero-checks happy.
+    function _deployBareFactory() internal returns (InfoFiMarketFactory) {
+        return new InfoFiMarketFactory(
+            address(0xA1), address(0xA2), address(0xA3), address(0xA4), address(0xA5), address(0xA6), address(this)
+        );
+    }
+
+    function test_seedScalesWithTokenDecimals() public {
+        InfoFiMarketFactory factory = _deployBareFactory();
+
+        MockERC20 eighteen = new MockERC20("Eighteen", "E18", 0);
+        MockUSDC six = new MockUSDC();
+
+        assertEq(factory.seedAmountFor(address(eighteen)), 100e18, "18dp token: 100 whole tokens");
+        assertEq(factory.seedAmountFor(address(six)), 100e6, "6dp token: 100 whole tokens, not 100e18");
+    }
+
+    /// A token without `decimals()` falls back to 18 — the value the old constant assumed.
+    function test_seedFallsBackToEighteenWithoutDecimals() public {
+        InfoFiMarketFactory factory = _deployBareFactory();
+        assertEq(factory.seedAmountFor(address(new SeedNoDecimals())), 100e18);
+    }
+}
+
+contract SeedNoDecimals {
+    function balanceOf(address) external pure returns (uint256) {
+        return 0;
     }
 }

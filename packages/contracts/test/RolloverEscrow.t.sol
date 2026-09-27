@@ -8,7 +8,7 @@ import {SOFBondingCurve} from "../src/curve/SOFBondingCurve.sol";
 import {RaffleTypes} from "../src/lib/RaffleTypes.sol";
 import {RafflePrizeDistributor, NotAParticipant, RolloverEscrowNotSet} from "../src/core/RafflePrizeDistributor.sol";
 import {IRolloverEscrow} from "../src/core/IRolloverEscrow.sol";
-import {RolloverEscrow} from "../src/core/RolloverEscrow.sol";
+import {RolloverEscrow, QuoteTokenMismatch, QuoteTokenNotSet} from "../src/core/RolloverEscrow.sol";
 import {
     PhaseNotOpen,
     PhaseNotActive,
@@ -28,6 +28,17 @@ import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
  *
  * Task 1: Add `buyTokensFor` to SOFBondingCurve
  */
+/// @dev Minimal stand-in for a season's bonding curve. `activateCohort` now reads
+///      `quoteToken()` off the curve to prove it matches the cohort's token, so the
+///      curve can no longer be an arbitrary address with no code.
+contract MockQuoteCurve {
+    address public immutable quoteToken;
+
+    constructor(address _quoteToken) {
+        quoteToken = _quoteToken;
+    }
+}
+
 contract RolloverEscrowTest is Test {
     MockERC20 public sofToken;
     RaffleToken public raffleToken;
@@ -154,7 +165,7 @@ contract MockRolloverEscrow is IRolloverEscrow {
         deposits.push(DepositRecord({user: user, amount: amount, seasonId: seasonId}));
     }
 
-    function openCohort(uint256, uint16) external override {}
+    function openCohort(uint256, uint16, address) external override {}
 
     function defaultBonusBps() external pure override returns (uint16) {
         return 0;
@@ -290,16 +301,18 @@ contract RolloverEscrowDepositTest is Test {
     uint256 constant SEASON_ID = 1;
     uint256 constant NEXT_SEASON_ID = 2;
     uint256 constant DEPOSIT_AMOUNT = 1000e18;
-    address constant DUMMY_CURVE = address(0xC0FFEE);
+    address internal DUMMY_CURVE; // MockQuoteCurve deployed in setUp
 
     function setUp() public {
         sofToken = new MockSOFToken();
 
         vm.startPrank(admin);
-        escrow = new RolloverEscrow(address(sofToken), treasury, raffle);
+        escrow = new RolloverEscrow(treasury, raffle);
         // Grant DISTRIBUTOR_ROLE to the distributor address
         escrow.grantRole(escrow.DISTRIBUTOR_ROLE(), distributor);
         vm.stopPrank();
+
+        DUMMY_CURVE = address(new MockQuoteCurve(address(sofToken)));
 
         // Mint SOF to distributor and pre-approve escrow
         sofToken.mint(distributor, 100_000e18);
@@ -314,7 +327,7 @@ contract RolloverEscrowDepositTest is Test {
     function test_deposit_happyPath() public {
         // Open cohort first
         vm.prank(admin);
-        escrow.openCohort(SEASON_ID, 600);
+        escrow.openCohort(SEASON_ID, 600, address(sofToken));
 
         uint256 distributorBalBefore = sofToken.balanceOf(distributor);
         uint256 escrowBalBefore      = sofToken.balanceOf(address(escrow));
@@ -346,7 +359,7 @@ contract RolloverEscrowDepositTest is Test {
     // =========================================================================
     function test_deposit_revertIfNotDistributorRole() public {
         vm.prank(admin);
-        escrow.openCohort(SEASON_ID, 600);
+        escrow.openCohort(SEASON_ID, 600, address(sofToken));
 
         vm.prank(user); // user does NOT have DISTRIBUTOR_ROLE
         vm.expectRevert(); // AccessControl revert
@@ -359,7 +372,7 @@ contract RolloverEscrowDepositTest is Test {
     // =========================================================================
     function test_deposit_revertIfPhaseNotOpen() public {
         vm.startPrank(admin);
-        escrow.openCohort(SEASON_ID, 600);
+        escrow.openCohort(SEASON_ID, 600, address(sofToken));
         escrow.activateCohort(SEASON_ID, NEXT_SEASON_ID, DUMMY_CURVE);
         vm.stopPrank();
 
@@ -373,7 +386,7 @@ contract RolloverEscrowDepositTest is Test {
     // =========================================================================
     function test_deposit_revertIfZeroAmount() public {
         vm.prank(admin);
-        escrow.openCohort(SEASON_ID, 600);
+        escrow.openCohort(SEASON_ID, 600, address(sofToken));
 
         vm.prank(distributor);
         vm.expectRevert(AmountZero.selector);
@@ -385,7 +398,7 @@ contract RolloverEscrowDepositTest is Test {
     // =========================================================================
     function test_phaseTransition_open_to_active() public {
         vm.startPrank(admin);
-        escrow.openCohort(SEASON_ID, 600);
+        escrow.openCohort(SEASON_ID, 600, address(sofToken));
 
         (RolloverEscrow.EscrowPhase phaseBefore,,,,,,) = escrow.getCohortState(SEASON_ID);
         assertEq(uint8(phaseBefore), uint8(RolloverEscrow.EscrowPhase.Open), "should be Open");
@@ -403,7 +416,7 @@ contract RolloverEscrowDepositTest is Test {
     // =========================================================================
     function test_phaseTransition_active_to_closed() public {
         vm.startPrank(admin);
-        escrow.openCohort(SEASON_ID, 600);
+        escrow.openCohort(SEASON_ID, 600, address(sofToken));
         escrow.activateCohort(SEASON_ID, NEXT_SEASON_ID, DUMMY_CURVE);
         escrow.closeCohort(SEASON_ID);
         vm.stopPrank();
@@ -418,7 +431,7 @@ contract RolloverEscrowDepositTest is Test {
     // =========================================================================
     function test_phaseTransition_open_to_expired_afterTimeout() public {
         vm.prank(admin);
-        escrow.openCohort(SEASON_ID, 600);
+        escrow.openCohort(SEASON_ID, 600, address(sofToken));
 
         // Warp past the 30-day expiry timeout
         vm.warp(block.timestamp + 31 days);
@@ -444,7 +457,7 @@ contract RolloverEscrowDepositTest is Test {
     // =========================================================================
     function test_phaseTransition_revertInvalidTransitions() public {
         vm.startPrank(admin);
-        escrow.openCohort(SEASON_ID, 600);
+        escrow.openCohort(SEASON_ID, 600, address(sofToken));
 
         // Attempt to close directly from Open — must revert
         vm.expectRevert(abi.encodeWithSelector(PhaseNotActive.selector, SEASON_ID));
@@ -457,7 +470,7 @@ contract RolloverEscrowDepositTest is Test {
     // =========================================================================
     function test_getAvailableBalance() public {
         vm.prank(admin);
-        escrow.openCohort(SEASON_ID, 600);
+        escrow.openCohort(SEASON_ID, 600, address(sofToken));
 
         vm.startPrank(distributor);
         sofToken.transfer(address(escrow), DEPOSIT_AMOUNT);
@@ -473,7 +486,7 @@ contract RolloverEscrowDepositTest is Test {
     // =========================================================================
     function test_getBonusAmount() public {
         vm.prank(admin);
-        escrow.openCohort(SEASON_ID, 600); // 6% bonus
+        escrow.openCohort(SEASON_ID, 600, address(sofToken)); // 6% bonus
 
         uint256 bonus = escrow.getBonusAmount(SEASON_ID, 1000e18);
         assertEq(bonus, 60e18, "6% of 1000 SOF = 60 SOF");
@@ -532,7 +545,7 @@ contract RolloverEscrowSpendTest is Test {
         curve.initializeCurve(address(raffleToken), steps, BUY_FEE, SELL_FEE, treasury);
 
         // Deploy escrow
-        escrow = new RolloverEscrow(address(sofToken), treasury, raffle);
+        escrow = new RolloverEscrow(treasury, raffle);
         escrow.grantRole(escrow.DISTRIBUTOR_ROLE(), distributor);
 
         // Grant ESCROW_ROLE on curve to the escrow contract
@@ -552,7 +565,7 @@ contract RolloverEscrowSpendTest is Test {
         sofToken.approve(address(escrow), type(uint256).max);
 
         vm.prank(admin);
-        escrow.openCohort(SEASON_ID, uint16(BONUS_BPS));
+        escrow.openCohort(SEASON_ID, uint16(BONUS_BPS), address(sofToken));
 
         vm.startPrank(distributor);
         sofToken.transfer(address(escrow), DEPOSIT_AMOUNT);
@@ -681,17 +694,19 @@ contract RolloverEscrowRefundTest is Test {
     uint256 constant SEASON_ID_2    = 2;
     uint256 constant NEXT_SEASON_ID = 99;
     uint256 constant DEPOSIT_AMOUNT = 500e18;
-    address constant DUMMY_CURVE    = address(0xC0FFEE);
+    address internal DUMMY_CURVE; // MockQuoteCurve deployed in setUp
 
     function setUp() public {
         vm.startPrank(admin);
 
         sofToken = new MockERC20("SOF", "SOF", 1_000_000e18);
 
-        escrow = new RolloverEscrow(address(sofToken), treasury, raffle);
+        escrow = new RolloverEscrow(treasury, raffle);
         escrow.grantRole(escrow.DISTRIBUTOR_ROLE(), distributor);
 
         vm.stopPrank();
+
+        DUMMY_CURVE = address(new MockQuoteCurve(address(sofToken)));
 
         // Fund distributor and pre-approve escrow
         vm.prank(admin);
@@ -702,7 +717,7 @@ contract RolloverEscrowRefundTest is Test {
 
         // Open cohort, deposit for user1, then activate
         vm.prank(admin);
-        escrow.openCohort(SEASON_ID, 600);
+        escrow.openCohort(SEASON_ID, 600, address(sofToken));
 
         vm.startPrank(distributor);
         sofToken.transfer(address(escrow), DEPOSIT_AMOUNT);
@@ -767,7 +782,7 @@ contract RolloverEscrowRefundTest is Test {
     function test_refund_fromExpired_returnsFull() public {
         // Open second cohort and deposit for user1
         vm.prank(admin);
-        escrow.openCohort(SEASON_ID_2, 600);
+        escrow.openCohort(SEASON_ID_2, 600, address(sofToken));
 
         vm.startPrank(distributor);
         sofToken.transfer(address(escrow), DEPOSIT_AMOUNT);
@@ -835,7 +850,7 @@ contract RolloverEscrowAdminSetterTest is Test {
     function setUp() public {
         vm.startPrank(admin);
         sofToken = new MockERC20("SOF", "SOF", 1_000e18);
-        escrow = new RolloverEscrow(address(sofToken), treasury, raffle);
+        escrow = new RolloverEscrow(treasury, raffle);
         vm.stopPrank();
     }
 
@@ -864,5 +879,91 @@ contract RolloverEscrowAdminSetterTest is Test {
         vm.prank(nonAdmin);
         vm.expectRevert();
         escrow.setTreasury(address(0x1));
+    }
+}
+
+/// @notice Two cohorts on one escrow, denominated in different quote tokens.
+///
+///         This is the property per-token rollover exists for, and the one a single
+///         `sofToken` immutable made impossible. It also pins the ordering that makes
+///         it correct: a cohort's token is fixed when it OPENS (from the completing
+///         season, which is the asset the distributor forwards), not when it ACTIVATES
+///         (which binds the NEXT season's curve, possibly quoting something else).
+contract RolloverEscrowMultiTokenTest is Test {
+    RolloverEscrow internal escrow;
+    MockERC20 internal tokenA;
+    MockERC20 internal tokenB;
+
+    address internal admin = address(this);
+    address internal treasury = address(0x7EE);
+    address internal raffle = address(0xFAFF);
+    address internal distributor = address(0xD15);
+    address internal user = address(0x11);
+
+    uint256 internal constant SEASON_A = 1;
+    uint256 internal constant SEASON_B = 2;
+    uint256 internal constant DEPOSIT = 1_000e18;
+
+    function setUp() public {
+        tokenA = new MockERC20("Alpha", "A", 1_000_000e18);
+        tokenB = new MockERC20("Beta", "B", 1_000_000e18);
+
+        escrow = new RolloverEscrow(treasury, raffle);
+        escrow.grantRole(escrow.DISTRIBUTOR_ROLE(), distributor);
+
+        tokenA.mint(distributor, DEPOSIT);
+        tokenB.mint(distributor, DEPOSIT);
+        vm.startPrank(distributor);
+        tokenA.approve(address(escrow), type(uint256).max);
+        tokenB.approve(address(escrow), type(uint256).max);
+        vm.stopPrank();
+    }
+
+    function _openAndDeposit(uint256 seasonId, MockERC20 token) internal {
+        escrow.openCohort(seasonId, 600, address(token));
+        // The distributor forwards the season's prize asset, then records the deposit.
+        vm.prank(distributor);
+        token.transfer(address(escrow), DEPOSIT);
+        vm.prank(distributor);
+        escrow.deposit(user, DEPOSIT, seasonId);
+    }
+
+    function test_cohortsHoldAndRefundTheirOwnToken() public {
+        _openAndDeposit(SEASON_A, tokenA);
+        _openAndDeposit(SEASON_B, tokenB);
+
+        // Activate each against a curve quoting the matching token.
+        escrow.activateCohort(SEASON_A, 10, address(new MockQuoteCurve(address(tokenA))));
+        escrow.activateCohort(SEASON_B, 20, address(new MockQuoteCurve(address(tokenB))));
+
+        uint256 aBefore = tokenA.balanceOf(user);
+        uint256 bBefore = tokenB.balanceOf(user);
+
+        vm.prank(user);
+        escrow.refund(SEASON_A);
+        assertEq(tokenA.balanceOf(user) - aBefore, DEPOSIT, "cohort A must refund token A");
+        assertEq(tokenB.balanceOf(user), bBefore, "refunding A must not touch token B");
+
+        vm.prank(user);
+        escrow.refund(SEASON_B);
+        assertEq(tokenB.balanceOf(user) - bBefore, DEPOSIT, "cohort B must refund token B");
+    }
+
+    /// A cohort funded in token A cannot be pointed at a curve priced in token B.
+    /// Rolling across tokens needs a swap the escrow cannot perform, so it must refuse
+    /// rather than half-work and pay refunds in the wrong asset.
+    function test_activateRejectsCurveWithMismatchedQuoteToken() public {
+        _openAndDeposit(SEASON_A, tokenA);
+
+        address wrongCurve = address(new MockQuoteCurve(address(tokenB)));
+        vm.expectRevert(
+            abi.encodeWithSelector(QuoteTokenMismatch.selector, SEASON_A, address(tokenA), address(tokenB))
+        );
+        escrow.activateCohort(SEASON_A, 10, wrongCurve);
+    }
+
+    function test_openCohortRejectsZeroToken() public {
+        vm.expectRevert(abi.encodeWithSelector(QuoteTokenNotSet.selector, SEASON_A));
+        escrow.openCohort(SEASON_A, 600, address(0));
     }
 }

@@ -3,7 +3,8 @@ pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {Raffle, InvalidQuoteToken} from "../src/core/Raffle.sol";
+import {Raffle, InvalidQuoteToken, QuoteTokenDecimals, QuoteTokenDecimalsUnavailable} from "../src/core/Raffle.sol";
+import {MockUSDC} from "../src/test-helpers/MockUSDC.sol";
 import {SeasonFactory} from "../src/core/SeasonFactory.sol";
 import {SOFBondingCurve} from "../src/curve/SOFBondingCurve.sol";
 import {MockERC20} from "../src/test-helpers/MockERC20.sol";
@@ -109,5 +110,33 @@ contract SeasonQuoteTokenTest is Test {
         assertLt(launchToken.balanceOf(player), balanceBefore, "launch token should have been spent");
         assertGt(launchToken.balanceOf(address(curve)), 0, "curve should hold the launch token as reserves");
         assertEq(defaultToken.balanceOf(address(curve)), 0, "curve must not touch the default token");
+    }
+
+    /// Tickets are 0-decimal and quote tokens are 18-decimal, so the pricing path only
+    /// ever handles one decimal pair. A 6-decimal token must be rejected at the boundary
+    /// rather than silently mispricing everything downstream by 1e12.
+    function test_nonEighteenDecimalQuoteTokenReverts() public {
+        MockUSDC usdc = new MockUSDC(); // 6 decimals
+        vm.expectRevert(abi.encodeWithSelector(QuoteTokenDecimals.selector, address(usdc), uint8(6)));
+        _createSeason(address(usdc));
+    }
+
+    /// `decimals()` lives in IERC20Metadata, not core ERC-20, so a token may omit it.
+    /// Assuming 18 in that case would be the same silent mispricing, so it must revert.
+    function test_quoteTokenWithoutDecimalsReverts() public {
+        address noMetadata = address(new NoDecimalsToken());
+        vm.expectRevert(abi.encodeWithSelector(QuoteTokenDecimalsUnavailable.selector, noMetadata));
+        _createSeason(noMetadata);
+    }
+}
+
+/// @dev An ERC-20 that deliberately omits `decimals()`, which the standard permits.
+contract NoDecimalsToken {
+    function totalSupply() external pure returns (uint256) {
+        return 0;
+    }
+
+    function balanceOf(address) external pure returns (uint256) {
+        return 0;
     }
 }

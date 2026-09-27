@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import {AccessControl} from "openzeppelin-contracts/contracts/access/AccessControl.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import {RaffleTypes} from "../lib/RaffleTypes.sol";
 import {RaffleOracleAdapter} from "./RaffleOracleAdapter.sol";
@@ -18,7 +19,7 @@ import {MarketTypeRegistry} from "./MarketTypeRegistry.sol";
  * - Replaced CSMM with SimpleFPMM (x * y = k invariant)
  * - Integrated Gnosis Conditional Token Framework via interfaces
  * - Added RaffleOracleAdapter for VRF-based resolution
- * - Automatic INITIAL_LIQUIDITY seeding per market from treasury
+ * - Automatic seeding per market from treasury, sized by seedAmountFor(token)
  * - SOLP token rewards for liquidity providers
  * - 2% trading fee (100% to protocol treasury initially)
  *
@@ -65,7 +66,32 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
     address public treasury;
 
     uint256 public constant THRESHOLD_BPS = 100;
+    /// @notice Seed size per market, in WHOLE quote tokens (not wei).
+    /// @dev Scaled by the quote token's own `decimals()` at use time — see
+    ///      `seedAmountFor`. A hardcoded 100e18 silently assumed 18 decimals, which
+    ///      broke the moment collateral became per-season.
+    ///
+    ///      NOTE: this fixes the DECIMALS problem, not the VALUE problem. 100 whole
+    ///      tokens is $0.01 of one token and $1,000 of another, and InfoFiFPMMV2 floors
+    ///      each side at 5% of the seed, so the liquidity floor still floats with
+    ///      whatever the season's token happens to be worth. A value-denominated seed
+    ///      is the seed-vault phase's job.
+    uint256 public constant INITIAL_LIQUIDITY_WHOLE = 100;
+
+    /// @dev Kept as the 18-decimal figure for callers and tests that read it directly.
+    ///      Prefer `seedAmountFor(token)`.
     uint256 public constant INITIAL_LIQUIDITY = 100e18;
+
+    /// @notice Seed amount for a market collateralised in `token`, in that token's units.
+    /// @dev Falls back to 18 decimals when the token does not expose `decimals()`,
+    ///      which matches what the old constant assumed.
+    function seedAmountFor(address token) public view returns (uint256) {
+        uint8 dec = 18;
+        try IERC20Metadata(token).decimals() returns (uint8 d) {
+            dec = d;
+        } catch {}
+        return INITIAL_LIQUIDITY_WHOLE * (10 ** uint256(dec));
+    }
     bytes32 public constant WINNER_PREDICTION = keccak256("WINNER_PREDICTION");
 
     mapping(uint256 => mapping(address => bool)) public marketCreated;
@@ -245,8 +271,9 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
         address quoteToken = _seasonQuoteTokenOrZero(seasonId);
         if (quoteToken != address(0)) {
             uint256 treasuryBalance = IERC20(quoteToken).balanceOf(treasury);
-            if (treasuryBalance < INITIAL_LIQUIDITY * 10) {
-                emit TreasuryLow(quoteToken, treasuryBalance, INITIAL_LIQUIDITY);
+            uint256 seed = seedAmountFor(quoteToken);
+            if (treasuryBalance < seed * 10) {
+                emit TreasuryLow(quoteToken, treasuryBalance, seed);
             }
         }
 
@@ -276,7 +303,7 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
         }
 
         // CHECK TREASURY BALANCE OF THAT TOKEN BEFORE ATTEMPTING CREATION
-        if (IERC20(quoteToken).balanceOf(treasury) < INITIAL_LIQUIDITY) {
+        if (IERC20(quoteToken).balanceOf(treasury) < seedAmountFor(quoteToken)) {
             marketStatus[seasonId][player] = MarketCreationStatus.Failed;
             marketFailureReason[seasonId][player] = "Insufficient treasury balance";
             emit MarketCreationFailed(seasonId, player, marketType, "Insufficient treasury balance");
@@ -388,7 +415,7 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
      * @notice Executes the market creation pipeline for a player
      * @dev External so it can be called via try/catch from _createMarket.
      *      Guarded by msg.sender == address(this) to prevent external abuse.
-     * @dev Seeds the market with INITIAL_LIQUIDITY of the season's quote token,
+     * @dev Seeds the market with seedAmountFor(quoteToken) of the season's quote token,
      *      pulled from the treasury. Reverts if the season has no quote token.
      * @param seasonId The season identifier
      * @param player The player address
@@ -406,9 +433,11 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
 
         // RESOLVE COLLATERAL: this season's quote token, not a protocol-wide token
         IERC20 quoteToken = _seasonQuoteToken(seasonId);
+        // Scaled to the token's own decimals; see seedAmountFor.
+        uint256 seed = seedAmountFor(address(quoteToken));
 
         // PRECONDITION CHECKS (before any state changes)
-        require(quoteToken.balanceOf(treasury) >= INITIAL_LIQUIDITY, "Insufficient treasury");
+        require(quoteToken.balanceOf(treasury) >= seed, "Insufficient treasury");
         require(!marketCreated[seasonId][player], "Market already created");
 
         // STEP 1: PREPARE CONDITION (or reuse if already prepared)
@@ -437,13 +466,13 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
         // Check treasury allowance first
         uint256 treasuryAllowance = quoteToken.allowance(treasury, address(this));
         require(
-            treasuryAllowance >= INITIAL_LIQUIDITY,
+            treasuryAllowance >= seed,
             string(
                 abi.encodePacked(
                     "Treasury allowance insufficient: has ",
                     _uint2str(treasuryAllowance),
                     " needs ",
-                    _uint2str(INITIAL_LIQUIDITY)
+                    _uint2str(seed)
                 )
             )
         );
@@ -451,13 +480,13 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
         // Check treasury balance
         uint256 treasuryBalance = quoteToken.balanceOf(treasury);
         require(
-            treasuryBalance >= INITIAL_LIQUIDITY,
+            treasuryBalance >= seed,
             string(
                 abi.encodePacked(
                     "Treasury balance insufficient: has ",
                     _uint2str(treasuryBalance),
                     " needs ",
-                    _uint2str(INITIAL_LIQUIDITY)
+                    _uint2str(seed)
                 )
             )
         );
@@ -467,7 +496,7 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
             seasonId, player, oldStatus, MarketCreationStatus.LiquidityTransferred, "Starting liquidity transfer"
         );
 
-        bool transferSuccess = quoteToken.transferFrom(treasury, address(this), INITIAL_LIQUIDITY);
+        bool transferSuccess = quoteToken.transferFrom(treasury, address(this), seed);
         require(transferSuccess, "Treasury transfer failed - transferFrom returned false");
 
         // STEP 3: APPROVE AND CREATE MARKET
@@ -476,7 +505,7 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
         if (currentAllowance > 0) {
             require(quoteToken.approve(address(fpmmManager), 0), "Approval reset failed");
         }
-        require(quoteToken.approve(address(fpmmManager), INITIAL_LIQUIDITY), "Approval failed");
+        require(quoteToken.approve(address(fpmmManager), seed), "Approval failed");
 
         (address fpmm,) = fpmmManager.createMarket(seasonId, player, conditionId, probabilityBps);
 

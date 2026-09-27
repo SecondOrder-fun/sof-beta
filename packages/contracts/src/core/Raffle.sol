@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import {AccessControl} from "openzeppelin-contracts/contracts/access/AccessControl.sol";
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {VRFConsumerBaseV2Plus} from "chainlink-brownie-contracts/contracts/src/v0.8/vrf/dev/VRFConsumerBaseV2Plus.sol";
 import {IVRFCoordinatorV2Plus} from "chainlink-brownie-contracts/contracts/src/v0.8/vrf/dev/interfaces/IVRFCoordinatorV2Plus.sol";
@@ -40,6 +41,8 @@ error InvalidStartTime(uint256 startTime, uint256 currentTime);
 error InvalidEndTime(uint256 endTime, uint256 startTime);
 error InvalidTreasuryAddress();
 error InvalidQuoteToken();
+error QuoteTokenDecimals(address token, uint8 decimals);
+error QuoteTokenDecimalsUnavailable(address token);
 error UnauthorizedCaller();
 error NoVRFWords(uint256 seasonId);
 error UserNotVerified(uint256 seasonId, address user);
@@ -262,6 +265,19 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         // protocol-wide default: the quote token is per-season so that each launched
         // token can denominate its own seasons.
         if (config.quoteToken == address(0)) revert InvalidQuoteToken();
+
+        // Tickets are 0-decimal and every quote token is 18-decimal, so the whole
+        // pricing path only ever handles one decimal pair. Assert it at the boundary
+        // rather than teaching every downstream calculation to generalise.
+        // `decimals()` is in IERC20Metadata, not core ERC-20, so a token may omit it:
+        // reject that rather than assuming 18.
+        uint8 quoteDecimals;
+        try IERC20Metadata(config.quoteToken).decimals() returns (uint8 d) {
+            quoteDecimals = d;
+        } catch {
+            revert QuoteTokenDecimalsUnavailable(config.quoteToken);
+        }
+        if (quoteDecimals != 18) revert QuoteTokenDecimals(config.quoteToken, quoteDecimals);
 
         // Derive winnerCount from tier config if provided
         if (tierConfigs.length > 0) {
@@ -509,7 +525,7 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
             // defaultBonusBps inside RolloverEscrow.openCohort; Raffle holds
             // DEFAULT_ADMIN_ROLE on the escrow (granted in 14_ConfigureRoles).
             if (address(rolloverEscrow) != address(0)) {
-                rolloverEscrow.openCohort(seasonId, 0);
+                rolloverEscrow.openCohort(seasonId, 0, cfg.quoteToken);
             }
             cfg.isCompleted = true;
             state.status = SeasonStatus.Completed;
@@ -568,7 +584,7 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         // 14_ConfigureRoles). Passing 0 falls through to defaultBonusBps
         // inside RolloverEscrow.openCohort.
         if (address(rolloverEscrow) != address(0)) {
-            rolloverEscrow.openCohort(seasonId, 0);
+            rolloverEscrow.openCohort(seasonId, 0, cfg.quoteToken);
         }
 
         cfg.isCompleted = true;

@@ -68,7 +68,7 @@ contract RolloverIntegrationTest is Test {
         sofToken = new MockERC20("SOF", "SOF", INITIAL_SOF);
 
         // 2. RolloverEscrow
-        escrow = new RolloverEscrow(address(sofToken), treasury, raffleAddr);
+        escrow = new RolloverEscrow(treasury, raffleAddr);
 
         // 3. RafflePrizeDistributor — grant RAFFLE_ROLE to raffleAddr
         distributor = new RafflePrizeDistributor(admin);
@@ -149,7 +149,7 @@ contract RolloverIntegrationTest is Test {
 
         // Open rollover cohort for Season 1 (uses default bonus bps)
         vm.prank(admin);
-        escrow.openCohort(SEASON_1, BONUS_BPS);
+        escrow.openCohort(SEASON_1, BONUS_BPS, address(sofToken));
     }
 
     // =========================================================================

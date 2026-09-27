@@ -34,7 +34,7 @@ contract SeasonFactoryRolloverTest is Test {
         distributor.grantRole(distributor.RAFFLE_ROLE(), address(raffle));
         raffle.setPrizeDistributor(address(distributor));
 
-        escrow = new RolloverEscrow(address(sof), treasury, address(raffle));
+        escrow = new RolloverEscrow(treasury, address(raffle));
     }
 
     function _createSeason() internal returns (uint256 id, SOFBondingCurve curve) {

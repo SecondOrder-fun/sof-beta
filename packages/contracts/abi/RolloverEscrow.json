@@ -3,11 +3,6 @@
     "type": "constructor",
     "inputs": [
       {
-        "name": "_sofToken",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
         "name": "_treasury",
         "type": "address",
         "internalType": "address"
@@ -336,6 +331,11 @@
         "name": "bonusBps",
         "type": "uint16",
         "internalType": "uint16"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "outputs": [],
@@ -451,19 +451,6 @@
   },
   {
     "type": "function",
-    "name": "sofToken",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "contract IERC20"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "spendFromRollover",
     "inputs": [
       {
@@ -472,7 +459,7 @@
         "internalType": "uint256"
       },
       {
-        "name": "sofAmount",
+        "name": "quoteAmount",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -482,7 +469,7 @@
         "internalType": "uint256"
       },
       {
-        "name": "maxTotalSof",
+        "name": "maxTotalQuote",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -582,6 +569,12 @@
         "type": "uint16",
         "indexed": false,
         "internalType": "uint16"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -947,6 +940,38 @@
   {
     "type": "error",
     "name": "PhaseNotOpen",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "QuoteTokenMismatch",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "expected",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "actual",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "QuoteTokenNotSet",
     "inputs": [
       {
         "name": "seasonId",

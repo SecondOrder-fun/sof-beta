@@ -118,7 +118,7 @@ contract RaffleOpenCohortIntegrationTest is Test {
         raffle.setPrizeDistributor(address(distributor));
 
         // Deploy RolloverEscrow: constructor(address sof, address treasury, address raffle)
-        escrow = new RolloverEscrow(address(sof), treasury, address(raffle));
+        escrow = new RolloverEscrow(treasury, address(raffle));
 
         // Grant DEFAULT_ADMIN_ROLE on escrow to raffle so it can call openCohort
         escrow.grantRole(escrow.DEFAULT_ADMIN_ROLE(), address(raffle));
