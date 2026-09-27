@@ -66,21 +66,43 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
     address public treasury;
 
     uint256 public constant THRESHOLD_BPS = 100;
-    /// @notice Seed size per market, in WHOLE quote tokens (not wei).
-    /// @dev Scaled by the quote token's own `decimals()` at use time — see
-    ///      `seedAmountFor`. A hardcoded 100e18 silently assumed 18 decimals, which
-    ///      broke the moment collateral became per-season.
+    /// @notice Default seed size per market, in WHOLE quote tokens (not wei).
+    /// @dev Configurable, because the right number is an empirical question. Seeding is
+    ///      denominated in the quote token and InfoFi pricing is a constant 1 QUOTE per
+    ///      YES/NO pair, so no USD conversion — and therefore no price oracle — is
+    ///      involved anywhere in this path.
     ///
-    ///      NOTE: this fixes the DECIMALS problem, not the VALUE problem. 100 whole
-    ///      tokens is $0.01 of one token and $1,000 of another, and InfoFiFPMMV2 floors
-    ///      each side at 5% of the seed, so the liquidity floor still floats with
-    ///      whatever the season's token happens to be worth. A value-denominated seed
-    ///      is the seed-vault phase's job.
-    uint256 public constant INITIAL_LIQUIDITY_WHOLE = 100;
+    ///      What the seed actually controls is SLIPPAGE PER TRADE, not the number of
+    ///      trades (which is unbounded). For a 2-outcome FPMM with L per side, the
+    ///      average price of buying x is (L+x)/(2L+x), starting from 0.5000 at x->0.
+    ///      At L=100: a 1-token trade pays 0.5% slippage, 5 tokens 2.4%, 10 tokens 4.8%.
+    ///      See scripts/analysis/fpmm-seed-slippage.py for the full table.
+    uint256 public defaultSeedWhole = 100;
 
-    /// @dev Kept as the 18-decimal figure for callers and tests that read it directly.
-    ///      Prefer `seedAmountFor(token)`.
-    uint256 public constant INITIAL_LIQUIDITY = 100e18;
+    /// @notice Per-token override of the seed size, in WHOLE tokens. Zero = use default.
+    /// @dev Exists so a token whose sane seed differs (an unusually cheap or expensive
+    ///      one) can be tuned without moving every other market.
+    mapping(address => uint256) public seedWholeOverride;
+
+    /// @notice Emitted when the default seed size changes.
+    event DefaultSeedWholeUpdated(uint256 previous, uint256 current);
+
+    /// @notice Emitted when a token's seed override changes. Zero means "use default".
+    event SeedWholeOverrideUpdated(address indexed token, uint256 previous, uint256 current);
+
+    /// @notice Set the default seed size, in whole quote tokens.
+    function setDefaultSeedWhole(uint256 wholeTokens) external onlyRole(ADMIN_ROLE) {
+        if (wholeTokens == 0) revert InvalidSeedSize();
+        emit DefaultSeedWholeUpdated(defaultSeedWhole, wholeTokens);
+        defaultSeedWhole = wholeTokens;
+    }
+
+    /// @notice Override the seed size for one token. Pass 0 to fall back to the default.
+    function setSeedWholeOverride(address token, uint256 wholeTokens) external onlyRole(ADMIN_ROLE) {
+        if (token == address(0)) revert InvalidAddress();
+        emit SeedWholeOverrideUpdated(token, seedWholeOverride[token], wholeTokens);
+        seedWholeOverride[token] = wholeTokens;
+    }
 
     /// @notice Seed amount for a market collateralised in `token`, in that token's units.
     /// @dev Falls back to 18 decimals when the token does not expose `decimals()`,
@@ -90,7 +112,9 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
         try IERC20Metadata(token).decimals() returns (uint8 d) {
             dec = d;
         } catch {}
-        return INITIAL_LIQUIDITY_WHOLE * (10 ** uint256(dec));
+        uint256 whole = seedWholeOverride[token];
+        if (whole == 0) whole = defaultSeedWhole;
+        return whole * (10 ** uint256(dec));
     }
     bytes32 public constant WINNER_PREDICTION = keccak256("WINNER_PREDICTION");
 
@@ -178,6 +202,7 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
 
     /// @notice Thrown when a season has no quote token to collateralise its markets with
     error QuoteTokenNotSet(uint256 seasonId);
+    error InvalidSeedSize();
 
     // ============ CONSTRUCTOR ============
 

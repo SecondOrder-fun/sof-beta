@@ -67,7 +67,7 @@ contract InfoFiFactoryQuoteTokenTest is Test {
     address public playerA = address(0xA11CE);
     address public playerB = address(0xB0B);
 
-    uint256 internal constant SEED = 100e18; // mirrors InfoFiMarketFactory.INITIAL_LIQUIDITY
+    uint256 internal constant SEED = 100e18; // mirrors the default seed (100 whole x 18dp)
 
     /// @dev Mirrors InfoFiMarketFactory.TreasuryLow for vm.expectEmit.
     event TreasuryLow(address indexed quoteToken, uint256 currentBalance, uint256 requiredPerMarket);
@@ -199,7 +199,7 @@ contract InfoFiFactoryQuoteTokenTest is Test {
     /// The low-treasury warning names the token that is low, since it differs per season.
     function test_treasuryLowNamesTheSeasonQuoteToken() public {
         uint256 seasonB = _createSeason(address(tokenB));
-        _fundTreasury(tokenB, 500e18); // below INITIAL_LIQUIDITY * 10, above INITIAL_LIQUIDITY
+        _fundTreasury(tokenB, 500e18); // below 10x the seed, above one seed
 
         vm.expectEmit(true, false, false, true, address(factory));
         emit TreasuryLow(address(tokenB), 500e18, SEED);
@@ -243,5 +243,52 @@ contract InfoFiSeedAmountTest is Test {
 contract SeedNoDecimals {
     function balanceOf(address) external pure returns (uint256) {
         return 0;
+    }
+}
+
+/// @notice The seed size is configurable, because the right number is empirical.
+contract InfoFiSeedConfigTest is Test {
+    InfoFiMarketFactory internal factory;
+    MockERC20 internal token;
+
+    function setUp() public {
+        factory = new InfoFiMarketFactory(
+            address(0xA1), address(0xA2), address(0xA3), address(0xA4), address(0xA5), address(0xA6), address(this)
+        );
+        token = new MockERC20("Quote", "Q", 0);
+    }
+
+    function test_defaultSeedIsOneHundredWholeTokens() public view {
+        assertEq(factory.defaultSeedWhole(), 100);
+        assertEq(factory.seedAmountFor(address(token)), 100e18);
+    }
+
+    function test_adminCanChangeDefaultSeed() public {
+        factory.setDefaultSeedWhole(250);
+        assertEq(factory.seedAmountFor(address(token)), 250e18);
+    }
+
+    /// A per-token override lets one token be tuned without moving every other market.
+    function test_perTokenOverrideBeatsDefault() public {
+        MockERC20 other = new MockERC20("Other", "O", 0);
+        factory.setSeedWholeOverride(address(token), 7);
+
+        assertEq(factory.seedAmountFor(address(token)), 7e18, "override applies");
+        assertEq(factory.seedAmountFor(address(other)), 100e18, "other tokens keep the default");
+
+        // Zero clears the override rather than seeding nothing.
+        factory.setSeedWholeOverride(address(token), 0);
+        assertEq(factory.seedAmountFor(address(token)), 100e18, "zero falls back to default");
+    }
+
+    function test_defaultSeedCannotBeZero() public {
+        vm.expectRevert(InfoFiMarketFactory.InvalidSeedSize.selector);
+        factory.setDefaultSeedWhole(0);
+    }
+
+    function test_nonAdminCannotChangeSeed() public {
+        vm.prank(address(0xBAD));
+        vm.expectRevert();
+        factory.setDefaultSeedWhole(1);
     }
 }
