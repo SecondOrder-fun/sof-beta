@@ -253,3 +253,32 @@ contract TokenLaunchpadTest is Test {
         launchpad.setStartPriceBounds(5, 4);
     }
 }
+
+/// @notice Start prices are only meaningful as implied FDV.
+///
+///         With a 1e9 supply, price and FDV are nine orders of magnitude apart, and an
+///         earlier v4 placement test picked 1e6 wei/token — an FDV of 0.001 ETH, where one
+///         0.1 ETH buy consumed the whole position. These helpers exist so bounds get set
+///         in the unit that actually governs behaviour.
+contract TokenLaunchpadFdvTest is Test {
+    TokenLaunchpad internal launchpad;
+
+    function setUp() public {
+        launchpad = new TokenLaunchpad(address(this), address(0xAA), 1, 1 ether);
+    }
+
+    function test_impliedFdvMultipliesByWholeSupply() public view {
+        // 1e9 supply, so 1 wei per token is an FDV of 1e9 wei.
+        assertEq(launchpad.impliedFdvWei(1), 1e9);
+        // 1e9 wei per token is an FDV of 1e18 wei = 1 ETH.
+        assertEq(launchpad.impliedFdvWei(1e9), 1 ether);
+    }
+
+    function test_boundsCanBeReadAsFdv() public {
+        launchpad.setStartPriceBounds(1e9, 1e12);
+        (uint256 minFdv, uint256 maxFdv) = launchpad.startPriceBoundsAsFdvWei();
+
+        assertEq(minFdv, 1 ether, "floor is a 1 ETH valuation");
+        assertEq(maxFdv, 1000 ether, "ceiling is a 1000 ETH valuation");
+    }
+}

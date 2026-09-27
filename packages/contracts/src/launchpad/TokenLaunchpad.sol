@@ -61,8 +61,17 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
     /// @notice Where a launched token's supply is placed. Swappable venue (§ILiquidityPlacer).
     ILiquidityPlacer public placer;
 
-    /// @notice Starting-price bounds, in wei of ETH per whole token. Bounded so a launch
-    ///         cannot start at a dust price or an absurd fully-diluted valuation.
+    /// @notice Starting-price bounds, in wei of ETH per whole token.
+    ///
+    /// @dev **Set these in FDV terms, not in wei.** A price is meaningless on its own: what
+    ///      matters is `price * supply`, the implied fully-diluted valuation, and with a
+    ///      1e9 supply the two are nine orders of magnitude apart. Use `impliedFdvWei` to
+    ///      convert.
+    ///
+    ///      This is not hypothetical. At 1e6 wei per token the implied FDV is 0.001 ETH,
+    ///      and a single 0.1 ETH buy consumes the entire position and drives the pool to
+    ///      MIN_TICK — the launch is over before anyone else arrives. A floor of 1e9 wei
+    ///      per token is an FDV of 1 ETH, which behaves sanely.
     uint256 public minStartPriceWei;
     uint256 public maxStartPriceWei;
 
@@ -171,6 +180,18 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
     // ------------------------------------------------------------------
     // Views
     // ------------------------------------------------------------------
+
+    /// @notice The fully-diluted valuation a start price implies, in wei.
+    /// @dev The number to reason about when choosing `minStartPriceWei`/`maxStartPriceWei`,
+    ///      and the number worth showing a creator on the launch form.
+    function impliedFdvWei(uint256 startPriceWei) public pure returns (uint256) {
+        return startPriceWei * (TOKEN_SUPPLY / 1e18);
+    }
+
+    /// @notice The configured bounds expressed as implied FDV, in wei.
+    function startPriceBoundsAsFdvWei() external view returns (uint256 minFdvWei, uint256 maxFdvWei) {
+        return (impliedFdvWei(minStartPriceWei), impliedFdvWei(maxStartPriceWei));
+    }
 
     function launchCount() external view returns (uint256) {
         return _launches.length;
