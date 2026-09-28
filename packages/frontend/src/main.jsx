@@ -82,6 +82,9 @@ import TermsOfService from "./routes/TermsOfService";
 import PrivacyPolicy from "./routes/PrivacyPolicy";
 import Disclaimer from "./routes/Disclaimer";
 import CreateSeasonPage from "./routes/CreateSeasonPage";
+import Launch from "./routes/Launch";
+import TokensIndex from "./routes/TokensIndex";
+import TokenDetail from "./routes/TokenDetail";
 import LocalizationAdmin from "./routes/LocalizationAdmin";
 import InfoFiMarketDetail from "./pages/InfoFiMarketDetail";
 // Dev-only: UI Gym component showcase (tree-shaken in production)
@@ -167,6 +170,18 @@ const router = createBrowserRouter([
       {
         path: "create-season",
         element: <CreateSeasonPage />,
+      },
+      {
+        path: "launch",
+        element: <Launch />,
+      },
+      {
+        path: "tokens",
+        element: <TokensIndex />,
+      },
+      {
+        path: "tokens/:address",
+        element: <TokenDetail />,
       },
       {
         path: "portfolio",

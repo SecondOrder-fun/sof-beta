@@ -40,6 +40,24 @@ npm test         # Vitest
 npm run lint         # ESLint (zero warnings enforced)
 ```
 
+## Launchpad routes
+
+`/launch`, `/tokens` and `/tokens/:address` read the `TokenLaunchpad` on-chain —
+they do not go through the backend, because the launch indexer does not exist yet
+and a feed that only worked once it did would leave `/tokens` blank on a fresh
+deploy. When the indexer lands, on-chain becomes the fallback: metadata, volume
+and price history cannot be read from `getLaunch`.
+
+**The launch form takes a valuation, not a per-token price** (`src/lib/launchFormat.js`,
+`src/hooks/useTokenLaunchpad.js`). Every launch mints the same 1e9 supply, so the
+number that governs behaviour is `startPriceWei * supply`, nine orders of magnitude
+from the price — the contract's own bounds are set in FDV terms for that reason.
+Display valuations in ETH and per-token prices in gwei; at the 1 ETH floor the
+price is exactly 1 gwei per token.
+
+A network with no launchpad in its deployment JSON renders an explanation, not an
+error. The raffle stack deploys independently of the launchpad.
+
 ## ABI Imports
 
 ```js

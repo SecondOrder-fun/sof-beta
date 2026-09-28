@@ -1,0 +1,93 @@
+{
+  "launchTitle": "Launch a token",
+  "launchSubtitle": "Permissionless. Costs gas only — there is no launch fee.",
+  "tokensTitle": "Tokens",
+  "tokensSubtitle": "Every token launched here, newest first.",
+
+  "form": {
+    "name": "Name",
+    "namePlaceholder": "Second Order",
+    "symbol": "Symbol",
+    "symbolPlaceholder": "SOF",
+    "metadataURI": "Metadata URI",
+    "metadataURIPlaceholder": "ipfs://… (optional)",
+    "metadataURIHelp": "Image, description and links. Emitted for indexers and not stored on-chain, so it cannot be changed after launch.",
+    "valuation": "Starting valuation",
+    "valuationUnit": "ETH",
+    "valuationHelp": "What the whole supply is worth at the starting price. This is the one number that shapes your launch.",
+    "submit": "Launch token",
+    "submitting": "Launching…",
+    "characterCount": "{{count}}/{{max}}"
+  },
+
+  "summary": {
+    "title": "What this creates",
+    "supply": "Supply",
+    "startPrice": "Starting price",
+    "startPriceUnit": "gwei per token",
+    "valuation": "Starting valuation",
+    "allocation": "Your allocation",
+    "allocationValue": "None",
+    "allocationNote": "The entire supply goes into the pool. You buy at the same price as everyone else, after the pool exists.",
+    "liquidity": "Liquidity",
+    "liquidityValue": "Single-sided, from block one",
+    "liquidityNote": "There is no bonding curve and no graduation. The pool is the market immediately."
+  },
+
+  "errors": {
+    "nameRequired": "A name is required",
+    "nameTooLong": "Name is too long (max {{max}} characters)",
+    "symbolRequired": "A symbol is required",
+    "symbolTooLong": "Symbol is too long (max {{max}} characters)",
+    "fdvRequired": "Enter a starting valuation",
+    "fdvTooLow": "Minimum is {{min}} ETH. Below that, a single ordinary buy consumes most of the pool.",
+    "fdvTooHigh": "Maximum is {{max}} ETH",
+    "launchFailed": "Launch failed"
+  },
+
+  "unavailable": {
+    "title": "No launchpad on this network",
+    "body": "The launchpad is not deployed here. Switch networks, or deploy it — see the contracts deploy steps 20-22.",
+    "notReadyTitle": "Launchpad not ready",
+    "notReadyBody": "No liquidity placer is configured, so launches would revert. This chain may not have a Uniswap v4 deployment yet."
+  },
+
+  "list": {
+    "empty": "No tokens launched yet.",
+    "emptyCta": "Launch the first one",
+    "count_one": "{{count}} token",
+    "count_other": "{{count}} tokens",
+    "showing": "Showing the {{count}} most recent",
+    "launchCta": "Launch a token"
+  },
+
+  "card": {
+    "valuation": "Launch FDV",
+    "startPrice": "Start price",
+    "creator": "Creator",
+    "age": "Launched"
+  },
+
+  "detail": {
+    "notFoundTitle": "Not a launchpad token",
+    "notFoundBody": "This address was not launched here. Only tokens from the launchpad appear on these pages.",
+    "backToTokens": "Back to tokens",
+    "launchedBy": "Launched by",
+    "contract": "Contract",
+    "supply": "Supply",
+    "startPrice": "Starting price",
+    "valuation": "Starting valuation",
+    "launchId": "Launch",
+    "tradingTitle": "Trading",
+    "tradingBody": "This token trades in a Uniswap v4 pool against ETH. Live price and trade history arrive with the launch indexer.",
+    "raffleTitle": "Raffles",
+    "raffleBody": "Any holder with enough stake can open a raffle season priced in this token."
+  },
+
+  "success": {
+    "title": "Launched",
+    "body": "Your token is live and tradeable.",
+    "viewToken": "View token",
+    "launchAnother": "Launch another"
+  }
+}

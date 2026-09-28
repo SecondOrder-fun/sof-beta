@@ -399,8 +399,20 @@ because they are unusual and the UI has to communicate them:
   launch will be diluted below it as others buy. The `/launch` form must show
   the projected end-state share, not the at-launch share, or creators will be
   systematically surprised.
-- Emits `TokenLaunched(token, curve, creator, name, symbol, metadataURI, devBuyWei)`
-  — the single event the indexer keys off.
+- Emits, **as built**:
+  ```solidity
+  event TokenLaunched(
+      uint256 indexed launchId, address indexed token, address indexed creator,
+      string name, string symbol, string metadataURI,
+      uint256 startPriceWei, bytes32 placementId
+  );
+  ```
+  The single event the indexer keys off. No `curve` (§1.2 removed it — the
+  placement is a v4 pool, identified by `placementId`) and no `devBuyWei`
+  (launching costs gas only; a creator buys from the pool afterwards like anyone
+  else). `name`/`symbol`/`metadataURI` are emitted but **not stored**: on-chain
+  storage would need a setter, and a setter lets a creator swap the name or image
+  after people have bought.
 - Guards: symbol/name length caps, reserved-symbol denylist, per-block launch cap.
 
 ### 5.2 `launchpad/LaunchToken.sol`
@@ -955,10 +967,19 @@ can carry it — add a `launch:{address}` channel.
 
 | Route | Component | Content |
 |---|---|---|
-| `/launch` | `LaunchTokenPage.jsx` | Creation form: name, symbol, image, description, socials, dev-buy slider. Live fee + "you will own X%" preview. Single batched tx. |
-| `/tokens` | `TokenExplorer.jsx` | Discovery grid. Sort: new / volume / graduating soon / graduated. Search. The main viral surface — this page is the product. |
-| `/tokens/:address` | `TokenDetailPage.jsx` | Price chart, buy/sell panel, **graduation progress bar**, holders, trade feed, seasons on this token, creator card. |
-| `/tokens/:address/create-season` | `CreateTokenSeasonPage.jsx` | Stake check + season config. Largely a reskin of the existing `CreateSeasonPage.jsx`. |
+| `/launch` | `routes/Launch.jsx` **(built)** | Creation form: name, symbol, metadata URI, **starting valuation**. No dev-buy slider and no fee preview — launching costs gas only and grants no allocation, so there is nothing to slide or to preview. |
+| `/tokens` | `routes/TokensIndex.jsx` **(built)** | Discovery grid, newest first, read on-chain. Sort and search arrive with the indexer — there is nothing to sort by until trade volume is indexed. |
+| `/tokens/:address` | `routes/TokenDetail.jsx` **(built, partial)** | The launch record from on-chain reads. Price chart, buy/sell panel, holders and trade feed all need the indexer; the page says so rather than rendering empty widgets. No graduation progress bar — there is no graduation (§1.2). |
+| `/tokens/:address/create-season` | `CreateTokenSeasonPage.jsx` | Phase 2. Stake check + season config. Largely a reskin of the existing `CreateSeasonPage.jsx`. |
+
+**The form asks for a valuation, not a price.** This is the one load-bearing UI
+decision on `/launch`. Every launch mints the same 1e9 supply, so what a creator is
+choosing is `startPriceWei * supply` — and the two numbers are nine orders of
+magnitude apart. Asking for wei per token would be handing them the one unit in
+which the contract's floor looks arbitrary. The per-token price is derived, shown,
+and never typed. Prices display in gwei for the same reason: at the 1 ETH floor the
+price is exactly 1 gwei per token and the ceiling is 1000, where in ETH they are
+0.000000001 and 0.000001.
 
 `CreateSeasonPage.jsx` stays as the admin/platform path.
 
@@ -989,15 +1010,24 @@ The deepest UI change is that **"the currency" stops being a constant**:
 All new on-chain actions go through `useSmartTransactions.executeBatch` per the
 repo rule — never raw `writeContractAsync`. Natural batches:
 
-- **Launch**: `launch{value: fee + devBuy}` — one call, one confirmation
-- **Buy on curve**: native ETH, no approval needed — one call
+- **Launch**: `launch(name, symbol, metadataURI, startPriceWei)` — one call, no
+  value. A single call still goes through `executeBatch`, both for the repo rule
+  and because that is what makes a launch gasless where the paymaster covers it.
+- **Buy the token**: a v4 swap against ETH — one call, no approval
 - **Create season**: `approve(stake)` + `stake()` + `createSeason()` — three calls,
   one confirmation; ideal batch case
 - **Buy tickets**: `permit(quoteToken)` + `buyTickets()` — the existing Tier-2 path,
   now against the launch token
 
-New hooks: `useTokenLaunch`, `useLaunchCurve`, `useLaunchCurveEvents`,
-`useGraduationProgress`, `useSeasonStake`.
+Hooks, **as built**: `useLaunchpadConfig`, `useLaunchpadReady`, `useLaunchToken`
+(`hooks/useTokenLaunchpad.js`); `useTokenLaunches`, `useTokenLaunch`
+(`hooks/useTokenLaunches.js`). Still to come: `useSeasonStake` (Phase 2).
+`useLaunchCurve`, `useLaunchCurveEvents` and `useGraduationProgress` are **not
+built and will not be** — §1.2 removed both the curve and graduation.
+
+Both launch routes treat a missing launchpad address as "not on this network"
+rather than an error, since the raffle stack deploys independently of the
+launchpad and step 22 skips on a chain with no Uniswap v4 (see the deploy scripts).
 
 ---
 

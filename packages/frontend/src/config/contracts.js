@@ -18,6 +18,9 @@
  * @property {`0x${string}` | string} USDC
  * @property {`0x${string}` | string} SOF_SMART_ACCOUNT_FACTORY
  * @property {`0x${string}` | string} ROLLOVER_ESCROW
+ * @property {`0x${string}` | string} TOKEN_LAUNCHPAD
+ * @property {`0x${string}` | string} LIQUIDITY_PLACER
+ * @property {`0x${string}` | string} POOL_MANAGER
  */
 
 import { RaffleABI, SeasonGatingABI } from '@sof/contracts';
@@ -83,5 +86,11 @@ export function getContractAddresses(key) {
     RAFFLE_ORACLE_ADAPTER: s(deployment.RaffleOracleAdapter),
     SOF_SMART_ACCOUNT_FACTORY: s(deployment.SOFSmartAccountFactory),
     ROLLOVER_ESCROW: s(deployment.RolloverEscrow),
+    // Launchpad. Empty on any deployment made before contracts 0.35.0 — the
+    // launch routes treat that as "not available on this network" rather than
+    // failing, since the raffle stack deploys independently of the launchpad.
+    TOKEN_LAUNCHPAD: s(deployment.TokenLaunchpad),
+    LIQUIDITY_PLACER: s(deployment.LiquidityPlacer),
+    POOL_MANAGER: s(deployment.PoolManager),
   };
 }

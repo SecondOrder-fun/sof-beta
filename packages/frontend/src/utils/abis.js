@@ -21,6 +21,8 @@ export {
   AccessControlABI as AccessControlAbi,
   HatsABI as HatsAbi,
   StakingEligibilityABI as StakingEligibilityAbi,
+  TokenLaunchpadABI as TokenLaunchpadAbi,
+  LaunchTokenABI as LaunchTokenAbi,
 } from '@sof/contracts';
 
 // Minimal ERC-721 ABI for approve calls (not in Foundry build)
