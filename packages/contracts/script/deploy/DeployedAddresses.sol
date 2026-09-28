@@ -23,4 +23,7 @@ struct DeployedAddresses {
     address paymasterAddress;
     address rolloverEscrow;
     address usdc;
+    address poolManager;
+    address tokenLaunchpad;
+    address liquidityPlacer;
 }

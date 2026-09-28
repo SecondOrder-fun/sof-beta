@@ -24,6 +24,9 @@ import {DeployPaymaster} from "./15_DeployPaymaster.s.sol";
 import {DeployRolloverEscrow} from "./16_DeployRolloverEscrow.s.sol";
 import {DeployUSDCMock} from "./17_DeployUSDCMock.s.sol";
 import {AddVRFConsumer} from "./19_AddVRFConsumer.s.sol";
+import {DeployPoolManager} from "./20_DeployPoolManager.s.sol";
+import {DeployTokenLaunchpad} from "./21_DeployTokenLaunchpad.s.sol";
+import {DeployLiquidityPlacer} from "./22_DeployLiquidityPlacer.s.sol";
 import {Raffle} from "../../src/core/Raffle.sol";
 import {RafflePrizeDistributor} from "../../src/core/RafflePrizeDistributor.sol";
 import {RolloverEscrow} from "../../src/core/RolloverEscrow.sol";
@@ -200,6 +203,21 @@ contract DeployAll is Script {
             addrs = new AddVRFConsumer().run(addrs);
         }
 
+        // --- 20-22: Launchpad ---
+        // Independent of the raffle stack above: a launched token is a quote token a season
+        // may use, but nothing here depends on the launchpad existing. Deployed last so a
+        // chain without a Uniswap v4 deployment still gets everything else.
+        if (networkConfig.isLocal) {
+            console2.log("=== 20: PoolManager (local v4 singleton) ===");
+            addrs = new DeployPoolManager().run(addrs);
+        }
+
+        console2.log("=== 21: TokenLaunchpad ===");
+        addrs = new DeployTokenLaunchpad().run(addrs);
+
+        console2.log("=== 22: UniV4LiquidityPlacer (+ wire into launchpad) ===");
+        addrs = new DeployLiquidityPlacer().run(addrs);
+
         // --- 4. Build the deployment JSON (reference only — nothing writes it;
         //         see the note in _buildDeploymentJson) ---
         _buildDeploymentJson(addrs, deploymentPath);
@@ -282,7 +300,12 @@ contract DeployAll is Script {
         json = string.concat(json, '    "RolloverEscrow": "', vm.toString(addrs.rolloverEscrow), '",\n');
         // Newly managed addresses (0.25.0). USDC may be address(0) on
         // non-local until HelperConfig grows a per-network USDC field.
-        json = string.concat(json, '    "USDC": "', vm.toString(addrs.usdc), '"');
+        json = string.concat(json, '    "USDC": "', vm.toString(addrs.usdc), '",\n');
+        // Launchpad (0.35.0). PoolManager is the v4 singleton — locally deployed, elsewhere
+        // supplied; LiquidityPlacer is address(0) on a chain where v4 is not deployed.
+        json = string.concat(json, '    "PoolManager": "', vm.toString(addrs.poolManager), '",\n');
+        json = string.concat(json, '    "TokenLaunchpad": "', vm.toString(addrs.tokenLaunchpad), '",\n');
+        json = string.concat(json, '    "LiquidityPlacer": "', vm.toString(addrs.liquidityPlacer), '"');
         json = string.concat(json, preservedSection, "\n  }\n}");
 
         return json;

@@ -69,6 +69,11 @@ const CONTRACTS_TO_EXPORT = [
 
   // Rollover Incentives
   { source: 'RolloverEscrow.sol/RolloverEscrow.json', name: 'RolloverEscrow' },
+
+  // Token Launchpad. UniV4LiquidityPlacer is deliberately absent — no client calls it;
+  // it is only ever reached through TokenLaunchpad.launch().
+  { source: 'TokenLaunchpad.sol/TokenLaunchpad.json', name: 'TokenLaunchpad' },
+  { source: 'LaunchToken.sol/LaunchToken.json', name: 'LaunchToken' },
 ];
 
 async function exportAbis() {

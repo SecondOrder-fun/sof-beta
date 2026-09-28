@@ -26,6 +26,8 @@ import _SOFSmartAccount from './SOFSmartAccount.json' with { type: 'json' };
 import _SOFSmartAccountFactory from './SOFSmartAccountFactory.json' with { type: 'json' };
 import _SOFPaymaster from './SOFPaymaster.json' with { type: 'json' };
 import _RolloverEscrow from './RolloverEscrow.json' with { type: 'json' };
+import _TokenLaunchpad from './TokenLaunchpad.json' with { type: 'json' };
+import _LaunchToken from './LaunchToken.json' with { type: 'json' };
 
 // Helper: extract abi array from Foundry JSON or return as-is
 const e = (json) => json.abi || json;
@@ -55,3 +57,5 @@ export const SOFSmartAccountABI = e(_SOFSmartAccount);
 export const SOFSmartAccountFactoryABI = e(_SOFSmartAccountFactory);
 export const SOFPaymasterABI = e(_SOFPaymaster);
 export const RolloverEscrowABI = e(_RolloverEscrow);
+export const TokenLaunchpadABI = e(_TokenLaunchpad);
+export const LaunchTokenABI = e(_LaunchToken);

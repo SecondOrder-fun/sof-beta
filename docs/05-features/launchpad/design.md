@@ -438,7 +438,11 @@ Percentages are placeholders — see open question 2 in §1. What matters struct
   team allocation. The token page should show circulating vs. reserved explicitly.
 - Neither reserved bucket is ever claimable by the creator, under any path.
 
-### 5.3 `launchpad/LaunchCurve.sol`
+### 5.3 `launchpad/LaunchCurve.sol` — SUPERSEDED, kept as record
+
+> Deleted by the single-sided liquidity decision (§1.2). There is no bonding curve: the
+> v4 pool is the market from block one. Kept so the reasoning that was weighed is still
+> readable. Nothing below is built. See §5.9 for what replaced it.
 
 ETH-quoted discrete bonding curve. Distinct from `SOFBondingCurve` because it
 needs native-ETH accounting, a graduation threshold and terminal state, and has
@@ -477,7 +481,10 @@ handover. Pons states it explicitly for the same reason. Recorded here as a
 constraint so nobody later "improves" the curve by quoting it in USDC:
 that change would silently require a swap step inside graduation.
 
-### 5.4 `launchpad/GraduationManager.sol`
+### 5.4 `launchpad/GraduationManager.sol` — SUPERSEDED, kept as record
+
+> Deleted by §1.2 along with graduation itself. The v4 notes below are still accurate
+> about v4 and informed `UniV4LiquidityPlacer`; the contract is not built.
 
 Isolated so the DEX venue is swappable and the curve stays auditable.
 
@@ -500,12 +507,19 @@ Flow: `initialize(poolKey, sqrtPriceX96)` at the curve's final price → mint a
 full-range position with all reserves + reserved supply → **lock or burn the LP
 position** so the creator can't pull it → emit `Graduated(token, poolId, ethIn, tokensIn)`.
 
-### 5.5 `lib/BondingMath.sol`
+### 5.5 `lib/BondingMath.sol` — NOT BUILT
 
-Extract the step-pricing math currently inline in `SOFBondingCurve.sol`
-(`calculateBuyPrice` / `calculateSellPrice` / step walking) into a pure library
-used by both curves. Prevents the two curves drifting apart and gives the math a
-single fuzz/invariant test target.
+Was: extract the step-pricing math inline in `SOFBondingCurve.sol` into a pure library
+shared by both curves.
+
+There is no second curve. §1.2 removed `LaunchCurve`, and §1.2's note that BondingMath
+"survives but changes job" as tick-and-liquidity math did not survive contact with the
+implementation either: `UniV4LiquidityPlacer` (§5.9) uses v4-core's own `TickMath` and
+`FullMath`, which are audited and already a dependency. Reimplementing tick math beside
+them would be strictly worse.
+
+So the only remaining motive is giving the *ticket* curve's math a single fuzz target,
+which is a refactor of `SOFBondingCurve` on its own merits and not part of this feature.
 
 ### 5.6 `launchpad/SeasonCreationStake.sol`
 
@@ -581,6 +595,66 @@ once tokens are live:
   3 in §1 — but **the function must exist in the Phase 1 deployment even if it
   reverts**, or every token launched before Phase 4 is permanently stuck with
   dead supply.
+
+### 5.9 `launchpad/ILiquidityPlacer.sol` + `launchpad/UniV4LiquidityPlacer.sol`
+
+**Built.** What replaced §5.3 and §5.4: the launchpad hands a launched token's whole
+supply to a placer, which puts it into a Uniswap v4 pool as single-sided concentrated
+liquidity against native ETH. There is no curve stage and no migration, so the token is
+tradeable in the launch transaction.
+
+```solidity
+interface ILiquidityPlacer {
+    function place(address token, uint256 amount, uint256 startPriceWei)
+        external returns (bytes32 placementId);
+}
+```
+
+The interface exists because the venue has already moved once (§1.2) and the target chain
+is expected to move again (Base now, Robinhood Chain next), and because it keeps
+`TokenLaunchpad` testable without a live `PoolManager`. The contract is `onlyLaunchpad`;
+the launchpad transfers the supply in, then asserts it holds nothing afterwards, so a
+placer that consumed only part of a launch fails the launch rather than stranding supply.
+
+#### Orientation — the part that is easy to get backwards
+
+ETH is `address(0)`, numerically below every token address, so **ETH is always `currency0`
+and the launch token always `currency1`**. v4 prices are `currency1/currency0`, i.e. *token
+per ETH*. Therefore a **high tick means a cheap token**, and buying the token moves the
+tick **down**. "Number go up" is a falling tick.
+
+A position holds only `currency1` when the current tick is at or above its upper tick. So
+the position spans `[tickUpper - rangeWidthTicks, tickUpper]` and the pool is initialised
+exactly **at** `tickUpper`. That is what makes it single-sided: the placer is never funded
+with ETH, so a position that required any would revert the launch. Buyers then walk the
+tick down through the range, paying progressively more per token.
+
+#### One range, not a band staircase
+
+Clanker and Pons both spread liquidity across several bands. A ladder *shapes* a curve; it
+is not needed to *have* one. One wide range is continuous and monotonic with less gas,
+fewer `modifyLiquidity` calls and no per-band rounding. Bands stay an easy extension — the
+range parameters are already config — and should be added only for a shape one range
+cannot express.
+
+Deployed parameters (step 22): fee 1%, tick spacing 200, range width 46,000 ticks
+(`1.0001**46_000` ≈ 100x climb before the supply is fully sold).
+
+#### Start prices are only meaningful as FDV
+
+Every launch mints the same 1e9 tokens, so `startPriceWei * 1e9` — the implied
+fully-diluted valuation — is the number that governs behaviour, nine orders of magnitude
+from the price. `TokenLaunchpad.impliedFdvWei` / `startPriceBoundsAsFdvWei` exist so the
+bounds are set in that unit. This is not theoretical: 1e6 wei/token looks like a
+reasonable "small" price and is an FDV of 0.001 ETH, where a single 0.1 ETH buy consumes
+the whole position and drives the pool to `MIN_TICK`. Deployed bounds are a **1 ETH floor
+and a 1000 ETH ceiling**, both `CONFIG_ROLE`-adjustable.
+
+#### Dust
+
+Liquidity is an integer, so flooring it leaves a remainder of at most
+`(sqrtB - sqrtA) / 2**96` raw units — around 1e-12 whole tokens at realistic prices. It
+stays in the placer, and `sweepDust` makes it recoverable rather than silently stuck.
 
 ---
 
@@ -1070,10 +1144,10 @@ on its own.
 | Phase | Scope | Why here |
 |---|---|---|
 | **0 — Remove `$SOF`, parameterize the quote token** | `sofToken` → `quoteToken` across contracts/backend/frontend; `quoteToken` in `SeasonConfig`; delete `SOFToken`/`SOFExchange`/`SOFFaucet`. Seasons quote a `MockERC20` until Phase 1 exists. No new features. | Isolates a large mechanical refactor from new logic. Everything after is additive. |
-| **1 — Launch + curve** | `LaunchToken` (18 dp, three-bucket supply), `LaunchCurve`, `TokenLaunchpad`, `BondingMath`, `InfoFiSeedVault` (funded, release disabled). No graduation. UI: `/launch`, `/tokens`, `/tokens/:address` incl. circulating-vs-reserved display. Backend: launch + trade listeners, discovery feed, metadata pipeline. | The deliverable asked for. Shippable and demoable without v4. The supply split **must** be right here — it cannot be changed for tokens already launched. |
+| **1 — Launch + pool** | `LaunchToken` (18 dp, whole supply placed), `TokenLaunchpad`, `ILiquidityPlacer` + `UniV4LiquidityPlacer`, deploy wiring (steps 20-22, FDV-denominated price bounds). UI: `/launch`, `/tokens`, `/tokens/:address`. Backend: launch + trade listeners, discovery feed, metadata pipeline. | The deliverable asked for, and now the complete market: single-sided liquidity means the pool **is** the launch, so there is no curve stage to ship first and nothing deferred to a graduation. Rewritten from "Launch + curve" when §1.2 settled — v4 moved from Phase 3 into Phase 1 with it. |
 | **2 — Raffles on launched tokens** | `SeasonCreationStake`, `canCreateSeason(account, token)`, `SeasonPolicy` + 18-dp assertion, `/tokens/:address/create-season`. Ticket curve runs against the launch token. | **Moved ahead of graduation.** Since seasons are not gated on graduation (§1.1), this depends only on Phase 0 + 1 — so the full product loop (launch → trade → raffle) ships without touching Uniswap v4. |
-| **3 — Graduation** | `GraduationManager`, v4 deps + remappings, Base addresses in `deployments/*.json`, LP lock. Graduation progress UI. Mid-season graduation handling (§9.3). | Self-contained; the highest-risk external integration gets its own audit surface, and now nothing else is waiting on it. |
-| **4 — InfoFi on launched tokens** | Per-season collateral drawn from `InfoFiSeedVault`, `ConditionalTokenERC20` rename, `sweepUnused` enabled. | Deliberately last — §6.4. Nothing in the §1 journey depends on it. |
+| **3 — Fees and the locked position** | Collect v4 position fees, route them 88/12 creator/platform (§6.7), fund the InfoFi earmark from that flow, lock the LP position. Progress UI driven by bands consumed / mcap milestones rather than a graduation event. | What is actually left once graduation is gone: the position exists from Phase 1, but nothing yet claims its fees or splits them. Revenue, not integration risk. |
+| **4 — InfoFi on launched tokens** | `InfoFiFPMMV2` multi-collateral (today it is single-collateral, so market creation only succeeds where `quoteToken == collateralToken` — it fails closed), value-denominated seed via `InfoFiSeedVault`, `ConditionalTokenERC20` rename, `sweepUnused` enabled. | Deliberately last — §6.4. Nothing in the §1 journey depends on it. |
 
 ### Version and task tracking
 

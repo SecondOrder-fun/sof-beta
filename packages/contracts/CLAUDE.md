@@ -24,6 +24,7 @@ src/
 ├── airdrop/    # SOFAirdrop
 ├── gating/     # SeasonGating, SeasonGatingStorage
 ├── sponsor/    # SponsorOnboarding
+├── launchpad/  # TokenLaunchpad, LaunchToken, ILiquidityPlacer, UniV4LiquidityPlacer
 ├── lib/        # Interfaces + RaffleTypes, RaffleLogic
 └── test-helpers/ # MockERC20 (placeholder quote token), MockUSDC
 ```
@@ -44,6 +45,9 @@ Test files covering:
 - InfoFi FPMM (`InfoFiFPMM.t.sol`, `FPMMPermit.t.sol`)
 - Airdrop (`SOFAirdrop.t.sol`)
 - Per-season quote tokens (`SeasonQuoteToken.t.sol`)
+- Launchpad (`TokenLaunchpad.t.sol`, `UniV4LiquidityPlacer.t.sol` — against a real v4
+  `PoolManager`, not a mock — and `LaunchpadDeployWiring.t.sol`, which runs deploy steps
+  20-22 and asserts the FDV bounds and the circular wiring)
 - Season gating (`SeasonGating.t.sol`, `SeasonGatingSignature.t.sol`)
 - Prize sponsorship (`PrizeSponsorship.t.sol`, `TreasurySystem.t.sol`)
 
@@ -67,7 +71,20 @@ Modular numbered scripts in `script/deploy/`:
   launchpad supplies real quote tokens. Replaced `01_DeploySOFToken`.
 - `01-13` — one contract each, in dependency order
 - `14_ConfigureRoles` — all role grants and wiring
-- `DeployAll.s.sol` — orchestrator that chains 00-14 and auto-writes `deployments/{network}.json`
+- `20_DeployPoolManager` — local only; a real Uniswap v4 PoolManager on Anvil, so the launch
+  path works end to end without forking. Elsewhere the v4 singleton already exists and comes
+  from `HelperConfig.getPoolManager()` (`POOL_MANAGER_ADDRESS`, else
+  `.contracts.PoolManager` in the deployments file) — never hardcoded, since it is per-chain
+  and the launchpad is meant to move chains.
+- `21_DeployTokenLaunchpad` — launchpad with `placer = address(0)`. Starting-price bounds are
+  chosen as **implied FDV** (1 ETH floor, 1000 ETH ceiling) and converted, because a price
+  means nothing without the supply: at 1e6 wei/token the FDV is 0.001 ETH and one 0.1 ETH buy
+  empties the pool. Use `impliedFdvWei` when changing them.
+- `22_DeployLiquidityPlacer` — the v4 placer, then `launchpad.setPlacer(...)`. Closes the
+  circular dependency (the placer takes the launchpad immutably, so the launchpad goes first
+  and accepts its half by setter). Skips with a log — it does not fail the deploy — if no
+  PoolManager is available; `launch()` then reverts `PlacerNotSet`.
+- `DeployAll.s.sol` — orchestrator that chains 00-22 and auto-writes `deployments/{network}.json`
 
 ```bash
 # Local (Docker Anvil)
