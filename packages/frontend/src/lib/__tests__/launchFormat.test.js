@@ -4,6 +4,8 @@ import {
   formatPriceGwei,
   formatSupply,
   formatAge,
+  formatMultiple,
+  formatPercent,
 } from "@/lib/launchFormat";
 
 describe("formatFdvEth", () => {
@@ -59,5 +61,30 @@ describe("formatAge", () => {
 
   it("clamps a future timestamp to zero rather than showing a negative age", () => {
     expect(formatAge(at(-60), now)).toBe("0s");
+  });
+});
+
+describe("formatMultiple", () => {
+  it("keeps two decimals under 10x so early moves show", () => {
+    expect(formatMultiple(1)).toBe("1.00");
+    expect(formatMultiple(1.004)).toBe("1.00");
+    expect(formatMultiple(3.456)).toBe("3.46");
+  });
+  it("drops to one decimal from 10x", () => {
+    expect(formatMultiple(23.64)).toBe("23.6");
+  });
+  it("renders unusable input as a dash", () => {
+    expect(formatMultiple(null)).toBe("—");
+    expect(formatMultiple(NaN)).toBe("—");
+  });
+});
+
+describe("formatPercent", () => {
+  it("shows one decimal under 10% and whole numbers above", () => {
+    expect(formatPercent(0.0912)).toBe("9.1");
+    expect(formatPercent(0.68)).toBe("68");
+  });
+  it("renders unusable input as a dash", () => {
+    expect(formatPercent(undefined)).toBe("—");
   });
 });

@@ -169,6 +169,63 @@ contract UniV4LiquidityPlacerTest is Test {
     /// This also exercises the tick orientation end to end. Buying pushes the tick DOWN
     /// (price is token-per-ETH, so the token getting dearer is a falling tick) and crosses
     /// tickUpper, which is what activates the position.
+    /// Emits the numbers frontend/tests/lib/v4PoolMath.test.js reproduces. The frontend
+    /// quotes buys and sells from pool state with no quoter contract, so this pins its math
+    /// to what v4 ACTUALLY does rather than to a re-derivation that could share a mistake.
+    /// Run with -vv to print them; the asserts only prove the swaps happened.
+    function test_fixture_quoteMathForFrontend() public {
+        address token = _launch(PRICE);
+        UniV4LiquidityPlacer.Placement memory p = placer.getPlacement(token);
+        PoolId id = p.key.toId();
+        IPoolManager pm = IPoolManager(address(manager));
+        TestSwapRouter router = new TestSwapRouter(pm);
+        address buyer = address(0xB0B);
+        vm.deal(buyer, 10 ether);
+
+        (uint160 sqrtAtLaunch, int24 tickAtLaunch,, uint24 lpFee) = pm.getSlot0(id);
+        emit log_named_uint("placement.liquidity", p.liquidity);
+        emit log_named_int("placement.tickLower", p.tickLower);
+        emit log_named_int("placement.tickUpper", p.tickUpper);
+        emit log_named_uint("launch.sqrtPriceX96", sqrtAtLaunch);
+        emit log_named_int("launch.tick", tickAtLaunch);
+        emit log_named_uint("launch.activeLiquidity", pm.getLiquidity(id));
+        emit log_named_uint("lpFee", lpFee);
+        // The frontend reads slot0 raw via extsload and unpacks it itself; pin the slot and word.
+        bytes32 stateSlot = keccak256(abi.encodePacked(PoolId.unwrap(id), StateLibrary.POOLS_SLOT));
+        emit log_named_bytes32("poolId", PoolId.unwrap(id));
+        emit log_named_bytes32("poolStateSlot", stateSlot);
+        emit log_named_bytes32("slot0Word", pm.extsload(stateSlot));
+
+        vm.prank(buyer);
+        uint256 out1 = router.buyWithEth{value: 0.1 ether}(p.key);
+        (uint160 sqrt1,,,) = pm.getSlot0(id);
+        emit log_named_uint("buy1.ethIn", 0.1 ether);
+        emit log_named_uint("buy1.tokensOut", out1);
+        emit log_named_uint("buy1.sqrtPriceAfter", sqrt1);
+        emit log_named_uint("buy1.activeLiquidityAfter", pm.getLiquidity(id));
+
+        vm.prank(buyer);
+        uint256 out2 = router.buyWithEth{value: 1 ether}(p.key);
+        (uint160 sqrt2,,,) = pm.getSlot0(id);
+        emit log_named_uint("buy2.ethIn", 1 ether);
+        emit log_named_uint("buy2.tokensOut", out2);
+        emit log_named_uint("buy2.sqrtPriceAfter", sqrt2);
+
+        uint256 sellAmount = out2 / 2;
+        vm.prank(buyer);
+        IERC20(token).transfer(address(router), sellAmount);
+        vm.prank(buyer);
+        uint256 ethBack = router.sellForEth(p.key, sellAmount);
+        (uint160 sqrt3,,,) = pm.getSlot0(id);
+        emit log_named_uint("sell.tokensIn", sellAmount);
+        emit log_named_uint("sell.ethOut", ethBack);
+        emit log_named_uint("sell.sqrtPriceAfter", sqrt3);
+
+        assertGt(out1, 0);
+        assertGt(out2, 0);
+        assertGt(ethBack, 0);
+    }
+
     function test_launchedTokenIsImmediatelyTradeable() public {
         address token = _launch(PRICE);
         UniV4LiquidityPlacer.Placement memory p = placer.getPlacement(token);
@@ -292,8 +349,15 @@ contract TestSwapRouter is IUnlockCallback {
         tokensOut = abi.decode(result, (uint256));
     }
 
+    /// @notice Sell exactly `amount` of `key.currency1` (already transferred to this router) for ETH.
+    function sellForEth(PoolKey memory key, uint256 amount) external returns (uint256 ethOut) {
+        bytes memory result = manager.unlock(abi.encode(key, amount, msg.sender, true));
+        ethOut = abi.decode(result, (uint256));
+    }
+
     function unlockCallback(bytes calldata data) external returns (bytes memory) {
         require(msg.sender == address(manager), "not manager");
+        if (data.length == 32 * 8) return _sell(data);
         (PoolKey memory key, uint256 ethIn, address recipient) = abi.decode(data, (PoolKey, uint256, address));
 
         // zeroForOne: ETH (currency0) in, token (currency1) out. Negative amount = exactIn.
@@ -317,6 +381,30 @@ contract TestSwapRouter is IUnlockCallback {
         manager.take(key.currency1, recipient, tokensOut);
 
         return abi.encode(tokensOut);
+    }
+
+    function _sell(bytes calldata data) private returns (bytes memory) {
+        (PoolKey memory key, uint256 tokensIn, address recipient,) = abi.decode(data, (PoolKey, uint256, address, bool));
+
+        // oneForZero: token (currency1) in, ETH (currency0) out. Negative amount = exactIn.
+        BalanceDelta delta = manager.swap(
+            key,
+            IPoolManager.SwapParams({
+                zeroForOne: false,
+                amountSpecified: -int256(tokensIn),
+                sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
+            }),
+            ""
+        );
+
+        uint256 tokensOwed = uint256(uint128(-delta.amount1()));
+        manager.sync(key.currency1);
+        IERC20(Currency.unwrap(key.currency1)).transfer(address(manager), tokensOwed);
+        manager.settle();
+
+        uint256 ethOut = uint256(uint128(delta.amount0()));
+        manager.take(key.currency0, recipient, ethOut);
+        return abi.encode(ethOut);
     }
 
     receive() external payable {}

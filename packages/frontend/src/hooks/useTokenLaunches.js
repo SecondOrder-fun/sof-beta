@@ -3,13 +3,14 @@
 // The discovery feed, read straight from the chain.
 //
 // This deliberately does NOT go through the backend, unlike `useAllSeasons`. The
-// launch indexer does not exist yet, and a feed that only works once it does
-// would leave /tokens blank on a fresh deploy. The launchpad stores every launch
-// in an array, so newest-first paging is two multicalls and no infrastructure.
+// backend indexes launches (GET /api/launchpad/tokens) but has no trade history
+// or metadata yet, so it would add a dependency without adding data — and a feed
+// that depended on it would go blank wherever the backend lags a fresh deploy.
+// The launchpad stores every launch in an array, so newest-first paging is two
+// multicalls and no infrastructure.
 //
-// When the indexer lands, this becomes the fallback rather than the primary:
-// metadata, trade volume and price history all need an index, and none of them
-// can be read from `getLaunch`.
+// Once trade volume and metadata are indexed, the backend becomes the primary
+// and this the fallback: neither can be read from `getLaunch`.
 
 import { useQuery } from '@tanstack/react-query';
 import { usePublicClient } from 'wagmi';
@@ -107,6 +108,8 @@ export function useTokenLaunches({ limit = LAUNCHES_PAGE_SIZE, enabled = true } 
           launchedAt: record.launchedAt,
           startPriceWei: record.startPriceWei,
           impliedFdvWei: record.startPriceWei * wholeSupply,
+          // The v4 PoolId — what useLaunchMarkets prices the token from.
+          placementId: record.placementId,
           name: nameRes?.status === 'success' ? nameRes.result : '',
           symbol: symbolRes?.status === 'success' ? symbolRes.result : '',
         };

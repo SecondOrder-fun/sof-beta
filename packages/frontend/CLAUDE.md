@@ -42,11 +42,11 @@ npm run lint         # ESLint (zero warnings enforced)
 
 ## Launchpad routes
 
-`/launch`, `/tokens` and `/tokens/:address` read the `TokenLaunchpad` on-chain —
-they do not go through the backend, because the launch indexer does not exist yet
-and a feed that only worked once it did would leave `/tokens` blank on a fresh
-deploy. When the indexer lands, on-chain becomes the fallback: metadata, volume
-and price history cannot be read from `getLaunch`.
+`/launch`, `/tokens` and `/tokens/:address` read the `TokenLaunchpad` on-chain.
+The backend indexes launches (`/api/launchpad/tokens`) but not yet trade history or
+metadata, so routing the feed through it would add a dependency without adding
+data. Only the trade feed on the token page uses the backend. Once volume and
+metadata are indexed, the backend becomes primary and on-chain the fallback.
 
 **The launch form takes a valuation, not a per-token price** (`src/lib/launchFormat.js`,
 `src/hooks/useTokenLaunchpad.js`). Every launch mints the same 1e9 supply, so the
@@ -57,6 +57,28 @@ price is exactly 1 gwei per token.
 
 A network with no launchpad in its deployment JSON renders an explanation, not an
 error. The raffle stack deploys independently of the launchpad.
+
+**Live pool state comes straight from Uniswap v4, not the indexer.**
+`useLaunchMarkets` reads each pool's slot0 and liquidity via `PoolManager.extsload`
+plus the placer's tick range, and `src/lib/v4PoolMath.js` turns that into price,
+FDV, multiple since launch, supply sold, and exact buy/sell quotes. There is no
+quoter contract in the stack. That math is pinned against a real `PoolManager`
+swap: `test_fixture_quoteMathForFrontend` in the contracts package emits the
+numbers `tests/lib/v4PoolMath.test.js` reproduces. If a contracts change moves
+them, re-run the fixture and update the constants — never loosen the tolerances.
+Two traps it encodes: at launch v4 reports **0 active liquidity** (the price sits
+exactly on the range edge), so quote with the position's liquidity; and range
+edges must use the exact `TickMath` port, not a float, or a capped quote promises
+more than the whole supply.
+
+**The launchpad UI is composed only from existing primitives** (see the UI Gym):
+Tabs for buy/sell and sort, Card, Avatar for token art, Badge, Progress for supply
+sold, ButtonGroup, Input, ContentBox, Table, Sheet, SlippageSettings. New visual
+elements are confirmed with the product owner and designed on the canvas first.
+
+**The buy button is disabled on purpose.** Quotes are live, but nothing in the
+stack can execute a v4 swap yet — there is no router contract. Do not wire it to a
+raw `writeContractAsync`; it waits on the router decision.
 
 ## ABI Imports
 

@@ -968,9 +968,21 @@ can carry it — add a `launch:{address}` channel.
 | Route | Component | Content |
 |---|---|---|
 | `/launch` | `routes/Launch.jsx` **(built)** | Creation form: name, symbol, metadata URI, **starting valuation**. No dev-buy slider and no fee preview — launching costs gas only and grants no allocation, so there is nothing to slide or to preview. |
-| `/tokens` | `routes/TokensIndex.jsx` **(built)** | Discovery grid, newest first, read on-chain. Sort and search arrive with the indexer — there is nothing to sort by until trade volume is indexed. |
-| `/tokens/:address` | `routes/TokenDetail.jsx` **(built, partial)** | The launch record from on-chain reads. Price chart, buy/sell panel, holders and trade feed all need the indexer; the page says so rather than rendering empty widgets. No graduation progress bar — there is no graduation (§1.2). |
+| `/tokens` | `routes/TokensIndex.jsx` **(built, redesigned)** | Discovery grid or list with live valuations read from each pool. Sort by new / biggest climb / top FDV / near sellout, and search by name, ticker or address — all computable from pool state, no indexer needed. Sorting by volume waits on the trade indexer. |
+| `/tokens/:address` | `routes/TokenDetail.jsx` **(built, redesigned)** | Live FDV, multiple since launch, supply sold, trade feed (from the indexer), token facts, and the buy/sell panel with exact live quotes. On mobile the panel opens in a Sheet. **The swap itself is not wired**: there is no router contract yet. No graduation progress bar — "supply sold" replaces it (§1.2). |
 | `/tokens/:address/create-season` | `CreateTokenSeasonPage.jsx` | Phase 2. Stake check + season config. Largely a reskin of the existing `CreateSeasonPage.jsx`. |
+
+**Redesign (2026-09-29).** The discovery and token screens follow a design
+approved on a canvas modelled on pump.fun, pools.xyz and Pons, in SecondOrder's own
+colour scheme, and are built only from existing UI primitives. Not yet built, and to
+be designed and confirmed before they are: the live activity ticker, the price
+chart (both need trade history), and the raffle badge and card (Phase 2). The
+"88% to the creator" figure from the design is withheld from the live page until
+Phase 3 actually routes fees that way.
+
+**Live pricing without an indexer or quoter.** Price, FDV, supply sold and quotes
+come from the pool's own state via `PoolManager.extsload`, with v4's swap math
+reproduced client-side and pinned against a real swap (see the frontend CLAUDE.md).
 
 **The form asks for a valuation, not a price.** This is the one load-bearing UI
 decision on `/launch`. Every launch mints the same 1e9 supply, so what a creator is

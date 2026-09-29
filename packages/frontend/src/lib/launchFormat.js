@@ -86,3 +86,24 @@ export function formatAge(unixSeconds, nowMs = Date.now()) {
   if (hours < 24) return `${hours}h`;
   return `${Math.floor(hours / 24)}d`;
 }
+
+/**
+ * A price multiple, e.g. 23.6 -> "23.6", 1.004 -> "1.00".
+ * Two decimals below 10× so an early move is visible; one above.
+ * @param {number | null | undefined} n
+ */
+export function formatMultiple(n) {
+  if (n == null || !Number.isFinite(n)) return '—';
+  return n < 10 ? n.toFixed(2) : n.toFixed(1);
+}
+
+/**
+ * A 0..1 fraction as a percentage string without the sign.
+ * One decimal under 10% (where small moves matter), whole numbers above.
+ * @param {number | null | undefined} f
+ */
+export function formatPercent(f) {
+  if (f == null || !Number.isFinite(f)) return '—';
+  const pct = f * 100;
+  return pct < 10 ? pct.toFixed(1) : pct.toFixed(0);
+}

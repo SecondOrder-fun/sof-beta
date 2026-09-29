@@ -70,10 +70,15 @@ const CONTRACTS_TO_EXPORT = [
   // Rollover Incentives
   { source: 'RolloverEscrow.sol/RolloverEscrow.json', name: 'RolloverEscrow' },
 
-  // Token Launchpad. UniV4LiquidityPlacer is deliberately absent — no client calls it;
-  // it is only ever reached through TokenLaunchpad.launch().
+  // Token Launchpad.
   { source: 'TokenLaunchpad.sol/TokenLaunchpad.json', name: 'TokenLaunchpad' },
   { source: 'LaunchToken.sol/LaunchToken.json', name: 'LaunchToken' },
+  // Read-only from clients: getPlacement() gives a pool's tick range, which is what
+  // turns a price into "supply sold" and caps a quote at the edge of the position.
+  { source: 'UniV4LiquidityPlacer.sol/UniV4LiquidityPlacer.json', name: 'UniV4LiquidityPlacer' },
+  // Uniswap v4's singleton. Clients use only extsload(), to read a pool's slot0 and
+  // liquidity for pricing and quotes — there is no quoter contract in the stack.
+  { source: 'PoolManager.sol/PoolManager.json', name: 'PoolManager' },
 ];
 
 async function exportAbis() {
