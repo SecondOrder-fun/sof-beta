@@ -25,6 +25,7 @@ export {
   LaunchTokenABI as LaunchTokenAbi,
   UniV4LiquidityPlacerABI as UniV4LiquidityPlacerAbi,
   PoolManagerABI as PoolManagerAbi,
+  ILaunchRouterABI as ILaunchRouterAbi,
 } from '@sof/contracts';
 
 // Minimal ERC-721 ABI for approve calls (not in Foundry build)

@@ -79,6 +79,9 @@ const CONTRACTS_TO_EXPORT = [
   // Uniswap v4's singleton. Clients use only extsload(), to read a pool's slot0 and
   // liquidity for pricing and quotes — there is no quoter contract in the stack.
   { source: 'PoolManager.sol/PoolManager.json', name: 'PoolManager' },
+  // Clients trade through the INTERFACE, never an implementation's ABI: the active router
+  // is read from TokenLaunchpad.router(), so swapping implementations needs no client change.
+  { source: 'ILaunchRouter.sol/ILaunchRouter.json', name: 'ILaunchRouter' },
 ];
 
 async function exportAbis() {

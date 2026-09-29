@@ -27,6 +27,7 @@ import {AddVRFConsumer} from "./19_AddVRFConsumer.s.sol";
 import {DeployPoolManager} from "./20_DeployPoolManager.s.sol";
 import {DeployTokenLaunchpad} from "./21_DeployTokenLaunchpad.s.sol";
 import {DeployLiquidityPlacer} from "./22_DeployLiquidityPlacer.s.sol";
+import {DeployLaunchRouter} from "./23_DeployLaunchRouter.s.sol";
 import {Raffle} from "../../src/core/Raffle.sol";
 import {RafflePrizeDistributor} from "../../src/core/RafflePrizeDistributor.sol";
 import {RolloverEscrow} from "../../src/core/RolloverEscrow.sol";
@@ -218,6 +219,9 @@ contract DeployAll is Script {
         console2.log("=== 22: UniV4LiquidityPlacer (+ wire into launchpad) ===");
         addrs = new DeployLiquidityPlacer().run(addrs);
 
+        console2.log("=== 23: UniV4LaunchRouter (+ set as launchpad.router) ===");
+        addrs = new DeployLaunchRouter().run(addrs);
+
         // --- 4. Build the deployment JSON (reference only — nothing writes it;
         //         see the note in _buildDeploymentJson) ---
         _buildDeploymentJson(addrs, deploymentPath);
@@ -305,7 +309,8 @@ contract DeployAll is Script {
         // supplied; LiquidityPlacer is address(0) on a chain where v4 is not deployed.
         json = string.concat(json, '    "PoolManager": "', vm.toString(addrs.poolManager), '",\n');
         json = string.concat(json, '    "TokenLaunchpad": "', vm.toString(addrs.tokenLaunchpad), '",\n');
-        json = string.concat(json, '    "LiquidityPlacer": "', vm.toString(addrs.liquidityPlacer), '"');
+        json = string.concat(json, '    "LiquidityPlacer": "', vm.toString(addrs.liquidityPlacer), '",\n');
+        json = string.concat(json, '    "LaunchRouter": "', vm.toString(addrs.launchRouter), '"');
         json = string.concat(json, preservedSection, "\n  }\n}");
 
         return json;

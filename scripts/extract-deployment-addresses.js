@@ -61,6 +61,7 @@ const CONTRACT_NAME_MAP = {
   PoolManager: "PoolManager",
   TokenLaunchpad: "TokenLaunchpad",
   UniV4LiquidityPlacer: "LiquidityPlacer",
+  UniV4LaunchRouter: "LaunchRouter",
 };
 
 // Static / non-DeployAll addresses to merge into the output. These are
@@ -115,6 +116,7 @@ const KEY_ORDER = [
   "PoolManager",
   "TokenLaunchpad",
   "LiquidityPlacer",
+  "LaunchRouter",
 ];
 
 function outPathFor(repoRoot, network) {

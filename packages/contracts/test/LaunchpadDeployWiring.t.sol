@@ -7,6 +7,8 @@ import {DeployedAddresses} from "../script/deploy/DeployedAddresses.sol";
 import {DeployPoolManager} from "../script/deploy/20_DeployPoolManager.s.sol";
 import {DeployTokenLaunchpad} from "../script/deploy/21_DeployTokenLaunchpad.s.sol";
 import {DeployLiquidityPlacer} from "../script/deploy/22_DeployLiquidityPlacer.s.sol";
+import {DeployLaunchRouter} from "../script/deploy/23_DeployLaunchRouter.s.sol";
+import {ILaunchRouter} from "../src/launchpad/ILaunchRouter.sol";
 import {TokenLaunchpad, PlacerNotSet, StartPriceOutOfRange} from "../src/launchpad/TokenLaunchpad.sol";
 import {UniV4LiquidityPlacer} from "../src/launchpad/UniV4LiquidityPlacer.sol";
 
@@ -39,6 +41,7 @@ contract LaunchpadDeployWiringTest is Test {
         addrs = new DeployPoolManager().run(addrs);
         addrs = new DeployTokenLaunchpad().run(addrs);
         addrs = new DeployLiquidityPlacer().run(addrs);
+        addrs = new DeployLaunchRouter().run(addrs);
     }
 
     // ------------------------------------------------------------------
@@ -82,6 +85,24 @@ contract LaunchpadDeployWiringTest is Test {
         assertGt(IERC20(token).balanceOf(addrs.poolManager), 0, "supply reached the pool");
         assertEq(IERC20(token).balanceOf(addrs.tokenLaunchpad), 0, "launchpad kept nothing");
         assertTrue(launchpad.isLaunchToken(token));
+    }
+
+    /// The app reads the router from the launchpad, so the deploy must leave it pointed
+    /// at a working one — and a trade through it must land.
+    function test_deployLeavesTheLaunchpadAdvertisingAWorkingRouter() public {
+        DeployedAddresses memory addrs = _runLocalLaunchpadDeploy();
+        TokenLaunchpad launchpad = TokenLaunchpad(addrs.tokenLaunchpad);
+        assertEq(address(launchpad.router()), addrs.launchRouter, "launchpad advertises the router");
+
+        uint256 minPrice = launchpad.minStartPriceWei();
+        vm.prank(buyer);
+        (, address token) = launchpad.launch("Routed", "RTD", "", minPrice);
+
+        vm.deal(buyer, 1 ether);
+        vm.prank(buyer);
+        uint256 out = ILaunchRouter(address(launchpad.router())).buy{value: 0.1 ether}(token, 1, buyer, block.timestamp);
+        assertGt(out, 0);
+        assertEq(IERC20(token).balanceOf(buyer), out);
     }
 
     // ------------------------------------------------------------------

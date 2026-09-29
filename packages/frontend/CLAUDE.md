@@ -76,9 +76,14 @@ Tabs for buy/sell and sort, Card, Avatar for token art, Badge, Progress for supp
 sold, ButtonGroup, Input, ContentBox, Table, Sheet, SlippageSettings. New visual
 elements are confirmed with the product owner and designed on the canvas first.
 
-**The buy button is disabled on purpose.** Quotes are live, but nothing in the
-stack can execute a v4 swap yet — there is no router contract. Do not wire it to a
-raw `writeContractAsync`; it waits on the router decision.
+**Trades go through whichever router the launchpad advertises.** `useLaunchTrade`
+reads `TokenLaunchpad.router()` and `lib/launchTrade.js` encodes against the
+`ILaunchRouter` interface ABI — never an implementation's — then sends through
+`executeBatch` (a sell batches approve + sell). So replacing the router is a
+`setRouter` transaction with no frontend change, and `setRouter(0)` switches in-app
+trading off (the panel keeps quoting and says trading is off). Minimum-out is the
+quote less the slippage setting; `UniV4LaunchRouter.t.sol` pins the router to the
+same amounts the quote math is pinned to, so the quote shown is the trade made.
 
 ## ABI Imports
 

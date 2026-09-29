@@ -668,6 +668,35 @@ Liquidity is an integer, so flooring it leaves a remainder of at most
 `(sqrtB - sqrtA) / 2**96` raw units — around 1e-12 whole tokens at realistic prices. It
 stays in the placer, and `sweepDust` makes it recoverable rather than silently stuck.
 
+### 5.10 `launchpad/ILaunchRouter.sol` + `launchpad/UniV4LaunchRouter.sol`
+
+**Built.** How the app buys and sells launched tokens. Decision (2026-09-29): our own
+router rather than Uniswap's Universal Router, **behind an interface so it can be
+swapped**.
+
+The switch is on-chain. `TokenLaunchpad.router()` names the active implementation;
+clients read it and encode against `ILaunchRouter` only. Replacing the router — with a
+new version of ours, or an adapter contract over the Universal Router — is deploy +
+`setRouter`, with no client release. `setRouter(address(0))` turns in-app trading off;
+the pools stay tradeable through any other Uniswap route, so it is a UI switch, not a pause.
+
+```solidity
+function buy(address token, uint256 minTokensOut, address recipient, uint256 deadline)
+    external payable returns (uint256 tokensOut);
+function sell(address token, uint256 tokensIn, uint256 minEthOut, address recipient, uint256 deadline)
+    external returns (uint256 ethOut);
+```
+
+What any implementation must do (stated on the interface): route only launchpad tokens
+(`isLaunchToken`); enforce `minOut` and `deadline` itself; refund unspent ETH and pull
+only the tokens actually sold, because a single-range pool can fill a large buy only in
+part; and take no fee of its own.
+
+`UniV4LaunchRouter` looks each pool up from the placer, so callers pass a token address,
+never a PoolKey — a client cannot steer a trade into a pool of its choosing. It holds
+nothing between calls and has no `receive`. Its tests pin it to the exact amounts the
+frontend's quote math reproduces, so the quote shown is the trade made.
+
 ---
 
 ## 6. Changes to existing contracts
@@ -969,7 +998,7 @@ can carry it — add a `launch:{address}` channel.
 |---|---|---|
 | `/launch` | `routes/Launch.jsx` **(built)** | Creation form: name, symbol, metadata URI, **starting valuation**. No dev-buy slider and no fee preview — launching costs gas only and grants no allocation, so there is nothing to slide or to preview. |
 | `/tokens` | `routes/TokensIndex.jsx` **(built, redesigned)** | Discovery grid or list with live valuations read from each pool. Sort by new / biggest climb / top FDV / near sellout, and search by name, ticker or address — all computable from pool state, no indexer needed. Sorting by volume waits on the trade indexer. |
-| `/tokens/:address` | `routes/TokenDetail.jsx` **(built, redesigned)** | Live FDV, multiple since launch, supply sold, trade feed (from the indexer), token facts, and the buy/sell panel with exact live quotes. On mobile the panel opens in a Sheet. **The swap itself is not wired**: there is no router contract yet. No graduation progress bar — "supply sold" replaces it (§1.2). |
+| `/tokens/:address` | `routes/TokenDetail.jsx` **(built, redesigned)** | Live FDV, multiple since launch, supply sold, trade feed (from the indexer), token facts, and the buy/sell panel with exact live quotes, trading through the launch router (§5.10). On mobile the panel opens in a Sheet. No graduation progress bar — "supply sold" replaces it (§1.2). |
 | `/tokens/:address/create-season` | `CreateTokenSeasonPage.jsx` | Phase 2. Stake check + season config. Largely a reskin of the existing `CreateSeasonPage.jsx`. |
 
 **Redesign (2026-09-29).** The discovery and token screens follow a design

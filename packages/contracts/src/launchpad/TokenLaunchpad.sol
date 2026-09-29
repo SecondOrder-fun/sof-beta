@@ -8,6 +8,7 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {LaunchToken} from "./LaunchToken.sol";
 import {ILiquidityPlacer} from "./ILiquidityPlacer.sol";
+import {ILaunchRouter} from "./ILaunchRouter.sol";
 
 error InvalidAddress();
 error EmptyName();
@@ -61,6 +62,14 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
     /// @notice Where a launched token's supply is placed. Swappable venue (§ILiquidityPlacer).
     ILiquidityPlacer public placer;
 
+    /// @notice The router the app trades launched tokens through.
+    /// @dev A registry pointer for clients, not something this contract calls. Clients
+    ///      read it and encode against ILaunchRouter, so replacing the implementation is
+    ///      this one setter and no client release. Zero means "no in-app trading" — the
+    ///      pools themselves stay tradeable through any other Uniswap route, which is why
+    ///      that is a UI switch rather than a pause.
+    ILaunchRouter public router;
+
     /// @notice Starting-price bounds, in wei of ETH per whole token.
     ///
     /// @dev **Set these in FDV terms, not in wei.** A price is meaningless on its own: what
@@ -100,6 +109,7 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
         bytes32 placementId
     );
     event PlacerUpdated(address indexed previous, address indexed current);
+    event RouterUpdated(address indexed previous, address indexed current);
     event StartPriceBoundsUpdated(uint256 minWei, uint256 maxWei);
 
     constructor(address admin, address _placer, uint256 _minStartPriceWei, uint256 _maxStartPriceWei) {
@@ -221,6 +231,12 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
         if (_placer == address(0)) revert InvalidAddress();
         emit PlacerUpdated(address(placer), _placer);
         placer = ILiquidityPlacer(_placer);
+    }
+
+    /// @notice Point the app at a different router. address(0) turns in-app trading off.
+    function setRouter(address _router) external onlyRole(CONFIG_ROLE) {
+        emit RouterUpdated(address(router), _router);
+        router = ILaunchRouter(_router);
     }
 
     function setStartPriceBounds(uint256 minWei, uint256 maxWei) external onlyRole(CONFIG_ROLE) {

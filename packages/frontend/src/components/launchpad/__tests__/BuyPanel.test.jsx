@@ -8,10 +8,26 @@ vi.mock("react-i18next", async (importOriginal) => ({
   ...(await importOriginal()),
   useTranslation: () => ({ t: (key, opts) => (opts?.symbol ? `${key}:${opts.symbol}` : key) }),
 }));
+const account = { isConnected: true };
 vi.mock("wagmi", async (importOriginal) => ({
   ...(await importOriginal()),
   useBalance: () => ({ data: { value: 2n * 10n ** 18n } }),
+  useAccount: () => account,
 }));
+const tradeState = { router: "0x7777777777777777777777777777777777777777", error: null, isPending: false };
+const tradeMock = vi.fn();
+vi.mock("@/hooks/useLaunchTrade", () => ({
+  useLaunchTrade: () => ({
+    trade: tradeMock,
+    reset: vi.fn(),
+    isPending: tradeState.isPending,
+    error: tradeState.error,
+    router: tradeState.router,
+    canTrade: Boolean(tradeState.router),
+  }),
+}));
+const openLoginModal = vi.fn();
+vi.mock("@/hooks/useLoginModal", () => ({ useLoginModal: () => ({ openLoginModal }) }));
 vi.mock("@/hooks/useRaffleAccount", () => ({
   useRaffleAccount: () => ({ sma: "0x9999999999999999999999999999999999999999" }),
 }));
@@ -39,6 +55,12 @@ const typeAmount = (v) => fireEvent.change(screen.getByLabelText("trade.youPay")
 describe("BuyPanel", () => {
   beforeEach(() => {
     tokenBalance.current = 0n;
+    account.isConnected = true;
+    tradeState.router = "0x7777777777777777777777777777777777777777";
+    tradeState.error = null;
+    tradeState.isPending = false;
+    tradeMock.mockReset().mockResolvedValue("0xhash");
+    openLoginModal.mockReset();
   });
 
   it("quotes a buy at launch exactly as the real v4 swap filled it", () => {
@@ -91,13 +113,64 @@ describe("BuyPanel", () => {
     expect(screen.getByLabelText("trade.youPay")).toHaveValue("500");
   });
 
-  // Honest about what is not built: there is no router contract to execute a
-  // swap yet, so the button never becomes clickable.
-  it("keeps the trade button disabled and explains why", () => {
+  // The button sends exactly the quoted trade: amount in, and a minimum out equal to
+  // the quote less the slippage setting (default 1%).
+  it("buys through the router with the quote as the minimum, less slippage", async () => {
+    setup();
+    typeAmount("0.1");
+    fireEvent.click(screen.getByRole("button", { name: "trade.buyCta:POND" }));
+    await vi.waitFor(() => expect(tradeMock).toHaveBeenCalled());
+    const quoted = 90544562424768864432372374n;
+    expect(tradeMock).toHaveBeenCalledWith({
+      side: "buy",
+      token: TOKEN,
+      amountIn: 10n ** 17n,
+      minOut: (quoted * 9900n) / 10000n,
+    });
+  });
+
+  // At a fresh launch there is nothing to sell into — the price is at the top of the
+  // range. Sell against the pool as it stood after the fixture's first buy.
+  it("sells the typed token amount", async () => {
+    tokenBalance.current = 1_000_000n * 10n ** 18n;
+    setup({ market: { ...market, sqrtPriceX96: 2296364796274511973167666432089657n } });
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "trade.sell" }));
+    fireEvent.click(screen.getByRole("tab", { name: "trade.sell" }));
+    typeAmount("1000");
+    fireEvent.click(screen.getByRole("button", { name: "trade.sellCta:POND" }));
+    await vi.waitFor(() => expect(tradeMock).toHaveBeenCalled());
+    expect(tradeMock.mock.calls[0][0]).toMatchObject({ side: "sell", amountIn: 1000n * 10n ** 18n });
+  });
+
+  it("will not submit more than the balance", () => {
+    setup();
+    typeAmount("5"); // balance is 2 ETH
+    expect(screen.getByRole("button", { name: "trade.insufficient" })).toBeDisabled();
+  });
+
+  it("asks a disconnected user to connect instead", () => {
+    account.isConnected = false;
+    setup();
+    typeAmount("0.1");
+    fireEvent.click(screen.getByRole("button", { name: "trade.connect" }));
+    expect(openLoginModal).toHaveBeenCalled();
+    expect(tradeMock).not.toHaveBeenCalled();
+  });
+
+  // setRouter(0) is the switch that turns in-app trading off. Quotes still work.
+  it("disables trading and says so when no router is set", () => {
+    tradeState.router = null;
     setup();
     typeAmount("0.1");
     expect(screen.getByRole("button", { name: "trade.buyCta:POND" })).toBeDisabled();
-    expect(screen.getByText("trade.notOpen")).toBeInTheDocument();
+    expect(screen.getByText("trade.routerOff")).toBeInTheDocument();
+    expect(screen.getByTestId("trade-receive")).toHaveTextContent("90.54M");
+  });
+
+  it("shows a failed trade's reason", () => {
+    tradeState.error = { shortMessage: "InsufficientOutput" };
+    setup();
+    expect(screen.getByRole("alert")).toHaveTextContent("InsufficientOutput");
   });
 
   it("asks for an amount before anything else", () => {

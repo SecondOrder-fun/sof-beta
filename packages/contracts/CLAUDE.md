@@ -24,7 +24,7 @@ src/
 ├── airdrop/    # SOFAirdrop
 ├── gating/     # SeasonGating, SeasonGatingStorage
 ├── sponsor/    # SponsorOnboarding
-├── launchpad/  # TokenLaunchpad, LaunchToken, ILiquidityPlacer, UniV4LiquidityPlacer
+├── launchpad/  # TokenLaunchpad, LaunchToken, ILiquidityPlacer, UniV4LiquidityPlacer, ILaunchRouter, UniV4LaunchRouter
 ├── lib/        # Interfaces + RaffleTypes, RaffleLogic
 └── test-helpers/ # MockERC20 (placeholder quote token), MockUSDC
 ```
@@ -47,7 +47,9 @@ Test files covering:
 - Per-season quote tokens (`SeasonQuoteToken.t.sol`)
 - Launchpad (`TokenLaunchpad.t.sol`, `UniV4LiquidityPlacer.t.sol` — against a real v4
   `PoolManager`, not a mock — and `LaunchpadDeployWiring.t.sol`, which runs deploy steps
-  20-22 and asserts the FDV bounds and the circular wiring)
+  20-23 and asserts the FDV bounds, the circular wiring and a trade through the advertised
+  router), `UniV4LaunchRouter.t.sol` (the router delivers exactly the amounts the frontend
+  quotes — pinned to `test_fixture_quoteMathForFrontend` — plus minOut, deadline, refunds)
 - Season gating (`SeasonGating.t.sol`, `SeasonGatingSignature.t.sol`)
 - Prize sponsorship (`PrizeSponsorship.t.sol`, `TreasurySystem.t.sol`)
 
@@ -84,7 +86,11 @@ Modular numbered scripts in `script/deploy/`:
   circular dependency (the placer takes the launchpad immutably, so the launchpad goes first
   and accepts its half by setter). Skips with a log — it does not fail the deploy — if no
   PoolManager is available; `launch()` then reverts `PlacerNotSet`.
-- `DeployAll.s.sol` — orchestrator that chains 00-22 and auto-writes `deployments/{network}.json`
+- `23_DeployLaunchRouter` — `UniV4LaunchRouter`, then `launchpad.setRouter(...)`. The app
+  never hardcodes a router: it reads `TokenLaunchpad.router()` and encodes against
+  `ILaunchRouter`, so **replacing the router is this step plus one `setRouter`** — no client
+  release. `setRouter(address(0))` turns in-app trading off (pools stay tradeable elsewhere).
+- `DeployAll.s.sol` — orchestrator that chains 00-23 and auto-writes `deployments/{network}.json`
 
 ```bash
 # Local (Docker Anvil)

@@ -154,7 +154,12 @@
     "sellCta": "Sell {{symbol}}",
     "exceedsBuy": "This buy is larger than the supply left in the pool — you would receive the rest of it.",
     "exceedsSell": "This sale would push the price back past launch — only part of it can fill.",
-    "notOpen": "Trading from this page is not live yet",
-    "notOpenBody": "Quotes are live from the pool. The swap itself needs a router contract that is not deployed yet."
+    "connect": "Connect to trade",
+    "insufficient": "Not enough {{unit}}",
+    "pending": "Confirm in your wallet…",
+    "submitted": "Trade submitted.",
+    "failed": "Trade failed",
+    "routerOff": "In-app trading is off",
+    "routerOffBody": "The pool is live and quotes are current, but trading from this page is switched off right now."
   }
 }

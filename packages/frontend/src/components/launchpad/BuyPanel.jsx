@@ -7,14 +7,15 @@
 // ContentBox for the pay/receive boxes, ButtonGroup for quick amounts.
 //
 // Quotes are exact and live: lib/v4PoolMath reproduces v4's swap math from the
-// pool's own state, pinned against a real PoolManager swap. What is NOT here
-// yet is the swap itself — the stack has no router contract to execute one, so
-// the button stays disabled and says why rather than pretending.
+// pool's own state, pinned against a real PoolManager swap — and the router
+// delivers exactly that amount, pinned by UniV4LaunchRouter.t.sol. Trades go
+// through whichever router TokenLaunchpad.router() advertises (useLaunchTrade),
+// with minimum-out taken from the quote and the slippage setting.
 
 import PropTypes from "prop-types";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useBalance } from "wagmi";
+import { useAccount, useBalance } from "wagmi";
 import { formatEther, parseEther } from "viem";
 import { Settings } from "lucide-react";
 
@@ -28,6 +29,8 @@ import { ContentBox } from "@/components/ui/content-box";
 import { SlippageSettings } from "@/components/buysell";
 import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import { useQuoteBalance } from "@/hooks/useQuoteBalance";
+import { useLaunchTrade } from "@/hooks/useLaunchTrade";
+import { useLoginModal } from "@/hooks/useLoginModal";
 import { minimumReceived, quoteBuy, quoteSell } from "@/lib/v4PoolMath";
 import { formatPriceGwei, formatSupply } from "@/lib/launchFormat";
 
@@ -60,8 +63,13 @@ const BuyPanel = ({ token, symbol, market, className }) => {
   const [slippagePct, setSlippagePct] = useState("1");
   const [showSettings, setShowSettings] = useState(false);
 
+  const [submitted, setSubmitted] = useState(false);
+
   // Trades settle from the smart account, like every other in-app balance.
   const { sma } = useRaffleAccount();
+  const { isConnected } = useAccount();
+  const { openLoginModal } = useLoginModal();
+  const { trade, isPending, error, reset, router } = useLaunchTrade();
   const { data: ethBalance } = useBalance({ address: sma, query: { enabled: Boolean(sma) } });
   const { balance: tokenBalance } = useQuoteBalance(token);
 
@@ -96,7 +104,37 @@ const BuyPanel = ({ token, symbol, market, className }) => {
   const onSide = (next) => {
     setSide(next);
     setAmount("");
+    setSubmitted(false);
+    reset();
   };
+
+  const available = isBuy ? ethBalance?.value : tokenBalance;
+  const insufficient = amountWei != null && available != null && amountWei > available;
+
+  // One state drives the button: label, whether it is clickable, and what it does.
+  let cta;
+  if (!router) cta = { label: isBuy ? t("trade.buyCta", { symbol }) : t("trade.sellCta", { symbol }), disabled: true };
+  else if (!isConnected) cta = { label: t("trade.connect"), disabled: false, onClick: openLoginModal };
+  else if (amountWei == null) cta = { label: t("trade.enterAmount"), disabled: true };
+  else if (insufficient) cta = { label: t("trade.insufficient", { unit: isBuy ? "ETH" : symbol }), disabled: true };
+  else if (isPending) cta = { label: t("trade.pending"), disabled: true };
+  else if (!out) cta = { label: t("trade.enterAmount"), disabled: true };
+  else {
+    cta = {
+      label: isBuy ? t("trade.buyCta", { symbol }) : t("trade.sellCta", { symbol }),
+      disabled: !sma,
+      onClick: async () => {
+        setSubmitted(false);
+        try {
+          await trade({ side, token, amountIn: amountWei, minOut });
+          setAmount("");
+          setSubmitted(true);
+        } catch {
+          // Surfaced from the mutation's `error` below.
+        }
+      },
+    };
+  }
 
   const presets = isBuy
     ? BUY_PRESETS.map((v) => ({ label: v, value: v }))
@@ -213,18 +251,24 @@ const BuyPanel = ({ token, symbol, market, className }) => {
           <p className="text-xs text-fabric-red">{isBuy ? t("trade.exceedsBuy") : t("trade.exceedsSell")}</p>
         )}
 
-        <Button type="button" size="lg" className="w-full" disabled>
-          {amountWei == null
-            ? t("trade.enterAmount")
-            : isBuy
-              ? t("trade.buyCta", { symbol })
-              : t("trade.sellCta", { symbol })}
+        <Button type="button" size="lg" className="w-full" disabled={cta.disabled} onClick={cta.onClick}>
+          {cta.label}
         </Button>
 
-        <div className="text-xs text-muted-foreground space-y-1">
-          <p className="font-semibold text-foreground">{t("trade.notOpen")}</p>
-          <p>{t("trade.notOpenBody")}</p>
-        </div>
+        {error ? (
+          <p className="text-xs text-destructive" role="alert">
+            {t("trade.failed")}: {error.shortMessage || error.message}
+          </p>
+        ) : submitted ? (
+          <p className="text-xs text-success" role="status">{t("trade.submitted")}</p>
+        ) : null}
+
+        {!router && (
+          <div className="text-xs text-muted-foreground space-y-1">
+            <p className="font-semibold text-foreground">{t("trade.routerOff")}</p>
+            <p>{t("trade.routerOffBody")}</p>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
