@@ -33,6 +33,22 @@ On-chain event listeners run as long-lived processes started in `server.js` (`st
 
 All pollers share one chain-head source: `startListeners` registers and starts a `blockHead.js` tracker for the `publicClient` singleton **before** any listener, so each `contractEventPolling` tick reads the cached head instead of issuing its own `getBlockNumber`/`getBlock` pair (keeps Tenderly RPC volume flat as raffles scale). The tracker is stopped in the shutdown gather.
 
+### Launchpad Indexer
+
+`tokenLaunchedListener` indexes `TokenLaunchpad.TokenLaunched` into `token_launches`
+(migration 023), served at `/api/launchpad/tokens`. Two things are specific to it:
+
+- It is the **only** source for a token's name, symbol and metadata URI. The launchpad
+  emits them but does not store them (a setter would let a creator swap the name after
+  people have bought), so a missed event is not recoverable by reading the contract
+  later — unlike every other listener here, whose state can be re-read.
+- The event's `placementId` **is** the Uniswap v4 PoolId, so `token_launches.pool_id`
+  is the key `launchTradeListener` uses to attribute PoolManager `Swap` logs to a token.
+
+The listener is skipped, at info level, when `TokenLaunchpad` is absent from the
+deployment JSON. That is a normal state: the raffle stack deploys independently of the
+launchpad, and deploy step 22 skips on a chain with no Uniswap v4.
+
 ### Error Handling
 - Return structured JSON: `reply.code(400).send({ error: "message" })`
 - Use Fastify logger (`fastify.log.error()`, `request.log.info()`)

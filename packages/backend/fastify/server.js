@@ -14,6 +14,7 @@ import { startTradeListener } from "../src/listeners/tradeListener.js";
 import { startSponsorHatListener } from "../src/listeners/sponsorHatListener.js";
 import { startRolloverEventListener } from "../src/listeners/rolloverEventListener.js";
 import { startAccountCreatedListener } from "../src/listeners/accountCreatedListener.js";
+import { startTokenLaunchedListener } from "../src/listeners/tokenLaunchedListener.js";
 import { getDeployment } from "@sof/contracts/deployments";
 import { infoFiPositionService } from "../src/services/infoFiPositionService.js";
 import { historicalOddsService } from "../shared/historicalOddsService.js";
@@ -190,6 +191,7 @@ await mountRoute("/api/wallet", () => import("./routes/delegationRoutes.js"));
 await mountRoute("/api/rollover", () => import("./routes/rolloverRoutes.js"));
 await mountRoute("/sse", () => import("./routes/sseRoutes.js"));
 await mountRoute("/api/curve", () => import("./routes/curveRoutes.js"));
+await mountRoute("/api/launchpad", () => import("./routes/launchpadRoutes.js"));
 
 // Build the Blockscout client up-front so multiple routes (the proxy
 // itself + /api/token/sof/transactions/:user) can share one instance
@@ -255,6 +257,7 @@ let unwatchSeasonStatusListeners = []; // array returned by startSeasonStatusLis
 let unwatchMarketCreated;
 let unwatchRollover;
 let unwatchAccountCreated;
+let unwatchTokenLaunched;
 const positionUpdateListeners = new Map(); // Map of seasonId -> unwatch function
 const tradeListeners = new Map(); // Map of fpmmAddress -> unwatch function
 let stopSharedHead; // halts the shared chain-head tracker on shutdown
@@ -577,6 +580,39 @@ async function startListeners() {
         `❌ Failed to start AccountCreatedListener: ${error.message}`,
       );
     }
+
+    // Start TokenLaunched listener — indexes launchpad launches into
+    // token_launches (migration 023). This listener is the ONLY source for a
+    // token's name, symbol and metadata URI: the launchpad emits them but does
+    // not store them, so a launch missed here cannot be recovered by reading
+    // the contract later.
+    //
+    // Absent from any deployment made before contracts 0.35.0, and from any
+    // chain where deploy step 22 skipped for want of a Uniswap v4 PoolManager.
+    // That is a normal state, not a misconfiguration — the raffle stack runs
+    // without the launchpad — so it logs at info and moves on.
+    try {
+      const launchpadAddress =
+        getDeployment(NETWORK.toLowerCase()).TokenLaunchpad;
+      if (
+        launchpadAddress &&
+        launchpadAddress !== "0x0000000000000000000000000000000000000000"
+      ) {
+        unwatchTokenLaunched = await startTokenLaunchedListener(
+          launchpadAddress,
+          app.log,
+        );
+        app.log.info("✅ TokenLaunchedListener started");
+      } else {
+        app.log.info(
+          "ℹ️  TokenLaunchpad not in deployments — TokenLaunched listener skipped",
+        );
+      }
+    } catch (error) {
+      app.log.error(
+        `❌ Failed to start TokenLaunchedListener: ${error.message}`,
+      );
+    }
   } catch (error) {
     app.log.error("Failed to start listeners:", error);
     // Don't crash server, but log the error
@@ -766,6 +802,8 @@ async function shutdown(signal) {
   if (unwatchRollover) stops.push(safeStep("Rollover listener", unwatchRollover));
   if (unwatchAccountCreated)
     stops.push(safeStep("AccountCreated listener", unwatchAccountCreated));
+  if (unwatchTokenLaunched)
+    stops.push(safeStep("TokenLaunched listener", unwatchTokenLaunched));
 
   for (const [seasonId, unwatch] of positionUpdateListeners.entries()) {
     stops.push(
