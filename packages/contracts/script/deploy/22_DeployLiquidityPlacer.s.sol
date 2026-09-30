@@ -7,6 +7,9 @@ import {DeployedAddresses} from "./DeployedAddresses.sol";
 import {HelperConfig} from "./HelperConfig.s.sol";
 import {TokenLaunchpad} from "../../src/launchpad/TokenLaunchpad.sol";
 import {UniV4LiquidityPlacer} from "../../src/launchpad/UniV4LiquidityPlacer.sol";
+import {LaunchPoolGate} from "../../src/launchpad/LaunchPoolGate.sol";
+import {HookMiner} from "../../src/launchpad/HookMiner.sol";
+import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 
 /**
  * @notice Deploys the Uniswap v4 liquidity placer and wires it into the launchpad.
@@ -67,7 +70,18 @@ contract DeployLiquidityPlacer is Script {
         // the launchpad's constructor.
         TokenLaunchpad(addrs.tokenLaunchpad).setPlacer(address(placer));
 
+        // The pool-initialization gate (see LaunchPoolGate): a hook at a CREATE2 address
+        // mined so its permission bits are exactly before-initialize. Broadcast CREATE2
+        // goes through the standard CREATE2 factory, so mine against that deployer.
+        bytes memory gateInit = abi.encodePacked(type(LaunchPoolGate).creationCode, abi.encode(address(placer)));
+        (address expectedGate, bytes32 salt) = HookMiner.find(CREATE2_FACTORY, Hooks.BEFORE_INITIALIZE_FLAG, gateInit);
+        LaunchPoolGate gate = new LaunchPoolGate{salt: salt}(address(placer));
+        require(address(gate) == expectedGate, "LiquidityPlacer: gate landed at an unexpected address");
+        placer.setGate(address(gate));
+
         vm.stopBroadcast();
+
+        addrs.launchPoolGate = address(gate);
 
         addrs.liquidityPlacer = address(placer);
 
@@ -75,6 +89,7 @@ contract DeployLiquidityPlacer is Script {
         console2.log("  PoolManager:", poolManager);
         console2.log("  fee / tickSpacing / rangeWidth:", POOL_FEE, uint256(int256(TICK_SPACING)));
         console2.log("  wired into TokenLaunchpad:", addrs.tokenLaunchpad);
+        console2.log("LaunchPoolGate:", address(gate));
 
         return addrs;
     }

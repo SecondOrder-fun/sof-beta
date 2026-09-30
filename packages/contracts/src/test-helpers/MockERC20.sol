@@ -15,7 +15,8 @@ import {ERC20Permit} from "openzeppelin-contracts/contracts/token/ERC20/extensio
  *      Constructor signature intentionally matches the SOFToken it replaced, so tests that
  *      used SOFToken as a generic quote token are a one-word change.
  *
- *      Test/local only. Not deployed to testnet or mainnet.
+ *      Test, local and Base Sepolia only (01_DeployQuoteToken refuses to deploy it
+ *      anywhere else). Minting is unrestricted.
  */
 contract MockERC20 is ERC20, ERC20Permit {
     constructor(string memory name_, string memory symbol_, uint256 initialSupply)

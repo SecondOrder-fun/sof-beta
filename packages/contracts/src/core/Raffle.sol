@@ -20,6 +20,11 @@ import {TierConfigFailed} from "./RafflePrizeDistributor.sol";
 import {ISeasonGating} from "../gating/ISeasonGating.sol";
 import {IRolloverEscrow} from "./IRolloverEscrow.sol";
 
+/// @dev The one call Raffle makes on the launchpad: is this token one it launched?
+interface ILaunchTokenRegistry {
+    function isLaunchToken(address token) external view returns (bool);
+}
+
 // ============================================================================
 // CUSTOM ERRORS - Clear, gas-efficient error reporting
 // ============================================================================
@@ -43,6 +48,7 @@ error InvalidTreasuryAddress();
 error InvalidQuoteToken();
 error QuoteTokenDecimals(address token, uint8 decimals);
 error QuoteTokenDecimalsUnavailable(address token);
+error QuoteTokenNotAllowed(address token);
 error UnauthorizedCaller();
 error NoVRFWords(uint256 seasonId);
 error UserNotVerified(uint256 seasonId, address user);
@@ -133,6 +139,42 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
     }
 
     event RolloverEscrowUpdated(address indexed previous, address indexed current);
+
+    // ------------------------------------------------------------------
+    // Quote tokens a season may be priced in
+    // ------------------------------------------------------------------
+    //
+    // Only tokens the protocol can vouch for: ones the launchpad launched (plain,
+    // ownerless, fixed-supply ERC-20s) plus an admin allowlist (e.g. the testnet
+    // placeholder). An arbitrary ERC-20 could be fee-on-transfer or rebasing; the curve
+    // books `baseCost` into reserves but would receive less, and finalization's
+    // extractReserves would then revert, locking players' funds.
+
+    /// @notice Launchpad whose tokens may price seasons. Zero = launch tokens not accepted.
+    ILaunchTokenRegistry public launchpad;
+    /// @notice Non-launch tokens an admin has approved as quote tokens.
+    mapping(address => bool) public allowedQuoteTokens;
+
+    event LaunchpadUpdated(address indexed launchpad);
+    event QuoteTokenAllowed(address indexed token, bool allowed);
+
+    function setLaunchpad(address _launchpad) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        launchpad = ILaunchTokenRegistry(_launchpad);
+        emit LaunchpadUpdated(_launchpad);
+    }
+
+    function setQuoteTokenAllowed(address token, bool allowed) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (token == address(0)) revert InvalidQuoteToken();
+        allowedQuoteTokens[token] = allowed;
+        emit QuoteTokenAllowed(token, allowed);
+    }
+
+    /// @notice Whether `token` may price a new season.
+    function isAllowedQuoteToken(address token) public view returns (bool) {
+        if (allowedQuoteTokens[token]) return true;
+        ILaunchTokenRegistry lp = launchpad;
+        return address(lp) != address(0) && lp.isLaunchToken(token);
+    }
 
     /**
      * @notice Set (or unset) the rollover escrow contract.
@@ -265,6 +307,7 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         // protocol-wide default: the quote token is per-season so that each launched
         // token can denominate its own seasons.
         if (config.quoteToken == address(0)) revert InvalidQuoteToken();
+        if (!isAllowedQuoteToken(config.quoteToken)) revert QuoteTokenNotAllowed(config.quoteToken);
 
         // Tickets are 0-decimal and every quote token is 18-decimal, so the whole
         // pricing path only ever handles one decimal pair. Assert it at the boundary

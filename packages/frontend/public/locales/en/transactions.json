@@ -30,5 +30,6 @@
   "txHash": "Transaction hash",
   "blockNumber": "Block number",
   "gasUsed": "Gas used",
-  "timestamp": "Timestamp"
+  "timestamp": "Timestamp",
+  "quoteTokenLoading": "The season's token is still loading. Try again in a moment."
 }

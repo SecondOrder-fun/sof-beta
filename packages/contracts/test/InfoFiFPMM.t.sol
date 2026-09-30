@@ -47,7 +47,6 @@ contract InfoFiFPMMTest is Test {
         // Deploy FPMM Manager
         fpmmManager = new InfoFiFPMMV2(
             address(ctf),
-            address(sof),
             treasury,
             admin
         );
@@ -63,7 +62,7 @@ contract InfoFiFPMMTest is Test {
         sof.approve(address(fpmmManager), INITIAL_FUNDING);
 
         // Create market via manager (50% initial probability = 5000 bps)
-        (address fpmmAddr,) = fpmmManager.createMarket(1, player, conditionId, 5000);
+        (address fpmmAddr,) = fpmmManager.createMarket(1, player, conditionId, 5000, address(sof), INITIAL_FUNDING);
         fpmm = SimpleFPMM(fpmmAddr);
 
         // Get position IDs
@@ -297,7 +296,7 @@ contract InfoFiFPMMTest is Test {
         sof.mint(address(this), INITIAL_FUNDING);
         sof.approve(address(fpmmManager), INITIAL_FUNDING);
 
-        (address fpmm2Addr,) = fpmmManager.createMarket(2, player2Addr, cond2, 8000);
+        (address fpmm2Addr,) = fpmmManager.createMarket(2, player2Addr, cond2, 8000, address(sof), INITIAL_FUNDING);
         SimpleFPMM fpmm2 = SimpleFPMM(fpmm2Addr);
 
         // 80% probability → YES price should be ~80%
@@ -498,5 +497,50 @@ contract InfoFiFPMMForkTest is Test {
                 prevOut = out;
             }
         }
+    }
+}
+
+/// @notice The manager has no collateral of its own: each market is collateralised in the
+///         token its caller names, with the seed its caller names.
+contract InfoFiFPMMCollateralTest is Test {
+    InfoFiFPMMV2 internal manager;
+    ConditionalTokenSOF internal ctf;
+    MockSOF internal tokenA;
+    MockSOF internal tokenB;
+    address internal treasury = address(0xBEEF);
+
+    function setUp() public {
+        ctf = new ConditionalTokenSOF();
+        manager = new InfoFiFPMMV2(address(ctf), treasury, address(this));
+        tokenA = new MockSOF();
+        tokenB = new MockSOF();
+        tokenA.mint(address(this), 1_000e18);
+        tokenB.mint(address(this), 1_000e18);
+    }
+
+    function _condition(uint256 n) internal returns (bytes32) {
+        bytes32 questionId = keccak256(abi.encode("q", n));
+        ctf.prepareCondition(address(this), questionId, 2);
+        return ctf.getConditionId(address(this), questionId, 2);
+    }
+
+    function test_marketsInDifferentTokensEachUseTheirOwnCollateral() public {
+        tokenA.approve(address(manager), 100e18);
+        (address fa,) = manager.createMarket(1, address(0x1), _condition(1), 5000, address(tokenA), 100e18);
+        tokenB.approve(address(manager), 40e18);
+        (address fb,) = manager.createMarket(2, address(0x2), _condition(2), 5000, address(tokenB), 40e18);
+
+        assertEq(address(SimpleFPMM(fa).collateralToken()), address(tokenA));
+        assertEq(address(SimpleFPMM(fb).collateralToken()), address(tokenB));
+        assertEq(tokenA.balanceOf(address(ctf)), 100e18, "A's seed split into outcome tokens");
+        assertEq(tokenB.balanceOf(address(ctf)), 40e18, "B's seed is the amount named, not a fixed 100");
+    }
+
+    function test_rejectsZeroCollateralAndDustSeed() public {
+        bytes32 c = _condition(3);
+        vm.expectRevert(InfoFiFPMMV2.ZeroAddress.selector);
+        manager.createMarket(3, address(0x3), c, 5000, address(0), 100e18);
+        vm.expectRevert(abi.encodeWithSelector(InfoFiFPMMV2.FundingTooSmall.selector, uint256(19)));
+        manager.createMarket(3, address(0x3), c, 5000, address(tokenA), 19);
     }
 }

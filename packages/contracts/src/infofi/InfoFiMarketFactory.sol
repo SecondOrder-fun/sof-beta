@@ -532,7 +532,8 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
         }
         require(quoteToken.approve(address(fpmmManager), seed), "Approval failed");
 
-        (address fpmm,) = fpmmManager.createMarket(seasonId, player, conditionId, probabilityBps);
+        (address fpmm,) =
+            fpmmManager.createMarket(seasonId, player, conditionId, probabilityBps, address(quoteToken), seed);
 
         // STEP 4: SET ALL STATE AT END
         marketCreated[seasonId][player] = true;

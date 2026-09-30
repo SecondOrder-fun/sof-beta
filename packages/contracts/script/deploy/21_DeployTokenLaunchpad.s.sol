@@ -5,6 +5,7 @@ import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 import {DeployedAddresses} from "./DeployedAddresses.sol";
 import {TokenLaunchpad} from "../../src/launchpad/TokenLaunchpad.sol";
+import {Raffle} from "../../src/core/Raffle.sol";
 
 /**
  * @notice Deploys the TokenLaunchpad with its starting-price bounds.
@@ -58,6 +59,9 @@ contract DeployTokenLaunchpad is Script {
 
         // placer left unset — 22_DeployLiquidityPlacer calls setPlacer once it exists.
         TokenLaunchpad launchpad = new TokenLaunchpad(admin, address(0), minStartPriceWei, maxStartPriceWei);
+
+        // Launched tokens may price raffle seasons without allowlisting.
+        if (addrs.raffle != address(0)) Raffle(addrs.raffle).setLaunchpad(address(launchpad));
 
         vm.stopBroadcast();
 

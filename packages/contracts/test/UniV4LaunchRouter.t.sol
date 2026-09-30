@@ -18,6 +18,7 @@ import {
     RouterZeroAddress
 } from "../src/launchpad/UniV4LaunchRouter.sol";
 import {MockERC20} from "../src/test-helpers/MockERC20.sol";
+import {LaunchPoolGateDeployer} from "./helpers/LaunchPoolGateDeployer.sol";
 
 /// @notice The launch router against a REAL PoolManager.
 ///
@@ -25,7 +26,7 @@ import {MockERC20} from "../src/test-helpers/MockERC20.sol";
 ///         quote math (frontend lib/v4PoolMath.js) is pinned to 90,544,562.424768864432372374
 ///         tokens for 0.1 ETH at a fresh 1 ETH-FDV launch. The router must deliver that
 ///         to the wei, or the quote a user sees is not the trade they get.
-contract UniV4LaunchRouterTest is Test {
+contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
     PoolManager internal manager;
     TokenLaunchpad internal launchpad;
     UniV4LiquidityPlacer internal placer;
@@ -48,6 +49,7 @@ contract UniV4LaunchRouterTest is Test {
         launchpad = new TokenLaunchpad(address(this), address(0), 1, 1 ether);
         placer = new UniV4LiquidityPlacer(address(manager), address(launchpad), address(this), 10_000, 200, 46_000);
         launchpad.setPlacer(address(placer));
+        placer.setGate(_deployGate(address(placer)));
         router = new UniV4LaunchRouter(address(manager), address(placer), address(launchpad));
         launchpad.setRouter(address(router));
 

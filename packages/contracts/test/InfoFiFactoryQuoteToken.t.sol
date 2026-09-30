@@ -11,10 +11,6 @@ import {MockERC20} from "../src/test-helpers/MockERC20.sol";
 import {MockUSDC} from "../src/test-helpers/MockUSDC.sol";
 import {RaffleTypes} from "../src/lib/RaffleTypes.sol";
 
-interface IQuoteTokenSource {
-    function getSeasonQuoteToken(uint256 seasonId) external view returns (address);
-}
-
 /// @notice Stands in for RaffleOracleAdapter: the factory only needs a condition id back.
 contract MockOracleAdapter {
     function preparePlayerCondition(uint256 seasonId, address player) external returns (bytes32) {
@@ -22,22 +18,17 @@ contract MockOracleAdapter {
     }
 }
 
-/// @notice Stands in for InfoFiFPMMV2.
-/// @dev The real manager is hard-wired to a single immutable `collateralToken`, so it cannot
-///      be used to observe per-season collateral. This mock instead asks the factory which
-///      token the season is collateralised in (the shape the real manager will need once it
-///      too goes per-season) and pulls whatever the factory approved, recording both.
+/// @notice Stands in for InfoFiFPMMV2, recording the collateral and seed each market is
+///         created with (the real manager is covered in InfoFiFPMM.t.sol).
 contract MockFPMMManager {
     mapping(uint256 => address) public seedTokenOf;
     mapping(uint256 => uint256) public seededAmountOf;
     uint256 private _marketCount;
 
-    function createMarket(uint256 seasonId, address, bytes32, uint256)
+    function createMarket(uint256 seasonId, address, bytes32, uint256, address token, uint256 amount)
         external
         returns (address fpmm, address lpToken)
     {
-        address token = IQuoteTokenSource(msg.sender).getSeasonQuoteToken(seasonId);
-        uint256 amount = IERC20(token).allowance(msg.sender, address(this));
         require(IERC20(token).transferFrom(msg.sender, address(this), amount), "seed pull failed");
 
         seedTokenOf[seasonId] = token;
@@ -77,6 +68,8 @@ contract InfoFiFactoryQuoteTokenTest is Test {
         tokenB = new MockERC20("Quote B", "QB", 0);
 
         raffle = new Raffle(address(0xCAFE), 1, bytes32(0));
+        raffle.setQuoteTokenAllowed(address(tokenA), true);
+        raffle.setQuoteTokenAllowed(address(tokenB), true);
         seasonFactory = new SeasonFactory(address(raffle));
         raffle.setSeasonFactory(address(seasonFactory));
         raffle.grantRole(raffle.SEASON_FACTORY_ROLE(), address(seasonFactory));

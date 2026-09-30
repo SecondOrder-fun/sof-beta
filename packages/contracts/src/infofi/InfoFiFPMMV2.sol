@@ -427,13 +427,14 @@ contract InfoFiFPMMV2 is AccessControl, ReentrancyGuard {
     bytes32 public constant FACTORY_ROLE = keccak256("FACTORY_ROLE");
 
     IConditionalTokens public immutable conditionalTokens;
-    IERC20 public immutable collateralToken;
     address public treasury;
 
     mapping(uint256 => mapping(address => address)) public playerMarkets;
     mapping(uint256 => mapping(address => address)) public lpTokens;
 
-    uint256 public constant INITIAL_FUNDING = 100e18;
+    /// @notice Smallest seed a market accepts. Each side's reserve is floored at 5% of the
+    ///         seed, so a seed below 20 wei would floor a side to zero.
+    uint256 public constant MIN_FUNDING = 20;
 
     event MarketCreated(
         uint256 indexed seasonId, address indexed player, address indexed fpmm, bytes32 conditionId, address lpToken
@@ -441,30 +442,39 @@ contract InfoFiFPMMV2 is AccessControl, ReentrancyGuard {
 
     error ZeroAddress();
     error MarketAlreadyExists();
+    error FundingTooSmall(uint256 funding);
 
-    constructor(address _conditionalTokens, address _collateralToken, address _treasury, address _admin) {
+    /// @dev There is no manager-wide collateral: each market is collateralised in the
+    ///      token its caller names — the season's quote token — so seasons priced in
+    ///      different launch tokens each get markets in their own token.
+    constructor(address _conditionalTokens, address _treasury, address _admin) {
         if (_conditionalTokens == address(0)) revert ZeroAddress();
-        if (_collateralToken == address(0)) revert ZeroAddress();
         if (_treasury == address(0)) revert ZeroAddress();
         if (_admin == address(0)) revert ZeroAddress();
 
         conditionalTokens = IConditionalTokens(_conditionalTokens);
-        collateralToken = IERC20(_collateralToken);
         treasury = _treasury;
 
         _grantRole(DEFAULT_ADMIN_ROLE, _admin);
         _grantRole(FACTORY_ROLE, _admin);
     }
 
-    function createMarket(uint256 seasonId, address player, bytes32 conditionId, uint256 probabilityBps)
-        external
-        onlyRole(FACTORY_ROLE)
-        nonReentrant
-        returns (address fpmm, address lpToken)
-    {
+    /// @param collateral The ERC-20 this market is collateralised in (the season's quote token).
+    /// @param funding    Seed pulled from the caller in `collateral`; must already be approved.
+    function createMarket(
+        uint256 seasonId,
+        address player,
+        bytes32 conditionId,
+        uint256 probabilityBps,
+        address collateral,
+        uint256 funding
+    ) external onlyRole(FACTORY_ROLE) nonReentrant returns (address fpmm, address lpToken) {
         if (playerMarkets[seasonId][player] != address(0)) {
             revert MarketAlreadyExists();
         }
+        if (collateral == address(0)) revert ZeroAddress();
+        if (funding < MIN_FUNDING) revert FundingTooSmall(funding);
+        IERC20 collateralToken = IERC20(collateral);
 
         // Deploy SOLP token
         SOLPToken solpToken = new SOLPToken(seasonId, player);
@@ -484,11 +494,11 @@ contract InfoFiFPMMV2 is AccessControl, ReentrancyGuard {
         playerMarkets[seasonId][player] = fpmm;
         lpTokens[seasonId][player] = lpToken;
 
-        // Transfer initial funding from factory
-        require(collateralToken.transferFrom(msg.sender, address(this), INITIAL_FUNDING), "Transfer failed");
+        // Transfer the seed from the factory
+        require(collateralToken.transferFrom(msg.sender, address(this), funding), "Transfer failed");
 
         // Split collateral into outcome tokens via Conditional Tokens
-        collateralToken.approve(address(conditionalTokens), INITIAL_FUNDING);
+        collateralToken.approve(address(conditionalTokens), funding);
 
         uint256[] memory partition = new uint256[](2);
         partition[0] = 1; // 0b01 (YES)
@@ -499,7 +509,7 @@ contract InfoFiFPMMV2 is AccessControl, ReentrancyGuard {
             bytes32(0), // parentCollectionId
             conditionId,
             partition,
-            INITIAL_FUNDING
+            funding
         );
 
         // Get position IDs from FPMM
@@ -511,16 +521,16 @@ contract InfoFiFPMMV2 is AccessControl, ReentrancyGuard {
         // In CPMM: P(YES) = noReserve / (yesReserve + noReserve)
         // So: yesReserve proportional to (1 - probability), noReserve proportional to probability
         //
-        // Floor each side at 5% of INITIAL_FUNDING to prevent single-trade liquidity drain
-        uint256 minReserve = INITIAL_FUNDING / 20; // 5 SOF minimum per side
+        // Floor each side at 5% of the seed to prevent single-trade liquidity drain
+        uint256 minReserve = funding / 20;
 
         // Clamp probability to [500, 9500] bps (5%-95%) to ensure minimum reserves
         uint256 clampedBps = probabilityBps;
         if (clampedBps < 500) clampedBps = 500;
         if (clampedBps > 9500) clampedBps = 9500;
 
-        uint256 yesReserve = (INITIAL_FUNDING * (10000 - clampedBps)) / 10000;
-        uint256 noReserve = (INITIAL_FUNDING * clampedBps) / 10000;
+        uint256 yesReserve = (funding * (10000 - clampedBps)) / 10000;
+        uint256 noReserve = (funding * clampedBps) / 10000;
 
         // Safety: ensure minimum reserves (should already be guaranteed by clamping)
         if (yesReserve < minReserve) yesReserve = minReserve;
@@ -531,8 +541,8 @@ contract InfoFiFPMMV2 is AccessControl, ReentrancyGuard {
         conditionalTokens.safeTransferFrom(address(this), fpmm, noPositionId, noReserve, "");
 
         // Send remaining outcome tokens to treasury (not wasted — can be used for future liquidity)
-        uint256 yesRemainder = INITIAL_FUNDING - yesReserve;
-        uint256 noRemainder = INITIAL_FUNDING - noReserve;
+        uint256 yesRemainder = funding - yesReserve;
+        uint256 noRemainder = funding - noReserve;
         if (yesRemainder > 0) {
             conditionalTokens.safeTransferFrom(address(this), treasury, yesPositionId, yesRemainder, "");
         }
@@ -544,7 +554,7 @@ contract InfoFiFPMMV2 is AccessControl, ReentrancyGuard {
         fpmmContract.initializeReserves(yesReserve, noReserve);
 
         // Mint SOLP tokens to factory (treasury)
-        solpToken.mint(msg.sender, INITIAL_FUNDING);
+        solpToken.mint(msg.sender, funding);
 
         emit MarketCreated(seasonId, player, fpmm, conditionId, lpToken);
     }
