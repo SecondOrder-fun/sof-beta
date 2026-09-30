@@ -82,14 +82,14 @@ const BuyPanel = ({ token, symbol, market, className }) => {
       ? quoteBuy({
           sqrtPriceX96: market.sqrtPriceX96,
           liquidity: market.liquidity,
-          lpFee: market.lpFee,
+          lpFee: market.buyFee,
           ethIn: amountWei,
           sqrtLowerX96: market.sqrtLowerX96,
         })
       : quoteSell({
           sqrtPriceX96: market.sqrtPriceX96,
           liquidity: market.liquidity,
-          lpFee: market.lpFee,
+          lpFee: market.sellFee,
           tokensIn: amountWei,
           sqrtUpperX96: market.launchSqrtX96,
         });
@@ -99,7 +99,7 @@ const BuyPanel = ({ token, symbol, market, className }) => {
   const receive = out == null ? "0" : isBuy ? formatSupply(out) : formatEth(out);
   const minOut = out == null ? null : minimumReceived(out, slippagePct);
   const impactPct = quote ? quote.priceImpact * 100 : null;
-  const feePct = market ? market.lpFee / 10_000 : null;
+  const feePct = market ? (isBuy ? market.buyFee : market.sellFee) / 10_000 : null;
 
   const onSide = (next) => {
     setSide(next);

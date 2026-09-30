@@ -150,13 +150,18 @@ export function useRaffleWrite() {
   const createSeason = useContractWriteWithFeedback({
     contractConfig: ({ config, bondSteps, buyFeeBps, sellFeeBps, tierConfigs }) => {
       if (!hasAddress) throw new Error('Raffle contract address not configured');
+      // Every season names its quote token (Raffle reverts on zero). Until the forms get
+      // a token picker, a season with none is priced in the platform default.
+      const quoteToken = config.quoteToken || contracts.QUOTE_TOKEN;
+      if (!quoteToken) throw new Error('No quote token for this season, and no platform default is configured');
+      const fullConfig = { maxParticipants: 0, ...config, quoteToken };
       const hasTiers = tierConfigs && tierConfigs.length > 0;
       return {
         ...raffleContractConfig,
         functionName: hasTiers ? 'createSeasonWithTiers' : 'createSeason',
         args: hasTiers
-          ? [config, bondSteps, buyFeeBps, sellFeeBps, tierConfigs]
-          : [config, bondSteps, buyFeeBps, sellFeeBps],
+          ? [fullConfig, bondSteps, buyFeeBps, sellFeeBps, tierConfigs]
+          : [fullConfig, bondSteps, buyFeeBps, sellFeeBps],
       };
     },
     // Preflight check: ensure RAFFLE address has code on current chain

@@ -20,9 +20,20 @@ import { getContractAddresses } from '@/config/contracts';
 import { TokenLaunchpadAbi } from '@/utils/abis';
 import { useSmartTransactions } from '@/hooks/useSmartTransactions';
 
-/** Contract limits, mirrored so the form can validate before asking for a signature. */
+/**
+ * Contract limits, mirrored so the form can validate before asking for a signature.
+ * The contract counts UTF-8 BYTES (`bytes(name).length`), not characters: an emoji or a
+ * CJK character is 3-4 bytes, so measure with `utf8Length`, never `.length`.
+ */
 export const MAX_NAME_LENGTH = 48;
 export const MAX_SYMBOL_LENGTH = 16;
+
+const encoder = new TextEncoder();
+
+/** Length in UTF-8 bytes — the unit the launchpad's length limits are in. */
+export function utf8Length(value) {
+  return encoder.encode(String(value ?? '')).length;
+}
 
 /**
  * Convert a valuation in wei to the per-token starting price the contract takes.
@@ -213,10 +224,10 @@ export function validateLaunchForm({ name, symbol, fdvWei }, config) {
   const trimmedSymbol = String(symbol ?? '').trim();
 
   if (!trimmedName) errors.name = 'errors.nameRequired';
-  else if (trimmedName.length > MAX_NAME_LENGTH) errors.name = 'errors.nameTooLong';
+  else if (utf8Length(trimmedName) > MAX_NAME_LENGTH) errors.name = 'errors.nameTooLong';
 
   if (!trimmedSymbol) errors.symbol = 'errors.symbolRequired';
-  else if (trimmedSymbol.length > MAX_SYMBOL_LENGTH) errors.symbol = 'errors.symbolTooLong';
+  else if (utf8Length(trimmedSymbol) > MAX_SYMBOL_LENGTH) errors.symbol = 'errors.symbolTooLong';
 
   if (fdvWei == null) errors.fdv = 'errors.fdvRequired';
   else if (config) {

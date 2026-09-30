@@ -18,6 +18,10 @@ import {
     RouterZeroAddress
 } from "../src/launchpad/UniV4LaunchRouter.sol";
 import {MockERC20} from "../src/test-helpers/MockERC20.sol";
+import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
+import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
+import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
+import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {LaunchPoolGateDeployer} from "./helpers/LaunchPoolGateDeployer.sol";
 
 /// @notice The launch router against a REAL PoolManager.
@@ -27,6 +31,9 @@ import {LaunchPoolGateDeployer} from "./helpers/LaunchPoolGateDeployer.sol";
 ///         tokens for 0.1 ETH at a fresh 1 ETH-FDV launch. The router must deliver that
 ///         to the wei, or the quote a user sees is not the trade they get.
 contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
+    using StateLibrary for IPoolManager;
+    using PoolIdLibrary for PoolKey;
+
     PoolManager internal manager;
     TokenLaunchpad internal launchpad;
     UniV4LiquidityPlacer internal placer;
@@ -130,6 +137,18 @@ contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
         assertGt(out, (launchpad.TOKEN_SUPPLY() * 999) / 1000, "essentially the whole supply");
         assertEq(address(router).balance, 0, "router keeps no ETH");
         assertEq(address(manager).balance, spent, "the pool holds exactly what was spent");
+    }
+
+    /// A buy that exhausts the range stops at the position's floor, not at v4's global
+    /// MIN_SQRT_PRICE: past the floor there is no liquidity to fill, and a price stranded
+    /// at the minimum reads as zero liquidity (so nothing can be quoted to sell back into)
+    /// and an absurd token price.
+    function test_exhaustingBuyLeavesThePriceAtTheRangeFloor() public {
+        _buy(50 ether, 0);
+        UniV4LiquidityPlacer.Placement memory p = placer.getPlacement(token);
+        (uint160 sqrtPriceX96,,,) = IPoolManager(address(manager)).getSlot0(p.key.toId());
+        assertEq(sqrtPriceX96, TickMath.getSqrtPriceAtTick(p.tickLower), "price parked at the floor");
+        assertGt(_sell(IERC20(token).balanceOf(buyer), 0), 0, "the whole position can be sold back into");
     }
 
     /// Unlike a buy, a sell cannot realistically fill partially: taking the price back
