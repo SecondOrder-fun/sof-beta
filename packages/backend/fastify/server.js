@@ -612,9 +612,17 @@ async function startListeners() {
         const poolManager = getDeployment(NETWORK.toLowerCase()).PoolManager;
         if (poolManager && poolManager !== "0x0000000000000000000000000000000000000000") {
           try {
+            // Optional: where the trusted-router history starts. Without it the
+            // listener reads RouterUpdated from the lookback window (or the
+            // stored cursor, if older).
+            const rawDeployBlock = (process.env.LAUNCHPAD_DEPLOY_BLOCK || "").trim();
+            if (rawDeployBlock && !/^\d+$/.test(rawDeployBlock)) {
+              app.log.warn(`LAUNCHPAD_DEPLOY_BLOCK is not a block number (${rawDeployBlock}) — ignored`);
+            }
             unwatchLaunchTrades = await startLaunchTradeListener({
               poolManager,
               launchpad: launchpadAddress,
+              deployBlock: /^\d+$/.test(rawDeployBlock) ? BigInt(rawDeployBlock) : undefined,
               logger: app.log,
             });
             app.log.info("✅ LaunchTradeListener started");

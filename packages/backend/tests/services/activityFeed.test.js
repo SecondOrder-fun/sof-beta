@@ -5,6 +5,7 @@ import {
   downsample,
   raffleState,
   pickRaffleForToken,
+  summarizeSeason,
   buildTokenActivity,
   buildRaffleActivity,
   CLOSING_WINDOW_SEC,
@@ -41,6 +42,37 @@ describe("buildChart", () => {
     const young = { launchedAt: at(NOW - 600), startPriceWei: "5" };
     const c = buildChart({ trades: [], seed: null, launch: young, rangeSec: 86400, nowSec: NOW });
     expect(c.points[0]).toEqual({ t: NOW - 600, priceWei: "5" });
+  });
+
+  // Truncated: only the newest trades came back. The launch price (or the
+  // range's opening price) is not the price before the first of them.
+  it("enters a truncated 'all' chart at the newest omitted trade, at its own time", () => {
+    const c = buildChart({
+      trades: [{ price_wei: "900", block_time: at(NOW - 50) }, { price_wei: "950", block_time: at(NOW - 10) }],
+      seed: { price_wei: "880", block_time: at(NOW - 60) },
+      truncated: true,
+      launch, rangeSec: null, nowSec: NOW,
+    });
+    expect(c.points.map((p) => [p.t, p.priceWei])).toEqual([[NOW - 60, "880"], [NOW - 50, "900"], [NOW - 10, "950"]]);
+    expect(c.launch.priceWei).toBe("1000000000");
+  });
+
+  it("enters a truncated ranged chart at the omitted trade, not the range's start", () => {
+    const c = buildChart({
+      trades: [{ price_wei: "900", block_time: at(NOW - 50) }],
+      seed: { price_wei: "880", block_time: at(NOW - 60) },
+      truncated: true,
+      launch, rangeSec: 3600, nowSec: NOW,
+    });
+    expect(c.points[0]).toEqual({ t: NOW - 60, priceWei: "880" });
+  });
+});
+
+describe("summarizeSeason", () => {
+  it("carries grandPrizeBps as a number, or null", () => {
+    expect(summarizeSeason({ season_id: 1, grand_prize_bps: 6500 }).grandPrizeBps).toBe(6500);
+    expect(summarizeSeason({ season_id: 1, grand_prize_bps: null }).grandPrizeBps).toBeNull();
+    expect(summarizeSeason({ season_id: 1 }).grandPrizeBps).toBeNull();
   });
 });
 
@@ -183,14 +215,42 @@ describe("buildRaffleActivity", () => {
     expect(closing).toEqual([4]);
   });
 
-  it("reports a completed season's winner", () => {
-    const done = { season_id: 2, status: 5, winner_address: "0xw", total_prize_pool: "1000", updated_at: at(NOW - 60), quote_token_address: "0xt" };
+  it("reports a completed season's winner, with the grand prize", () => {
+    const done = {
+      season_id: 2, status: 5, winner_address: "0xw", total_prize_pool: "1000000000000000000001",
+      grand_prize_bps: 6500, end_time: NOW - 60, updated_at: at(NOW - 60), quote_token_address: "0xt",
+    };
     const items = buildRaffleActivity({ entries: [], seasons: [done], symbols: { "0xt": "POND" }, nowSec: NOW });
-    expect(items[0]).toMatchObject({ kind: "won", who: "0xw", prizePool: "1000", symbol: "POND" });
+    expect(items[0]).toMatchObject({
+      kind: "won", who: "0xw", prizePool: "1000000000000000000001", symbol: "POND",
+      // floor(pool * 6500 / 10000), in BigInt — a JS number would lose the last digits
+      grandPrize: "650000000000000000000",
+    });
+  });
+
+  it("omits grandPrize when the season's grand_prize_bps is unknown", () => {
+    const done = { season_id: 2, status: 5, winner_address: "0xw", total_prize_pool: "1000", grand_prize_bps: null, end_time: NOW - 60 };
+    const [won] = buildRaffleActivity({ entries: [], seasons: [done], symbols: {}, nowSec: NOW });
+    expect(won.prizePool).toBe("1000");
+    expect(won).not.toHaveProperty("grandPrize");
+  });
+
+  // updated_at moves on every listener write, replays on restart included; a
+  // win dated by it would resurface at the front of the ticker after a restart.
+  it("dates a win by the season's end_time, not updated_at", () => {
+    const done = { season_id: 2, status: 5, winner_address: "0xw", end_time: NOW - 86400, updated_at: at(NOW) };
+    const items = buildRaffleActivity({
+      entries: [entry({ block_timestamp: at(NOW - 3600) })],
+      seasons: [done, live],
+      symbols: {}, nowSec: NOW,
+    });
+    const won = items.find((i) => i.kind === "won");
+    expect(won.at).toBe(at(NOW - 86400));
+    expect(items.map((i) => i.kind).indexOf("won")).toBeGreaterThan(items.map((i) => i.kind).indexOf("entry"));
   });
 
   it("does not report a completed season with no recorded winner", () => {
-    const done = { season_id: 2, status: 5, winner_address: null, updated_at: at(NOW - 60) };
+    const done = { season_id: 2, status: 5, winner_address: null, end_time: NOW - 60, updated_at: at(NOW - 60) };
     expect(buildRaffleActivity({ entries: [], seasons: [done], symbols: {}, nowSec: NOW })).toEqual([]);
   });
 

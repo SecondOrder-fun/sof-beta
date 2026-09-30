@@ -14,6 +14,7 @@ import {
   quoteSell,
   minimumReceived,
   deriveMarketState,
+  swapFeeFor,
 } from "@/lib/v4PoolMath";
 
 // Every constant below was emitted by a REAL PoolManager swap in
@@ -335,5 +336,39 @@ describe("deriveMarketState", () => {
   it("returns null for an uninitialised pool", () => {
     expect(deriveMarketState({ slot0Word: "0x0", liquidityWord: "0x0", placement, wholeSupply: WHOLE_SUPPLY })).toBeNull();
     expect(deriveMarketState({ slot0Word: FIX.slot0Word, liquidityWord: "0x0", placement: null, wholeSupply: WHOLE_SUPPLY })).toBeNull();
+  });
+});
+
+describe("swapFeeFor", () => {
+  it("is the LP fee alone when no protocol fee is set", () => {
+    expect(swapFeeFor(0, 10_000, true)).toBe(10_000);
+    expect(swapFeeFor(0, 10_000, false)).toBe(10_000);
+  });
+
+  it("combines LP and directional protocol fee as v4's ProtocolFeeLibrary does", () => {
+    // 0.1% protocol fee for buys (low 12 bits), 0.2% for sells (high 12 bits), 1% LP fee.
+    const protocolFee = (2_000 << 12) | 1_000;
+    expect(swapFeeFor(protocolFee, 10_000, true)).toBe(1_000 + 10_000 - Math.floor((1_000 * 10_000) / 1_000_000));
+    expect(swapFeeFor(protocolFee, 10_000, false)).toBe(2_000 + 10_000 - Math.floor((2_000 * 10_000) / 1_000_000));
+  });
+});
+
+describe("deriveMarketState fees", () => {
+  const placement = { tickLower: FIX.tickLower, tickUpper: FIX.tickUpper, liquidity: FIX.placementLiquidity };
+
+  it("exposes the protocol-inclusive buy and sell fees read from slot0", () => {
+    // Rewrite the fixture's protocolFee field (bits 184..207) to 0.1% buys / 0.2% sells.
+    const word = BigInt(FIX.slot0Word);
+    const mask = ((1n << 24n) - 1n) << 184n;
+    const withProto = (word & ~mask) | (BigInt((2_000 << 12) | 1_000) << 184n);
+    const m = deriveMarketState({
+      slot0Word: `0x${withProto.toString(16).padStart(64, "0")}`,
+      liquidityWord: "0x0",
+      placement,
+      wholeSupply: WHOLE_SUPPLY,
+    });
+    expect(m.lpFee).toBe(10_000);
+    expect(m.buyFee).toBe(10_990);
+    expect(m.sellFee).toBe(11_980);
   });
 });

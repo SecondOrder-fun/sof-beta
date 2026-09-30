@@ -687,6 +687,56 @@ describe("indexed-arg filter lists (one query per filter)", () => {
     await unwatch();
   });
 
+  // Hundreds of pool ids mean several getLogs per range; one after another
+  // they add up to a tick's latency. All are in flight together, and the
+  // merge still comes out in chain order.
+  it("runs the per-filter queries in parallel", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const releases = [];
+    client.getContractEvents.mockImplementation(async ({ args }) => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => releases.push(r));
+      inFlight -= 1;
+      // Resolve in reverse order of issue, to prove the merge re-sorts.
+      return args.id[0] === "0xa" ? [{ blockNumber: 90n, logIndex: 0 }] : [{ blockNumber: 80n, logIndex: 0 }];
+    });
+    const pending = getContractEventsInChunks({
+      client,
+      address: "0xPM",
+      abi: testAbi,
+      eventName: "TestEvent",
+      args: [{ id: ["0xa"] }, { id: ["0xb"] }, { id: ["0xc"] }],
+      fromBlock: 0n,
+      toBlock: 100n,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(peak).toBe(3);
+    for (const release of releases.reverse()) release();
+    const logs = await pending;
+    expect(logs.map((l) => l.blockNumber)).toEqual([80n, 80n, 90n]);
+  });
+
+  it("fails the range when any one of the parallel queries fails", async () => {
+    client.getContractEvents.mockImplementation(async ({ args }) => {
+      if (args.id[0] === "0xb") throw new Error("bad filter");
+      return [];
+    });
+    await expect(
+      getContractEventsInChunks({
+        client,
+        address: "0xPM",
+        abi: testAbi,
+        eventName: "TestEvent",
+        args: [{ id: ["0xa"] }, { id: ["0xb"] }],
+        fromBlock: 0n,
+        toBlock: 100n,
+        maxRetries: 0,
+      }),
+    ).rejects.toThrow("bad filter");
+  });
+
   it("treats an empty filter list as nothing to watch, never an unfiltered query", async () => {
     const blockCursor = { get: vi.fn().mockResolvedValue(50n), set: vi.fn().mockResolvedValue(undefined) };
     const unwatch = await startContractEventPolling({

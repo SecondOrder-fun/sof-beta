@@ -168,7 +168,11 @@ export default async function launchpadRoutes(fastify) {
    *
    * Price points for the chart, oldest first. The first point is the price in
    * force when the range opens (the last earlier trade, or the launch price),
-   * so a quiet range still draws a line. Capped at 300 points.
+   * so a quiet range still draws a line. Built from every trade in range up to
+   * 50,000 (launchpadActivityDb.CHART_TRADE_CAP); past it the oldest are
+   * dropped, `truncated` is true, and
+   * the line enters at the newest trade left out rather than the launch
+   * price. Capped at 300 points.
    */
   fastify.get("/tokens/:address/chart", async (request, reply) => {
     const { address } = request.params;
@@ -176,7 +180,8 @@ export default async function launchpadRoutes(fastify) {
       return reply.code(400).send({ error: "invalid token address" });
     }
     const range = request.query?.range ?? "24h";
-    if (!(range in CHART_RANGES)) {
+    // Own keys only: `in` would accept inherited ones (toString, __proto__…).
+    if (typeof range !== "string" || !Object.hasOwn(CHART_RANGES, range)) {
       return reply.code(400).send({ error: `range must be one of ${Object.keys(CHART_RANGES).join(", ")}` });
     }
 
@@ -189,19 +194,20 @@ export default async function launchpadRoutes(fastify) {
       const rangeSec = CHART_RANGES[range];
       const sinceIso = rangeSec == null ? null : new Date((nowSec - rangeSec) * 1000).toISOString();
 
-      const [trades, seed] = await Promise.all([
+      const [{ trades, truncated, before }, rangeSeed] = await Promise.all([
         launchpadActivityDb.listTradesSince(address, sinceIso),
         launchpadActivityDb.lastTradeBefore(address, sinceIso),
       ]);
 
       const chart = buildChart({
         trades,
-        seed,
+        seed: truncated ? before : rangeSeed,
+        truncated,
         launch: { launchedAt: launch.launched_at, startPriceWei: launch.start_price_wei },
         rangeSec,
         nowSec,
       });
-      return { range, tradeCount: trades.length, ...chart };
+      return { range, tradeCount: trades.length, truncated, ...chart };
     } catch (err) {
       request.log.error({ err, address }, "launchpad chart failed");
       return reply.code(500).send({ error: "failed to load chart" });

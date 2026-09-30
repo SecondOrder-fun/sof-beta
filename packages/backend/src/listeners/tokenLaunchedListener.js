@@ -23,20 +23,24 @@
  * launchTradeListener indexes launches too (it must know a pool before the
  * pool's first swaps are fetched). Both go through processTokenLaunchedLog, so
  * whichever insert wins broadcasts TokenLaunched, and it is broadcast once.
+ * Name, symbol and metadata URI are made storable first (buildLaunchRow).
  *
  * Pattern mirrors accountCreatedListener.js:
  *   1. scan for missed historical events on boot
  *   2. start a polling watcher with a persistent block cursor
  *   3. process logs idempotently (insert-if-absent by token address)
  *
- * A launch that fails to index is never skipped: the live tick throws so the
- * cursor stays put and the range is retried, and a failed boot scan starts the
- * poller at the failed log's block.
+ * A launch that fails to index is never skipped while a retry could store it:
+ * the live tick throws so the cursor stays put and the range is retried, and a
+ * failed boot scan starts the poller at the failed log's block. A launch whose
+ * row can never be stored (a constraint or data error) is logged with its tx
+ * hash and skipped, so it cannot block every launch after it. A completed boot
+ * scan starts the poller right after the block it scanned to.
  */
 
 import { TokenLaunchpadABI } from "@sof/contracts";
 import { publicClient } from "../lib/viemClient.js";
-import { getChainByKey } from "../config/chain.js";
+import { lookbackWindow, resumeWithoutWindow } from "../lib/bootScanWindow.js";
 import {
   getContractEventsInChunks,
   startContractEventPolling,
@@ -47,16 +51,34 @@ import { getSSEChannelService } from "../services/sseChannelService.js";
 import { buildLaunchRow } from "./buildLaunchRow.js";
 
 /**
+ * Whether a database error means the row can NEVER be stored: SQLSTATE class
+ * 22 (data exception — bad value, e.g. an unstorable character) or 23
+ * (integrity constraint violation). supabase-js surfaces the SQLSTATE as
+ * `error.code`. Anything else — network, timeout, PostgREST's own PGRST*
+ * codes, no code at all — may pass on a retry.
+ * @param {unknown} err
+ */
+export function isPermanentDbError(err) {
+  const code = err && typeof err === "object" && "code" in err ? String(err.code) : "";
+  return /^2[23][0-9A-Z]{3}$/.test(code);
+}
+
+/**
  * Index one TokenLaunched log, broadcasting it when THIS call inserted the row.
  *
- * Throws when the row could not be stored, so the caller's range is retried:
- * the event is the only source of the name and symbol.
+ * Throws when the row could not be stored but might be on a retry (transient
+ * or unknown failure), so the caller's range is retried: the event is the only
+ * source of the name and symbol. A row that can never be stored (see
+ * isPermanentDbError) is logged at error level with its tx hash and skipped —
+ * retrying it would block every later launch, and the trade listener, forever.
  *
  * @param {object} log
  * @param {bigint} totalSupply
  * @param {object} logger
  * @param {object} [sseService]  omit for history (no broadcast)
- * @returns {Promise<boolean>} true if this call inserted the launch
+ * @returns {Promise<'inserted' | 'exists' | 'skipped'>} 'inserted' if this call
+ *   stored the launch, 'exists' if it was already stored, 'skipped' if it is
+ *   not (and will not be) stored
  */
 export async function processTokenLaunchedLog(log, totalSupply, logger, sseService) {
   let blockTimeSec;
@@ -73,15 +95,25 @@ export async function processTokenLaunchedLog(log, totalSupply, logger, sseServi
   const row = buildLaunchRow(log, totalSupply, blockTimeSec);
   if (!row) {
     logger.warn({ topics: log.topics }, "TokenLaunched log missing args — skipping");
-    return false;
+    return "skipped";
   }
 
   // insertTokenLaunch returns false for a row already there (including the
   // lost side of a concurrent insert) and throws on a real failure.
-  const inserted = await tokenLaunchesDb.insertTokenLaunch(row);
+  let inserted;
+  try {
+    inserted = await tokenLaunchesDb.insertTokenLaunch(row);
+  } catch (err) {
+    if (!isPermanentDbError(err)) throw err;
+    logger.error(
+      { txHash: row.tx_hash, token: row.token_address, block: row.block_number, code: err.code },
+      `❌ TokenLaunched ${row.token_address} (tx ${row.tx_hash}) can never be stored — skipping: ${err.message}`,
+    );
+    return "skipped";
+  }
   if (!inserted) {
     logger.debug(`TokenLaunched already indexed: ${row.token_address}`);
-    return false;
+    return "exists";
   }
 
   logger.info(
@@ -103,33 +135,33 @@ export async function processTokenLaunchedLog(log, totalSupply, logger, sseServi
       txHash: row.tx_hash,
     });
   }
-  return true;
+  return "inserted";
 }
 
 /**
  * Backfill missed TokenLaunched events since `chain.lookbackBlocks`.
  *
- * @returns {Promise<bigint | undefined>} the block to resume from when the
- *   scan did not finish (the failed log's block, or the scan's start when the
- *   query itself failed); undefined when it did
+ * @returns {Promise<{ resumeFrom?: bigint, windowUnknown?: true }>} where the
+ *   live poller must start no later than: the block after the scanned head
+ *   when the scan finished (so blocks mined during the scan are not skipped),
+ *   the failed log's block — or the scan's start when the query itself
+ *   failed — when it did not. `windowUnknown` when it failed before learning
+ *   its window (see bootScanWindow.resumeWithoutWindow).
  */
 async function scanHistoricalLaunches(launchpadAddress, totalSupply, logger) {
-  let fromBlock;
+  let window;
   let failedAt;
   try {
     logger.info("🔍 Scanning for historical TokenLaunched events...");
-    const currentBlock = await publicClient.getBlockNumber();
-    const chain = getChainByKey(process.env.NETWORK);
-    const lookbackBlocks = chain.lookbackBlocks;
-    fromBlock = currentBlock > lookbackBlocks ? currentBlock - lookbackBlocks : 0n;
+    window = await lookbackWindow(publicClient);
 
     const logs = await getContractEventsInChunks({
       client: publicClient,
       address: launchpadAddress,
       abi: TokenLaunchpadABI,
       eventName: "TokenLaunched",
-      fromBlock,
-      toBlock: currentBlock,
+      fromBlock: window.from,
+      toBlock: window.head,
       maxBlockRange: 2_000n,
       maxRetries: 5,
     });
@@ -144,13 +176,14 @@ async function scanHistoricalLaunches(launchpadAddress, totalSupply, logger) {
     } else {
       logger.info("   No historical TokenLaunched events found");
     }
-    return undefined;
+    return { resumeFrom: window.head + 1n };
   } catch (error) {
     logger.error(
       `❌ Failed to scan historical TokenLaunched events: ${error.message}`,
     );
     // Don't throw — the live poller starts at the failed point instead.
-    return failedAt ?? fromBlock;
+    if (!window) return { windowUnknown: true };
+    return { resumeFrom: failedAt ?? window.from };
   }
 }
 
@@ -175,11 +208,14 @@ export async function startTokenLaunchedListener(launchpadAddress, logger) {
 
   const sseService = getSSEChannelService(logger);
 
-  const resumeFrom = await scanHistoricalLaunches(launchpadAddress, totalSupply, logger);
+  const scan = await scanHistoricalLaunches(launchpadAddress, totalSupply, logger);
 
   const blockCursor = await createBlockCursor(
     `${launchpadAddress}:TokenLaunched`,
   );
+  const resumeFrom = scan.windowUnknown
+    ? await resumeWithoutWindow(publicClient, blockCursor)
+    : scan.resumeFrom;
 
   const unwatch = await startContractEventPolling({
     client: publicClient,

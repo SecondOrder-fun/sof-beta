@@ -6,6 +6,7 @@ import {
   validateLaunchForm,
   MAX_NAME_LENGTH,
   MAX_SYMBOL_LENGTH,
+  utf8Length,
 } from "@/hooks/useTokenLaunchpad";
 
 const WHOLE_SUPPLY = 1_000_000_000n;
@@ -77,6 +78,18 @@ describe("validateLaunchForm", () => {
     expect(
       validateLaunchForm({ ...valid, symbol: "x".repeat(MAX_SYMBOL_LENGTH + 1) }, CONFIG).symbol,
     ).toBe("errors.symbolTooLong");
+  });
+
+  // The contract counts bytes(name).length — UTF-8 bytes. 20 CJK characters are 60 bytes:
+  // fine by .length (20 < 48) but a NameTooLong revert after the user has signed.
+  it("measures the limits in UTF-8 bytes, as the contract does", () => {
+    expect(utf8Length("蛙".repeat(20))).toBe(60);
+    expect(validateLaunchForm({ ...valid, name: "蛙".repeat(16) }, CONFIG)).toEqual({}); // 48 bytes
+    expect(validateLaunchForm({ ...valid, name: "蛙".repeat(17) }, CONFIG).name).toBe("errors.nameTooLong");
+    expect(validateLaunchForm({ ...valid, symbol: "🐸".repeat(5) }, CONFIG).symbol).toBe(
+      "errors.symbolTooLong",
+    ); // 20 bytes
+    expect(validateLaunchForm({ ...valid, symbol: "🐸".repeat(4) }, CONFIG)).toEqual({}); // 16 bytes
   });
 
   // The failure the floor exists to prevent: below a 1 ETH valuation a single

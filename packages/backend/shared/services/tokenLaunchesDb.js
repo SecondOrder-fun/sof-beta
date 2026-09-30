@@ -55,7 +55,11 @@ export async function insertTokenLaunch(launch) {
     // A concurrent insert of the same token is the check-then-insert race, and
     // it means the row exists — which is the outcome we wanted.
     if (error.code === "23505") return false;
-    throw new Error(`tokenLaunchesDb.insertTokenLaunch: ${error.message}`);
+    // Keep the SQLSTATE: the caller tells a row that can never be stored
+    // (constraint / data errors) from a failure worth retrying by it.
+    throw Object.assign(new Error(`tokenLaunchesDb.insertTokenLaunch: ${error.message}`), {
+      code: error.code,
+    });
   }
   return true;
 }
@@ -198,6 +202,7 @@ export async function listLaunchTrades(
     .select(TRADE_COLUMNS)
     .eq("token_address", lc(tokenAddress))
     .order("block_number", { ascending: false })
+    .order("log_index", { ascending: false })
     .range(offset, offset + limit - 1);
   if (error) {
     throw new Error(`tokenLaunchesDb.listLaunchTrades: ${error.message}`);

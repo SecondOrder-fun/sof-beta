@@ -12,8 +12,9 @@
  *    v4 swap on the chain comes out of it, so an unfiltered query is the whole
  *    network's volume. The poller is given the pool ids as an indexed-arg
  *    filter, and never falls back to an unfiltered query. The ids go out in
- *    batches of at most MAX_POOL_IDS_PER_QUERY, one getLogs per batch, so the
- *    OR-list stays inside what an RPC accepts as launches accumulate.
+ *    batches of at most MAX_POOL_IDS_PER_QUERY, one getLogs per batch (run in
+ *    parallel), so the OR-list stays inside what an RPC accepts as launches
+ *    accumulate.
  *
  * 2. It DISCOVERS POOLS ITSELF, per block range. The filter is built from the
  *    pools known when a range is queried. If it relied on tokenLaunchedListener
@@ -23,28 +24,38 @@
  *    TokenLaunched events and adds their pools, indexing each launch through
  *    tokenLaunchedListener's own processTokenLaunchedLog (launch_trades' foreign
  *    key needs the row anyway). Sharing that function means whichever listener
- *    inserts a launch first broadcasts it, exactly once.
+ *    inserts a launch first broadcasts it, exactly once. Blocks already read
+ *    for launches (tracked in memory) are not read again, so a retried range
+ *    or the boot scan's window costs no second TokenLaunched query. A launch
+ *    whose row can never be stored is skipped, and so is its pool: its trades
+ *    could not be stored either (foreign key).
  *
  * 3. It ATTRIBUTES trades. A swap's `sender` is the router that called the
  *    PoolManager, not the trader. The launch router's own Bought/Sold event in
  *    the same transaction names the account (buildTradeRow.attributeTrader),
- *    trusted only for a sender that is TokenLaunchpad.router() — read at start,
- *    re-read every ROUTER_REFRESH_MS, and remembered across a router swap so
- *    the old router's trades still attribute. That costs one receipt fetch per
- *    router transaction; blocks and receipts are fetched FETCH_CONCURRENCY at a
- *    time.
+ *    trusted only for a sender that has been a launch router: every
+ *    TokenLaunchpad `RouterUpdated` (previous and current), read from the
+ *    launchpad's deploy block when known (`deployBlock`) — else from the
+ *    earlier of the lookback window and the stored cursor — plus the current
+ *    router(). The history is kept current by reading RouterUpdated up to the
+ *    newest swap before each batch is attributed, so a restart or a router
+ *    swap never turns a router into a stored trader. That costs one receipt
+ *    fetch per router transaction; blocks and receipts are fetched
+ *    FETCH_CONCURRENCY at a time.
  *
  * 4. It NEVER SKIPS a range it could not fully store. A failed block-time
- *    read, receipt read, launch insert or trade insert throws, which fails the
- *    poller tick before its cursor moves, so the range is retried. (A row
- *    written without its block time or trader would never be repaired: the
- *    trade insert ignores duplicates.) A failed boot scan starts the poller at
- *    the scan's first block instead.
+ *    read, receipt read, router-history read, launch insert or trade insert
+ *    throws, which fails the poller tick before its cursor moves, so the range
+ *    is retried. (A row written without its block time or trader would never
+ *    be repaired: the trade insert ignores duplicates.) A completed boot scan
+ *    starts the poller right after the block it scanned to; a failed one at
+ *    the scan's first block (or, if it never learned its window, the stored
+ *    cursor or the lookback window's start — bootScanWindow).
  */
 
 import { PoolManagerABI, TokenLaunchpadABI, UniV4LaunchRouterABI } from "@sof/contracts";
 import { publicClient } from "../lib/viemClient.js";
-import { getChainByKey } from "../config/chain.js";
+import { lookbackWindow, resumeWithoutWindow } from "../lib/bootScanWindow.js";
 import {
   getContractEventsInChunks,
   startContractEventPolling,
@@ -59,13 +70,13 @@ import { attributeTrader, buildTradeRow } from "./buildTradeRow.js";
 export const MAX_POOL_IDS_PER_QUERY = 100;
 /** Block and receipt reads in flight at once, per batch of swaps. */
 export const FETCH_CONCURRENCY = 4;
-/** How often TokenLaunchpad.router() is re-read. */
-export const ROUTER_REFRESH_MS = 5 * 60_000;
 
 const BLOCK_RANGE = 2_000n;
 
 const isZero = (v) => /^0x0+$/.test(String(v));
 const lc = (v) => String(v).toLowerCase();
+const maxBig = (a, b) => (a > b ? a : b);
+const minBig = (a, b) => (a < b ? a : b);
 
 /**
  * pool id (lowercase) -> { token, symbol }. Seeded from the DB, extended by
@@ -74,13 +85,24 @@ const lc = (v) => String(v).toLowerCase();
  */
 const pools = new Map();
 
+/** The block span whose TokenLaunched events have been read. See point 2. */
+let launchesCovered = /** @type {{ from: bigint, to: bigint } | null} */ (null);
+
 /** Every launch router seen, lowercase. See point 3 above. */
 const routers = new Set();
-let routerReadAt = 0;
+/** First block of the RouterUpdated history; unset = the lookback window's. */
+let routerHistoryFrom = /** @type {bigint | undefined} */ (undefined);
+/** Last block RouterUpdated has been read up to; null before the first read. */
+let routerScannedTo = /** @type {bigint | null} */ (null);
+let routerCurrentRead = false;
 
 function rememberPool(poolId, token, symbol) {
   if (!poolId || isZero(poolId)) return;
   pools.set(lc(poolId), { token: lc(token), symbol: symbol ?? null });
+}
+
+function rememberRouter(address) {
+  if (address && !isZero(address)) routers.add(lc(address));
 }
 
 /**
@@ -98,24 +120,46 @@ export function poolFilter() {
 }
 
 /**
- * The trusted launch routers, re-reading TokenLaunchpad.router() when stale.
- * A failed re-read keeps the known set; a failure before any read has
- * succeeded throws, since attributing without it would store the router as
- * the trader for good.
+ * The trusted launch routers, with the RouterUpdated history read up to at
+ * least `upToBlock`. Throws if it cannot be brought that far (or router()
+ * has never been read): attributing without it would store a router as the
+ * trader for good.
+ * @param {string} launchpad
+ * @param {bigint} upToBlock
  */
-async function trustedRouters(launchpad, logger) {
-  if (routerReadAt && Date.now() - routerReadAt < ROUTER_REFRESH_MS) return routers;
+async function trustedRouters(launchpad, upToBlock) {
   try {
-    const router = await publicClient.readContract({
-      address: launchpad,
-      abi: TokenLaunchpadABI,
-      functionName: "router",
-    });
-    if (router && !isZero(router)) routers.add(lc(router));
-    routerReadAt = Date.now();
+    if (routerScannedTo === null || routerScannedTo < upToBlock) {
+      let from;
+      if (routerScannedTo !== null) from = routerScannedTo + 1n;
+      else if (routerHistoryFrom !== undefined) from = routerHistoryFrom;
+      else from = (await lookbackWindow(publicClient)).from;
+      const updates = await getContractEventsInChunks({
+        client: publicClient,
+        address: launchpad,
+        abi: TokenLaunchpadABI,
+        eventName: "RouterUpdated",
+        fromBlock: from,
+        toBlock: upToBlock,
+        maxBlockRange: BLOCK_RANGE,
+        maxRetries: 5,
+      });
+      for (const u of updates) {
+        rememberRouter(u.args?.previous);
+        rememberRouter(u.args?.current);
+      }
+      routerScannedTo = upToBlock;
+    }
+    // Once: the router in force before the history's first block. Every later
+    // change emits RouterUpdated, which the history read above picks up.
+    if (!routerCurrentRead) {
+      rememberRouter(
+        await publicClient.readContract({ address: launchpad, abi: TokenLaunchpadABI, functionName: "router" }),
+      );
+      routerCurrentRead = true;
+    }
   } catch (err) {
-    if (!routerReadAt) throw new Error(`launch router unknown: ${err.message}`);
-    logger.warn(`[LAUNCH_TRADES] router() re-read failed, keeping ${routers.size} known: ${err.message}`);
+    throw new Error(`launch router unknown: ${err.message}`);
   }
   return routers;
 }
@@ -134,39 +178,60 @@ async function mapLimit(items, limit, fn) {
   return out;
 }
 
+/** The part of [fromBlock, toBlock] not yet read for launches, or null. */
+function uncoveredLaunchRange(fromBlock, toBlock) {
+  const c = launchesCovered;
+  if (!c || fromBlock < c.from || fromBlock > c.to + 1n) return { from: fromBlock, to: toBlock };
+  if (toBlock <= c.to) return null;
+  return { from: c.to + 1n, to: toBlock };
+}
+
+function markLaunchesCovered(from, to) {
+  const c = launchesCovered;
+  launchesCovered =
+    c && from <= c.to + 1n && to + 1n >= c.from
+      ? { from: minBig(c.from, from), to: maxBig(c.to, to) }
+      : { from, to };
+}
+
 /**
  * Add every pool launched in [fromBlock, toBlock], indexing each launch too.
- * Runs before the same range's swaps are fetched — see point 2 above. Throws
- * if a launch could not be indexed.
+ * Runs before the same range's swaps are fetched — see point 2 above. Only
+ * the blocks not already read are queried. Throws if a launch could not be
+ * indexed (and might be on a retry).
  */
 async function discoverLaunches({ launchpad, totalSupply, fromBlock, toBlock, logger, sseService }) {
+  const range = uncoveredLaunchRange(fromBlock, toBlock);
+  if (!range) return;
   const launches = await getContractEventsInChunks({
     client: publicClient,
     address: launchpad,
     abi: TokenLaunchpadABI,
     eventName: "TokenLaunched",
-    fromBlock,
-    toBlock,
+    fromBlock: range.from,
+    toBlock: range.to,
     maxBlockRange: BLOCK_RANGE,
     maxRetries: 5,
   });
   for (const log of launches) {
     const { token, symbol, placementId } = log.args ?? {};
     if (!token || !placementId) continue;
-    await processTokenLaunchedLog(log, totalSupply, logger, sseService);
-    rememberPool(placementId, token, symbol);
+    const status = await processTokenLaunchedLog(log, totalSupply, logger, sseService);
+    if (status !== "skipped") rememberPool(placementId, token, symbol);
   }
+  markLaunchesCovered(range.from, range.to);
 }
 
 /**
  * Turn a batch of Swap logs into rows, fetching each block time and each
  * router transaction's receipt once. Throws if any of them is unavailable.
  */
-async function buildRows(logs, { launchpad, poolManager, logger }) {
+async function buildRows(logs, { launchpad, poolManager }) {
   const launchLogs = logs.filter((log) => pools.has(lc(log.args?.id)));
   if (!launchLogs.length) return [];
 
-  const trusted = await trustedRouters(launchpad, logger);
+  const newest = launchLogs.reduce((m, log) => maxBig(m, BigInt(log.blockNumber)), 0n);
+  const trusted = await trustedRouters(launchpad, newest);
 
   const blockNumbers = [...new Set(launchLogs.map((log) => log.blockNumber))];
   const blockTimes = new Map(
@@ -242,10 +307,12 @@ async function persist(logs, ctx, sseService) {
  * @param {object} p
  * @param {string} p.poolManager   Uniswap v4 PoolManager
  * @param {string} p.launchpad     TokenLaunchpad
+ * @param {bigint} [p.deployBlock] the launchpad's deploy block, when known:
+ *   where the router history starts (else the lookback window / cursor)
  * @param {object} p.logger
  * @returns {Promise<() => Promise<void>>}
  */
-export async function startLaunchTradeListener({ poolManager, launchpad, logger }) {
+export async function startLaunchTradeListener({ poolManager, launchpad, deployBlock, logger }) {
   if (!poolManager || !launchpad) throw new Error("poolManager and launchpad are required");
   if (!logger) throw new Error("logger instance is required");
 
@@ -262,16 +329,29 @@ export async function startLaunchTradeListener({ poolManager, launchpad, logger 
   const sseService = getSSEChannelService(logger);
   const ctx = { launchpad, poolManager, logger };
 
-  // Boot scan: launches first, then their swaps, over the lookback window.
-  // Both reads are chunked. If any of it fails, the poller starts at the
-  // window's first block so nothing in it is skipped.
+  const blockCursor = await createBlockCursor(`${poolManager}:Swap:launchpad`);
+  const stored = await blockCursor.get();
+
+  // Boot scan: router history, launches, then their swaps, over the lookback
+  // window. All reads are chunked. Where the poller starts after it: see
+  // point 4 above.
   let resumeFrom;
-  let scanFrom;
+  let window;
   try {
-    const current = await publicClient.getBlockNumber();
-    const lookback = getChainByKey(process.env.NETWORK).lookbackBlocks;
-    scanFrom = current > lookback ? current - lookback : 0n;
-    await discoverLaunches({ launchpad, totalSupply, fromBlock: scanFrom, toBlock: current, logger });
+    window = await lookbackWindow(publicClient);
+    // The router history must reach back as far as any swap the poller may
+    // replay: the deploy block if known, else the window or the stored
+    // cursor, whichever is earlier.
+    routerHistoryFrom =
+      typeof deployBlock === "bigint"
+        ? deployBlock
+        : stored !== null && stored !== undefined
+          ? minBig(window.from, stored + 1n)
+          : window.from;
+    const known = await trustedRouters(launchpad, window.head);
+    logger.info(`[LAUNCH_TRADES] ${known.size} launch router(s) trusted`);
+
+    await discoverLaunches({ launchpad, totalSupply, fromBlock: window.from, toBlock: window.head, logger });
     const filter = poolFilter();
     if (filter) {
       const logs = await getContractEventsInChunks({
@@ -280,20 +360,20 @@ export async function startLaunchTradeListener({ poolManager, launchpad, logger 
         abi: PoolManagerABI,
         eventName: "Swap",
         args: filter,
-        fromBlock: scanFrom,
-        toBlock: current,
+        fromBlock: window.from,
+        toBlock: window.head,
         maxBlockRange: BLOCK_RANGE,
         maxRetries: 5,
       });
       logger.info(`[LAUNCH_TRADES] boot scan: ${logs.length} swap(s) on ${pools.size} launch pool(s)`);
       await persist(logs, ctx, undefined); // no SSE for history
     }
+    // Not the head at poller start: blocks mined during the scan would be skipped.
+    resumeFrom = window.head + 1n;
   } catch (err) {
-    resumeFrom = scanFrom;
     logger.error(`❌ [LAUNCH_TRADES] boot scan failed, poller will re-cover it: ${err.message}`);
+    resumeFrom = window ? window.from : await resumeWithoutWindow(publicClient, blockCursor);
   }
-
-  const blockCursor = await createBlockCursor(`${poolManager}:Swap:launchpad`);
 
   const unwatch = await startContractEventPolling({
     client: publicClient,
@@ -326,9 +406,13 @@ export const __test = {
   discoverLaunches,
   persist,
   rememberPool,
+  trustedRouters,
   reset() {
     pools.clear();
     routers.clear();
-    routerReadAt = 0;
+    launchesCovered = null;
+    routerHistoryFrom = undefined;
+    routerScannedTo = null;
+    routerCurrentRead = false;
   },
 };

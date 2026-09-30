@@ -839,7 +839,7 @@ const fpmmBuyAbi = [
  * quote token (the FPMM manager has no platform-wide collateral), so read it
  * off the market rather than from the deployment config.
  */
-async function readMarketCollateral(publicClient, fpmmAddress) {
+export async function readMarketCollateral(publicClient, fpmmAddress) {
   const token = await publicClient.readContract({
     address: fpmmAddress,
     abi: [

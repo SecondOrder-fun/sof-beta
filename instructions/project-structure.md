@@ -166,10 +166,18 @@ Access levels: 0=public, 1=connected, 2=allowlist, 3=beta, 4=admin.
 
 | Table | Key Columns | Used By |
 |-------|------------|---------|
-| `season_contracts` | season_id, bonding_curve_address, raffle_token_address, raffle_address, is_active | supabaseClient.js, healthRoutes.js |
-| `raffle_transactions` | season_id (partition key), user_address, transaction_type, ticket_amount, tx_hash | raffleTransactionService.js |
+| `season_contracts` | season_id, bonding_curve_address, raffle_token_address, raffle_address, is_active, name, start_time, end_time, grand_prize_bps, status, total_prize_pool (019), quote_token_address, winner_address (024) | supabaseClient.js, healthRoutes.js, season listeners, launchpadActivityDb.js |
+| `raffle_transactions` | season_id (partition key), user_address, transaction_type, ticket_amount, tx_hash, bonding_curve_address (020) | raffleTransactionService.js, launchpadActivityDb.js |
 
 `raffle_transactions` is partitioned by season_id with auto-created partitions.
+`season_contracts.quote_token_address` links a season to the launch token it is priced in.
+
+#### Launchpad
+
+| Table | Key Columns | Used By |
+|-------|------------|---------|
+| `token_launches` | token_address (PK), launch_id, creator_address, name, symbol, metadata_uri, start_price_wei, implied_fdv_wei, pool_id (v4 PoolId, unique), launched_at, is_hidden, is_verified (023) | tokenLaunchedListener.js, launchTradeListener.js, tokenLaunchesDb.js, launchpadActivityDb.js |
+| `launch_trades` | (tx_hash, log_index) PK, token_address (FK token_launches), pool_id, trader, side, eth_amount, token_amount, price_wei, block_number, block_time (023) | launchTradeListener.js, tokenLaunchesDb.js, launchpadActivityDb.js |
 
 #### Infrastructure
 

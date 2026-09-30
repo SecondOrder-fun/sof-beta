@@ -37,7 +37,8 @@ function getPollBackoffMs(failures) {
  *   failed range instead of starting past it.
  * @property {EventFilter | EventFilter[] | ((range: { fromBlock: bigint, toBlock: bigint }) => Promise<EventFilter|EventFilter[]|null> | EventFilter | EventFilter[] | null)} [args]
  *   Indexed-argument filter passed to getContractEvents. An ARRAY of filters
- *   is one query per filter over the same range, merged in log order — for an
+ *   is one query per filter over the same range, run in parallel and merged in
+ *   log order — for an
  *   OR-list too long for one getLogs (e.g. hundreds of pool ids). A function
  *   is called per chunk WITH that chunk's block range, for filters that grow —
  *   e.g. launch pools, where the filter must include pools created inside the
@@ -62,14 +63,15 @@ function byLogOrder(a, b) {
 }
 
 /**
- * One block range, queried once per filter when given several.
+ * One block range, queried once per filter when given several — all in
+ * parallel, merged back into chain (blockNumber, logIndex) order. Any query
+ * failing fails the whole range.
  * @param {(filter: EventFilter | undefined) => Promise<any[]>} query
  * @param {EventFilter | EventFilter[] | undefined} filter  never an empty filter
  */
 async function queryEachFilter(query, filter) {
   if (!Array.isArray(filter)) return query(filter);
-  const logs = [];
-  for (const f of filter) logs.push(...(await query(f)));
+  const logs = (await Promise.all(filter.map((f) => query(f)))).flat();
   return filter.length > 1 ? logs.sort(byLogOrder) : logs;
 }
 

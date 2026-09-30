@@ -26,22 +26,34 @@ const toSec = (value) => (value == null ? null : Math.floor(new Date(value).getT
 /**
  * @param {object} p
  * @param {{ price_wei: string, block_time: string }[]} p.trades  oldest first, within the range
- * @param {{ price_wei: string, block_time: string } | null} p.seed  last trade before the range
+ * @param {{ price_wei: string, block_time: string } | null} p.seed  the trade just before the
+ *   first of `trades`: the last trade before the range or, when `truncated`, the newest one
+ *   the cap left out
  * @param {{ launchedAt: string, startPriceWei: string }} p.launch
  * @param {number | null} p.rangeSec   null = all history
  * @param {number} p.nowSec
+ * @param {boolean} [p.truncated=false]  `trades` holds only the newest part of the range
  * @param {number} [p.maxPoints=300]
  */
-export function buildChart({ trades, seed, launch, rangeSec, nowSec, maxPoints = 300 }) {
+export function buildChart({ trades, seed, launch, rangeSec, nowSec, truncated = false, maxPoints = 300 }) {
   const launchSec = toSec(launch.launchedAt);
-  const since = rangeSec == null ? launchSec : Math.max(launchSec, nowSec - rangeSec);
+  let since = rangeSec == null ? launchSec : Math.max(launchSec, nowSec - rangeSec);
 
   /** @type {{ t: number, priceWei: string }[]} */
   const points = [];
 
-  // Where the line enters the range: the price in force at `since` — the last
-  // trade before it, or the launch price if there was none (or for "all").
-  const entryPrice = rangeSec != null && seed ? seed.price_wei : launch.startPriceWei;
+  // Where the line enters: the price in force at that moment.
+  //  - Complete range: at the range's start, the last trade before it — or the
+  //    launch price if there was none (always so for "all").
+  //  - Truncated: the trades before the first returned one are missing, so
+  //    starting from the launch price (or the range's opening price) would draw
+  //    a false jump. The line enters at the omitted trade just before the
+  //    first returned one, at that trade's own time.
+  let entryPrice = rangeSec != null && seed ? seed.price_wei : launch.startPriceWei;
+  if (truncated && seed) {
+    since = Math.max(since, toSec(seed.block_time) ?? since);
+    entryPrice = seed.price_wei;
+  }
   points.push({ t: since, priceWei: String(entryPrice) });
 
   for (const tr of trades) {
@@ -89,6 +101,22 @@ export function raffleState(season) {
   return "ended";
 }
 
+/**
+ * The grand prize in wei, floor(total_prize_pool * grand_prize_bps / 10000), as
+ * a string — or null when either input is unknown. BigInt, because a prize
+ * pool in wei does not survive a JS number.
+ */
+export function grandPrizeWei(season) {
+  const bps = season?.grand_prize_bps;
+  const pool = season?.total_prize_pool;
+  if (bps == null || pool == null) return null;
+  try {
+    return ((BigInt(pool) * BigInt(bps)) / 10_000n).toString();
+  } catch {
+    return null;
+  }
+}
+
 export function summarizeSeason(season) {
   return {
     seasonId: Number(season.season_id),
@@ -100,6 +128,7 @@ export function summarizeSeason(season) {
     participants: String(season.total_participants ?? "0"),
     tickets: String(season.total_tickets ?? "0"),
     prizePool: String(season.total_prize_pool ?? "0"),
+    grandPrizeBps: season.grand_prize_bps != null ? Number(season.grand_prize_bps) : null,
     winner: season.winner_address ?? null,
     bondingCurve: season.bonding_curve_address ?? null,
   };
@@ -175,6 +204,10 @@ export function buildTokenActivity({ trades, launches, symbols, hidden = new Set
  * (case-insensitive). season_id restarts at 1 when the Raffle is redeployed,
  * so the id alone would label an old deployment's purchase with a live season
  * (migration 020).
+ *
+ * An entry has no logIndex: raffle_transactions records none, and is unique on
+ * (tx_hash, season_id), so txHash + seasonId keys an entry item. A "won" item
+ * carries `grandPrize` (wei string) when the season's grand_prize_bps is known.
  */
 export function buildRaffleActivity({ entries, seasons: allSeasons, symbols, hidden = new Set(), nowSec, limit = 20 }) {
   const seasons = allSeasons.filter(
@@ -209,8 +242,19 @@ export function buildRaffleActivity({ entries, seasons: allSeasons, symbols, hid
       // Dated "now" so it sits at the front while it is true.
       items.push({ kind: "closing", at: iso(nowSec), endsAt: end, participants: String(s.total_participants ?? "0"), ...label(s) });
     }
-    if (state === "ended" && s.winner_address) {
-      items.push({ kind: "won", at: s.updated_at, who: s.winner_address, prizePool: String(s.total_prize_pool ?? "0"), ...label(s) });
+    // Dated by the season's end_time, which never changes. Not updated_at:
+    // every listener write bumps it, replays on restart included, so old wins
+    // would resurface as new.
+    if (state === "ended" && s.winner_address && end != null) {
+      const grandPrize = grandPrizeWei(s);
+      items.push({
+        kind: "won",
+        at: iso(end),
+        who: s.winner_address,
+        prizePool: String(s.total_prize_pool ?? "0"),
+        ...(grandPrize != null ? { grandPrize } : {}),
+        ...label(s),
+      });
     }
   }
 

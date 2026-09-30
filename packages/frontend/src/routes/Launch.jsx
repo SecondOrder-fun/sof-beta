@@ -25,6 +25,7 @@ import { useLoginModal } from "@/hooks/useLoginModal";
 import {
   MAX_NAME_LENGTH,
   MAX_SYMBOL_LENGTH,
+  utf8Length,
   parseFdvEth,
   fdvWeiToStartPriceWei,
   useLaunchpadConfig,
@@ -148,7 +149,7 @@ const Launch = () => {
               <div className="flex items-baseline justify-between">
                 <Label htmlFor="launch-name">{t("form.name")}</Label>
                 <span className="text-xs text-muted-foreground">
-                  {t("form.characterCount", { count: form.name.length, max: MAX_NAME_LENGTH })}
+                  {t("form.characterCount", { count: utf8Length(form.name), max: MAX_NAME_LENGTH })}
                 </span>
               </div>
               <Input
@@ -169,7 +170,7 @@ const Launch = () => {
               <div className="flex items-baseline justify-between">
                 <Label htmlFor="launch-symbol">{t("form.symbol")}</Label>
                 <span className="text-xs text-muted-foreground">
-                  {t("form.characterCount", { count: form.symbol.length, max: MAX_SYMBOL_LENGTH })}
+                  {t("form.characterCount", { count: utf8Length(form.symbol), max: MAX_SYMBOL_LENGTH })}
                 </span>
               </div>
               <Input

@@ -8,7 +8,7 @@ const countTokenLaunches = vi.fn(async () => 0);
 const getTokenLaunch = vi.fn(async () => null);
 const listLaunchTrades = vi.fn(async () => []);
 
-const listTradesSince = vi.fn(async () => []);
+const listTradesSince = vi.fn(async () => ({ trades: [], truncated: false, before: null }));
 const lastTradeBefore = vi.fn(async () => null);
 const listSeasonsForToken = vi.fn(async () => []);
 const listSeasonsForTokens = vi.fn(async () => []);
@@ -274,7 +274,11 @@ describe("GET /api/launchpad/tokens/:address/trades", () => {
 describe("GET /api/launchpad/tokens/:address/chart", () => {
   it("returns points that start at the launch for the 'all' range", async () => {
     getTokenLaunch.mockResolvedValueOnce(row());
-    listTradesSince.mockResolvedValueOnce([{ price_wei: "2000000000", block_time: "2026-09-29T01:00:00.000Z" }]);
+    listTradesSince.mockResolvedValueOnce({
+      trades: [{ price_wei: "2000000000", block_time: "2026-09-29T01:00:00.000Z" }],
+      truncated: false,
+      before: null,
+    });
 
     const res = await app.inject({ method: "GET", url: `/api/launchpad/tokens/${TOKEN}/chart?range=all` });
 
@@ -282,7 +286,33 @@ describe("GET /api/launchpad/tokens/:address/chart", () => {
     const body = res.json();
     expect(body.points[0].priceWei).toBe("1000000000"); // the launch price
     expect(body.points.at(-1).priceWei).toBe("2000000000");
+    expect(body.truncated).toBe(false);
     expect(listTradesSince).toHaveBeenCalledWith(TOKEN, null);
+  });
+
+  // Past the trade cap the oldest trades are missing: entering at the launch
+  // price would draw a jump that never happened.
+  it("enters a truncated chart at the newest trade left out, not the launch price", async () => {
+    getTokenLaunch.mockResolvedValueOnce(row());
+    listTradesSince.mockResolvedValueOnce({
+      trades: [
+        { price_wei: "7000000000", block_time: "2026-09-29T05:00:00.000Z" },
+        { price_wei: "7100000000", block_time: "2026-09-29T06:00:00.000Z" },
+      ],
+      truncated: true,
+      before: { price_wei: "6900000000", block_time: "2026-09-29T04:00:00.000Z" },
+    });
+
+    const res = await app.inject({ method: "GET", url: `/api/launchpad/tokens/${TOKEN}/chart?range=all` });
+
+    const body = res.json();
+    expect(body.truncated).toBe(true);
+    expect(body.points[0]).toEqual({
+      t: Date.parse("2026-09-29T04:00:00.000Z") / 1000,
+      priceWei: "6900000000",
+    });
+    expect(body.points.map((p) => p.priceWei)).not.toContain("1000000000");
+    expect(body.launch.priceWei).toBe("1000000000");
   });
 
   it("queries only the requested window", async () => {
@@ -297,6 +327,16 @@ describe("GET /api/launchpad/tokens/:address/chart", () => {
     const res = await app.inject({ method: "GET", url: `/api/launchpad/tokens/${TOKEN}/chart?range=7y` });
     expect(res.statusCode).toBe(400);
   });
+
+  // `range in CHART_RANGES` accepted inherited keys and then 500'd on them.
+  it.each(["toString", "constructor", "__proto__", "hasOwnProperty", "valueOf"])(
+    "rejects the prototype key %s as a range (400, not 500)",
+    async (range) => {
+      const res = await app.inject({ method: "GET", url: `/api/launchpad/tokens/${TOKEN}/chart?range=${range}` });
+      expect(res.statusCode).toBe(400);
+      expect(getTokenLaunch).not.toHaveBeenCalled();
+    },
+  );
 
   it("404s a token that is not indexed", async () => {
     getTokenLaunch.mockResolvedValueOnce(null);
