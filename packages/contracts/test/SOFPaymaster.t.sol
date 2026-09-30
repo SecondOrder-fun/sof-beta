@@ -241,6 +241,15 @@ contract SOFPaymasterTest is Test {
         this.validateExternal(oldRouter);
     }
 
+    /// LP fee collection and claims go to the placer.
+    function test_sponsorsTheLaunchpadsCurrentPlacer() public {
+        MockLaunchpadForPaymaster launchpad = new MockLaunchpadForPaymaster();
+        address placerAddr = address(0x9A7C);
+        launchpad.setPlacer(placerAddr);
+        raffle.setLaunchpad(address(launchpad));
+        assertEq(_validate(placerAddr), 0);
+    }
+
     function test_sponsorsAdminAllowlistedQuoteTokens() public {
         address quote = address(0x9707E);
         raffle.setQuoteTokenAllowed(quote, true);
@@ -271,5 +280,11 @@ contract MockLaunchpadForPaymaster {
 
     function setRouter(address r) external {
         router = r;
+    }
+
+    address public placer;
+
+    function setPlacer(address p) external {
+        placer = p;
     }
 }
