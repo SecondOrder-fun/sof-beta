@@ -47,8 +47,10 @@ contract DeployPaymaster is Script {
         // Per-season SOFBondingCurve targets are NOT in the static set; they
         // are validated dynamically via IRaffleCurveRegistry(raffle).isSofCurve.
         // So are launch tokens and allowlisted quote tokens (isAllowedQuoteToken) and
-        // the launchpad plus its advertised router (raffle.launchpad(), .router()) —
-        // steps 21-23 need no paymaster wiring.
+        // the launchpad plus its advertised router and current placer
+        // (raffle.launchpad(), .router(), .placer()) — steps 21-23 need no paymaster
+        // wiring. Only a placer that has been REPLACED but still holds LP fees needs
+        // `setAllowlisted` for its claims to stay sponsored.
         address[] memory initialAllowlist = new address[](7);
         initialAllowlist[0] = addrs.raffle;
         initialAllowlist[1] = addrs.quoteToken;
