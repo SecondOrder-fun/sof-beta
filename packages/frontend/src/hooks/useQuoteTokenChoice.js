@@ -49,6 +49,8 @@ const lower = (a) => (a ? a.toLowerCase() : '');
  *   'eligible'   — a token is chosen and may price a season
  *   'checking'   — a pasted token's eligibility read is in flight
  *   'ineligible' — the pasted token is neither launched here nor approved
+ *   'decimals'   — the pasted token is allowed but not 18-decimal (or reports no
+ *                  decimals), which createSeason rejects
  *   'invalid'    — the pasted text is not an address
  *   'error'      — the eligibility read failed
  *   'none'       — nothing chosen and no platform default configured
@@ -143,6 +145,7 @@ export function useQuoteTokenChoice({ initialToken } = {}) {
     if (!pasteValid) status = 'invalid';
     else if (pasteInfo.isError) status = 'error';
     else if (!pasteInfo.data) status = 'checking';
+    else if (pasteInfo.data.reason === 'decimals') status = 'decimals';
     else if (!pasteInfo.data.eligible) status = 'ineligible';
     else {
       status = 'eligible';

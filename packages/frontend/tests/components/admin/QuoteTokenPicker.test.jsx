@@ -16,6 +16,7 @@ const OTHER = "0x00000000000000000000000000000000000000f0";
 const PLATFORM = "0x5050505050505050505050505050505050505050";
 const APPROVED = "0x7070707070707070707070707070707070707070";
 const NEITHER = "0x9090909090909090909090909090909090909090";
+const SIX_DECIMALS = "0x6060606060606060606060606060606060606060";
 const OLD_LAUNCH = "0x8080808080808080808080808080808080808080";
 
 vi.mock("wagmi", () => ({ useAccount: () => ({ address: "0x00000000000000000000000000000000000000e0" }) }));
@@ -72,8 +73,9 @@ const LAUNCHES = Array.from({ length: 12 }, (_, i) => ({
 
 const INFO = {
   [PLATFORM.toLowerCase()]: { eligible: true, kind: "approved", name: "Second Order", symbol: "SOF", decimals: 18 },
-  [APPROVED.toLowerCase()]: { eligible: true, kind: "approved", name: "USD Coin", symbol: "USDC", decimals: 6 },
-  [NEITHER.toLowerCase()]: { eligible: false, kind: null, name: "Random", symbol: "RND", decimals: 18 },
+  [APPROVED.toLowerCase()]: { eligible: true, reason: null, kind: "approved", name: "Wrapped Quote", symbol: "WQ", decimals: 18 },
+  [NEITHER.toLowerCase()]: { eligible: false, reason: "notAllowed", kind: null, name: "Random", symbol: "RND", decimals: 18 },
+  [SIX_DECIMALS.toLowerCase()]: { eligible: false, reason: "decimals", kind: "approved", name: "USD Coin", symbol: "USDC", decimals: 6 },
   [OLD_LAUNCH.toLowerCase()]: { eligible: true, kind: "launch", name: "Old Frog", symbol: "OLDF", decimals: 18 },
 };
 
@@ -149,12 +151,19 @@ describe("useQuoteTokenChoice", () => {
     expect(result.current.selected).toMatchObject({ fdvWei: 47_200_000_000_000_000_000n, priceWei: 47n * GWEI });
   });
 
-  it("a pasted approved token is chosen with its own decimals", () => {
+  it("a pasted approved token is chosen", () => {
     setupReads();
     const { result } = renderHook(() => useQuoteTokenChoice());
     act(() => result.current.setPasteText(`  ${APPROVED.toLowerCase()} `));
     expect(result.current).toMatchObject({ status: "eligible", blocked: false, source: "paste", quoteToken: APPROVED });
-    expect(result.current.selected).toMatchObject({ symbol: "USDC", kind: "approved", decimals: 6 });
+    expect(result.current.selected).toMatchObject({ symbol: "WQ", kind: "approved", decimals: 18 });
+  });
+
+  it("a pasted allowed token that is not 18-decimal blocks, since createSeason would revert", () => {
+    setupReads();
+    const { result } = renderHook(() => useQuoteTokenChoice());
+    act(() => result.current.setPasteText(SIX_DECIMALS));
+    expect(result.current).toMatchObject({ status: "decimals", blocked: true, quoteToken: undefined });
   });
 
   it("a pasted token that is neither launched nor approved blocks, and is never the quote token", () => {
@@ -265,7 +274,7 @@ describe("QuoteTokenPicker", () => {
     const { choice } = renderPicker();
     fireEvent.change(screen.getByLabelText("quoteToken.pasteLabel"), { target: { value: APPROVED } });
     expect(screen.getByText("quoteToken.badgeApproved")).toBeInTheDocument();
-    expect(within(screen.getByRole("combobox", { name: "quoteToken.label" })).getByText("USD Coin")).toBeInTheDocument();
+    expect(within(screen.getByRole("combobox", { name: "quoteToken.label" })).getByText("Wrapped Quote")).toBeInTheDocument();
     expect(screen.queryByText("quoteToken.notAllowed")).not.toBeInTheDocument();
     expect(choice().quoteToken).toBe(APPROVED);
   });
@@ -286,6 +295,14 @@ describe("QuoteTokenPicker", () => {
     expect(input).toHaveAttribute("aria-invalid", "true");
     expect(screen.queryByText("quoteToken.badgeApproved")).not.toBeInTheDocument();
     expect(screen.queryByText("quoteToken.badgeLaunch")).not.toBeInTheDocument();
+    expect(choice().blocked).toBe(true);
+  });
+
+  it("paste, wrong decimals: says so, and resolves nothing", () => {
+    setupReads();
+    const { choice } = renderPicker();
+    fireEvent.change(screen.getByLabelText("quoteToken.pasteLabel"), { target: { value: SIX_DECIMALS } });
+    expect(screen.getByRole("alert")).toHaveTextContent("quoteToken.wrongDecimals");
     expect(choice().blocked).toBe(true);
   });
 

@@ -8,5 +8,6 @@ export const QUOTE_TOKEN_BLOCK_MESSAGE = {
   checking: "quoteToken.checking",
   invalid: "quoteToken.invalidAddress",
   ineligible: "quoteToken.notAllowed",
+  decimals: "quoteToken.wrongDecimals",
   error: "quoteToken.checkFailed",
 };

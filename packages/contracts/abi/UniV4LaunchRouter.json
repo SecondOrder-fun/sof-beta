@@ -8,11 +8,6 @@
         "internalType": "address"
       },
       {
-        "name": "_placer",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
         "name": "_launchpad",
         "type": "address",
         "internalType": "address"
@@ -63,19 +58,6 @@
         "name": "",
         "type": "address",
         "internalType": "contract ILaunchRegistry"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "placer",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "contract UniV4LiquidityPlacer"
       }
     ],
     "stateMutability": "view"

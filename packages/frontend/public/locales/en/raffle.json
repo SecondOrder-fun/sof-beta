@@ -411,6 +411,7 @@
     "badgeLaunch": "Launch token",
     "badgeApproved": "Approved",
     "notAllowed": "Seasons can only be priced in tokens launched here or approved by the platform. This one is neither.",
+    "wrongDecimals": "Seasons can only be priced in 18-decimal tokens. This one uses a different precision, so tickets would be mispriced.",
     "invalidAddress": "Enter a full token address: 0x followed by 40 hexadecimal characters.",
     "checkFailed": "Couldn't check this token right now. Try again in a moment.",
     "ethEquivalent": "≈ {{eth}} ETH at the current pool price",

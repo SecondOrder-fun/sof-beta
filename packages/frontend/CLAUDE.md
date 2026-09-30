@@ -129,15 +129,14 @@ approved by the platform, at least `QUOTE_TOKEN` as "Platform default", then the
 newest other launches), TokenArt, an Input for pasting any address, and the
 outline Badge.
 
-**Eligibility mirrors `Raffle.isAllowedQuoteToken`:** `Raffle.allowedQuoteTokens(token)`
-OR `TokenLaunchpad.isLaunchToken(token)` on the deployment's `TokenLaunchpad`
-(`hooks/useQuoteTokenInfo.js`, one multicall with the token's name, symbol and
-decimals). A pasted token, or one preselected by `/create-season?quoteToken=0x…`
-(the token page's raffle card links there), goes through that check and blocks
-submission until it passes — so `QuoteTokenNotAllowed` never fires. A failed
-read blocks too; it is not read as "not allowed". The rule assumes the Raffle's
-`launchpad()` is the deployment's `TokenLaunchpad`; if a deploy wires them
-differently, change the check with it. The curve's prices take the chosen
+**Eligibility is asked of the Raffle itself:** `Raffle.isAllowedQuoteToken(token)`
+plus the 18-decimals rule `createSeason` enforces (`hooks/useQuoteTokenInfo.js`, one
+multicall with the token's name, symbol and decimals; the deployment's
+`TokenLaunchpad.isLaunchToken` only labels an allowed token as a launch token). A
+pasted token, or one preselected by `/create-season?quoteToken=0x…` (the token
+page's raffle card links there), goes through that check and blocks submission
+until it passes — so `QuoteTokenNotAllowed` and `QuoteTokenDecimals` never fire. A
+failed read blocks too; it is not read as "not allowed". The curve's prices take the chosen
 token's decimals and symbol, and a launch token's pool price
 (`useLaunchMarkets`) adds an "≈ X ETH" line. `useRaffleWrite` falls back to
 `QUOTE_TOKEN` only when no token is chosen.
