@@ -169,7 +169,8 @@ Version-controlled in `deployments/`:
 - **The paymaster needs no per-token or per-router wiring.** `SOFPaymaster` sponsors, besides
   its static allowlist and SOF curves, any `raffle.isAllowedQuoteToken` target (launch tokens
   and allowlisted quote tokens — ticket and sell approvals) and the Raffle's launchpad plus
-  the router it currently advertises, all read live.
+  the router and placer it currently has (LP fee collection and claims), all read live. A
+  placer replaced by `setPlacer` that still holds fees needs `setAllowlisted` to stay sponsored.
 - **A season's `quoteToken` must be a launch token or admin-allowlisted.** `Raffle.isAllowedQuoteToken`
   accepts `launchpad.isLaunchToken(token)` (set via `setLaunchpad`) or
   `allowedQuoteTokens[token]` (`setQuoteTokenAllowed`). An arbitrary ERC-20 could be

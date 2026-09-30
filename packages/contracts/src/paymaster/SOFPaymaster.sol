@@ -14,9 +14,11 @@ interface IRaffleCurveRegistry {
     function launchpad() external view returns (address);
 }
 
-/// @dev The one launchpad view the paymaster needs: the router it currently advertises.
+/// @dev The launchpad views the paymaster needs: the router it currently advertises, and
+///      the placer new launches go to (which holds their LP fees).
 interface ILaunchpadRouterView {
     function router() external view returns (address);
+    function placer() external view returns (address);
 }
 
 /// @title SOFPaymaster
@@ -30,9 +32,10 @@ interface ILaunchpadRouterView {
 ///           decoded `Execution[]` must be in the static allowlist, a SOF curve
 ///           (`Raffle.isSofCurve`), a permitted quote token (`Raffle.isAllowedQuoteToken` —
 ///           launch tokens plus the admin allowlist, so ticket and sell approvals are
-///           sponsored), or the Raffle's launchpad or the router it currently advertises.
-///           The launchpad and router are read live, so `setLaunchpad` / `setRouter` carry
-///           over without touching this contract.
+///           sponsored), or the Raffle's launchpad, the router it currently advertises, or
+///           its current placer (LP fee collection and claims). These are read live, so
+///           `setLaunchpad` / `setRouter` / `setPlacer` carry over without touching this
+///           contract; a REPLACED placer still holding fees needs `setAllowlisted`.
 ///      Per spec §3.3 (`docs/superpowers/specs/2026-05-05-gasless-rewrite-design.md`).
 contract SOFPaymaster is IPaymaster, AccessControl {
     error NotEntryPoint();
@@ -153,8 +156,8 @@ contract SOFPaymaster is IPaymaster, AccessControl {
     }
 
     /// @dev Allow if the target is in the static allowlist, a SOF curve, a permitted quote
-    ///      token, or the launchpad / its advertised router. Otherwise revert with the
-    ///      offending target.
+    ///      token, or the launchpad / its advertised router / its current placer.
+    ///      Otherwise revert with the offending target.
     function _checkTarget(address target) internal view {
         if (staticAllowlist[target]) return;
         if (raffle.isSofCurve(target)) return;
@@ -164,6 +167,8 @@ contract SOFPaymaster is IPaymaster, AccessControl {
             if (target == launchpad) return;
             address router = ILaunchpadRouterView(launchpad).router();
             if (router != address(0) && target == router) return;
+            address placer = ILaunchpadRouterView(launchpad).placer();
+            if (placer != address(0) && target == placer) return;
         }
         revert TargetNotAllowed(target);
     }
