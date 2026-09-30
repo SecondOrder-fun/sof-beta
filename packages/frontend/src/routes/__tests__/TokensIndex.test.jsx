@@ -5,12 +5,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import TokensIndex from "@/routes/TokensIndex";
 import { useTokenLaunches } from "@/hooks/useTokenLaunches";
 import { useLaunchMarkets } from "@/hooks/useLaunchMarkets";
+import { useRaffleBadges } from "@/hooks/useLaunchActivity";
 
 vi.mock("@/hooks/useTokenLaunches", async () => {
   const actual = await vi.importActual("@/hooks/useTokenLaunches");
   return { ...actual, useTokenLaunches: vi.fn() };
 });
 vi.mock("@/hooks/useLaunchMarkets", () => ({ useLaunchMarkets: vi.fn() }));
+vi.mock("@/hooks/useLaunchActivity", () => ({ useRaffleBadges: vi.fn() }));
 
 // i18n is not initialised in this suite, so `t` returns the key — assertions
 // match on keys rather than English copy.
@@ -38,8 +40,9 @@ const markets = {
   [C]: { fdvWei: 2n * ONE_ETH, multiple: 1.2, soldFraction: 0.05 },
 };
 
-const setup = ({ list = launches, isLoading = false, isAvailable = true, priced = markets } = {}) => {
+const setup = ({ list = launches, isLoading = false, isAvailable = true, priced = markets, raffles = {} } = {}) => {
   useTokenLaunches.mockReturnValue({ launches: list, total: list.length, isLoading, isAvailable });
+  useRaffleBadges.mockReturnValue(raffles);
   useLaunchMarkets.mockReturnValue({ markets: priced, isLoading: false, isAvailable: true });
   return render(
     <MemoryRouter>
@@ -62,6 +65,21 @@ describe("TokensIndex", () => {
     expect(within(alpha).getByText("50")).toBeInTheDocument();
     expect(within(alpha).getByText("card.multiple:25.0")).toBeInTheDocument();
     expect(within(alpha).getByText("card.sold:70")).toBeInTheDocument();
+  });
+
+  it("badges a card whose token has a live raffle, with the season strip", () => {
+    const live = { seasonId: 3, name: null, state: "live", prizePool: (18_400_000n * ONE_ETH).toString(), endTime: NOW + 2 * 86400 };
+    setup({ raffles: { [A]: live } });
+    const alpha = screen.getByRole("link", { name: /Alpha/ });
+    expect(within(alpha).getByText("raffle.badgeLive")).toBeInTheDocument();
+    expect(within(alpha).getByText("card.raffleStrip")).toBeInTheDocument();
+    const beta = screen.getByRole("link", { name: /Beta/ });
+    expect(within(beta).queryByText("raffle.badgeLive")).not.toBeInTheDocument();
+  });
+
+  it("asks for every card's badge in one request", () => {
+    setup();
+    expect(useRaffleBadges).toHaveBeenCalledWith([C, B, A]);
   });
 
   it("links each card to its token page", () => {

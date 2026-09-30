@@ -20,12 +20,14 @@ import TokenCard from "@/components/launchpad/TokenCard";
 import TokensTable from "@/components/launchpad/TokensTable";
 import { useTokenLaunches } from "@/hooks/useTokenLaunches";
 import { useLaunchMarkets } from "@/hooks/useLaunchMarkets";
+import { useRaffleBadges } from "@/hooks/useLaunchActivity";
 import { SORTS, filterLaunches, sortLaunches } from "@/lib/launchSort";
 
 const TokensIndex = () => {
   const { t } = useTranslation("launchpad");
   const { launches, total, isLoading, isAvailable } = useTokenLaunches();
   const { markets } = useLaunchMarkets(launches);
+  const raffles = useRaffleBadges(launches.map((l) => l.token));
 
   const [sort, setSort] = useState("new");
   const [query, setQuery] = useState("");
@@ -147,7 +149,12 @@ const TokensIndex = () => {
       ) : layout === "grid" ? (
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {visible.map((launch) => (
-            <TokenCard key={launch.token} launch={launch} market={markets[launch.token.toLowerCase()]} />
+            <TokenCard
+              key={launch.token}
+              launch={launch}
+              market={markets[launch.token.toLowerCase()]}
+              raffle={raffles[launch.token.toLowerCase()]}
+            />
           ))}
         </div>
       ) : (

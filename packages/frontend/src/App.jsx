@@ -14,6 +14,7 @@ import { useUsernameContext } from "@/context/UsernameContext";
 import { ContractAddressValidator } from "@/components/dev/ContractAddressValidator";
 import { usePlatform } from "@/hooks/usePlatform";
 import MobileHeader from "@/components/mobile/MobileHeader";
+import ActivityTicker from "@/components/layout/ActivityTicker";
 import BottomNav from "@/components/mobile/BottomNav";
 import { useSafeArea } from "@/hooks/useSafeArea";
 
@@ -34,6 +35,7 @@ const App = () => {
         }}
       >
         <MobileHeader />
+        <ActivityTicker compact />
         <FirstConnectBanner />
         <SignInRetryBanner />
         <SweepBanner />
@@ -51,6 +53,7 @@ const App = () => {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Header />
+      <ActivityTicker />
       <FirstConnectBanner />
       <SignInRetryBanner />
       <SweepBanner />

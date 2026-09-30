@@ -43,10 +43,30 @@ npm run lint         # ESLint (zero warnings enforced)
 ## Launchpad routes
 
 `/launch`, `/tokens` and `/tokens/:address` read the `TokenLaunchpad` on-chain.
-The backend indexes launches (`/api/launchpad/tokens`) but not yet trade history or
-metadata, so routing the feed through it would add a dependency without adding
-data. Only the trade feed on the token page uses the backend. Once volume and
-metadata are indexed, the backend becomes primary and on-chain the fallback.
+The backend indexes launches (`/api/launchpad/tokens`) but not yet metadata, so
+routing the feed through it would add a dependency without adding data.
+
+What only indexed history can answer comes from the backend, through
+`src/hooks/useLaunchActivity.js` (warm reads, no on-chain fallback): the trade
+feed, the price chart (`/tokens/:address/chart`), the raffle card
+(`/tokens/:address/seasons`), the raffle badges on a page of cards (one
+`/raffles?tokens=` request), and the site-wide activity ticker (`/api/activity`).
+Each renders nothing (ticker, badge) or an honest empty state (chart, card) when
+the backend has no data.
+
+**The activity ticker is site-wide** (`components/layout/ActivityTicker.jsx`,
+under both headers in `App.jsx`), not launchpad-only: the raffles row is the whole
+platform's activity. Its motion rules are accessibility requirements, tested:
+hover/focus pauses a row, the pause button stops both, `prefers-reduced-motion`
+stops it, and the loop's duplicate copy is `aria-hidden` and out of the tab order.
+An InfoFi markets row slots in as a third `TickerRow`.
+
+**The raffle accent is a token, not a colour.** The raffle Badge variants
+(`raffleLive` / `raffleSoon` / `raffleEnded`) and the ticker's raffle row use
+`pastel-rose`, `pastel-rose-foreground` and `raffle` from `tailwind.css`. `raffle`
+is Pastel Rose in dark and Cochineal in light, because Pastel Rose text does not
+read on white. Prize pools show in the token with an ETH equivalent from the pool
+price, never USD, so there is no oracle.
 
 **The launch form takes a valuation, not a per-token price** (`src/lib/launchFormat.js`,
 `src/hooks/useTokenLaunchpad.js`). Every launch mints the same 1e9 supply, so the
@@ -72,9 +92,11 @@ edges must use the exact `TickMath` port, not a float, or a capped quote promise
 more than the whole supply.
 
 **The launchpad UI is composed only from existing primitives** (see the UI Gym):
-Tabs for buy/sell and sort, Card, Avatar for token art, Badge, Progress for supply
-sold, ButtonGroup, Input, ContentBox, Table, Sheet, SlippageSettings. New visual
-elements are confirmed with the product owner and designed on the canvas first.
+Tabs for buy/sell, sort and chart range, Card, Avatar for token art, Badge,
+Progress for supply sold, ButtonGroup, Input, ContentBox, Table, Sheet,
+SlippageSettings, MiniCurveChart for a raffle's ticket ladder, CountdownTimer. New
+visual elements are confirmed with the product owner and designed on the canvas
+first — the raffle Badge variants, the price chart and the ticker were.
 
 **Trades go through whichever router the launchpad advertises.** `useLaunchTrade`
 reads `TokenLaunchpad.router()` and `lib/launchTrade.js` encodes against the

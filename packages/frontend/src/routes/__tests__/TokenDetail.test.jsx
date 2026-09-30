@@ -6,14 +6,18 @@ import TokenDetail from "@/routes/TokenDetail";
 import { useTokenLaunch } from "@/hooks/useTokenLaunches";
 import { useLaunchMarkets } from "@/hooks/useLaunchMarkets";
 import { usePlatform } from "@/hooks/usePlatform";
+import { useTokenSeasons } from "@/hooks/useLaunchActivity";
 import { deriveMarketState } from "@/lib/v4PoolMath";
 
 vi.mock("@/hooks/useTokenLaunches", () => ({ useTokenLaunch: vi.fn() }));
 vi.mock("@/hooks/useLaunchMarkets", () => ({ useLaunchMarkets: vi.fn() }));
 vi.mock("@/hooks/usePlatform", () => ({ usePlatform: vi.fn() }));
+vi.mock("@/hooks/useLaunchActivity", () => ({ useTokenSeasons: vi.fn() }));
 // The panel and the trade feed have their own tests; stub them to isolate the page.
 vi.mock("@/components/launchpad/BuyPanel", () => ({ default: () => <div>buy-panel</div> }));
 vi.mock("@/components/launchpad/LaunchTrades", () => ({ default: () => <div>trades</div> }));
+vi.mock("@/components/launchpad/PriceChart", () => ({ default: () => <div>price-chart</div> }));
+vi.mock("@/components/launchpad/RaffleCard", () => ({ default: () => <div>raffle-card</div> }));
 vi.mock("react-i18next", async (importOriginal) => ({
   ...(await importOriginal()),
   useTranslation: () => ({ t: (key) => key }),
@@ -37,8 +41,9 @@ const market = deriveMarketState({
   wholeSupply: 1_000_000_000n,
 });
 
-const setup = ({ data = launch, mobile = false, path = `/tokens/${TOKEN}` } = {}) => {
+const setup = ({ data = launch, mobile = false, path = `/tokens/${TOKEN}`, featured = null } = {}) => {
   useTokenLaunch.mockReturnValue({ data, isLoading: false, isAvailable: true });
+  useTokenSeasons.mockReturnValue({ data: { seasons: featured ? [featured] : [], featured } });
   useLaunchMarkets.mockReturnValue({ markets: data ? { [TOKEN]: market } : {} });
   usePlatform.mockReturnValue({ isMobile: mobile, isMobileBrowser: false });
   return render(
@@ -53,10 +58,11 @@ const setup = ({ data = launch, mobile = false, path = `/tokens/${TOKEN}` } = {}
 describe("TokenDetail", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("shows the token, its live valuation and supply sold", () => {
+  it("shows the token, its price chart, supply sold and raffle card", () => {
     setup();
     expect(screen.getByRole("heading", { name: "Frog Pond" })).toBeInTheDocument();
-    expect(screen.getByText("detail.fdvLabel")).toBeInTheDocument();
+    expect(screen.getByText("price-chart")).toBeInTheDocument();
+    expect(screen.getByText("raffle-card")).toBeInTheDocument();
     expect(screen.getByText("detail.soldLabel")).toBeInTheDocument();
     expect(screen.getByText("trades")).toBeInTheDocument();
   });
@@ -72,6 +78,22 @@ describe("TokenDetail", () => {
     expect(screen.queryByText("buy-panel")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "detail.buyCta" }));
     expect(screen.getByText("buy-panel")).toBeInTheDocument();
+  });
+
+  it("shows the raffle badge beside the name when a season is priced in the token", () => {
+    setup({ featured: { seasonId: 3, state: "live", prizePool: "0", tickets: "0", participants: "0" } });
+    expect(screen.getByText("raffle.badgeLive")).toBeInTheDocument();
+  });
+
+  it("shows no raffle badge when the token has no season", () => {
+    setup();
+    expect(screen.queryByText("raffle.badgeLive")).not.toBeInTheDocument();
+    expect(screen.queryByText("raffle.badgeEnded")).not.toBeInTheDocument();
+  });
+
+  it("keeps the raffle card on the page on mobile, outside the buy sheet", () => {
+    setup({ mobile: true });
+    expect(screen.getByText("raffle-card")).toBeInTheDocument();
   });
 
   it("states the ownerless facts", () => {

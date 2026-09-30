@@ -72,7 +72,11 @@ export default {
         gradientTaupe: 'hsl(var(--gradient-taupe))',
         gradientBlush: 'hsl(var(--gradient-blush))',
         gradientDusty: 'hsl(var(--gradient-dusty))',
-        'pastel-rose': 'hsl(var(--pastel-rose))',
+        'pastel-rose': {
+          DEFAULT: 'hsl(var(--pastel-rose))',
+          foreground: 'hsl(var(--pastel-rose-foreground))',
+        },
+        raffle: 'hsl(var(--raffle))',
         'fabric-red': 'hsl(var(--fabric-red))',
       },
       borderRadius: {
@@ -105,8 +109,16 @@ export default {
           from: { opacity: 1, transform: 'translateY(0)' },
           to: { opacity: 0, transform: 'translateY(-8px)' },
         },
+        // Activity ticker: the row's content is rendered twice, so sliding by
+        // half its width lands exactly where it started — a seamless loop.
+        ticker: {
+          from: { transform: 'translateX(0)' },
+          to: { transform: 'translateX(-50%)' },
+        },
       },
       animation: {
+        // Duration is set per row inline, from its item count.
+        ticker: 'ticker 60s linear infinite',
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
         'collapsible-down': 'collapsible-down 0.3s ease-out',

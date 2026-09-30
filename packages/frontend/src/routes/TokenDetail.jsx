@@ -1,13 +1,10 @@
 // src/routes/TokenDetail.jsx
 //
-// One launched token, per the approved launchpad design: identity, live
-// valuation, supply sold, trades, and the buy panel. Desktop puts the panel in
-// a sticky side column; mobile opens the same panel in the existing Sheet from
-// a bar above the bottom nav.
-//
-// Everything here is composed from existing primitives. Two parts of the
-// design are deliberately absent until confirmed and built: the price chart
-// (a new component, and it needs trade history) and the raffle card (Phase 2).
+// One launched token, per the approved launchpad design: identity and raffle
+// badge, the FDV price chart, supply sold, trades, the buy panel and the raffle
+// card. Desktop puts the panel and raffle card in a sticky side column; mobile
+// opens the same panel in the existing Sheet from a bar above the bottom nav,
+// and the raffle card stays in the page.
 
 import { useState } from "react";
 import PropTypes from "prop-types";
@@ -25,11 +22,15 @@ import TokenArt from "@/components/launchpad/TokenArt";
 import BuyPanel from "@/components/launchpad/BuyPanel";
 import SupplySold from "@/components/launchpad/SupplySold";
 import LaunchTrades from "@/components/launchpad/LaunchTrades";
+import PriceChart from "@/components/launchpad/PriceChart";
+import RaffleBadge from "@/components/launchpad/RaffleBadge";
+import RaffleCard from "@/components/launchpad/RaffleCard";
 import { usePlatform } from "@/hooks/usePlatform";
 import { useTokenLaunch } from "@/hooks/useTokenLaunches";
 import { useLaunchMarkets } from "@/hooks/useLaunchMarkets";
+import { useTokenSeasons } from "@/hooks/useLaunchActivity";
 import { shortAddress } from "@/lib/format";
-import { formatAge, formatFdvEth, formatMultiple, formatPriceGwei } from "@/lib/launchFormat";
+import { formatAge } from "@/lib/launchFormat";
 
 const Fact = ({ label, children }) => (
   <div className="flex justify-between gap-4 text-sm">
@@ -53,6 +54,7 @@ const TokenDetail = () => {
   const { data: launch, isLoading, isAvailable } = useTokenLaunch(valid ? address : undefined);
   const { markets } = useLaunchMarkets(launch ? [launch] : [], { enabled: Boolean(launch) });
   const market = launch ? markets[launch.token.toLowerCase()] : undefined;
+  const { data: seasons } = useTokenSeasons(launch?.token);
 
   const [copied, setCopied] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -124,6 +126,7 @@ const TokenDetail = () => {
               <div className="flex items-baseline gap-3 flex-wrap">
                 <h1 className="text-3xl font-semibold tracking-tight">{launch.name}</h1>
                 <span className="font-mono text-muted-foreground">${launch.symbol}</span>
+                <RaffleBadge raffle={seasons?.featured} className="self-center" />
               </div>
               <div className="flex items-center gap-3 flex-wrap text-sm text-muted-foreground">
                 <Button
@@ -148,28 +151,7 @@ const TokenDetail = () => {
             </div>
           </section>
 
-          <section className="space-y-1">
-            <div className="text-sm text-muted-foreground">{t("detail.fdvLabel")}</div>
-            {market ? (
-              <>
-                <div className="text-5xl font-semibold tracking-tight text-heading">
-                  {formatFdvEth(market.fdvWei, 2)} <span className="text-2xl text-muted-foreground">ETH</span>
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  <span className="font-semibold text-fabric-red">
-                    {t("detail.sinceLaunch", {
-                      multiple: formatMultiple(market.multiple),
-                      launchFdv: formatFdvEth(market.launchFdvWei, 2),
-                    })}
-                  </span>
-                  {" · "}
-                  {t("detail.pricePerToken", { price: formatPriceGwei(market.priceWei) })}
-                </div>
-              </>
-            ) : (
-              <Skeleton className="h-12 w-64" />
-            )}
-          </section>
+          <PriceChart token={launch.token} market={market} />
 
           {market ? (
             <SupplySold market={market} totalSupply={launch.totalSupply} symbol={launch.symbol} />
@@ -180,6 +162,7 @@ const TokenDetail = () => {
 
         <aside className="space-y-4 lg:sticky lg:top-4">
           {compact ? null : panel}
+          <RaffleCard token={launch.token} symbol={launch.symbol} market={market} />
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">{t("detail.factsTitle")}</CardTitle>

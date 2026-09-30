@@ -324,6 +324,13 @@ const UIGym = () => {
                 <Badge variant="statusDanger">Danger</Badge>
               </Subsection>
 
+              <Subsection title="Badge Raffle (launchpad)">
+                <Badge variant="raffleLive">Raffle live</Badge>
+                <Badge variant="raffleSoon">Opens in 2h</Badge>
+                <Badge variant="raffleSoon">Drawing</Badge>
+                <Badge variant="raffleEnded">Raffle ended</Badge>
+              </Subsection>
+
               <Subsection title="Avatar">
                 <Avatar>
                   <AvatarImage src="https://github.com/shadcn.png" />

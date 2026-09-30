@@ -107,3 +107,20 @@ export function formatPercent(f) {
   const pct = f * 100;
   return pct < 10 ? pct.toFixed(1) : pct.toFixed(0);
 }
+
+/**
+ * Time until a unix-seconds timestamp, as a short label: the two largest units.
+ * @param {bigint | number | null | undefined} unixSeconds
+ * @param {number} [nowMs=Date.now()]
+ * @returns {string} e.g. "2d 4h", "2h 10m", "9m", "0m" once it has passed
+ */
+export function formatTimeLeft(unixSeconds, nowMs = Date.now()) {
+  if (unixSeconds == null) return '—';
+  const seconds = Math.max(0, Math.floor(Number(unixSeconds) - nowMs / 1000));
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (days > 0) return hours ? `${days}d ${hours}h` : `${days}d`;
+  if (hours > 0) return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
+  return `${minutes}m`;
+}

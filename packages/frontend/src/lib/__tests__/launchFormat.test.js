@@ -6,6 +6,7 @@ import {
   formatAge,
   formatMultiple,
   formatPercent,
+  formatTimeLeft,
 } from "@/lib/launchFormat";
 
 describe("formatFdvEth", () => {
@@ -86,5 +87,26 @@ describe("formatPercent", () => {
   });
   it("renders unusable input as a dash", () => {
     expect(formatPercent(undefined)).toBe("—");
+  });
+});
+
+describe("formatTimeLeft", () => {
+  const NOW_MS = 1_700_000_000_000;
+  const at = (sec) => NOW_MS / 1000 + sec;
+
+  it("shows the two largest units", () => {
+    expect(formatTimeLeft(at(2 * 86400 + 4 * 3600 + 11 * 60), NOW_MS)).toBe("2d 4h");
+    expect(formatTimeLeft(at(2 * 3600 + 10 * 60), NOW_MS)).toBe("2h 10m");
+    expect(formatTimeLeft(at(9 * 60 + 30), NOW_MS)).toBe("9m");
+  });
+
+  it("drops a zero second unit", () => {
+    expect(formatTimeLeft(at(3 * 86400), NOW_MS)).toBe("3d");
+    expect(formatTimeLeft(at(2 * 3600), NOW_MS)).toBe("2h");
+  });
+
+  it("floors at 0m once the time has passed, and dashes a missing time", () => {
+    expect(formatTimeLeft(at(-60), NOW_MS)).toBe("0m");
+    expect(formatTimeLeft(null, NOW_MS)).toBe("—");
   });
 });
