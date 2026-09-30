@@ -224,6 +224,12 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
         return _launchIdPlusOne[token] != 0;
     }
 
+    /// @notice Who launched `token`; zero if `token` was not launched here.
+    function creatorOf(address token) external view returns (address) {
+        uint256 stored = _launchIdPlusOne[token];
+        return stored == 0 ? address(0) : _launches[stored - 1].creator;
+    }
+
     /// @notice The placer holding `token`'s position; zero if `token` was not launched here.
     /// @dev Where a token's pool is looked up. Not `placer`: that is only where the next
     ///      launch goes, and may have been replaced since this token launched.

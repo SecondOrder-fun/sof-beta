@@ -56,18 +56,20 @@ contract LaunchpadDeployWiringTest is Test {
         assertTrue(addrs.liquidityPlacer != address(0), "placer deployed");
 
         TokenLaunchpad launchpad = TokenLaunchpad(addrs.tokenLaunchpad);
-        UniV4LiquidityPlacer placer = UniV4LiquidityPlacer(addrs.liquidityPlacer);
+        UniV4LiquidityPlacer placer = UniV4LiquidityPlacer(payable(addrs.liquidityPlacer));
 
         // Both halves of the circular dependency.
         assertEq(address(launchpad.placer()), addrs.liquidityPlacer, "launchpad points at the placer");
         assertEq(placer.launchpad(), addrs.tokenLaunchpad, "placer points back at the launchpad");
         assertEq(address(placer.poolManager()), addrs.poolManager);
+        // LP fees cannot be collected without somewhere to send the platform's share.
+        assertTrue(placer.feeTreasury() != address(0), "fee treasury set");
     }
 
     function test_deployerHoldsTheAdminRolesOnBoth() public {
         DeployedAddresses memory addrs = _runLocalLaunchpadDeploy();
         TokenLaunchpad launchpad = TokenLaunchpad(addrs.tokenLaunchpad);
-        UniV4LiquidityPlacer placer = UniV4LiquidityPlacer(addrs.liquidityPlacer);
+        UniV4LiquidityPlacer placer = UniV4LiquidityPlacer(payable(addrs.liquidityPlacer));
 
         assertTrue(launchpad.hasRole(launchpad.CONFIG_ROLE(), deployer));
         assertTrue(launchpad.hasRole(launchpad.EMERGENCY_ROLE(), deployer));
@@ -193,7 +195,7 @@ contract LaunchpadDeployWiringTest is Test {
         addrs = new DeployLiquidityPlacer().run(addrs);
 
         assertEq(addrs.poolManager, bootstrap.poolManager, "env address was used");
-        assertEq(address(UniV4LiquidityPlacer(addrs.liquidityPlacer).poolManager()), bootstrap.poolManager);
+        assertEq(address(UniV4LiquidityPlacer(payable(addrs.liquidityPlacer)).poolManager()), bootstrap.poolManager);
     }
 
     function test_placerStepRefusesToRunBeforeTheLaunchpad() public {

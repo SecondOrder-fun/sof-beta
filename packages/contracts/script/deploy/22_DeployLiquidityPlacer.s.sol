@@ -79,6 +79,11 @@ contract DeployLiquidityPlacer is Script {
         require(address(gate) == expectedGate, "LiquidityPlacer: gate landed at an unexpected address");
         placer.setGate(address(gate));
 
+        // The platform's 12% of collected LP fees. TREASURY_ADDRESS, as step 16c uses;
+        // the deployer when unset (local).
+        address feeTreasury = vm.envOr("TREASURY_ADDRESS", admin);
+        placer.setFeeTreasury(feeTreasury);
+
         vm.stopBroadcast();
 
         addrs.launchPoolGate = address(gate);
@@ -90,6 +95,7 @@ contract DeployLiquidityPlacer is Script {
         console2.log("  fee / tickSpacing / rangeWidth:", POOL_FEE, uint256(int256(TICK_SPACING)));
         console2.log("  wired into TokenLaunchpad:", addrs.tokenLaunchpad);
         console2.log("LaunchPoolGate:", address(gate));
+        console2.log("  LP fee treasury (12%):", feeTreasury);
 
         return addrs;
     }
