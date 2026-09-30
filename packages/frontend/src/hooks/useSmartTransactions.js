@@ -87,11 +87,6 @@ async function normalizeBatchResult(result) {
   return txHash;
 }
 
-/**
- * SOF fee rate charged per sponsored transaction batch (0.05%).
- * Transferred to treasury as the first call in every ERC-5792 batch.
- */
-
 export function invalidateUltraFreshTouching(queryClient, callTargets) {
   if (!Array.isArray(callTargets) || callTargets.length === 0) return;
   const targetsLower = callTargets.map((t) => String(t).toLowerCase());

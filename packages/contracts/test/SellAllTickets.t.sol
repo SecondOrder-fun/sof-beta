@@ -104,6 +104,7 @@ contract SellAllTicketsTest is Test {
         sof.mint(deployer, 10_000_000 ether);
         address mockCoordinator = address(0x1);
         raffle = new Raffle(mockCoordinator, 0, bytes32(0));
+        raffle.setQuoteTokenAllowed(address(sof), true);
         factory = new MockSeasonFactory_SellAll(address(sof));
         raffle.setSeasonFactory(address(factory));
     }

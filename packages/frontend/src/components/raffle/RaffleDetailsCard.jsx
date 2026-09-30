@@ -33,7 +33,7 @@ const RaffleDetailsCard = ({ seasonId }) => {
     useRaffle(seasonId);
   // Priced in the season's own quote token, not a platform-wide one.
   const { quoteToken: seasonQuoteToken } = useSeasonQuoteToken(
-    seasonDetails?.bondingCurve
+    seasonDetails?.curveAddress
   );
   const { balance: sofBalance } = useQuoteToken(seasonQuoteToken);
   const { isVerified, hasGates, refetchVerified } = useSeasonGating(seasonId);

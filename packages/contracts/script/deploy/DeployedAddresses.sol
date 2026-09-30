@@ -26,5 +26,6 @@ struct DeployedAddresses {
     address poolManager;
     address tokenLaunchpad;
     address liquidityPlacer;
+    address launchPoolGate;
     address launchRouter;
 }

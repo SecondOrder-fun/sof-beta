@@ -13,9 +13,14 @@ import {Position} from "@uniswap/v4-core/src/libraries/Position.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
-import {UniV4LiquidityPlacer, OnlyLaunchpad, ZeroAmount} from "../src/launchpad/UniV4LiquidityPlacer.sol";
+import {
+    UniV4LiquidityPlacer, OnlyLaunchpad, ZeroAmount, GateNotSet, InvalidGate
+} from "../src/launchpad/UniV4LiquidityPlacer.sol";
+import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
+import {LaunchPoolGate} from "../src/launchpad/LaunchPoolGate.sol";
 import {TokenLaunchpad} from "../src/launchpad/TokenLaunchpad.sol";
 import {LaunchToken} from "../src/launchpad/LaunchToken.sol";
+import {LaunchPoolGateDeployer} from "./helpers/LaunchPoolGateDeployer.sol";
 
 /// @notice The v4 placement path against a REAL PoolManager, not a mock.
 ///
@@ -23,7 +28,7 @@ import {LaunchToken} from "../src/launchpad/LaunchToken.sol";
 ///         pool initialises, that the position is genuinely single-sided, that we owe no
 ///         ETH, that the tokens actually land in the pool — is a property of v4's own
 ///         accounting. So this deploys PoolManager itself.
-contract UniV4LiquidityPlacerTest is Test {
+contract UniV4LiquidityPlacerTest is Test, LaunchPoolGateDeployer {
     using StateLibrary for IPoolManager;
 
     PoolManager internal manager;
@@ -55,6 +60,7 @@ contract UniV4LiquidityPlacerTest is Test {
             address(manager), address(launchpad), admin, FEE, SPACING, RANGE_WIDTH
         );
         launchpad.setPlacer(address(placer));
+        placer.setGate(_deployGate(address(placer)));
     }
 
     function _launch(uint256 startPriceWei) internal returns (address token) {
@@ -296,6 +302,82 @@ contract UniV4LiquidityPlacerTest is Test {
         assertTrue(placer.poolIdOf(a) != placer.poolIdOf(b), "distinct pools");
         assertGt(IERC20(a).balanceOf(address(manager)), 0);
         assertGt(IERC20(b).balanceOf(address(manager)), 0);
+    }
+
+    // ------------------------------------------------------------------
+    // Pool-initialization gate (anti-DoS)
+    // ------------------------------------------------------------------
+
+    /// The attack the gate exists for: the next token's address is predictable, so an
+    /// attacker initializes its pool first. With the gate in the key they cannot.
+    function test_attackerCannotPreinitializeTheNextLaunchPool() public {
+        address nextToken = vm.computeCreateAddress(address(launchpad), vm.getNonce(address(launchpad)));
+        PoolKey memory key = PoolKey({
+            currency0: Currency.wrap(address(0)),
+            currency1: Currency.wrap(nextToken),
+            fee: FEE,
+            tickSpacing: SPACING,
+            hooks: placer.gate()
+        });
+        vm.prank(address(0xBAD));
+        vm.expectRevert();
+        manager.initialize(key, TickMath.getSqrtPriceAtTick(0));
+
+        address token = _launch(PRICE);
+        assertEq(token, nextToken, "the launch lands on the predicted address and succeeds");
+    }
+
+    /// Initializing the hookless key an older placer would have used no longer blocks anything.
+    function test_preinitializingTheHooklessPoolDoesNotBlockLaunches() public {
+        address nextToken = vm.computeCreateAddress(address(launchpad), vm.getNonce(address(launchpad)));
+        PoolKey memory hookless = PoolKey({
+            currency0: Currency.wrap(address(0)),
+            currency1: Currency.wrap(nextToken),
+            fee: FEE,
+            tickSpacing: SPACING,
+            hooks: IHooks(address(0))
+        });
+        vm.prank(address(0xBAD));
+        manager.initialize(hookless, TickMath.getSqrtPriceAtTick(0));
+
+        assertEq(_launch(PRICE), nextToken);
+    }
+
+    function test_launchPoolsAreKeyedWithTheGate() public {
+        address token = _launch(PRICE);
+        assertEq(address(placer.getPlacement(token).key.hooks), address(placer.gate()));
+    }
+
+    function test_placeRevertsUntilAGateIsSet() public {
+        UniV4LiquidityPlacer fresh = new UniV4LiquidityPlacer(
+            address(manager), address(launchpad), admin, FEE, SPACING, RANGE_WIDTH
+        );
+        launchpad.setPlacer(address(fresh));
+        vm.prank(creator);
+        vm.expectRevert(GateNotSet.selector);
+        launchpad.launch("Launched", "LNCH", "ipfs://m", PRICE);
+    }
+
+    function test_setGateRejectsAnAddressWithoutExactlyTheInitializeBit() public {
+        // A gate for this placer, but at an ordinary CREATE address: its low bits are
+        // arbitrary, so v4 would not call it (or would call the wrong hooks).
+        LaunchPoolGate plain = new LaunchPoolGate(address(placer));
+        if (uint160(address(plain)) & uint160((1 << 14) - 1) == uint160(1 << 13)) return; // 1-in-16384 fluke
+        vm.expectRevert(abi.encodeWithSelector(InvalidGate.selector, address(plain)));
+        placer.setGate(address(plain));
+    }
+
+    function test_setGateRejectsAGateForAnotherPlacer() public {
+        address foreign = _deployGate(address(0xF00D));
+        vm.expectRevert(abi.encodeWithSelector(InvalidGate.selector, foreign));
+        placer.setGate(foreign);
+    }
+
+    function test_onlyConfigRoleCanSetTheGate() public {
+        address gate = _deployGate(address(placer));
+        vm.prank(address(0xBAD));
+        vm.expectRevert();
+        placer.setGate(gate);
     }
 
     function test_onlyConfigRoleCanSetPoolParams() public {

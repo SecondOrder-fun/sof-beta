@@ -129,6 +129,7 @@ contract EdgeCasesTest is Test {
 
         address mockCoordinator = address(0xCAFE);
         raffle = new RaffleEdgeCaseHarness(mockCoordinator, 0, bytes32(0));
+        raffle.setQuoteTokenAllowed(address(sof), true);
 
         factory = new SeasonFactory(address(raffle));
         raffle.setSeasonFactory(address(factory));

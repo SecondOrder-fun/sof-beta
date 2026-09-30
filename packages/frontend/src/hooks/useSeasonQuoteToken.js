@@ -13,34 +13,31 @@ import { SOFBondingCurveAbi } from '@/utils/abis';
  * what a buy will actually spend.
  *
  * The value is immutable for the life of a curve (it is an `immutable` in the
- * contract), so this is cached indefinitely.
+ * contract), so a successful read is cached indefinitely. A failed read is NOT:
+ * it throws, react-query retries, and `quoteToken` stays undefined until a read
+ * succeeds — callers must not build an approve against an undefined token.
  *
  * @param {`0x${string}` | undefined} bondingCurveAddress
- * @returns {{ quoteToken: `0x${string}` | undefined, isLoading: boolean }}
+ * @returns {{ quoteToken: `0x${string}` | undefined, isLoading: boolean, isError: boolean }}
  */
 export function useSeasonQuoteToken(bondingCurveAddress) {
   const publicClient = usePublicClient();
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['seasonQuoteToken', bondingCurveAddress],
-    queryFn: async () => {
-      if (!bondingCurveAddress || !publicClient) return null;
-      try {
-        return await publicClient.readContract({
-          address: bondingCurveAddress,
-          abi: SOFBondingCurveAbi,
-          functionName: 'quoteToken',
-        });
-      } catch {
-        return null;
-      }
-    },
+    queryFn: () =>
+      publicClient.readContract({
+        address: bondingCurveAddress,
+        abi: SOFBondingCurveAbi,
+        functionName: 'quoteToken',
+      }),
     enabled: Boolean(bondingCurveAddress && publicClient),
     staleTime: Infinity,
     gcTime: Infinity,
+    retry: 3,
   });
 
-  return { quoteToken: data ?? undefined, isLoading };
+  return { quoteToken: data ?? undefined, isLoading, isError };
 }
 
 export default useSeasonQuoteToken;

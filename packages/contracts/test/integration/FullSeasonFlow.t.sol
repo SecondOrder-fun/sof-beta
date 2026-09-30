@@ -71,6 +71,7 @@ contract FullSeasonFlowTest is Test {
             1, // subscriptionId
             bytes32(0) // keyHash
         );
+        raffle.setQuoteTokenAllowed(address(sof), true);
 
         // Deploy SeasonFactory (needs raffle address)
         seasonFactory = new SeasonFactory(address(raffle));

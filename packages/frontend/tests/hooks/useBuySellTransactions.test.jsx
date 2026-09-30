@@ -26,11 +26,9 @@ vi.mock("@/services/onchainRolloverEscrow", () => ({
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (k) => k }) }));
 
 // Quote token is read off the curve on-chain; stub it for unit tests.
+const mockQuoteTokenState = { quoteToken: "0x1111111111111111111111111111111111111111", isLoading: false };
 vi.mock("@/hooks/useSeasonQuoteToken", () => ({
-  useSeasonQuoteToken: () => ({
-    quoteToken: "0x1111111111111111111111111111111111111111",
-    isLoading: false,
-  }),
+  useSeasonQuoteToken: () => mockQuoteTokenState,
 }));
 
 import { useBuySellTransactions } from "@/hooks/buysell/useBuySellTransactions";
@@ -79,6 +77,28 @@ describe("useBuySellTransactions.buyMutation — call building", () => {
     expect(calls).toHaveLength(2);
     expect(calls[0].to).toBe(ADDR_SOF);
     expect(calls[1].to).toBe(ADDR_CURVE);
+  });
+
+  it("refuses to build a buy while the season's quote token is unresolved", async () => {
+    const saved = mockQuoteTokenState.quoteToken;
+    mockQuoteTokenState.quoteToken = undefined;
+    try {
+      const result = setup();
+      await expect(
+        act(() =>
+          result.current.buyMutation.mutateAsync({
+            tokenAmount: 1n,
+            maxSofAmount: ONE_SOF,
+            slippagePct: "1",
+            rolloverSeasonId: null,
+            rolloverAmount: 0n,
+          }),
+        ),
+      ).rejects.toThrow("transactions:quoteTokenLoading");
+      expect(mockExecuteBatch).not.toHaveBeenCalled();
+    } finally {
+      mockQuoteTokenState.quoteToken = saved;
+    }
   });
 
   it("submits rollover-only batch when rolloverAmount covers the full buy", async () => {

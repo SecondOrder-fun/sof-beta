@@ -69,6 +69,7 @@ contract RaffleTest is Test {
         // Deploy Raffle with mock VRF coordinator (non-zero address)
         address mockCoordinator = address(0x1);
         raffle = new Raffle(mockCoordinator, 0, bytes32(0));
+        raffle.setQuoteTokenAllowed(address(sof), true);
 
         // Deploy and set a mock season factory that creates token/curve and wires raffle callbacks
         factory = new MockSeasonFactory(address(sof));

@@ -3,7 +3,9 @@ pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {Raffle, InvalidQuoteToken, QuoteTokenDecimals, QuoteTokenDecimalsUnavailable} from "../src/core/Raffle.sol";
+import {
+    Raffle, InvalidQuoteToken, QuoteTokenDecimals, QuoteTokenDecimalsUnavailable, QuoteTokenNotAllowed
+} from "../src/core/Raffle.sol";
 import {MockUSDC} from "../src/test-helpers/MockUSDC.sol";
 import {SeasonFactory} from "../src/core/SeasonFactory.sol";
 import {SOFBondingCurve} from "../src/curve/SOFBondingCurve.sol";
@@ -22,8 +24,8 @@ contract QuoteToken18 is ERC20 {
 ///         `SeasonConfig.quoteToken`, not in one protocol-wide token.
 ///
 ///         This is the Phase 0 groundwork for the launchpad, where every launched token
-///         denominates its own raffle seasons. Until every caller supplies one, a zero
-///         `quoteToken` falls back to the Raffle's default so existing callers keep working.
+///         denominates its own raffle seasons. A zero `quoteToken` reverts, and a non-zero
+///         one must be a launch token or on the Raffle's admin allowlist.
 contract SeasonQuoteTokenTest is Test {
     MockERC20 public defaultToken;
     QuoteToken18 public launchToken;
@@ -41,6 +43,10 @@ contract SeasonQuoteTokenTest is Test {
         seasonFactory = new SeasonFactory(address(raffle));
         raffle.setSeasonFactory(address(seasonFactory));
         raffle.grantRole(raffle.SEASON_FACTORY_ROLE(), address(seasonFactory));
+        // Allowlisted so these tests exercise the checks after the allowlist; the gate
+        // itself is tested at the bottom of this file.
+        raffle.setQuoteTokenAllowed(address(defaultToken), true);
+        raffle.setQuoteTokenAllowed(address(launchToken), true);
     }
 
     function _createSeason(address quoteToken) internal returns (uint256 id, SOFBondingCurve curve) {
@@ -117,6 +123,7 @@ contract SeasonQuoteTokenTest is Test {
     /// rather than silently mispricing everything downstream by 1e12.
     function test_nonEighteenDecimalQuoteTokenReverts() public {
         MockUSDC usdc = new MockUSDC(); // 6 decimals
+        raffle.setQuoteTokenAllowed(address(usdc), true);
         vm.expectRevert(abi.encodeWithSelector(QuoteTokenDecimals.selector, address(usdc), uint8(6)));
         _createSeason(address(usdc));
     }
@@ -125,8 +132,64 @@ contract SeasonQuoteTokenTest is Test {
     /// Assuming 18 in that case would be the same silent mispricing, so it must revert.
     function test_quoteTokenWithoutDecimalsReverts() public {
         address noMetadata = address(new NoDecimalsToken());
+        raffle.setQuoteTokenAllowed(noMetadata, true);
         vm.expectRevert(abi.encodeWithSelector(QuoteTokenDecimalsUnavailable.selector, noMetadata));
         _createSeason(noMetadata);
+    }
+
+    // ------------------------------------------------------------------
+    // Which tokens may price a season
+    // ------------------------------------------------------------------
+
+    function _cfgFor(address quoteToken)
+        internal
+        view
+        returns (RaffleTypes.SeasonConfig memory cfg, RaffleTypes.BondStep[] memory steps)
+    {
+        steps = new RaffleTypes.BondStep[](1);
+        steps[0] = RaffleTypes.BondStep({rangeTo: 10_000, price: 1 ether});
+        cfg.name = "Gated Season";
+        cfg.startTime = block.timestamp + 1;
+        cfg.endTime = block.timestamp + 1 days;
+        cfg.winnerCount = 1;
+        cfg.grandPrizeBps = 6500;
+        cfg.treasuryAddress = treasury;
+        cfg.quoteToken = quoteToken;
+    }
+
+    function test_arbitraryTokenIsRejected() public {
+        MockERC20 random = new MockERC20("Random", "RND", 0);
+        (RaffleTypes.SeasonConfig memory cfg, RaffleTypes.BondStep[] memory steps) = _cfgFor(address(random));
+        vm.expectRevert(abi.encodeWithSelector(QuoteTokenNotAllowed.selector, address(random)));
+        raffle.createSeason(cfg, steps, 0, 0);
+    }
+
+    function test_launchTokensAreAcceptedWithoutAllowlisting() public {
+        raffle.setQuoteTokenAllowed(address(launchToken), false);
+        MockLaunchRegistry registry = new MockLaunchRegistry();
+        registry.setLaunched(address(launchToken));
+        raffle.setLaunchpad(address(registry));
+        assertTrue(raffle.isAllowedQuoteToken(address(launchToken)));
+
+        (RaffleTypes.SeasonConfig memory cfg, RaffleTypes.BondStep[] memory steps) = _cfgFor(address(launchToken));
+        raffle.createSeason(cfg, steps, 0, 0);
+    }
+
+    function test_removingATokenFromTheAllowlistBlocksNewSeasons() public {
+        raffle.setQuoteTokenAllowed(address(defaultToken), true);
+        raffle.setQuoteTokenAllowed(address(defaultToken), false);
+        (RaffleTypes.SeasonConfig memory cfg, RaffleTypes.BondStep[] memory steps) = _cfgFor(address(defaultToken));
+        vm.expectRevert(abi.encodeWithSelector(QuoteTokenNotAllowed.selector, address(defaultToken)));
+        raffle.createSeason(cfg, steps, 0, 0);
+    }
+
+    function test_onlyAdminManagesQuoteTokens() public {
+        vm.startPrank(address(0xBAD));
+        vm.expectRevert();
+        raffle.setQuoteTokenAllowed(address(defaultToken), true);
+        vm.expectRevert();
+        raffle.setLaunchpad(address(0x1234));
+        vm.stopPrank();
     }
 }
 
@@ -138,5 +201,14 @@ contract NoDecimalsToken {
 
     function balanceOf(address) external pure returns (uint256) {
         return 0;
+    }
+}
+
+/// @dev Stands in for TokenLaunchpad: the one view Raffle calls on it.
+contract MockLaunchRegistry {
+    mapping(address => bool) public isLaunchToken;
+
+    function setLaunched(address token) external {
+        isLaunchToken[token] = true;
     }
 }

@@ -201,6 +201,7 @@ export function useRaffle(seasonId) {
       if (!isConnected || !seasonDetails?.curveAddress) {
         throw new Error('Wallet not connected or curve not configured');
       }
+      if (!seasonQuoteToken) throw new Error('Season quote token not loaded yet');
 
       setError('');
 

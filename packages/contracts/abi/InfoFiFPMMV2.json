@@ -8,11 +8,6 @@
         "internalType": "address"
       },
       {
-        "name": "_collateralToken",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
         "name": "_treasury",
         "type": "address",
         "internalType": "address"
@@ -53,26 +48,13 @@
   },
   {
     "type": "function",
-    "name": "INITIAL_FUNDING",
+    "name": "MIN_FUNDING",
     "inputs": [],
     "outputs": [
       {
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "collateralToken",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "contract IERC20"
       }
     ],
     "stateMutability": "view"
@@ -111,6 +93,16 @@
       },
       {
         "name": "probabilityBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "collateral",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "funding",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -562,6 +554,17 @@
         "name": "neededRole",
         "type": "bytes32",
         "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "FundingTooSmall",
+    "inputs": [
+      {
+        "name": "funding",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ]
   },
