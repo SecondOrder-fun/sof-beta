@@ -16,33 +16,62 @@ const lc = (v) => String(v).toLowerCase();
 
 const SEASON_COLUMNS =
   "season_id, name, status, start_time, end_time, total_participants, total_tickets, " +
-  "total_prize_pool, quote_token_address, winner_address, bonding_curve_address, created_at, updated_at";
+  "total_prize_pool, grand_prize_bps, quote_token_address, winner_address, bonding_curve_address, " +
+  "created_at, updated_at";
+
+/** Most trades the chart reads for one request. */
+export const CHART_TRADE_CAP = 50_000;
+/** Rows per request while paging; PostgREST's default max-rows is 1,000. */
+export const CHART_PAGE_SIZE = 1_000;
 
 function fail(fn, error) {
   throw new Error(`launchpadActivityDb.${fn}: ${error.message}`);
 }
 
 /**
- * Trades on one token since `sinceIso`, for the chart. Returned oldest first,
- * but it is the NEWEST `limit` trades: a busy token past the limit loses its
- * oldest points in range, never the latest price.
+ * Every trade on one token since `sinceIso`, for the chart, oldest first.
+ *
+ * Pages newest-first by (block_number, log_index) keyset — stable while new
+ * trades land, unlike an offset — until the range is exhausted or `cap` is
+ * reached. Past the cap the OLDEST trades are the ones dropped, never the
+ * latest price, and `truncated` is set; `before` is then the newest trade
+ * left out, i.e. the price in force just before the first returned trade, so
+ * the chart can enter there instead of drawing a false jump from the launch
+ * price.
+ *
  * @param {string} token
  * @param {string | null} sinceIso  null = all history
- * @param {number} [limit=2000]
+ * @param {{ cap?: number, pageSize?: number }} [opts]
+ * @returns {Promise<{ trades: object[], truncated: boolean, before: object | null }>}
  */
-export async function listTradesSince(token, sinceIso, limit = 2000) {
-  if (!hasSupabase) return [];
-  let q = supabase
-    .from("launch_trades")
-    .select("price_wei, block_time, block_number, log_index")
-    .eq("token_address", lc(token))
-    .order("block_number", { ascending: false })
-    .order("log_index", { ascending: false })
-    .limit(limit);
-  if (sinceIso) q = q.gte("block_time", sinceIso);
-  const { data, error } = await q;
-  if (error) fail("listTradesSince", error);
-  return (data || []).reverse();
+export async function listTradesSince(token, sinceIso, { cap = CHART_TRADE_CAP, pageSize = CHART_PAGE_SIZE } = {}) {
+  if (!hasSupabase) return { trades: [], truncated: false, before: null };
+  const want = cap + 1; // one past the cap tells a full range from a truncated one
+  const rows = [];
+  while (rows.length < want) {
+    const take = Math.min(pageSize, want - rows.length);
+    let q = supabase
+      .from("launch_trades")
+      .select("price_wei, block_time, block_number, log_index")
+      .eq("token_address", lc(token));
+    if (sinceIso) q = q.gte("block_time", sinceIso);
+    const last = rows.at(-1);
+    if (last) {
+      q = q.or(
+        `block_number.lt.${last.block_number},and(block_number.eq.${last.block_number},log_index.lt.${last.log_index})`,
+      );
+    }
+    const { data, error } = await q
+      .order("block_number", { ascending: false })
+      .order("log_index", { ascending: false })
+      .limit(take);
+    if (error) fail("listTradesSince", error);
+    rows.push(...(data || []));
+    if (!data || data.length < take) break;
+  }
+  const truncated = rows.length > cap;
+  const before = truncated ? rows[cap] : null;
+  return { trades: rows.slice(0, cap).reverse(), truncated, before };
 }
 
 /**
@@ -57,6 +86,7 @@ export async function lastTradeBefore(token, sinceIso) {
     .eq("token_address", lc(token))
     .lt("block_time", sinceIso)
     .order("block_number", { ascending: false })
+    .order("log_index", { ascending: false })
     .limit(1)
     .maybeSingle();
   if (error && error.code !== "PGRST116") fail("lastTradeBefore", error);
@@ -98,13 +128,20 @@ export async function listSeasonsById(seasonIds) {
   return data || [];
 }
 
-/** Recent seasons of any status, for "opened" / "closing" / "won" items. */
+/**
+ * Recent seasons of any status, for "opened" / "closing" / "won" items.
+ * Ordered by the season's own schedule (end_time, then start_time, then id),
+ * never updated_at: every listener write bumps that, replays on restart
+ * included, which would reshuffle old seasons to the front.
+ */
 export async function listRecentSeasons(limit = 20) {
   if (!hasSupabase) return [];
   const { data, error } = await supabase
     .from("season_contracts")
     .select(SEASON_COLUMNS)
-    .order("updated_at", { ascending: false })
+    .order("end_time", { ascending: false, nullsFirst: false })
+    .order("start_time", { ascending: false, nullsFirst: false })
+    .order("season_id", { ascending: false })
     .limit(limit);
   if (error) fail("listRecentSeasons", error);
   return data || [];
@@ -137,6 +174,7 @@ export async function listRecentTrades(limit = 20) {
     .from("launch_trades")
     .select("tx_hash, log_index, token_address, trader, side, eth_amount, price_wei, block_time, block_number")
     .order("block_number", { ascending: false })
+    .order("log_index", { ascending: false })
     .limit(limit);
   if (error) fail("listRecentTrades", error);
   return data || [];

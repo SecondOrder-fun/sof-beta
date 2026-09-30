@@ -45,10 +45,19 @@ All pollers share one chain-head source: `startListeners` registers and starts a
 - The event's `placementId` **is** the Uniswap v4 PoolId, so `token_launches.pool_id`
   is the key `launchTradeListener` uses to attribute PoolManager `Swap` logs to a token.
 
-Because a missed launch is unrecoverable, `processTokenLaunchedLog` lets an insert failure
-**throw**: the poller tick fails before its cursor moves and the range is retried
-(`contractEventPolling` never advances past a range whose `onLogs` threw — tested). A boot
-scan that fails partway starts the live poller at the failed block (`resumeNoLaterThan`).
+Because a missed launch is unrecoverable, `processTokenLaunchedLog` lets a transient (or
+unknown) insert failure **throw**: the poller tick fails before its cursor moves and the
+range is retried (`contractEventPolling` never advances past a range whose `onLogs` threw —
+tested). A row that can **never** be stored — a Postgres data or constraint error, SQLSTATE
+class 22/23, which supabase-js surfaces as `error.code` — is logged at error level with its
+tx hash and skipped, since retrying it would block every later launch (and the trade
+listener) forever. `buildLaunchRow` makes the text storable first: U+0000 dropped (Postgres
+TEXT rejects it), name/symbol cut to the launchpad's 48/16 limits, and a metadata URI over
+2,048 characters dropped rather than cut. Boot scans (both launch listeners, via
+`src/lib/bootScanWindow.js`) hand the live poller `resumeNoLaterThan`: the block after the
+scanned head when the scan finished (so blocks mined during the scan are covered even with
+an empty cursor), the failed block when it failed partway, and the stored cursor — or the
+lookback window's start — when it failed before learning its window.
 `launchTradeListener` indexes launches through the same exported function, so whichever
 listener's insert wins broadcasts `TokenLaunched` — exactly once.
 
@@ -64,23 +73,30 @@ PoolManager's `Swap` event. Rules it depends on:
   `args` filter; a filter function returning `null` (or an empty list) means "nothing to
   watch" and skips the query — it never falls back to unfiltered (tested). The pool ids
   go out in batches of at most 100 (`args` may be a list of filters: one getLogs each,
-  merged in log order), so the OR-list stays within RPC limits as launches accumulate.
+  run in parallel, merged in log order), so the OR-list stays within RPC limits as
+  launches accumulate.
 - **Discover pools per block range.** The filter function receives the range about to be
   queried and reads that range's `TokenLaunched` events first (chunked, 2,000 blocks —
   the boot scan too), so a new token's first swaps are never skipped because the launch
-  indexer lagged a tick.
+  indexer lagged a tick. The span already read is tracked in memory, so a retried range
+  (or the part of the poller's first range the boot scan covered) is not read again. A
+  launch skipped as unstorable is not watched either — its trades could not be stored.
 - **`amount0 < 0` is a BUY, and `sender` is the router.** Pinned against a real swap by
   `contracts/test/UniV4LaunchRouter.t.sol:test_swapEventSignConvention_forTheIndexer`
   (IPoolManager's own comment reads as the opposite sign). The real trader comes from
   the router's `Bought`/`Sold` event in the same receipt, trusted only when the swap's
-  sender is a launch router (`TokenLaunchpad.router()`, re-read every 5 minutes, earlier
-  routers remembered) **and** emitted the event. Each Swap pairs with the router event
+  sender has been a launch router **and** emitted the event. The trusted set is built
+  from chain history, not memory, so it survives a restart: every
+  `TokenLaunchpad.RouterUpdated` (previous and current) from the launchpad's deploy block
+  (`LAUNCHPAD_DEPLOY_BLOCK`, optional) — else from the earlier of the lookback window and
+  the stored cursor — plus the current `router()`, and the history is read up to the
+  newest swap before each batch is attributed. Each Swap pairs with the router event
   that follows it in log order (a batched buy-then-sell attributes both), and a Bought
   only names a BUY, a Sold only a SELL.
-- **Never store a half-built row.** A failed block-time read, receipt read, router read
-  (before the first success) or trade insert throws, so the range is retried; a row
-  written with `block_time` NULL or the router as trader would never be repaired, since
-  the insert ignores duplicates. Blocks and receipts are fetched 4 at a time.
+- **Never store a half-built row.** A failed block-time read, receipt read, router-history
+  read or trade insert throws, so the range is retried; a row written with `block_time`
+  NULL or the router as trader would never be repaired, since the insert ignores
+  duplicates. Blocks and receipts are fetched 4 at a time.
 
 Seasons link to launch tokens through `season_contracts.quote_token_address`, and record
 their grand-prize `winner_address` (migration 024). The season listeners only send those
@@ -97,8 +113,17 @@ Shaping for all of them is pure, in `src/services/activityFeed.js`. Rules they s
 - **Raffle entries are scoped by bonding curve.** `season_id` restarts on a Raffle
   redeploy, so an entry counts for a season only if its `bonding_curve_address` matches
   the season's (migration 020).
-- The chart reads the **newest** 2,000 trades in range (returned oldest first), so a busy
-  token never loses its latest price.
+- The chart reads **every** trade in range, paged newest-first by
+  `(block_number, log_index)` keyset and returned oldest first, up to 50,000. Past that
+  the oldest are dropped (never the latest price), the response says `truncated: true`,
+  and the line enters at the newest trade left out instead of the launch price. Feeds
+  that order trades tie-break on `log_index` within a block.
+- **"won" items are dated by the season's `end_time`**, and recent seasons are ordered by
+  `end_time`/`start_time`, never `updated_at`: every listener write (replays on restart
+  included) bumps `updated_at`, which would resurface old wins as new. A won item carries
+  `grandPrize` = floor(`total_prize_pool` × `grand_prize_bps` / 10000) when both are
+  known; season summaries carry `grandPrizeBps`. Entry items have no `logIndex`
+  (`raffle_transactions` records none; it is unique on `tx_hash` + `season_id`).
 
 ### Error Handling
 - Return structured JSON: `reply.code(400).send({ error: "message" })`
