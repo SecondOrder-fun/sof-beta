@@ -201,7 +201,7 @@ contract UniV4LaunchRouter is ILaunchRouter, IUnlockCallback, ReentrancyGuard {
         if (!launchpad.isLaunchToken(token)) revert NotALaunchToken(token);
 
         UniV4LiquidityPlacer.Placement memory p;
-        try UniV4LiquidityPlacer(launchpad.placerOf(token)).getPlacement(token) returns (
+        try UniV4LiquidityPlacer(payable(launchpad.placerOf(token))).getPlacement(token) returns (
             UniV4LiquidityPlacer.Placement memory found
         ) {
             p = found;
