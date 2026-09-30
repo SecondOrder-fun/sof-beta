@@ -44,7 +44,7 @@ const STATUS = {
 // Per-event log processors
 // ---------------------------------------------------------------------------
 
-async function processSeasonCreated(log, raffleAddress, raffleAbi, logger, sseService) {
+export async function processSeasonCreated(log, raffleAddress, raffleAbi, logger, sseService) {
   const { seasonId, name, startTime, endTime, raffleToken, bondingCurve } = log.args;
   const seasonIdNum = Number(seasonId);
 
@@ -98,9 +98,12 @@ async function processSeasonCreated(log, raffleAddress, raffleAbi, logger, sseSe
       name: name ?? null,
       start_time: startTime != null ? Number(startTime) : null,
       end_time: endTime != null ? Number(endTime) : null,
-      winner_count: winnerCount,
-      grand_prize_bps: grandPrizeBps,
-      quote_token_address: quoteToken,
+      // Config fields only when the read produced them: on a replay, a failed
+      // read must not write null over values already stored. This also fills
+      // quote_token_address on rows written before migration 024.
+      ...(winnerCount != null ? { winner_count: winnerCount } : {}),
+      ...(grandPrizeBps != null ? { grand_prize_bps: grandPrizeBps } : {}),
+      ...(quoteToken ? { quote_token_address: quoteToken } : {}),
       status: finalStatus,
       total_participants: totalParticipants,
       total_tickets: totalTickets,

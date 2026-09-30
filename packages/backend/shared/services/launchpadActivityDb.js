@@ -23,7 +23,9 @@ function fail(fn, error) {
 }
 
 /**
- * Trades on one token since `sinceIso` (oldest first), for the chart.
+ * Trades on one token since `sinceIso`, for the chart. Returned oldest first,
+ * but it is the NEWEST `limit` trades: a busy token past the limit loses its
+ * oldest points in range, never the latest price.
  * @param {string} token
  * @param {string | null} sinceIso  null = all history
  * @param {number} [limit=2000]
@@ -34,13 +36,13 @@ export async function listTradesSince(token, sinceIso, limit = 2000) {
     .from("launch_trades")
     .select("price_wei, block_time, block_number, log_index")
     .eq("token_address", lc(token))
-    .order("block_number", { ascending: true })
-    .order("log_index", { ascending: true })
+    .order("block_number", { ascending: false })
+    .order("log_index", { ascending: false })
     .limit(limit);
   if (sinceIso) q = q.gte("block_time", sinceIso);
   const { data, error } = await q;
   if (error) fail("listTradesSince", error);
-  return data || [];
+  return (data || []).reverse();
 }
 
 /**
@@ -108,13 +110,20 @@ export async function listRecentSeasons(limit = 20) {
   return data || [];
 }
 
-/** Recent ticket purchases across every season. */
+/**
+ * Recent ticket purchases across every season, with the bonding curve each
+ * was made on. season_id restarts at 1 on a Raffle redeploy, so a row is only
+ * the season's if its curve matches (migration 020); buildRaffleActivity
+ * checks that. Rows with no curve predate the live deployment and are skipped
+ * here so they do not use up the limit.
+ */
 export async function listRecentEntries(limit = 20) {
   if (!hasSupabase) return [];
   const { data, error } = await supabase
     .from("raffle_transactions")
-    .select("season_id, user_address, ticket_amount, tx_hash, block_timestamp")
+    .select("season_id, user_address, ticket_amount, tx_hash, block_timestamp, bonding_curve_address")
     .eq("transaction_type", "BUY")
+    .not("bonding_curve_address", "is", null)
     .order("block_timestamp", { ascending: false })
     .limit(limit);
   if (error) fail("listRecentEntries", error);
@@ -157,6 +166,24 @@ export async function symbolsFor(tokens) {
   return Object.fromEntries((data || []).map((r) => [r.token_address, r.symbol]));
 }
 
+/**
+ * Which of `tokens` are hidden (token_launches.is_hidden), lowercase. Hiding is
+ * moderation: the public surfaces behave as though the token is not there, so
+ * its trades and the seasons priced in it are filtered out by the callers.
+ * @param {string[]} tokens
+ * @returns {Promise<Set<string>>}
+ */
+export async function hiddenTokens(tokens) {
+  if (!hasSupabase || !tokens?.length) return new Set();
+  const { data, error } = await supabase
+    .from("token_launches")
+    .select("token_address")
+    .eq("is_hidden", true)
+    .in("token_address", [...new Set(tokens.map(lc))]);
+  if (error) fail("hiddenTokens", error);
+  return new Set((data || []).map((r) => lc(r.token_address)));
+}
+
 export const launchpadActivityDb = {
   listTradesSince,
   lastTradeBefore,
@@ -168,4 +195,5 @@ export const launchpadActivityDb = {
   listRecentTrades,
   listRecentLaunches,
   symbolsFor,
+  hiddenTokens,
 };

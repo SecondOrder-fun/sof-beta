@@ -105,6 +105,32 @@ describe("buildTokenActivity", () => {
     expect(items[1].symbol).toBe("NEW");
   });
 
+  // One transaction can hold several trades, so txHash alone is not a key.
+  it("carries each trade's logIndex, and null for a launch", () => {
+    const items = buildTokenActivity({
+      trades: [
+        { side: "BUY", block_time: at(NOW - 10), token_address: "0xt", tx_hash: "0x1", log_index: 4 },
+        { side: "SELL", block_time: at(NOW - 11), token_address: "0xt", tx_hash: "0x1", log_index: 7 },
+      ],
+      launches: [{ launched_at: at(NOW - 20), token_address: "0xu", tx_hash: "0x3" }],
+      symbols: {},
+    });
+    expect(items.map((i) => [i.txHash, i.logIndex])).toEqual([["0x1", 4], ["0x1", 7], ["0x3", null]]);
+  });
+
+  it("drops trades and launches of hidden tokens", () => {
+    const items = buildTokenActivity({
+      trades: [
+        { side: "BUY", block_time: at(NOW - 10), token_address: "0xHID" },
+        { side: "BUY", block_time: at(NOW - 11), token_address: "0xok" },
+      ],
+      launches: [{ launched_at: at(NOW - 20), token_address: "0xhid" }],
+      symbols: {},
+      hidden: new Set(["0xhid"]),
+    });
+    expect(items.map((i) => i.token)).toEqual(["0xok"]);
+  });
+
   it("respects the limit", () => {
     const trades = Array.from({ length: 30 }, (_, i) => ({ side: "BUY", block_time: at(NOW - i), token_address: "0xt" }));
     expect(buildTokenActivity({ trades, launches: [], symbols: {}, limit: 5 })).toHaveLength(5);
@@ -112,15 +138,36 @@ describe("buildTokenActivity", () => {
 });
 
 describe("buildRaffleActivity", () => {
-  const live = { season_id: 3, name: "S3", status: 1, start_time: NOW - 3600, end_time: NOW + 86400, quote_token_address: "0xt", total_participants: "12" };
+  const CURVE = "0xCurveLive";
+  const live = { season_id: 3, name: "S3", status: 1, start_time: NOW - 3600, end_time: NOW + 86400, quote_token_address: "0xt", total_participants: "12", bonding_curve_address: CURVE.toLowerCase() };
+  const entry = (over = {}) => ({ season_id: 3, user_address: "0xa", ticket_amount: "40", block_timestamp: at(NOW - 5), tx_hash: "0x1", bonding_curve_address: CURVE, ...over });
 
   it("labels entries with their season and its token symbol", () => {
+    const items = buildRaffleActivity({ entries: [entry()], seasons: [live], symbols: { "0xt": "POND" }, nowSec: NOW });
+    const e = items.find((i) => i.kind === "entry");
+    expect(e).toMatchObject({ who: "0xa", tickets: "40", seasonId: 3, symbol: "POND" });
+  });
+
+  // season_id restarts at 1 on a Raffle redeploy (migration 020): an old
+  // deployment's season 3 purchase must not show up as the live season 3's.
+  it("drops entries made on another deployment's curve, matching case-insensitively", () => {
     const items = buildRaffleActivity({
-      entries: [{ season_id: 3, user_address: "0xa", ticket_amount: "40", block_timestamp: at(NOW - 5), tx_hash: "0x1" }],
-      seasons: [live], symbols: { "0xt": "POND" }, nowSec: NOW,
+      entries: [
+        entry({ tx_hash: "0xold", bonding_curve_address: "0xCurveOld" }),
+        entry({ tx_hash: "0xnull", bonding_curve_address: null }),
+        entry({ tx_hash: "0xlive", bonding_curve_address: CURVE.toUpperCase().replace("0X", "0x") }),
+      ],
+      seasons: [live], symbols: {}, nowSec: NOW,
     });
-    const entry = items.find((i) => i.kind === "entry");
-    expect(entry).toMatchObject({ who: "0xa", tickets: "40", seasonId: 3, symbol: "POND" });
+    expect(items.filter((i) => i.kind === "entry").map((i) => i.txHash)).toEqual(["0xlive"]);
+  });
+
+  it("drops seasons priced in a hidden token, and their entries", () => {
+    const items = buildRaffleActivity({
+      entries: [entry()], seasons: [{ ...live, quote_token_address: "0xT" }], symbols: {},
+      hidden: new Set(["0xt"]), nowSec: NOW,
+    });
+    expect(items).toEqual([]);
   });
 
   it("announces a live season as opened", () => {

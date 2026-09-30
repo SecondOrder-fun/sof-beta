@@ -97,7 +97,7 @@ export default async function launchpadRoutes(fastify) {
     try {
       const [rows, total] = await Promise.all([
         tokenLaunchesDb.listTokenLaunches({ limit, offset, creator }),
-        tokenLaunchesDb.countTokenLaunches(),
+        tokenLaunchesDb.countTokenLaunches({ creator }),
       ]);
       return { launches: rows.map(toLaunchResponse), total, limit, offset };
     } catch (err) {
@@ -213,6 +213,7 @@ export default async function launchpadRoutes(fastify) {
    *
    * Every raffle season priced in this token, newest first, plus the one the
    * raffle card should lead with (live > drawing > upcoming > latest result).
+   * 404 for a hidden token, like the token and chart routes.
    */
   fastify.get("/tokens/:address/seasons", async (request, reply) => {
     const { address } = request.params;
@@ -220,7 +221,13 @@ export default async function launchpadRoutes(fastify) {
       return reply.code(400).send({ error: "invalid token address" });
     }
     try {
-      const seasons = await launchpadActivityDb.listSeasonsForToken(address);
+      const [hidden, seasons] = await Promise.all([
+        launchpadActivityDb.hiddenTokens([address]),
+        launchpadActivityDb.listSeasonsForToken(address),
+      ]);
+      if (hidden.size) {
+        return reply.code(404).send({ error: "token not found" });
+      }
       return { seasons: seasons.map(summarizeSeason), featured: pickRaffleForToken(seasons) };
     } catch (err) {
       request.log.error({ err, address }, "launchpad seasons failed");
@@ -232,7 +239,8 @@ export default async function launchpadRoutes(fastify) {
    * GET /api/launchpad/raffles?tokens=0x..,0x..
    *
    * The raffle badge for a page of token cards, in one request: token -> the
-   * season its badge shows. Tokens with no season are omitted.
+   * season its badge shows. Tokens with no season, and hidden tokens, are
+   * omitted.
    */
   fastify.get("/raffles", async (request, reply) => {
     const tokens = String(request.query?.tokens ?? "")
@@ -248,10 +256,14 @@ export default async function launchpadRoutes(fastify) {
     if (!tokens.length) return { raffles: {} };
 
     try {
-      const seasons = await launchpadActivityDb.listSeasonsForTokens(tokens);
+      const [hidden, seasons] = await Promise.all([
+        launchpadActivityDb.hiddenTokens(tokens),
+        launchpadActivityDb.listSeasonsForTokens(tokens),
+      ]);
       const byToken = new Map();
       for (const s of seasons) {
         const key = s.quote_token_address;
+        if (hidden.has(String(key).toLowerCase())) continue;
         if (!byToken.has(key)) byToken.set(key, []);
         byToken.get(key).push(s);
       }

@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { startContractEventPolling } from "../../src/lib/contractEventPolling.js";
+import {
+  getContractEventsInChunks,
+  startContractEventPolling,
+} from "../../src/lib/contractEventPolling.js";
 import {
   registerSharedHead,
   __resetSharedHeads,
@@ -110,6 +113,76 @@ describe("startContractEventPolling", () => {
     // blockCursor.set should have been called with the latest block
     expect(blockCursor.set).toHaveBeenCalledWith(100n);
 
+    await unwatch();
+  });
+
+  // A handler that could not store its logs throws. The tick must fail BEFORE
+  // the cursor moves, so the same range is fetched again next tick — not
+  // skipped with its events lost.
+  it("does not advance the cursor when onLogs throws, and retries the range", async () => {
+    const blockCursor = {
+      get: vi.fn().mockResolvedValue(50n),
+      set: vi.fn().mockResolvedValue(undefined),
+    };
+    mockClient.getContractEvents.mockResolvedValue([{ blockNumber: 60n, logIndex: 0 }]);
+    const onLogs = vi.fn().mockRejectedValueOnce(new Error("insert failed")).mockResolvedValue(undefined);
+    const onError = vi.fn();
+
+    const unwatch = await startContractEventPolling({
+      client: mockClient,
+      address: "0xABC",
+      abi: testAbi,
+      eventName: "TestEvent",
+      pollingIntervalMs: 1_000,
+      blockCursor,
+      onLogs,
+      onError,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: "insert failed" }));
+    expect(blockCursor.set).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    const froms = mockClient.getContractEvents.mock.calls.map((c) => c[0].fromBlock);
+    expect(froms).toEqual([51n, 51n]);
+    expect(onLogs).toHaveBeenCalledTimes(2);
+    expect(blockCursor.set).toHaveBeenCalledWith(100n);
+
+    await unwatch();
+  });
+
+  it("starts at resumeNoLaterThan when it is before the cursor", async () => {
+    const blockCursor = { get: vi.fn().mockResolvedValue(90n), set: vi.fn().mockResolvedValue(undefined) };
+    const unwatch = await startContractEventPolling({
+      client: mockClient,
+      address: "0xABC",
+      abi: testAbi,
+      eventName: "TestEvent",
+      pollingIntervalMs: 1_000,
+      blockCursor,
+      resumeNoLaterThan: 40n,
+      onLogs: vi.fn(),
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mockClient.getContractEvents.mock.calls[0][0].fromBlock).toBe(40n);
+    await unwatch();
+  });
+
+  it("ignores resumeNoLaterThan when the cursor is already earlier", async () => {
+    const blockCursor = { get: vi.fn().mockResolvedValue(30n), set: vi.fn().mockResolvedValue(undefined) };
+    const unwatch = await startContractEventPolling({
+      client: mockClient,
+      address: "0xABC",
+      abi: testAbi,
+      eventName: "TestEvent",
+      pollingIntervalMs: 1_000,
+      blockCursor,
+      resumeNoLaterThan: 40n,
+      onLogs: vi.fn(),
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mockClient.getContractEvents.mock.calls[0][0].fromBlock).toBe(31n);
     await unwatch();
   });
 
@@ -565,5 +638,100 @@ describe("startContractEventPolling — indexed-arg filter", () => {
     await unwatch();
     const persisted = blockCursor.set.mock.calls.map((c) => c[0]);
     expect(persisted).toContain(100n);
+  });
+});
+
+describe("indexed-arg filter lists (one query per filter)", () => {
+  let client;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    client = {
+      getBlockNumber: vi.fn().mockResolvedValue(100n),
+      getContractEvents: vi.fn(async ({ args }) =>
+        args.id[0] === "0xa"
+          ? [{ blockNumber: 70n, logIndex: 5 }]
+          : [{ blockNumber: 60n, logIndex: 1 }, { blockNumber: 70n, logIndex: 2 }],
+      ),
+    };
+  });
+
+  afterEach(() => {
+    __resetSharedHeads();
+    vi.useRealTimers();
+  });
+
+  // A pool-id OR-list grows with every launch; past a size an RPC rejects it.
+  // A list of filters splits it into several queries over the same range.
+  it("queries each filter in the list and merges the logs in chain order", async () => {
+    const onLogs = vi.fn();
+    const blockCursor = { get: vi.fn().mockResolvedValue(50n), set: vi.fn().mockResolvedValue(undefined) };
+    const unwatch = await startContractEventPolling({
+      client,
+      address: "0xPM",
+      abi: testAbi,
+      eventName: "TestEvent",
+      pollingIntervalMs: 1_000,
+      blockCursor,
+      args: async () => [{ id: ["0xa"] }, { id: ["0xb"] }],
+      onLogs,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(client.getContractEvents).toHaveBeenCalledTimes(2);
+    expect(client.getContractEvents.mock.calls.map((c) => c[0].args)).toEqual([{ id: ["0xa"] }, { id: ["0xb"] }]);
+    expect(onLogs).toHaveBeenCalledWith([
+      { blockNumber: 60n, logIndex: 1 },
+      { blockNumber: 70n, logIndex: 2 },
+      { blockNumber: 70n, logIndex: 5 },
+    ]);
+    await unwatch();
+  });
+
+  it("treats an empty filter list as nothing to watch, never an unfiltered query", async () => {
+    const blockCursor = { get: vi.fn().mockResolvedValue(50n), set: vi.fn().mockResolvedValue(undefined) };
+    const unwatch = await startContractEventPolling({
+      client,
+      address: "0xPM",
+      abi: testAbi,
+      eventName: "TestEvent",
+      pollingIntervalMs: 1_000,
+      blockCursor,
+      args: async () => [],
+      onLogs: vi.fn(),
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(client.getContractEvents).not.toHaveBeenCalled();
+    expect(blockCursor.set).toHaveBeenCalledWith(100n);
+    await unwatch();
+  });
+
+  it("getContractEventsInChunks queries every filter in every chunk", async () => {
+    const logs = await getContractEventsInChunks({
+      client,
+      address: "0xPM",
+      abi: testAbi,
+      eventName: "TestEvent",
+      args: [{ id: ["0xa"] }, { id: ["0xb"] }],
+      fromBlock: 0n,
+      toBlock: 2_500n,
+      maxBlockRange: 2_000n,
+    });
+    // two chunks x two filters
+    expect(client.getContractEvents).toHaveBeenCalledTimes(4);
+    expect(logs).toHaveLength(6);
+  });
+
+  it("getContractEventsInChunks never queries unfiltered for an empty filter list", async () => {
+    const logs = await getContractEventsInChunks({
+      client,
+      address: "0xPM",
+      abi: testAbi,
+      eventName: "TestEvent",
+      args: [],
+      fromBlock: 0n,
+      toBlock: 100n,
+    });
+    expect(logs).toEqual([]);
+    expect(client.getContractEvents).not.toHaveBeenCalled();
   });
 });

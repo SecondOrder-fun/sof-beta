@@ -129,17 +129,20 @@ export async function listTokenLaunches({
 
 /**
  * How many launches are indexed. Separate from the list so a page of 24 does
- * not have to fetch every row to show a total.
+ * not have to fetch every row to show a total. Takes the same filters as
+ * listTokenLaunches, so the total matches the list it pages.
  * @param {object} [options]
+ * @param {string} [options.creator] — count one creator's launches
  * @param {boolean} [options.includeHidden=false]
  */
-export async function countTokenLaunches({ includeHidden = false } = {}) {
+export async function countTokenLaunches({ creator, includeHidden = false } = {}) {
   if (!hasSupabase) return 0;
   let query = supabase.from(LAUNCHES).select("token_address", {
     count: "exact",
     head: true,
   });
   if (!includeHidden) query = query.eq("is_hidden", false);
+  if (creator) query = query.eq("creator_address", lc(creator));
   const { count, error } = await query;
   if (error) {
     throw new Error(`tokenLaunchesDb.countTokenLaunches: ${error.message}`);

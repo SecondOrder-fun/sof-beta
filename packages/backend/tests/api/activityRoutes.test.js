@@ -10,6 +10,7 @@ const db = {
   listRecentSeasons: vi.fn(async () => []),
   listSeasonsById: vi.fn(async () => []),
   symbolsFor: vi.fn(async () => ({})),
+  hiddenTokens: vi.fn(async () => new Set()),
 };
 vi.mock("../../shared/services/launchpadActivityDb.js", () => ({ launchpadActivityDb: db }));
 
@@ -47,14 +48,31 @@ describe("GET /api/activity", () => {
   // must still label it rather than drop it.
   it("fetches seasons that entries reference but the recent list missed", async () => {
     db.listRecentEntries.mockResolvedValueOnce([
-      { season_id: 1, user_address: "0xa", ticket_amount: "2", block_timestamp: iso(500), tx_hash: "0x9" },
+      { season_id: 1, user_address: "0xa", ticket_amount: "2", block_timestamp: iso(500), tx_hash: "0x9", bonding_curve_address: "0xc" },
     ]);
-    db.listSeasonsById.mockResolvedValueOnce([{ season_id: 1, status: 1, name: "Old" }]);
+    db.listSeasonsById.mockResolvedValueOnce([{ season_id: 1, status: 1, name: "Old", bonding_curve_address: "0xc" }]);
 
     const res = await app.inject({ method: "GET", url: "/api/activity" });
 
     expect(db.listSeasonsById).toHaveBeenCalledWith([1]);
     expect(res.json().raffles[0]).toMatchObject({ kind: "entry", seasonId: 1, seasonName: "Old" });
+  });
+
+  it("drops hidden tokens' trades and the seasons priced in them", async () => {
+    db.listRecentTrades.mockResolvedValueOnce([
+      { side: "BUY", block_time: iso(1000), trader: "0xa", token_address: "0xhid", tx_hash: "0x1", log_index: 0 },
+      { side: "BUY", block_time: iso(2000), trader: "0xa", token_address: "0xok", tx_hash: "0x2", log_index: 0 },
+    ]);
+    db.listRecentSeasons.mockResolvedValueOnce([
+      { season_id: 3, status: 1, start_time: Math.floor(Date.now() / 1000) - 60, quote_token_address: "0xhid" },
+    ]);
+    db.hiddenTokens.mockResolvedValueOnce(new Set(["0xhid"]));
+
+    const body = (await app.inject({ method: "GET", url: "/api/activity" })).json();
+
+    expect(db.hiddenTokens).toHaveBeenCalledWith(expect.arrayContaining(["0xhid", "0xok"]));
+    expect(body.tokens.map((t) => t.token)).toEqual(["0xok"]);
+    expect(body.raffles).toEqual([]);
   });
 
   it("does not look up seasons it already has", async () => {

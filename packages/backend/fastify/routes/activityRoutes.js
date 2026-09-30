@@ -34,14 +34,20 @@ export default async function activityRoutes(fastify) {
         ? [...recentSeasons, ...(await launchpadActivityDb.listSeasonsById(missing))]
         : recentSeasons;
 
-      const symbols = await launchpadActivityDb.symbolsFor([
+      const tokens = [
         ...trades.map((t) => t.token_address),
         ...seasons.map((s) => s.quote_token_address).filter(Boolean),
+      ];
+      // Hidden tokens drop out of both rows: their trades, and seasons priced
+      // in them. (Recent launches are already queried without them.)
+      const [symbols, hidden] = await Promise.all([
+        launchpadActivityDb.symbolsFor(tokens),
+        launchpadActivityDb.hiddenTokens(tokens),
       ]);
 
       return {
-        tokens: buildTokenActivity({ trades, launches, symbols, limit: ROW_LIMIT }),
-        raffles: buildRaffleActivity({ entries, seasons, symbols, nowSec, limit: ROW_LIMIT }),
+        tokens: buildTokenActivity({ trades, launches, symbols, hidden, limit: ROW_LIMIT }),
+        raffles: buildRaffleActivity({ entries, seasons, symbols, hidden, nowSec, limit: ROW_LIMIT }),
       };
     } catch (err) {
       request.log.error({ err }, "activity feed failed");

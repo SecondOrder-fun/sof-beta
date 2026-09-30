@@ -181,7 +181,7 @@ export async function settleInfoFiMarkets(seasonId, raffleAddress, raffleAbi, lo
  * @param {function} [onSeasonCompleted] - Callback when season completes (for listener cleanup)
  * @param {object} [sseService] - SSE channel service instance
  */
-async function processSeasonCompletedLog(
+export async function processSeasonCompletedLog(
   log,
   raffleAddress,
   raffleAbi,
@@ -222,8 +222,12 @@ async function processSeasonCompletedLog(
       const totalTickets = details?.[3];
       const totalPrizePool = details?.[4];
 
+      // Backfill the season's token on rows written before migration 024.
+      const quoteToken = details?.[0]?.quoteToken ? String(details[0].quoteToken).toLowerCase() : null;
+
       // Grand-prize winner, for the ticker and the ended raffle card. A read
-      // failure must not block the status write, so it degrades to null.
+      // failure must not block the status write, and must not write null over
+      // a winner stored by an earlier pass — so the field is only sent when read.
       let winnerAddress = null;
       try {
         const winners = await publicClient.readContract({
@@ -240,7 +244,8 @@ async function processSeasonCompletedLog(
       await db.updateSeasonStatus(seasonIdNum, {
         status: 5, // Completed
         is_active: false,
-        winner_address: winnerAddress,
+        ...(winnerAddress ? { winner_address: winnerAddress } : {}),
+        ...(quoteToken && !existing.quote_token_address ? { quote_token_address: quoteToken } : {}),
         total_participants: totalParticipants != null ? totalParticipants.toString() : '0',
         total_tickets: totalTickets != null ? totalTickets.toString() : '0',
         total_prize_pool: totalPrizePool != null ? totalPrizePool.toString() : '0',
