@@ -675,6 +675,11 @@
   },
   {
     "type": "error",
+    "name": "NotPoolManager",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "OnlyLaunchpad",
     "inputs": []
   },
