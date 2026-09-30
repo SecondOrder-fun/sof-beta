@@ -20,10 +20,18 @@
  * PoolId.unwrap), so indexing it here gives the trade listener the key it needs
  * to attribute PoolManager Swap logs to a token without a second lookup.
  *
+ * launchTradeListener indexes launches too (it must know a pool before the
+ * pool's first swaps are fetched). Both go through processTokenLaunchedLog, so
+ * whichever insert wins broadcasts TokenLaunched, and it is broadcast once.
+ *
  * Pattern mirrors accountCreatedListener.js:
  *   1. scan for missed historical events on boot
  *   2. start a polling watcher with a persistent block cursor
  *   3. process logs idempotently (insert-if-absent by token address)
+ *
+ * A launch that fails to index is never skipped: the live tick throws so the
+ * cursor stays put and the range is retried, and a failed boot scan starts the
+ * poller at the failed log's block.
  */
 
 import { TokenLaunchpadABI } from "@sof/contracts";
@@ -39,71 +47,81 @@ import { getSSEChannelService } from "../services/sseChannelService.js";
 import { buildLaunchRow } from "./buildLaunchRow.js";
 
 /**
- * Index one TokenLaunched log.
+ * Index one TokenLaunched log, broadcasting it when THIS call inserted the row.
+ *
+ * Throws when the row could not be stored, so the caller's range is retried:
+ * the event is the only source of the name and symbol.
+ *
+ * @param {object} log
+ * @param {bigint} totalSupply
+ * @param {object} logger
+ * @param {object} [sseService]  omit for history (no broadcast)
+ * @returns {Promise<boolean>} true if this call inserted the launch
  */
-async function processTokenLaunchedLog(log, totalSupply, logger, sseService) {
+export async function processTokenLaunchedLog(log, totalSupply, logger, sseService) {
+  let blockTimeSec;
   try {
-    let blockTimeSec;
-    try {
-      const block = await publicClient.getBlock({ blockNumber: log.blockNumber });
-      blockTimeSec = block?.timestamp;
-    } catch {
-      // A missing block timestamp is not worth dropping the launch over —
-      // buildLaunchRow falls back to now, which is close enough for ordering
-      // a feed that is being indexed live.
-      blockTimeSec = undefined;
-    }
-
-    const row = buildLaunchRow(log, totalSupply, blockTimeSec);
-    if (!row) {
-      logger.warn({ topics: log.topics }, "TokenLaunched log missing args — skipping");
-      return;
-    }
-
-    const inserted = await tokenLaunchesDb.insertTokenLaunch(row);
-    if (!inserted) {
-      logger.debug(`TokenLaunched already indexed: ${row.token_address}`);
-      return;
-    }
-
-    logger.info(
-      `🚀 TokenLaunched: ${row.symbol || "?"} (${row.token_address}) ` +
-        `by ${row.creator_address} at ${row.start_price_wei} wei/token ` +
-        `(block ${row.block_number})`,
-    );
-
-    if (sseService) {
-      sseService.broadcast("raffle", {
-        type: "TokenLaunched",
-        token: row.token_address,
-        creator: row.creator_address,
-        name: row.name,
-        symbol: row.symbol,
-        startPriceWei: row.start_price_wei,
-        impliedFdvWei: row.implied_fdv_wei,
-        blockNumber: row.block_number,
-        txHash: row.tx_hash,
-      });
-    }
-  } catch (error) {
-    logger.error(
-      `❌ Failed to index TokenLaunched for ${log?.args?.token}: ${error.message}`,
-    );
-    // Continue — a single bad launch must not stop the listener.
+    const block = await publicClient.getBlock({ blockNumber: log.blockNumber });
+    blockTimeSec = block?.timestamp;
+  } catch {
+    // A missing block timestamp is not worth dropping the launch over —
+    // buildLaunchRow falls back to now, which is close enough for ordering
+    // a feed that is being indexed live.
+    blockTimeSec = undefined;
   }
+
+  const row = buildLaunchRow(log, totalSupply, blockTimeSec);
+  if (!row) {
+    logger.warn({ topics: log.topics }, "TokenLaunched log missing args — skipping");
+    return false;
+  }
+
+  // insertTokenLaunch returns false for a row already there (including the
+  // lost side of a concurrent insert) and throws on a real failure.
+  const inserted = await tokenLaunchesDb.insertTokenLaunch(row);
+  if (!inserted) {
+    logger.debug(`TokenLaunched already indexed: ${row.token_address}`);
+    return false;
+  }
+
+  logger.info(
+    `🚀 TokenLaunched: ${row.symbol || "?"} (${row.token_address}) ` +
+      `by ${row.creator_address} at ${row.start_price_wei} wei/token ` +
+      `(block ${row.block_number})`,
+  );
+
+  if (sseService) {
+    sseService.broadcast("raffle", {
+      type: "TokenLaunched",
+      token: row.token_address,
+      creator: row.creator_address,
+      name: row.name,
+      symbol: row.symbol,
+      startPriceWei: row.start_price_wei,
+      impliedFdvWei: row.implied_fdv_wei,
+      blockNumber: row.block_number,
+      txHash: row.tx_hash,
+    });
+  }
+  return true;
 }
 
 /**
  * Backfill missed TokenLaunched events since `chain.lookbackBlocks`.
+ *
+ * @returns {Promise<bigint | undefined>} the block to resume from when the
+ *   scan did not finish (the failed log's block, or the scan's start when the
+ *   query itself failed); undefined when it did
  */
 async function scanHistoricalLaunches(launchpadAddress, totalSupply, logger) {
+  let fromBlock;
+  let failedAt;
   try {
     logger.info("🔍 Scanning for historical TokenLaunched events...");
     const currentBlock = await publicClient.getBlockNumber();
     const chain = getChainByKey(process.env.NETWORK);
     const lookbackBlocks = chain.lookbackBlocks;
-    const fromBlock =
-      currentBlock > lookbackBlocks ? currentBlock - lookbackBlocks : 0n;
+    fromBlock = currentBlock > lookbackBlocks ? currentBlock - lookbackBlocks : 0n;
 
     const logs = await getContractEventsInChunks({
       client: publicClient,
@@ -119,17 +137,20 @@ async function scanHistoricalLaunches(launchpadAddress, totalSupply, logger) {
     if (logs.length > 0) {
       logger.info(`   Found ${logs.length} historical TokenLaunched event(s)`);
       for (const log of logs) {
+        failedAt = log.blockNumber;
         // No SSE broadcast for historical events — clients aren't connected yet.
         await processTokenLaunchedLog(log, totalSupply, logger, undefined);
       }
     } else {
       logger.info("   No historical TokenLaunched events found");
     }
+    return undefined;
   } catch (error) {
     logger.error(
       `❌ Failed to scan historical TokenLaunched events: ${error.message}`,
     );
-    // Don't throw — continue with the real-time listener.
+    // Don't throw — the live poller starts at the failed point instead.
+    return failedAt ?? fromBlock;
   }
 }
 
@@ -154,7 +175,7 @@ export async function startTokenLaunchedListener(launchpadAddress, logger) {
 
   const sseService = getSSEChannelService(logger);
 
-  await scanHistoricalLaunches(launchpadAddress, totalSupply, logger);
+  const resumeFrom = await scanHistoricalLaunches(launchpadAddress, totalSupply, logger);
 
   const blockCursor = await createBlockCursor(
     `${launchpadAddress}:TokenLaunched`,
@@ -168,6 +189,8 @@ export async function startTokenLaunchedListener(launchpadAddress, logger) {
     pollingIntervalMs: 3_000,
     maxBlockRange: 2_000n,
     blockCursor,
+    resumeNoLaterThan: resumeFrom,
+    // A throw fails the tick before the cursor moves; the range is retried.
     onLogs: async (logs) => {
       for (const log of logs) {
         await processTokenLaunchedLog(log, totalSupply, logger, sseService);

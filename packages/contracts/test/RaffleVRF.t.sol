@@ -118,6 +118,7 @@ contract RaffleVRFTest is Test {
         sof.mint(player2, 10000 ether);
         address mockCoordinator = address(0xCAFE);
         raffle = new RaffleHarness(mockCoordinator, 0, bytes32(0));
+        raffle.setQuoteTokenAllowed(address(sof), true);
         // Wire SeasonFactory required by Raffle.createSeason
         SeasonFactory factory = new SeasonFactory(address(raffle));
         raffle.setSeasonFactory(address(factory));

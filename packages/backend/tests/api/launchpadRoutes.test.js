@@ -12,6 +12,7 @@ const listTradesSince = vi.fn(async () => []);
 const lastTradeBefore = vi.fn(async () => null);
 const listSeasonsForToken = vi.fn(async () => []);
 const listSeasonsForTokens = vi.fn(async () => []);
+const hiddenTokens = vi.fn(async () => new Set());
 
 vi.mock("../../shared/services/launchpadActivityDb.js", () => ({
   launchpadActivityDb: {
@@ -19,6 +20,7 @@ vi.mock("../../shared/services/launchpadActivityDb.js", () => ({
     lastTradeBefore: (...a) => lastTradeBefore(...a),
     listSeasonsForToken: (...a) => listSeasonsForToken(...a),
     listSeasonsForTokens: (...a) => listSeasonsForTokens(...a),
+    hiddenTokens: (...a) => hiddenTokens(...a),
   },
 }));
 
@@ -135,6 +137,12 @@ describe("GET /api/launchpad/tokens", () => {
     expect(listTokenLaunches).toHaveBeenCalledWith(
       expect.objectContaining({ creator: CREATOR }),
     );
+  });
+
+  // The total pages the filtered list, so it must be the filtered count.
+  it("counts with the same creator filter as the list", async () => {
+    await app.inject({ method: "GET", url: `/api/launchpad/tokens?creator=${CREATOR}` });
+    expect(countTokenLaunches).toHaveBeenCalledWith(expect.objectContaining({ creator: CREATOR }));
   });
 
   it("rejects a malformed creator address instead of querying with it", async () => {
@@ -313,6 +321,14 @@ describe("GET /api/launchpad/tokens/:address/seasons", () => {
     const res = await app.inject({ method: "GET", url: `/api/launchpad/tokens/${TOKEN}/seasons` });
     expect(res.json()).toEqual({ seasons: [], featured: null });
   });
+
+  it("404s a hidden token rather than listing its seasons", async () => {
+    hiddenTokens.mockResolvedValueOnce(new Set([TOKEN]));
+    listSeasonsForToken.mockResolvedValueOnce([{ season_id: 3, status: 1, quote_token_address: TOKEN }]);
+    const res = await app.inject({ method: "GET", url: `/api/launchpad/tokens/${TOKEN}/seasons` });
+    expect(res.statusCode).toBe(404);
+    expect(hiddenTokens).toHaveBeenCalledWith([TOKEN]);
+  });
 });
 
 describe("GET /api/launchpad/raffles", () => {
@@ -329,6 +345,16 @@ describe("GET /api/launchpad/raffles", () => {
     expect(listSeasonsForTokens).toHaveBeenCalledTimes(1);
     expect(res.json().raffles[TOKEN]).toMatchObject({ seasonId: 5, state: "live" });
     expect(res.json().raffles[OTHER]).toMatchObject({ state: "upcoming" });
+  });
+
+  it("omits hidden tokens", async () => {
+    hiddenTokens.mockResolvedValueOnce(new Set([OTHER]));
+    listSeasonsForTokens.mockResolvedValueOnce([
+      { season_id: 5, status: 1, quote_token_address: TOKEN },
+      { season_id: 2, status: 1, quote_token_address: OTHER },
+    ]);
+    const res = await app.inject({ method: "GET", url: `/api/launchpad/raffles?tokens=${TOKEN},${OTHER}` });
+    expect(Object.keys(res.json().raffles)).toEqual([TOKEN]);
   });
 
   it("answers an empty list without touching the database", async () => {

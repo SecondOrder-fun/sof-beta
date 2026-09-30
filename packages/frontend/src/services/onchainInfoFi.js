@@ -220,10 +220,6 @@ function getContracts(networkKey) {
       address: addrs.INFOFI_MARKET,
       abi: InfoFiMarketAbi,
     },
-    sof: {
-      address: addrs.SOF,
-      abi: ERC20Abi,
-    },
   };
 }
 
@@ -838,6 +834,31 @@ const fpmmBuyAbi = [
  * @param {string} [params.networkKey] - Network key
  * @returns {Promise<Array<{to: string, data: string}>>} Array of call objects for executeBatch
  */
+/**
+ * The ERC-20 a market is collateralised in. Each market uses its own season's
+ * quote token (the FPMM manager has no platform-wide collateral), so read it
+ * off the market rather than from the deployment config.
+ */
+async function readMarketCollateral(publicClient, fpmmAddress) {
+  const token = await publicClient.readContract({
+    address: fpmmAddress,
+    abi: [
+      {
+        type: "function",
+        name: "collateralToken",
+        inputs: [],
+        outputs: [{ name: "", type: "address" }],
+        stateMutability: "view",
+      },
+    ],
+    functionName: "collateralToken",
+  });
+  if (!token || token === "0x0000000000000000000000000000000000000000") {
+    throw new Error("Market collateral token unavailable");
+  }
+  return token;
+}
+
 export async function buildPlaceBetCalls({
   prediction,
   amount,
@@ -863,8 +884,7 @@ export async function buildPlaceBetCalls({
     transport: http(chain.rpcUrl),
   });
 
-  const addrs = getContractAddresses(networkKey);
-  if (!addrs.SOF) throw new Error("SOF address missing");
+  const collateral = await readMarketCollateral(publicClient, fpmmAddress);
 
   const parsed =
     typeof amount === "bigint" ? amount : parseUnits(String(amount ?? "0"), 18);
@@ -888,7 +908,7 @@ export async function buildPlaceBetCalls({
 
   // Check current allowance — include approve call only if needed
   const allowance = await publicClient.readContract({
-    address: addrs.SOF,
+    address: collateral,
     abi: ERC20Abi,
     functionName: "allowance",
     args: [getAddress(account), fpmmAddress],
@@ -896,7 +916,7 @@ export async function buildPlaceBetCalls({
 
   if ((allowance ?? 0n) < parsed) {
     calls.push({
-      to: addrs.SOF,
+      to: collateral,
       data: encodeFunctionData({
         abi: ERC20Abi,
         functionName: "approve",
@@ -984,8 +1004,6 @@ export async function buildRedeemPositionCall({
   const addrs = getContractAddresses(networkKey);
   if (!addrs.CONDITIONAL_TOKENS)
     throw new Error("CONDITIONAL_TOKENS address missing");
-  if (!addrs.SOF) throw new Error("SOF address missing");
-
   // Use provided FPMM address or look it up
   let fpmmAddress = providedFpmmAddress;
 
@@ -1037,6 +1055,8 @@ export async function buildRedeemPositionCall({
     functionName: "conditionId",
   });
 
+  const collateral = await readMarketCollateral(publicClient, fpmmAddress);
+
   // ConditionalTokens ABI for redeemPositions
   const conditionalTokensAbi = [
     {
@@ -1063,7 +1083,7 @@ export async function buildRedeemPositionCall({
       abi: conditionalTokensAbi,
       functionName: "redeemPositions",
       args: [
-        addrs.SOF, // collateralToken
+        collateral, // the market's own collateral (its season's quote token)
         "0x0000000000000000000000000000000000000000000000000000000000000000", // parentCollectionId (empty)
         conditionId, // conditionId
         indexSets, // indexSets [1, 2]

@@ -40,7 +40,9 @@ const NETWORKS = {
 // historical reasons in the deployments json shape that the frontend
 // and backend both consume.
 const CONTRACT_NAME_MAP = {
-  SOFToken: "SOFToken",
+  // 01_DeployQuoteToken's placeholder (local / Base Sepolia only). Where a real token is
+  // configured instead, QUOTE_TOKEN_ADDRESS supplies it below.
+  MockERC20: "QuoteToken",
   Raffle: "Raffle",
   SeasonFactory: "SeasonFactory",
   InfoFiPriceOracle: "InfoFiPriceOracle",
@@ -51,16 +53,15 @@ const CONTRACT_NAME_MAP = {
   InfoFiMarketFactory: "InfoFiFactory",
   InfoFiSettlement: "InfoFiSettlement",
   RafflePrizeDistributor: "PrizeDistributor",
-  SOFFaucet: "SOFFaucet",
   SOFSmartAccountFactory: "SOFSmartAccountFactory",
   SOFPaymaster: "Paymaster",
   RolloverEscrow: "RolloverEscrow",
-  SOFExchange: "SOFExchange",
   // Launchpad. PoolManager only appears as a CREATE on local — elsewhere it is the
   // pre-existing v4 singleton and comes through STATIC / POOL_MANAGER_ADDRESS.
   PoolManager: "PoolManager",
   TokenLaunchpad: "TokenLaunchpad",
   UniV4LiquidityPlacer: "LiquidityPlacer",
+  LaunchPoolGate: "LaunchPoolGate",
   UniV4LaunchRouter: "LaunchRouter",
 };
 
@@ -93,7 +94,7 @@ const STATIC = {
 
 // Canonical key order for human-readable diff stability
 const KEY_ORDER = [
-  "SOFToken",
+  "QuoteToken",
   "Raffle",
   "SeasonFactory",
   "SOFBondingCurve",
@@ -105,10 +106,8 @@ const KEY_ORDER = [
   "MarketTypeRegistry",
   "VRFCoordinator",
   "PrizeDistributor",
-  "SOFFaucet",
   "RaffleOracleAdapter",
   "SeasonGating",
-  "SOFExchange",
   "USDC",
   "SOFSmartAccountFactory",
   "Paymaster",
@@ -116,6 +115,7 @@ const KEY_ORDER = [
   "PoolManager",
   "TokenLaunchpad",
   "LiquidityPlacer",
+  "LaunchPoolGate",
   "LaunchRouter",
 ];
 
@@ -201,6 +201,11 @@ function main() {
     if (poolManager) contracts.PoolManager = poolManager;
     else console.warn("  WARN: no PoolManager for this network (launchpad launches will revert PlacerNotSet)");
   }
+
+  // A configured quote token (QUOTE_TOKEN_ADDRESS, required off local/Base Sepolia) is not
+  // a CREATE in the broadcast, so it comes from the same env the deploy read.
+  if (process.env.QUOTE_TOKEN_ADDRESS) contracts.QuoteToken = process.env.QUOTE_TOKEN_ADDRESS.trim();
+  if (!contracts.QuoteToken) console.warn("  WARN: no QuoteToken (set QUOTE_TOKEN_ADDRESS)");
 
   // Reorder for human-readable stability; warn on unmapped keys
   const ordered = {};

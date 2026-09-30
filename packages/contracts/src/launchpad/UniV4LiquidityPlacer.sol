@@ -13,6 +13,8 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
+import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
+import {LaunchPoolGate} from "./LaunchPoolGate.sol";
 import {ILiquidityPlacer} from "./ILiquidityPlacer.sol";
 
 error OnlyLaunchpad();
@@ -22,6 +24,8 @@ error StartPriceUnreachable(uint256 startPriceWei);
 error RangeWidthNotPositive();
 error PlacementWouldCostEth(int128 ethDelta);
 error LiquidityIsZero();
+error GateNotSet();
+error InvalidGate(address gate);
 
 /**
  * @title UniV4LiquidityPlacer
@@ -59,6 +63,14 @@ error LiquidityIsZero();
  *      the range parameters already live in config — and should be added only if there is
  *      a shape we actually want that one range cannot express.
  *
+ *      ## Who may initialize the pool
+ *
+ *      Every launch pool is keyed with `gate`, a `LaunchPoolGate` hook that lets only this
+ *      contract initialize it. Without it the pool key is predictable before the token
+ *      exists, and one pre-emptive `PoolManager.initialize` would make every later
+ *      `place()` revert `PoolAlreadyInitialized` — see `LaunchPoolGate`. `place()` refuses
+ *      to run until a gate is set.
+ *
  *      ## Dust
  *
  *      Liquidity is an integer, so flooring it leaves a token remainder of at most
@@ -86,6 +98,9 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
     ///         the token price can climb before the position is fully sold out.
     ///         ~46_050 ticks is roughly a 100x climb (1.0001**46050).
     int24 public rangeWidthTicks;
+    /// @notice The hook every launch pool is keyed with; only it lets this contract
+    ///         initialize a pool. Changing it affects future launches only.
+    IHooks public gate;
 
     struct Placement {
         PoolKey key;
@@ -106,6 +121,7 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         uint128 liquidity
     );
     event PoolParamsUpdated(uint24 fee, int24 tickSpacing, int24 rangeWidthTicks);
+    event GateUpdated(address indexed gate);
     event DustSwept(address indexed token, address indexed to, uint256 amount);
 
     /// @dev Encoded through `unlock` so the callback knows what to do.
@@ -151,6 +167,8 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         if (msg.sender != launchpad) revert OnlyLaunchpad();
         if (token == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
+        IHooks hooks = gate;
+        if (address(hooks) == address(0)) revert GateNotSet();
 
         int24 spacing = tickSpacing;
 
@@ -176,7 +194,7 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
             currency1: Currency.wrap(token),
             fee: fee,
             tickSpacing: spacing,
-            hooks: IHooks(address(0))
+            hooks: hooks
         });
 
         // Initialising exactly AT tickUpper is what makes the position single-sided: a
@@ -319,6 +337,16 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
     /// @notice Recover the rounding remainder described in the contract docs.
     /// @dev Only reachable for tokens this contract still holds a balance of, which after
     ///      a successful placement is dust by construction.
+    /// @notice Set the pool-initialization gate. It must be a `LaunchPoolGate` for this
+    ///         placer, deployed at an address whose hook bits are exactly before-initialize.
+    function setGate(address _gate) external onlyRole(CONFIG_ROLE) {
+        if (_gate == address(0)) revert ZeroAddress();
+        if (uint160(_gate) & Hooks.ALL_HOOK_MASK != Hooks.BEFORE_INITIALIZE_FLAG) revert InvalidGate(_gate);
+        if (LaunchPoolGate(_gate).placer() != address(this)) revert InvalidGate(_gate);
+        gate = IHooks(_gate);
+        emit GateUpdated(_gate);
+    }
+
     function sweepDust(address token, address to) external onlyRole(CONFIG_ROLE) {
         if (to == address(0)) revert ZeroAddress();
         uint256 balance = IERC20(token).balanceOf(address(this));

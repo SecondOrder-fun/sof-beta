@@ -26,6 +26,7 @@ contract SeasonFactoryRolloverTest is Test {
     function setUp() public {
         sof = new MockERC20("SecondOrder Fun Token", "SOF", 1_000_000 ether);
         raffle = new Raffle(address(0xCAFE), 1, bytes32(0));
+        raffle.setQuoteTokenAllowed(address(sof), true);
         seasonFactory = new SeasonFactory(address(raffle));
         raffle.setSeasonFactory(address(seasonFactory));
         raffle.grantRole(raffle.SEASON_FACTORY_ROLE(), address(seasonFactory));

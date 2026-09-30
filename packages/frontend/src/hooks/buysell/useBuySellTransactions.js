@@ -81,6 +81,14 @@ export function useBuySellTransactions(bondingCurveAddress, client) {
         );
       }
 
+      if (!quoteToken) {
+        throw new Error(
+          t("transactions:quoteTokenLoading", {
+            defaultValue: "The season's token is still loading. Try again in a moment.",
+          }),
+        );
+      }
+
       const cap = applyMaxSlippage(maxSofAmount, slippagePct);
       const hasRollover = rolloverSeasonId && rolloverAmount > 0n;
       const hasWalletTopup = hasRollover && walletTopupTickets > 0n;

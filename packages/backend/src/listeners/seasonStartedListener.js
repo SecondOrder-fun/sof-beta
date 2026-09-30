@@ -9,6 +9,27 @@ import { createBlockCursor } from "../lib/blockCursor.js";
 import { getSSEChannelService } from "../services/sseChannelService.js";
 
 /**
+ * Fill quote_token_address on a season row that lacks it (rows written before
+ * migration 024). Best effort: a failed read leaves the row as it was.
+ */
+async function backfillQuoteToken(seasonIdNum, raffleAddress, raffleAbi, logger) {
+  try {
+    const details = await publicClient.readContract({
+      address: raffleAddress,
+      abi: raffleAbi,
+      functionName: "getSeasonDetails",
+      args: [BigInt(seasonIdNum)],
+    });
+    const quoteToken = details?.[0]?.quoteToken;
+    if (!quoteToken) return;
+    await db.updateSeasonStatus(seasonIdNum, { quote_token_address: String(quoteToken).toLowerCase() });
+    logger.info(`[SEASON_STARTED_LISTENER] backfilled quote token for season ${seasonIdNum}`);
+  } catch (e) {
+    logger.warn(`[SEASON_STARTED_LISTENER] quote token backfill failed for season ${seasonIdNum}: ${e.message}`);
+  }
+}
+
+/**
  * Process a SeasonStarted event log
  * @param {object} log - Event log from Viem
  * @param {string} raffleAddress - Raffle contract address
@@ -17,7 +38,7 @@ import { getSSEChannelService } from "../services/sseChannelService.js";
  * @param {function} onSeasonCreated - Callback for new season
  * @param {object} sseService - SSE channel service instance
  */
-async function processSeasonStartedLog(
+export async function processSeasonStartedLog(
   log,
   raffleAddress,
   raffleAbi,
@@ -30,9 +51,13 @@ async function processSeasonStartedLog(
   try {
     // Skip only if the row is already at Active or beyond. seasonStatusListener
     // may have written a NotStarted (status=0) row from SeasonCreated; we still
-    // need to advance it to Active here.
+    // need to advance it to Active here. A skipped row still gets its quote
+    // token filled if it has none.
     const existing = await db.getSeasonContracts(Number(seasonId));
     if (existing && Number(existing.status ?? 0) >= 1) {
+      if (!existing.quote_token_address) {
+        await backfillQuoteToken(Number(seasonId), raffleAddress, raffleAbi, logger);
+      }
       logger.debug(`Season ${seasonId} already at status ${existing.status}, skipping`);
       return;
     }
@@ -79,8 +104,9 @@ async function processSeasonStartedLog(
       end_time: config.endTime != null ? Number(config.endTime) : null,
       winner_count: config.winnerCount != null ? Number(config.winnerCount) : null,
       grand_prize_bps: config.grandPrizeBps != null ? Number(config.grandPrizeBps) : null,
-      // The token this season is priced in — links the raffle to its launchpad token.
-      quote_token_address: config.quoteToken?.toLowerCase() ?? null,
+      // The token this season is priced in — links the raffle to its launchpad
+      // token. Omitted rather than null when absent, so it never clears one.
+      ...(config.quoteToken ? { quote_token_address: config.quoteToken.toLowerCase() } : {}),
       // On-chain status (SeasonStatus enum: 1 = Active)
       status: statusFromChain != null ? Number(statusFromChain) : 1,
       total_participants: totalParticipants != null ? totalParticipants.toString() : '0',

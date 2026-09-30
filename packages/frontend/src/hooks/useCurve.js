@@ -24,6 +24,7 @@ export function useCurve(bondingCurveAddress) {
    */
   const approveMutation = useMutation({
     mutationFn: async ({ amount }) => {
+      if (!quoteToken) throw new Error('Season quote token not loaded yet');
       return await executeBatch([{
         to: quoteToken,
         data: encodeFunctionData({

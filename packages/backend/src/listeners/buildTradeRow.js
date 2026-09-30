@@ -15,7 +15,8 @@
  *     always currency0 on a launch pool, so amount0 < 0 is a BUY. (IPoolManager's
  *     own doc comment reads as the opposite sign; the test pins behaviour.)
  *   - `sender` is whatever called PoolManager.swap — a router, not the trader.
- *     attributeTrader recovers the real account from the router's own event.
+ *     attributeTrader recovers the real account from the launch router's own
+ *     event, paired to the swap by log order.
  */
 
 import { decodeEventLog } from "viem";
@@ -67,35 +68,86 @@ export function buildTradeRow(log, { token, blockTimeSec, trader } = {}) {
 /**
  * Find who really traded, from the receipt of the swap's transaction.
  *
- * A router (the swap's `sender`) that emits Bought/Sold in the same transaction
- * names the account: the recipient of a buy, the payer of a sell. Only events
- * emitted BY the swap's sender count — any contract can emit a log with that
- * signature, so trusting one from elsewhere would let a third party relabel a
- * trade. Swaps through routers that emit nothing (another app, a direct
- * integration) keep the sender.
+ * The launch router (the swap's `sender`) emits Bought/Sold right after each
+ * swap it makes, naming the account: the recipient of a buy, the payer of a
+ * sell. That event is trusted only when ALL of these hold; otherwise this
+ * returns null and the row keeps the sender:
+ *
+ *   - the swap's sender is a known launch router (TokenLaunchpad.router()).
+ *     Any contract can call PoolManager.swap and emit a look-alike event about
+ *     itself; only our router's word counts.
+ *   - the event is emitted BY that sender. Any contract can emit a log with
+ *     the Bought signature into the same transaction.
+ *   - it is the event paired with THIS swap. One transaction can hold several
+ *     router swaps (a batched buy-then-sell). Walking the receipt in log order,
+ *     each router event pairs with the earliest unpaired Swap from that router
+ *     before it.
+ *   - it names this swap's token, and its kind matches the swap's side
+ *     (Bought for a BUY, Sold for a SELL).
  *
  * @param {object[]} receiptLogs  raw logs from the transaction receipt
- * @param {string} swapSender
- * @param {string} token
- * @param {import('viem').Abi} routerAbi
+ * @param {object} swapLog        the viem-decoded Swap log being attributed
+ * @param {object} ctx
+ * @param {string} ctx.token                  the launch token of the swap's pool
+ * @param {Iterable<string>} ctx.routers      trusted launch router addresses
+ * @param {string} ctx.poolManager            the v4 PoolManager (emitter of Swap)
+ * @param {import('viem').Abi} ctx.poolManagerAbi
+ * @param {import('viem').Abi} ctx.routerAbi
  * @returns {string | null}
  */
-export function attributeTrader(receiptLogs, swapSender, token, routerAbi) {
-  if (!receiptLogs || !swapSender) return null;
-  const sender = String(swapSender).toLowerCase();
-  const tokenLc = String(token).toLowerCase();
+export function attributeTrader(
+  receiptLogs,
+  swapLog,
+  { token, routers, poolManager, poolManagerAbi, routerAbi } = {},
+) {
+  const a = swapLog?.args;
+  if (!receiptLogs?.length || !a?.sender || a.amount0 == null || !poolManager) return null;
 
-  for (const raw of receiptLogs) {
-    if (String(raw.address).toLowerCase() !== sender) continue;
-    let ev;
-    try {
-      ev = decodeEventLog({ abi: routerAbi, data: raw.data, topics: raw.topics });
-    } catch {
-      continue; // not a router event
+  const sender = String(a.sender).toLowerCase();
+  const trusted = new Set([...(routers ?? [])].map((r) => String(r).toLowerCase()));
+  if (!trusted.has(sender)) return null;
+
+  const pm = String(poolManager).toLowerCase();
+  const swapIndex = Number(swapLog.logIndex);
+  const side = BigInt(a.amount0) < 0n ? "BUY" : "SELL";
+
+  const ordered = [...receiptLogs].sort((x, y) => Number(x.logIndex) - Number(y.logIndex));
+  const unpaired = []; // logIndex of this router's Swaps not yet followed by its event
+
+  for (const raw of ordered) {
+    const emitter = String(raw.address).toLowerCase();
+
+    if (emitter === pm) {
+      const swap = tryDecode(poolManagerAbi, raw, "Swap");
+      if (swap && String(swap.args.sender).toLowerCase() === sender) {
+        unpaired.push(Number(raw.logIndex));
+      }
+      continue;
     }
-    if (String(ev.args?.token ?? "").toLowerCase() !== tokenLc) continue;
-    if (ev.eventName === "Bought") return String(ev.args.recipient).toLowerCase();
-    if (ev.eventName === "Sold") return String(ev.args.payer).toLowerCase();
+    if (emitter !== sender) continue;
+
+    const ev = tryDecode(routerAbi, raw);
+    if (!ev || (ev.eventName !== "Bought" && ev.eventName !== "Sold")) continue;
+    if (unpaired.shift() !== swapIndex) continue; // another swap's event
+
+    // The event for our swap. It must agree with the swap, or it names nobody.
+    if (String(ev.args?.token ?? "").toLowerCase() !== String(token).toLowerCase()) return null;
+    if (ev.eventName === "Bought" && side === "BUY") return String(ev.args.recipient).toLowerCase();
+    if (ev.eventName === "Sold" && side === "SELL") return String(ev.args.payer).toLowerCase();
+    return null;
   }
   return null;
+}
+
+function tryDecode(abi, raw, eventName) {
+  try {
+    return decodeEventLog({
+      abi,
+      data: raw.data,
+      topics: raw.topics,
+      ...(eventName ? { eventName } : {}),
+    });
+  } catch {
+    return null;
+  }
 }

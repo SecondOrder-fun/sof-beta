@@ -126,11 +126,17 @@ export function pickRaffleForToken(seasons) {
  * @param {object[]} p.trades    launch_trades rows
  * @param {object[]} p.launches  token_launches rows
  * @param {Record<string, string>} p.symbols  token -> symbol
+ * @param {Set<string>} [p.hidden]  hidden tokens (lowercase); their items are dropped
  * @param {number} [p.limit=20]
+ *
+ * Every item carries `txHash` and `logIndex` (null for a launch, which is one
+ * per transaction), so a client can key items uniquely — one transaction can
+ * hold several trades.
  */
-export function buildTokenActivity({ trades, launches, symbols, limit = 20 }) {
+export function buildTokenActivity({ trades, launches, symbols, hidden = new Set(), limit = 20 }) {
+  const visible = (token) => !hidden.has(String(token).toLowerCase());
   const items = [
-    ...trades.map((t) => ({
+    ...trades.filter((t) => visible(t.token_address)).map((t) => ({
       kind: t.side === "BUY" ? "buy" : "sell",
       at: t.block_time,
       who: t.trader,
@@ -139,8 +145,9 @@ export function buildTokenActivity({ trades, launches, symbols, limit = 20 }) {
       ethAmount: t.eth_amount,
       priceWei: t.price_wei,
       txHash: t.tx_hash,
+      logIndex: t.log_index ?? null,
     })),
-    ...launches.map((l) => ({
+    ...launches.filter((l) => visible(l.token_address)).map((l) => ({
       kind: "launch",
       at: l.launched_at,
       who: l.creator_address,
@@ -148,6 +155,7 @@ export function buildTokenActivity({ trades, launches, symbols, limit = 20 }) {
       symbol: l.symbol ?? symbols[l.token_address] ?? null,
       fdvWei: l.implied_fdv_wei,
       txHash: l.tx_hash,
+      logIndex: null,
     })),
   ];
   return newestFirst(items).slice(0, limit);
@@ -159,11 +167,21 @@ export function buildTokenActivity({ trades, launches, symbols, limit = 20 }) {
  * @param {object[]} p.entries   raffle_transactions BUY rows
  * @param {object[]} p.seasons   season_contracts rows (every season the entries and events touch)
  * @param {Record<string, string>} p.symbols  token -> symbol, for seasons priced in launch tokens
+ * @param {Set<string>} [p.hidden]  hidden tokens (lowercase); seasons priced in one are dropped
  * @param {number} p.nowSec
  * @param {number} [p.limit=20]
+ *
+ * An entry counts only if its bonding_curve_address is its season's
+ * (case-insensitive). season_id restarts at 1 when the Raffle is redeployed,
+ * so the id alone would label an old deployment's purchase with a live season
+ * (migration 020).
  */
-export function buildRaffleActivity({ entries, seasons, symbols, nowSec, limit = 20 }) {
+export function buildRaffleActivity({ entries, seasons: allSeasons, symbols, hidden = new Set(), nowSec, limit = 20 }) {
+  const seasons = allSeasons.filter(
+    (s) => !s.quote_token_address || !hidden.has(String(s.quote_token_address).toLowerCase()),
+  );
   const byId = new Map(seasons.map((s) => [Number(s.season_id), s]));
+  const sameCurve = (a, b) => a != null && b != null && String(a).toLowerCase() === String(b).toLowerCase();
   const label = (s) => ({
     seasonId: Number(s.season_id),
     seasonName: s.name ?? null,
@@ -175,7 +193,7 @@ export function buildRaffleActivity({ entries, seasons, symbols, nowSec, limit =
 
   for (const e of entries) {
     const s = byId.get(Number(e.season_id));
-    if (!s) continue;
+    if (!s || !sameCurve(e.bonding_curve_address, s.bonding_curve_address)) continue;
     items.push({ kind: "entry", at: e.block_timestamp, who: e.user_address, tickets: String(e.ticket_amount), txHash: e.tx_hash, ...label(s) });
   }
 

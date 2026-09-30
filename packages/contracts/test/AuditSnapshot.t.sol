@@ -103,6 +103,7 @@ contract AuditSnapshotTest is Test {
         sof.mint(player3, 10000 ether);
         address mockCoordinator = address(0xCAFE);
         raffle = new AuditSnapshotHarness(mockCoordinator, 0, bytes32(0));
+        raffle.setQuoteTokenAllowed(address(sof), true);
         SeasonFactory factory = new SeasonFactory(address(raffle));
         raffle.setSeasonFactory(address(factory));
         raffle.grantRole(raffle.SEASON_FACTORY_ROLE(), address(factory));
