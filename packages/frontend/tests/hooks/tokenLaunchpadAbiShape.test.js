@@ -11,11 +11,12 @@ import { TokenLaunchpadAbi } from "@/utils/abis";
 describe("TokenLaunchpad ABI decode shapes", () => {
   const TOKEN = "0x1111111111111111111111111111111111111111";
   const CREATOR = "0x2222222222222222222222222222222222222222";
+  const PLACER = "0x3333333333333333333333333333333333333333";
 
   it("decodes getLaunch as an object with named fields", () => {
     const data = encodeAbiParameters(
-      parseAbiParameters("(address,address,uint64,uint256,bytes32)"),
-      [[TOKEN, CREATOR, 1700000000n, 1_000_000_000n, `0x${"ab".repeat(32)}`]],
+      parseAbiParameters("(address,address,uint64,uint256,bytes32,address)"),
+      [[TOKEN, CREATOR, 1700000000n, 1_000_000_000n, `0x${"ab".repeat(32)}`, PLACER]],
     );
 
     const record = decodeFunctionResult({
@@ -28,6 +29,7 @@ describe("TokenLaunchpad ABI decode shapes", () => {
     expect(record.creator.toLowerCase()).toBe(CREATOR);
     expect(record.launchedAt).toBe(1700000000n);
     expect(record.startPriceWei).toBe(1_000_000_000n);
+    expect(record.placer.toLowerCase()).toBe(PLACER);
   });
 
   it("decodes launchIdOf as a positional [id, exists] pair", () => {

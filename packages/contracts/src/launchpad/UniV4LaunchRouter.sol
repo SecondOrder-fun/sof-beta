@@ -15,6 +15,7 @@ import {UniV4LiquidityPlacer} from "./UniV4LiquidityPlacer.sol";
 
 interface ILaunchRegistry {
     function isLaunchToken(address token) external view returns (bool);
+    function placerOf(address token) external view returns (address);
 }
 
 error RouterZeroAddress();
@@ -34,7 +35,9 @@ error RefundFailed();
  * @dev Deliberately narrow. It routes only launchpad tokens, only through the one pool
  *      the placer made for each, and only exact-input — the shape the buy panel quotes.
  *      Callers pass a token address, never a PoolKey: the key is looked up from the
- *      placer, so a client cannot steer a trade into a pool of its choosing.
+ *      placer that placed that launch (`launchpad.placerOf`), so a client cannot steer a
+ *      trade into a pool of its choosing, and replacing the launchpad's placer does not
+ *      strand earlier launches. A launch whose placer is not a v4 placer reverts NoPool.
  *
  *      Partial fills are real. Each pool is a single concentrated range; a buy large
  *      enough to exhaust it (or a sell pushing back past launch) fills only in part.
@@ -49,7 +52,6 @@ contract UniV4LaunchRouter is ILaunchRouter, IUnlockCallback, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     IPoolManager public immutable poolManager;
-    UniV4LiquidityPlacer public immutable placer;
     ILaunchRegistry public immutable launchpad;
 
     uint8 private constant BUY = 1;
@@ -71,12 +73,9 @@ contract UniV4LaunchRouter is ILaunchRouter, IUnlockCallback, ReentrancyGuard {
         uint160 priceLimit;
     }
 
-    constructor(address _poolManager, address _placer, address _launchpad) {
-        if (_poolManager == address(0) || _placer == address(0) || _launchpad == address(0)) {
-            revert RouterZeroAddress();
-        }
+    constructor(address _poolManager, address _launchpad) {
+        if (_poolManager == address(0) || _launchpad == address(0)) revert RouterZeroAddress();
         poolManager = IPoolManager(_poolManager);
-        placer = UniV4LiquidityPlacer(_placer);
         launchpad = ILaunchRegistry(_launchpad);
     }
 
@@ -201,7 +200,14 @@ contract UniV4LaunchRouter is ILaunchRouter, IUnlockCallback, ReentrancyGuard {
         if (recipient == address(0)) revert RouterZeroAddress();
         if (!launchpad.isLaunchToken(token)) revert NotALaunchToken(token);
 
-        UniV4LiquidityPlacer.Placement memory p = placer.getPlacement(token);
+        UniV4LiquidityPlacer.Placement memory p;
+        try UniV4LiquidityPlacer(launchpad.placerOf(token)).getPlacement(token) returns (
+            UniV4LiquidityPlacer.Placement memory found
+        ) {
+            p = found;
+        } catch {
+            revert NoPool(token);
+        }
         key = p.key;
         if (Currency.unwrap(key.currency1) != token) revert NoPool(token);
         floor = TickMath.getSqrtPriceAtTick(p.tickLower);

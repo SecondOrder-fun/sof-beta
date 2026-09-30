@@ -57,7 +57,7 @@ contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
         placer = new UniV4LiquidityPlacer(address(manager), address(launchpad), address(this), 10_000, 200, 46_000);
         launchpad.setPlacer(address(placer));
         placer.setGate(_deployGate(address(placer)));
-        router = new UniV4LaunchRouter(address(manager), address(placer), address(launchpad));
+        router = new UniV4LaunchRouter(address(manager), address(launchpad));
         launchpad.setRouter(address(router));
 
         (, token) = launchpad.launch("Frog Pond", "POND", "", PRICE);
@@ -243,7 +243,7 @@ contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
 
     /// Switching implementations is one setter; zero turns in-app trading off.
     function test_routerCanBeSwitchedAndCleared() public {
-        UniV4LaunchRouter next = new UniV4LaunchRouter(address(manager), address(placer), address(launchpad));
+        UniV4LaunchRouter next = new UniV4LaunchRouter(address(manager), address(launchpad));
         launchpad.setRouter(address(next));
         assertEq(address(launchpad.router()), address(next));
 
@@ -253,6 +253,31 @@ contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
 
         launchpad.setRouter(address(0));
         assertEq(address(launchpad.router()), address(0));
+    }
+
+    // ------------------------------------------------------------------
+    // Replacing the placer
+    // ------------------------------------------------------------------
+
+    /// Swapping the launchpad's placer changes where NEW launches go. A token launched
+    /// under the old one keeps its pool, and the router must still find it there.
+    function test_launchesUnderAReplacedPlacerStayTradeable() public {
+        UniV4LiquidityPlacer next =
+            new UniV4LiquidityPlacer(address(manager), address(launchpad), address(this), 10_000, 200, 46_000);
+        next.setGate(_deployGate(address(next)));
+        launchpad.setPlacer(address(next));
+
+        assertEq(launchpad.placerOf(token), address(placer), "the old launch keeps its placer");
+        assertEq(_buy(0.1 ether, 0), FIXTURE_BUY1_OUT, "and still routes through it");
+
+        (, address newer) = launchpad.launch("Newer", "NEW", "", PRICE);
+        assertEq(launchpad.placerOf(newer), address(next));
+        vm.prank(buyer);
+        assertEq(router.buy{value: 0.1 ether}(newer, 0, buyer, block.timestamp), FIXTURE_BUY1_OUT);
+    }
+
+    function test_placerOfIsZeroForForeignTokens() public view {
+        assertEq(launchpad.placerOf(address(0xF00)), address(0));
     }
 
     function test_onlyConfigRoleCanSwitchRouter() public {

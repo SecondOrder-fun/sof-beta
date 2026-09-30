@@ -14,9 +14,10 @@ import {UniV4LaunchRouter} from "../../src/launchpad/UniV4LaunchRouter.sol";
  *      against ILaunchRouter. So this step is also how a router is REPLACED — deploy the
  *      new implementation, call `setRouter`, and every client follows on its next read.
  *
- *      Needs the placer (the router resolves each token's pool through it). Skips with a
- *      log when step 22 skipped for want of a PoolManager; the launchpad then advertises no
- *      router and the app shows trading as unavailable.
+ *      Needs a placer to have been set (the router resolves each token's pool through the
+ *      placer that launch recorded, `launchpad.placerOf`). Skips with a log when step 22
+ *      skipped for want of a PoolManager; the launchpad then advertises no router and the
+ *      app shows trading as unavailable.
  */
 contract DeployLaunchRouter is Script {
     function run(DeployedAddresses memory addrs) public returns (DeployedAddresses memory) {
@@ -27,7 +28,7 @@ contract DeployLaunchRouter is Script {
 
         vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
 
-        UniV4LaunchRouter router = new UniV4LaunchRouter(addrs.poolManager, addrs.liquidityPlacer, addrs.tokenLaunchpad);
+        UniV4LaunchRouter router = new UniV4LaunchRouter(addrs.poolManager, addrs.tokenLaunchpad);
         TokenLaunchpad(addrs.tokenLaunchpad).setRouter(address(router));
 
         vm.stopBroadcast();

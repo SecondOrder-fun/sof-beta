@@ -60,14 +60,16 @@ error. The raffle stack deploys independently of the launchpad.
 
 **Live pool state comes straight from Uniswap v4, not the indexer.**
 `useLaunchMarkets` reads each pool's slot0 and liquidity via `PoolManager.extsload`
-plus the placer's tick range, and `src/lib/v4PoolMath.js` turns that into price,
+plus the tick range from the placer that placed that launch (`TokenLaunchpad.placerOf`
+— never the deployment's `LiquidityPlacer`, which is only where new launches go), and `src/lib/v4PoolMath.js` turns that into price,
 FDV, multiple since launch, supply sold, and exact buy/sell quotes. There is no
 quoter contract in the stack. That math is pinned against a real `PoolManager`
 swap: `test_fixture_quoteMathForFrontend` in the contracts package emits the
 numbers `tests/lib/v4PoolMath.test.js` reproduces. If a contracts change moves
 them, re-run the fixture and update the constants — never loosen the tolerances.
-Two traps it encodes: at launch v4 reports **0 active liquidity** (the price sits
-exactly on the range edge), so quote with the position's liquidity; and range
+Two traps it encodes: out of range v4 reports **0 active liquidity** (at launch the
+price sits exactly on the upper edge; after a sell-out, on the lower one), so quote
+with the position's liquidity; and range
 edges must use the exact `TickMath` port, not a float, or a capped quote promises
 more than the whole supply.
 

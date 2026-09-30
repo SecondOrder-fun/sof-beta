@@ -127,6 +127,11 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
     mapping(uint256 => mapping(address => MarketCreationStatus)) public marketStatus;
     mapping(uint256 => mapping(address => string)) public marketFailureReason;
 
+    /// @dev seasonId => its quote token, once read. A season's quote token is fixed at
+    ///      creation, and `getSeasonDetails` returns the whole config (name string
+    ///      included), too costly to decode on every position update.
+    mapping(uint256 => address) private _seasonQuoteTokenCache;
+
     // ============ EVENTS ============
 
     /// @notice Emitted when a market is successfully created
@@ -670,15 +675,26 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
      * @return The season's quote token address
      */
     function getSeasonQuoteToken(uint256 seasonId) external view returns (address) {
-        return _seasonQuoteTokenOrZero(seasonId);
+        address cached = _seasonQuoteTokenCache[seasonId];
+        return cached != address(0) ? cached : _readSeasonQuoteToken(seasonId);
     }
 
     /**
-     * @notice Reads a season's quote token without reverting
+     * @notice A season's quote token without reverting, cached after the first read
+     * @dev Only a non-zero token is cached, so a season read before it exists is read
+     *      again next time rather than pinned to zero.
      * @param seasonId The season identifier
-     * @return The season's quote token, or the zero address if it has none
+     * @return token The season's quote token, or the zero address if it has none
      */
-    function _seasonQuoteTokenOrZero(uint256 seasonId) internal view returns (address) {
+    function _seasonQuoteTokenOrZero(uint256 seasonId) internal returns (address token) {
+        token = _seasonQuoteTokenCache[seasonId];
+        if (token != address(0)) return token;
+        token = _readSeasonQuoteToken(seasonId);
+        if (token != address(0)) _seasonQuoteTokenCache[seasonId] = token;
+    }
+
+    /// @dev The uncached read from the raffle.
+    function _readSeasonQuoteToken(uint256 seasonId) internal view returns (address) {
         (RaffleTypes.SeasonConfig memory config,,,,) = raffle.getSeasonDetails(seasonId);
         return config.quoteToken;
     }
@@ -688,7 +704,7 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
      * @param seasonId The season identifier
      * @return The season's quote token as an IERC20
      */
-    function _seasonQuoteToken(uint256 seasonId) internal view returns (IERC20) {
+    function _seasonQuoteToken(uint256 seasonId) internal returns (IERC20) {
         address quoteToken = _seasonQuoteTokenOrZero(seasonId);
         if (quoteToken == address(0)) revert QuoteTokenNotSet(seasonId);
         return IERC20(quoteToken);

@@ -18,13 +18,14 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import TokenCard from "@/components/launchpad/TokenCard";
 import TokensTable from "@/components/launchpad/TokensTable";
-import { useTokenLaunches } from "@/hooks/useTokenLaunches";
+import { LAUNCHES_PAGE_SIZE, useTokenLaunches } from "@/hooks/useTokenLaunches";
 import { useLaunchMarkets } from "@/hooks/useLaunchMarkets";
 import { SORTS, filterLaunches, sortLaunches } from "@/lib/launchSort";
 
 const TokensIndex = () => {
   const { t } = useTranslation("launchpad");
-  const { launches, total, isLoading, isAvailable } = useTokenLaunches();
+  const [limit, setLimit] = useState(LAUNCHES_PAGE_SIZE);
+  const { launches, total, hasMore, isLoading, isFetching, isAvailable } = useTokenLaunches({ limit });
   const { markets } = useLaunchMarkets(launches);
 
   const [sort, setSort] = useState("new");
@@ -156,6 +157,19 @@ const TokensIndex = () => {
             <TokensTable launches={visible} markets={markets} />
           </CardContent>
         </Card>
+      )}
+
+      {!isLoading && hasMore && (
+        <div className="flex justify-center">
+          <Button
+            type="button"
+            variant="outline"
+            disabled={isFetching}
+            onClick={() => setLimit((n) => n + LAUNCHES_PAGE_SIZE)}
+          >
+            {t("list.loadMore")}
+          </Button>
+        </div>
       )}
     </div>
   );

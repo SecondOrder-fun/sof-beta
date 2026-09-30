@@ -10,6 +10,13 @@ import {SOFSmartAccountFactory} from "../account/SOFSmartAccountFactory.sol";
 
 interface IRaffleCurveRegistry {
     function isSofCurve(address) external view returns (bool);
+    function isAllowedQuoteToken(address) external view returns (bool);
+    function launchpad() external view returns (address);
+}
+
+/// @dev The one launchpad view the paymaster needs: the router it currently advertises.
+interface ILaunchpadRouterView {
+    function router() external view returns (address);
 }
 
 /// @title SOFPaymaster
@@ -20,8 +27,12 @@ interface IRaffleCurveRegistry {
 ///           — proves the SMA is the deterministic CREATE2 product of our factory.
 ///        2. `userOp.callData` must be a call to `ERC7821.execute(bytes32, bytes)` in batch
 ///           mode (the only mode OZ ERC-7821 implements). Every `Execution.target` in the
-///           decoded `Execution[]` must be in the static allowlist OR registered as a SOF
-///           curve via `Raffle.isSofCurve(target)`.
+///           decoded `Execution[]` must be in the static allowlist, a SOF curve
+///           (`Raffle.isSofCurve`), a permitted quote token (`Raffle.isAllowedQuoteToken` —
+///           launch tokens plus the admin allowlist, so ticket and sell approvals are
+///           sponsored), or the Raffle's launchpad or the router it currently advertises.
+///           The launchpad and router are read live, so `setLaunchpad` / `setRouter` carry
+///           over without touching this contract.
 ///      Per spec §3.3 (`docs/superpowers/specs/2026-05-05-gasless-rewrite-design.md`).
 contract SOFPaymaster is IPaymaster, AccessControl {
     error NotEntryPoint();
@@ -141,11 +152,19 @@ contract SOFPaymaster is IPaymaster, AccessControl {
         }
     }
 
-    /// @dev Allow if the target is in the static allowlist or registered as a
-    ///      SOF curve. Otherwise revert with the offending target.
+    /// @dev Allow if the target is in the static allowlist, a SOF curve, a permitted quote
+    ///      token, or the launchpad / its advertised router. Otherwise revert with the
+    ///      offending target.
     function _checkTarget(address target) internal view {
         if (staticAllowlist[target]) return;
         if (raffle.isSofCurve(target)) return;
+        if (raffle.isAllowedQuoteToken(target)) return;
+        address launchpad = raffle.launchpad();
+        if (launchpad != address(0)) {
+            if (target == launchpad) return;
+            address router = ILaunchpadRouterView(launchpad).router();
+            if (router != address(0) && target == router) return;
+        }
         revert TargetNotAllowed(target);
     }
 
