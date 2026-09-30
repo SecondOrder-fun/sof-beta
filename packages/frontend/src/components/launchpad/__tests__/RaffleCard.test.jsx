@@ -6,6 +6,7 @@ import RaffleCard from "@/components/launchpad/RaffleCard";
 import RaffleBadge from "@/components/launchpad/RaffleBadge";
 import { useTokenSeasons } from "@/hooks/useLaunchActivity";
 import { useCurveState } from "@/hooks/useCurveState";
+import { useLiveParticipantCount } from "@/hooks/useLiveParticipantCount";
 import { usePlayerPosition } from "@/hooks/usePlayerPosition";
 
 const navigate = vi.fn();
@@ -16,6 +17,7 @@ vi.mock("react-router-dom", async (importOriginal) => ({
 vi.mock("@/hooks/useLaunchActivity", () => ({ useTokenSeasons: vi.fn() }));
 vi.mock("@/hooks/useCurveState", () => ({ useCurveState: vi.fn() }));
 vi.mock("@/hooks/usePlayerPosition", () => ({ usePlayerPosition: vi.fn() }));
+vi.mock("@/hooks/useLiveParticipantCount", () => ({ useLiveParticipantCount: vi.fn() }));
 // The ladder chart and the countdown have their own tests; stub them here.
 vi.mock("@/components/curve/MiniCurveChart", () => ({ default: () => <div>ticket-ladder</div> }));
 vi.mock("@/components/common/CountdownTimer", () => ({ default: () => <span>countdown</span> }));
@@ -46,7 +48,9 @@ const season = (over) => ({
 
 const LADDER = Array.from({ length: 10 }, (_, i) => ({ rangeTo: BigInt((i + 1) * 500), price: BigInt(1000 + i * 1000) * ETH }));
 
-const setup = ({ featured = season(), noData = false, myTickets = 0n, isLoading = false, isError = false, market, curve } = {}) => {
+const setup = ({ featured = season(), noData = false, myTickets = 0n, isLoading = false, isError = false, market, curve, livePlayers } = {}) => {
+  // No live event yet: the hook hands back the summary count it was seeded with.
+  useLiveParticipantCount.mockImplementation((_id, { initialCount }) => livePlayers ?? initialCount);
   useTokenSeasons.mockReturnValue({ data: noData ? undefined : { featured }, isLoading, isError });
   useCurveState.mockReturnValue({
     curveStep: { step: 4n, price: 12_000n * ETH, rangeTo: 2000n },
@@ -71,7 +75,7 @@ describe("RaffleCard", () => {
     expect(screen.getByText("raffle.badgeLive")).toBeInTheDocument();
     expect(screen.getByText('raffle.season{"id":3}')).toBeInTheDocument();
     expect(screen.getByText("18.4M")).toBeInTheDocument();
-    expect(screen.getByText('raffle.ticketPrice{"price":"12K","symbol":"POND"}')).toBeInTheDocument();
+    expect(screen.getByText('raffle.ticketPrice{"price":"12,000","symbol":"POND"}')).toBeInTheDocument();
     expect(screen.getByText("1,532")).toBeInTheDocument();
     expect(screen.getByText("312")).toBeInTheDocument();
     expect(screen.getByText("ticket-ladder")).toBeInTheDocument();
@@ -82,7 +86,7 @@ describe("RaffleCard", () => {
   it("live: without an indexed current step, prices the next ticket from the ladder", () => {
     // 1532 sold: the first step whose range reaches it is the fourth (to 2000, 4K).
     const { container } = setup({ curve: { curveStep: null } });
-    expect(screen.getByText('raffle.ticketPrice{"price":"4K","symbol":"POND"}')).toBeInTheDocument();
+    expect(screen.getByText('raffle.ticketPrice{"price":"4,000","symbol":"POND"}')).toBeInTheDocument();
     expect(container.querySelector(".animate-pulse")).toBeNull();
     // No current step, so no "step N of M" label either.
     expect(screen.queryByText(/raffle\.step/)).not.toBeInTheDocument();
@@ -90,7 +94,49 @@ describe("RaffleCard", () => {
 
   it("live: past the last step's range, prices the next ticket at the last step", () => {
     setup({ curve: { curveStep: null, curveSupply: 9999n } });
-    expect(screen.getByText('raffle.ticketPrice{"price":"10K","symbol":"POND"}')).toBeInTheDocument();
+    expect(screen.getByText('raffle.ticketPrice{"price":"10,000","symbol":"POND"}')).toBeInTheDocument();
+  });
+
+  describe("at an exact step boundary, the next ticket is on the next step", () => {
+    // 2000 sold fills the fourth step (to 2000, 4K) exactly; ticket 2001 costs 5K.
+    it("even though the indexed current step still points at the filled one", () => {
+      setup({ curve: { curveStep: { step: 3n, price: LADDER[3].price, rangeTo: 2000n }, curveSupply: 2000n } });
+      expect(screen.getByText('raffle.ticketPrice{"price":"5,000","symbol":"POND"}')).toBeInTheDocument();
+      expect(screen.getByText('raffle.step{"step":5,"total":10}')).toBeInTheDocument();
+    });
+
+    it("from the ladder when there is no indexed current step", () => {
+      setup({ curve: { curveStep: null, curveSupply: 2000n } });
+      expect(screen.getByText('raffle.ticketPrice{"price":"5,000","symbol":"POND"}')).toBeInTheDocument();
+    });
+
+    it("and one ticket short of the boundary is still on the current step", () => {
+      setup({ curve: { curveStep: { step: 3n, price: LADDER[3].price, rangeTo: 2000n }, curveSupply: 1999n } });
+      expect(screen.getByText('raffle.ticketPrice{"price":"4,000","symbol":"POND"}')).toBeInTheDocument();
+      expect(screen.getByText('raffle.step{"step":4,"total":10}')).toBeInTheDocument();
+    });
+  });
+
+  it("live: prices a ticket with its fraction rather than truncating to whole tokens", () => {
+    setup({ curve: { curveStep: { step: 0n, price: ETH / 2n, rangeTo: 500n }, curveSupply: 10n } });
+    expect(screen.getByText('raffle.ticketPrice{"price":"0.5","symbol":"POND"}')).toBeInTheDocument();
+  });
+
+  it("live: reads the pool, tickets and players live, not from the lagging season summary", () => {
+    // The summary still says 18.4M / 1,532 / 312; the chain has moved on.
+    setup({ curve: { hasState: true, curveReserves: 25_000_000n * ETH, curveSupply: 1800n }, livePlayers: 340 });
+    expect(screen.getByText("25M")).toBeInTheDocument();
+    expect(screen.getByText("1,800")).toBeInTheDocument();
+    expect(screen.getByText("340")).toBeInTheDocument();
+    expect(screen.queryByText("18.4M")).not.toBeInTheDocument();
+    expect(screen.queryByText("312")).not.toBeInTheDocument();
+    expect(useLiveParticipantCount).toHaveBeenCalledWith(3, { initialCount: 312 });
+  });
+
+  it("live: prices the pool in ETH from the live reserves", () => {
+    // 25M tokens at 50 gwei each = 1.25 ETH.
+    setup({ curve: { hasState: true, curveReserves: 25_000_000n * ETH, curveSupply: 1800n }, market: { priceWei: 50n * 10n ** 9n } });
+    expect(screen.getByText('raffle.prizeEth{"eth":"1.25"}')).toBeInTheDocument();
   });
 
   it("live: a skeleton only while the price is loading, a dash once it is known to be missing", () => {
@@ -130,7 +176,7 @@ describe("RaffleCard", () => {
 
   it("upcoming: states the starting ticket price and disables the CTA", () => {
     setup({ featured: season({ state: "upcoming", startTime: NOW + 7800 }) });
-    expect(screen.getByText('raffle.upcomingBody{"price":"1K","symbol":"POND"}')).toBeInTheDocument();
+    expect(screen.getByText('raffle.upcomingBody{"price":"1,000","symbol":"POND"}')).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "raffle.opensSoonCta" })).toBeDisabled();
   });
 
@@ -140,11 +186,24 @@ describe("RaffleCard", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  it("ended: names the winner and prize, and offers the next season", () => {
-    setup({ featured: season({ state: "ended", winner: WINNER }) });
-    expect(screen.getByText(/raffle\.wonTitle.*"prize":"18\.4M","symbol":"POND"/)).toBeInTheDocument();
+  it("ended: names the winner and their grand prize, and offers the next season", () => {
+    setup({ featured: season({ state: "ended", winner: WINNER, grandPrize: String(12_000_000n * ETH) }) });
+    expect(screen.getByText(/raffle\.wonTitle.*"prize":"12M","symbol":"POND"/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "raffle.openNext" }));
     expect(navigate).toHaveBeenCalledWith("/create-season");
+  });
+
+  it("ended: applies the season's grand-prize share to the pool when only the bps is known", () => {
+    // 65% of 18.4M = 11.96M, not the whole 18.4M.
+    setup({ featured: season({ state: "ended", winner: WINNER, grandPrizeBps: 6500 }) });
+    expect(screen.getByText(/raffle\.wonTitle.*"prize":"11\.96M","symbol":"POND"/)).toBeInTheDocument();
+  });
+
+  it("ended: with the split unknown, names the season won and claims no amount", () => {
+    setup({ featured: season({ state: "ended", winner: WINNER }) });
+    expect(screen.getByText(/raffle\.wonSeasonTitle.*"season":"raffle\.season/)).toBeInTheDocument();
+    expect(screen.queryByText(/raffle\.wonTitle/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/18\.4M/)).not.toBeInTheDocument();
   });
 
   it("cancelled: says so rather than naming a winner", () => {

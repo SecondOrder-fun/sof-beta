@@ -6,10 +6,16 @@
 //
 //   live      — prize pool, next ticket price, tickets and players, the ticket
 //               price ladder (MiniCurveChart), your tickets, and the primary
-//               "Enter raffle" CTA
+//               "Enter raffle" CTA. Pool and tickets come from the live curve
+//               state and players from the live participant count: the season
+//               summary is only written at start, status changes and
+//               completion, so mid-season it reads 0 or stale (it stands in
+//               until the live reads arrive)
 //   upcoming  — opening time and starting ticket price; CTA disabled
 //   drawing   — entries closed, VRF drawing; no CTA
-//   ended     — winner and prize (or "cancelled"); CTA to open the next season
+//   ended     — winner and their grand prize — never the whole pool, which
+//               also funds consolation; with the split unknown, no amount —
+//               (or "cancelled"); CTA to open the next season
 //   none      — the token has no season yet; CTA to open the first
 //   unavailable — the seasons read failed with nothing cached; says so, no CTA
 //                 (a failed read is not evidence that there is no raffle)
@@ -31,11 +37,13 @@ import CountdownTimer from "@/components/common/CountdownTimer";
 import MiniCurveChart from "@/components/curve/MiniCurveChart";
 import RaffleBadge from "@/components/launchpad/RaffleBadge";
 import { useCurveState } from "@/hooks/useCurveState";
+import { useLiveParticipantCount } from "@/hooks/useLiveParticipantCount";
 import { usePlayerPosition } from "@/hooks/usePlayerPosition";
 import { useTokenSeasons } from "@/hooks/useLaunchActivity";
 import { cn } from "@/lib/utils";
 import { shortAddress } from "@/lib/format";
-import { formatFdvEth, formatSupply } from "@/lib/launchFormat";
+import { formatFdvEth, formatSupply, formatTokenAmount } from "@/lib/launchFormat";
+import { grandPrizeWei } from "@/lib/prizeMath";
 
 const Frame = ({ tone, label, children }) => (
   <section
@@ -66,32 +74,44 @@ Stat.propTypes = { label: PropTypes.node.isRequired, children: PropTypes.node };
 const seasonTitle = (raffle, t) => raffle.name || t("raffle.season", { id: raffle.seasonId });
 
 /**
- * The next ticket's price when the indexed current step is missing: the first
- * step whose range the supply has not passed (the ladder's own rule, see
- * MiniCurveChart), else the last step.
+ * The step the NEXT ticket sells on, and its price. The curve charges ticket
+ * n+1 on the first step whose range ends past the current supply
+ * (calculateBuyPrice skips a step once supply >= its rangeTo), while
+ * getCurrentStep keeps pointing at a step the supply has exactly filled. So
+ * the indexed current step answers only while supply is still inside it; at
+ * its boundary, or when it is missing, the ladder decides. Past the last
+ * step, the last step.
+ * @param {{ step: bigint, price: bigint, rangeTo: bigint } | null} curveStep
  * @param {{ rangeTo: bigint, price: bigint }[]} steps
  * @param {bigint} supply
- * @returns {bigint | null}
+ * @returns {{ price: bigint, index: number } | null}
  */
-const fallbackStepPrice = (steps, supply) => {
+const nextTicketStep = (curveStep, steps, supply) => {
+  if (curveStep && supply < curveStep.rangeTo) return { price: curveStep.price, index: Number(curveStep.step) };
   if (!steps?.length) return null;
-  return (steps.find((s) => s.rangeTo >= supply) ?? steps[steps.length - 1]).price;
+  const i = steps.findIndex((st) => st.rangeTo > supply);
+  const index = i === -1 ? steps.length - 1 : i;
+  return { price: steps[index].price, index };
 };
 
 const LiveRaffle = ({ raffle, symbol, market }) => {
   const { t } = useTranslation("launchpad");
   const navigate = useNavigate();
-  const { curveStep, curveSupply, allBondSteps, isPriceLoading } = useCurveState(raffle.bondingCurve, {
-    isActive: true,
-  });
+  const { hasState, curveStep, curveSupply, curveReserves, allBondSteps, isPriceLoading } = useCurveState(
+    raffle.bondingCurve,
+    { isActive: true },
+  );
   const { position } = usePlayerPosition(raffle.bondingCurve);
+  const players = useLiveParticipantCount(raffle.seasonId, { initialCount: Number(raffle.participants) });
 
-  const prizePool = BigInt(raffle.prizePool);
+  // Live curve state over the season summary, which lags a live season.
+  const prizePool = hasState ? curveReserves : BigInt(raffle.prizePool);
+  const ticketsSold = hasState ? curveSupply : BigInt(raffle.tickets);
   const prizeEthWei = market?.priceWei != null ? (prizePool * market.priceWei) / 10n ** 18n : null;
   const myTickets = position?.tickets ?? 0n;
   // Skeleton only while a price read is in flight; a missing curve state (e.g.
   // a 404 from the indexer) falls back to the ladder rather than spinning.
-  const nextTicketPrice = curveStep?.price ?? fallbackStepPrice(allBondSteps, curveSupply);
+  const next = nextTicketStep(curveStep, allBondSteps, curveSupply);
 
   return (
     <Frame tone="rose" label={t("raffle.cardLabel", { state: t("raffle.badgeLive") })}>
@@ -122,25 +142,26 @@ const LiveRaffle = ({ raffle, symbol, market }) => {
 
       <div className="grid grid-cols-3 gap-2 text-sm">
         <Stat label={t("raffle.nextTicket")}>
-          {nextTicketPrice != null ? (
-            t("raffle.ticketPrice", { price: formatSupply(nextTicketPrice), symbol })
+          {next != null ? (
+            t("raffle.ticketPrice", { price: formatTokenAmount(next.price), symbol })
           ) : isPriceLoading ? (
             <Skeleton className="h-5 w-16" />
           ) : (
             "—"
           )}
         </Stat>
-        <Stat label={t("raffle.ticketsSold")}>{Number(raffle.tickets).toLocaleString()}</Stat>
-        <Stat label={t("raffle.players")}>{Number(raffle.participants).toLocaleString()}</Stat>
+        <Stat label={t("raffle.ticketsSold")}>{ticketsSold.toLocaleString()}</Stat>
+        <Stat label={t("raffle.players")}>{players.toLocaleString()}</Stat>
       </div>
 
       {allBondSteps.length > 0 ? (
         <div className="space-y-2">
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>{t("raffle.priceRises")}</span>
-            {curveStep ? (
-              // The contract's step index is 0-based; people count from 1.
-              <span>{t("raffle.step", { step: Number(curveStep.step) + 1, total: allBondSteps.length })}</span>
+            {curveStep && next ? (
+              // The step the next ticket sells on. The index is 0-based;
+              // people count from 1.
+              <span>{t("raffle.step", { step: next.index + 1, total: allBondSteps.length })}</span>
             ) : null}
           </div>
           <div className="h-16">
@@ -189,7 +210,7 @@ const UpcomingRaffle = ({ raffle, symbol }) => {
       </div>
       <p className="text-sm text-muted-foreground">
         {startPrice != null
-          ? t("raffle.upcomingBody", { price: formatSupply(startPrice), symbol })
+          ? t("raffle.upcomingBody", { price: formatTokenAmount(startPrice), symbol })
           : t("raffle.upcomingBodyNoPrice")}
       </p>
       <Button type="button" variant="outline" className="w-full" disabled>
@@ -260,16 +281,15 @@ const RaffleCard = ({ token, symbol, market }) => {
     );
   }
 
-  // ended / cancelled
+  // ended / cancelled. The winner takes the grand prize, not the pool.
+  const grandPrize = grandPrizeWei(raffle);
   const title =
     raffle.state === "cancelled"
       ? t("raffle.cancelledTitle", { season: seasonTitle(raffle, t) })
       : raffle.winner
-        ? t("raffle.wonTitle", {
-            who: shortAddress(raffle.winner),
-            prize: formatSupply(BigInt(raffle.prizePool)),
-            symbol,
-          })
+        ? grandPrize != null
+          ? t("raffle.wonTitle", { who: shortAddress(raffle.winner), prize: formatSupply(grandPrize), symbol })
+          : t("raffle.wonSeasonTitle", { who: shortAddress(raffle.winner), season: seasonTitle(raffle, t) })
         : t("raffle.endedTitle", { season: seasonTitle(raffle, t) });
 
   return (

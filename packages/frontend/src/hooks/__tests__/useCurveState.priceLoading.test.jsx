@@ -84,6 +84,16 @@ describe('useCurveState — isPriceLoading', () => {
     expect(result.current.allBondSteps).toHaveLength(0);
   });
 
+  it('says whether the live state has been read, so a 0n placeholder is not mistaken for an empty curve', async () => {
+    mockFetch({ state: { currentSupply: '1532', sofReserves: '9000' }, steps: [] });
+    const { result } = renderHook(() => useCurveState(ADDR), { wrapper: makeWrapper() });
+    expect(result.current.hasState).toBe(false);
+    expect(result.current.curveReserves).toBe(0n);
+    await waitFor(() => expect(result.current.hasState).toBe(true));
+    expect(result.current.curveSupply).toBe(1532n);
+    expect(result.current.curveReserves).toBe(9000n);
+  });
+
   it('is not loading when no bonding curve address is provided', () => {
     mockFetch({ state: null, steps: [] });
     const { result } = renderHook(() => useCurveState(undefined), {

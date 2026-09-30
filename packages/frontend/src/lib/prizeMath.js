@@ -24,3 +24,25 @@ export function perLoserShareWei(consolationWei, totalParticipants) {
   const losers = participants > 1n ? participants - 1n : 0n;
   return consolation > 0n && losers > 0n ? consolation / losers : 0n;
 }
+
+/**
+ * What the grand winner actually took, in wei, from a backend season summary
+ * or 'won' ticker item — never the whole pool, which also funds consolation.
+ * Prefers the indexed `grandPrize`; else applies the season's own
+ * `grandPrizeBps` to `prizePool`. Returns null when neither is known: the
+ * split is set per season, so assuming the 65% default could misstate it.
+ *
+ * @param {{ grandPrize?: string | bigint | null, grandPrizeBps?: number | string | null, prizePool?: string | bigint | null }} p
+ * @returns {bigint | null}
+ */
+export function grandPrizeWei({ grandPrize, grandPrizeBps, prizePool } = {}) {
+  try {
+    if (grandPrize != null) return BigInt(grandPrize);
+    if (grandPrizeBps != null && prizePool != null) {
+      return (BigInt(prizePool) * BigInt(grandPrizeBps)) / 10000n;
+    }
+  } catch {
+    // Unparseable input is "unknown", not zero.
+  }
+  return null;
+}

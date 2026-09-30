@@ -7,7 +7,9 @@ import {
   formatMultiple,
   formatPercent,
   formatTimeLeft,
+  formatTokenAmount,
 } from "@/lib/launchFormat";
+import { getCountdownParts } from "@/lib/utils";
 
 describe("formatFdvEth", () => {
   it("renders the deployed bounds as the valuations they are", () => {
@@ -108,5 +110,45 @@ describe("formatTimeLeft", () => {
   it("floors at 0m once the time has passed, and dashes a missing time", () => {
     expect(formatTimeLeft(at(-60), NOW_MS)).toBe("0m");
     expect(formatTimeLeft(null, NOW_MS)).toBe("—");
+  });
+
+  it("splits time exactly as the CountdownTimer does", () => {
+    const target = at(2 * 86400 + 4 * 3600 + 11 * 60);
+    const { days, hours } = getCountdownParts(target, NOW_MS);
+    expect(formatTimeLeft(target, NOW_MS)).toBe(`${days}d ${hours}h`);
+  });
+});
+
+describe("getCountdownParts with an explicit clock", () => {
+  it("counts from the clock it is given", () => {
+    const nowMs = 1_700_000_000_000;
+    expect(getCountdownParts(nowMs / 1000 + 3661, nowMs)).toEqual({ days: 0, hours: 1, minutes: 1, seconds: 1, isEnded: false });
+    expect(getCountdownParts(nowMs / 1000 - 1, nowMs).isEnded).toBe(true);
+  });
+
+  it("still defaults to the wall clock for existing callers", () => {
+    const target = Math.floor(Date.now() / 1000) + 2 * 86400 + 30;
+    expect(getCountdownParts(target)).toMatchObject({ days: 2, hours: 0, isEnded: false });
+  });
+});
+
+describe("formatTokenAmount", () => {
+  const TOKEN = 10n ** 18n;
+
+  it("keeps the fraction formatSupply would truncate", () => {
+    expect(formatTokenAmount(TOKEN / 2n)).toBe("0.5");
+    expect(formatSupply(TOKEN / 2n)).toBe("0");
+  });
+
+  it("groups thousands and caps the decimals, dropping trailing zeros", () => {
+    expect(formatTokenAmount(12_000n * TOKEN)).toBe("12,000");
+    expect(formatTokenAmount(1_234_567_891_234_567_891_234n)).toBe("1,234.5678");
+    expect(formatTokenAmount(1_234_567_891_234_567_891_234n, 2)).toBe("1,234.56");
+    expect(formatTokenAmount(TOKEN + TOKEN / 10n)).toBe("1.1");
+  });
+
+  it("accepts a wei string and dashes a missing amount", () => {
+    expect(formatTokenAmount(String(3n * TOKEN))).toBe("3");
+    expect(formatTokenAmount(null)).toBe("—");
   });
 });

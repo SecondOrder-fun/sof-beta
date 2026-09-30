@@ -57,10 +57,11 @@ export function formatTimestamp(timestamp) {
 /**
  * Calculate countdown parts from a target timestamp
  * @param {number} targetTimestamp - Unix timestamp in seconds
+ * @param {number} [nowMs=Date.now()] - the clock to count from, in milliseconds
  * @returns {{ days: number, hours: number, minutes: number, seconds: number, isEnded: boolean }}
  */
-export function getCountdownParts(targetTimestamp) {
-  const now = Math.floor(Date.now() / 1000);
+export function getCountdownParts(targetTimestamp, nowMs = Date.now()) {
+  const now = Math.floor(nowMs / 1000);
   const diff = Number(targetTimestamp) - now;
 
   if (diff <= 0) {

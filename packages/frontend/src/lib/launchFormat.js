@@ -17,6 +17,8 @@
 
 import { formatEther, formatGwei } from 'viem';
 
+import { getCountdownParts } from '@/lib/utils';
+
 /**
  * Trim a fixed-point string to at most `maxDecimals`, dropping trailing zeros.
  * @param {string} value
@@ -30,6 +32,18 @@ function trimDecimals(value, maxDecimals) {
 }
 
 /**
+ * An 18-decimal amount as a grouped decimal string, at most `maxDecimals`.
+ * @param {bigint} raw
+ * @param {number} maxDecimals
+ */
+function formatDecimal18(raw, maxDecimals) {
+  const trimmed = trimDecimals(formatEther(raw), maxDecimals);
+  const [whole, fraction] = trimmed.split('.');
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return fraction ? `${grouped}.${fraction}` : grouped;
+}
+
+/**
  * A valuation in wei, rendered as ETH with thousands separators.
  * @param {bigint | null | undefined} wei
  * @param {number} [maxDecimals=4]
@@ -37,10 +51,19 @@ function trimDecimals(value, maxDecimals) {
  */
 export function formatFdvEth(wei, maxDecimals = 4) {
   if (wei == null) return '—';
-  const trimmed = trimDecimals(formatEther(wei), maxDecimals);
-  const [whole, fraction] = trimmed.split('.');
-  const grouped = Number(whole).toLocaleString('en-US');
-  return fraction ? `${grouped}.${fraction}` : grouped;
+  return formatDecimal18(wei, maxDecimals);
+}
+
+/**
+ * A raw 18-decimal token amount — a ticket price, say — in whole tokens with
+ * thousands separators, keeping the fraction formatSupply would drop.
+ * @param {bigint | null | undefined} raw
+ * @param {number} [maxDecimals=4]
+ * @returns {string} e.g. "0.5", "12,000", "1,234.5678"
+ */
+export function formatTokenAmount(raw, maxDecimals = 4) {
+  if (raw == null) return '—';
+  return formatDecimal18(BigInt(raw), maxDecimals);
 }
 
 /**
@@ -110,16 +133,14 @@ export function formatPercent(f) {
 
 /**
  * Time until a unix-seconds timestamp, as a short label: the two largest units.
+ * The split into units is getCountdownParts' (the CountdownTimer's own).
  * @param {bigint | number | null | undefined} unixSeconds
  * @param {number} [nowMs=Date.now()]
  * @returns {string} e.g. "2d 4h", "2h 10m", "9m", "0m" once it has passed
  */
 export function formatTimeLeft(unixSeconds, nowMs = Date.now()) {
   if (unixSeconds == null) return '—';
-  const seconds = Math.max(0, Math.floor(Number(unixSeconds) - nowMs / 1000));
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
+  const { days, hours, minutes } = getCountdownParts(Number(unixSeconds), nowMs);
   if (days > 0) return hours ? `${days}d ${hours}h` : `${days}d`;
   if (hours > 0) return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
   return `${minutes}m`;

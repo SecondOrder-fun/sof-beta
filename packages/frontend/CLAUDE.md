@@ -54,7 +54,11 @@ feed, the price chart (`/tokens/:address/chart`), the raffle card
 Each renders nothing (ticker, badge) or an honest empty state (chart, card) when
 the backend has no data. A failed read is not "no data": the raffle card says it
 is unavailable rather than offering to open a season, and a failed refetch keeps
-the last data on screen.
+the last data on screen. The season summary is written only at start, status
+changes and completion, so a live raffle card reads its pool and tickets from the
+curve state (`useCurveState`) and its players from `useLiveParticipantCount`; a
+winner is shown with the grand prize (`grandPrize`, or `grandPrizeBps` of the
+pool — `lib/prizeMath.js`), never the whole pool.
 
 **The activity ticker is site-wide** (`components/layout/ActivityTicker.jsx`,
 under both headers in `App.jsx`), not launchpad-only: the raffles row is the whole

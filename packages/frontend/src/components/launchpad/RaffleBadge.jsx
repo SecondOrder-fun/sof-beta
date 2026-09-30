@@ -4,7 +4,8 @@
 // soon and drawing (Pastel Rose outline), ended (muted outline). Takes a
 // season summary from the backend (activityFeed.summarizeSeason). The
 // "Opens in" countdown follows the clock (useNow) rather than freezing at
-// first render.
+// first render; the clock runs inside OpensLabel, so only a badge actually
+// counting down keeps a timer — a page of cards with other states runs none.
 
 import PropTypes from "prop-types";
 import { useTranslation } from "react-i18next";
@@ -15,9 +16,19 @@ import { useNow } from "@/hooks/useNow";
 import { cn } from "@/lib/utils";
 import { formatTimeLeft } from "@/lib/launchFormat";
 
-const RaffleBadge = ({ raffle, className }) => {
+/** "Opens in 2h 10m", then "Opens soon" once the start time has passed. */
+const OpensLabel = ({ startTime }) => {
   const { t } = useTranslation("launchpad");
   const nowMs = useNow();
+  return startTime * 1000 > nowMs
+    ? t("raffle.badgeOpensIn", { time: formatTimeLeft(startTime, nowMs) })
+    : t("raffle.badgeOpensSoon");
+};
+
+OpensLabel.propTypes = { startTime: PropTypes.number.isRequired };
+
+const RaffleBadge = ({ raffle, className }) => {
+  const { t } = useTranslation("launchpad");
   if (!raffle) return null;
 
   switch (raffle.state) {
@@ -28,15 +39,13 @@ const RaffleBadge = ({ raffle, className }) => {
           {t("raffle.badgeLive")}
         </Badge>
       );
-    case "upcoming": {
-      const opensIn = raffle.startTime && raffle.startTime * 1000 > nowMs;
+    case "upcoming":
       return (
         <Badge variant="raffleSoon" className={cn("pl-2", className)}>
           <Clock className="h-3.5 w-3.5" aria-hidden="true" />
-          {opensIn ? t("raffle.badgeOpensIn", { time: formatTimeLeft(raffle.startTime, nowMs) }) : t("raffle.badgeOpensSoon")}
+          {raffle.startTime ? <OpensLabel startTime={raffle.startTime} /> : t("raffle.badgeOpensSoon")}
         </Badge>
       );
-    }
     case "drawing":
       return (
         <Badge variant="raffleSoon" className={cn("pl-2", className)}>

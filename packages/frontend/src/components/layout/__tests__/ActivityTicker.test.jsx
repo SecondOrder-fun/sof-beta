@@ -65,7 +65,70 @@ describe("ActivityTicker", () => {
     expect(screen.queryByText("TICKER.TOKENS")).not.toBeInTheDocument();
     expect(screen.getByText("ticker.tokens")).toHaveClass("sr-only");
     expect(screen.queryByText(/^0x3f/)).not.toBeInTheDocument();
-    expect(screen.queryByText("ticker.fdvAfter")).not.toBeInTheDocument();
+    expect(screen.queryByText("ticker.fdv")).not.toBeInTheDocument();
+  });
+
+  describe("compact rendering of raffle items", () => {
+    const raffleFeed = (rows) => ({ tokens: [], raffles: rows });
+    const at = "2026-09-30T00:00:00Z";
+    const season = { seasonId: 3, seasonName: null, token: null, symbol: null };
+    const firstItem = () => document.querySelector("ul:not([aria-hidden]) li a");
+
+    it("leaves no dangling separator on an entry, a closing season, or a win", () => {
+      setup({
+        compact: true,
+        data: raffleFeed([
+          { ...season, kind: "entry", at, who: WALLET, tickets: "40", txHash: "0x3" },
+          { ...season, kind: "closing", at, endsAt: Math.floor(Date.now() / 1000) + 600, participants: "12" },
+          { ...season, kind: "won", at, who: WALLET, prizePool: "1000" },
+        ]),
+      });
+      expect(screen.queryAllByText("ticker.separator")).toHaveLength(0);
+      const items = document.querySelectorAll("ul:not([aria-hidden]) li a");
+      items.forEach((a) => expect(a.textContent).not.toMatch(/·\s*$/));
+    });
+
+    it("an entry still says which season it entered", () => {
+      setup({ compact: true, data: raffleFeed([{ ...season, kind: "entry", at, who: WALLET, tickets: "40", txHash: "0x3" }]) });
+      expect(firstItem().textContent).toBe("ticker.enteredraffle.season");
+    });
+
+    it("a closing season still says which season and when", () => {
+      setup({
+        compact: true,
+        data: raffleFeed([{ ...season, kind: "closing", at, endsAt: Math.floor(Date.now() / 1000) + 600, participants: "12" }]),
+      });
+      expect(firstItem().textContent).toBe("ticker.closingraffle.seasonticker.inTime");
+    });
+
+    it("a win with no symbol shows the season rather than a bare 'won'", () => {
+      setup({ compact: true, data: raffleFeed([{ ...season, kind: "won", at, who: WALLET, prizePool: "1000" }]) });
+      expect(firstItem().textContent).toBe("ticker.wonraffle.season");
+    });
+
+    it("the full layout draws a separator only in front of a tail", () => {
+      setup({
+        data: raffleFeed([
+          { ...season, kind: "entry", at, who: WALLET, tickets: "40", txHash: "0x3" },
+          { ...season, kind: "opened", at },
+        ]),
+      });
+      const [entry, opened] = document.querySelectorAll("ul:not([aria-hidden]) li a");
+      expect(within(entry).getAllByText("ticker.separator")).toHaveLength(1);
+      expect(within(entry).getByText("ticker.separator")).toHaveAttribute("aria-hidden", "true");
+      expect(within(opened).queryByText("ticker.separator")).not.toBeInTheDocument();
+    });
+  });
+
+  it("renders one wallet's two entries in one transaction as two items", () => {
+    const entry = { kind: "entry", at: "2026-09-30T00:00:00Z", who: WALLET, tickets: "1", txHash: "0x3", seasonId: 2, seasonName: null, token: TOKEN, symbol: "LAMP" };
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    setup({ data: { tokens: [], raffles: [entry, entry] } });
+    const bar = screen.getByRole("region", { name: "ticker.label" });
+    expect(within(bar).getAllByRole("link")).toHaveLength(2);
+    // No duplicate-key warning from React.
+    expect(errors.mock.calls.some((c) => String(c[0]).includes("same key"))).toBe(false);
+    errors.mockRestore();
   });
 
   it("shows a row's empty text when only the other row has activity", () => {

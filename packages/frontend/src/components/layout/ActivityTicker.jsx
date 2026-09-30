@@ -15,11 +15,15 @@
 // to assistive tech and the tab order; every repeat, and the whole second
 // copy, is aria-hidden with its links at tabIndex -1.
 //
+// Each item is a sentence that stands on its own (see lib/activityItems): the
+// compact (mobile) layout drops the wallet and the tail, and the "·" separator
+// is drawn only in front of a tail that is shown, so none is left dangling.
+//
 // Reads GET /api/activity. Renders nothing until the first response arrives
 // and when both rows are empty — an empty bar is noise on every page. A failed
 // refetch keeps showing the last data rather than dropping the bar.
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -27,7 +31,7 @@ import { CircleArrowUp, Pause, Play, Ticket } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useActivityFeed } from "@/hooks/useLaunchActivity";
-import { TONE_CLASS, describeRaffleItem, describeTokenItem } from "@/lib/activityItems";
+import { TONE_CLASS, describeRaffleItem, describeTokenItem, withUniqueKeys } from "@/lib/activityItems";
 import { cn } from "@/lib/utils";
 
 /** Seconds each item spends crossing the row; keeps speed constant as rows grow. */
@@ -80,21 +84,36 @@ function useFillRepeat(itemCount) {
   return { viewportRef, copyRef, repeat };
 }
 
-const TickerItem = ({ item, compact, hidden, className }) => (
-  <li aria-hidden={hidden ? "true" : undefined} className={className}>
-    <Link
-      to={item.href}
-      tabIndex={hidden ? -1 : undefined}
-      className="flex items-center gap-1.5 whitespace-nowrap text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
-    >
-      {!compact && item.who ? <span className="font-mono text-xs">{item.who}</span> : null}
-      <span className={cn("font-semibold", TONE_CLASS[item.tone])}>{item.verb}</span>
-      {item.amount ? <span>{item.amount}</span> : null}
-      {item.symbol ? <span className="font-semibold text-heading">{item.symbol}</span> : null}
-      {!compact && item.tail ? <span>{item.tail}</span> : null}
-    </Link>
-  </li>
-);
+/** Styling per sentence part: the verb takes the item's tone, a $SYMBOL chip stands out. */
+const partClass = (kind, tone) =>
+  kind === "verb" ? cn("font-semibold", TONE_CLASS[tone]) : kind === "symbol" ? "font-semibold text-heading" : undefined;
+
+const TickerItem = ({ item, compact, hidden, className }) => {
+  const { t } = useTranslation("launchpad");
+  const tail = compact ? [] : item.tail;
+  return (
+    <li aria-hidden={hidden ? "true" : undefined} className={className}>
+      <Link
+        to={item.href}
+        tabIndex={hidden ? -1 : undefined}
+        className="flex items-center gap-1.5 whitespace-nowrap text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+      >
+        {!compact && item.who ? <span className="font-mono text-xs">{item.who}</span> : null}
+        {item.parts.map((part, i) => (
+          <span key={`p${i}`} className={partClass(part.kind, item.tone)}>
+            {part.text}
+          </span>
+        ))}
+        {tail.map((text, i) => (
+          <Fragment key={`t${i}`}>
+            <span aria-hidden="true">{t("ticker.separator")}</span>
+            <span>{text}</span>
+          </Fragment>
+        ))}
+      </Link>
+    </li>
+  );
+};
 
 TickerItem.propTypes = {
   item: PropTypes.object.isRequired,
@@ -184,8 +203,8 @@ const ActivityTicker = ({ compact = false }) => {
 
   // No data yet, or the first read failed. A failed refetch keeps `data`.
   if (!data) return null;
-  const tokens = (data.tokens ?? []).map((i) => describeTokenItem(i, t)).filter(Boolean);
-  const raffles = (data.raffles ?? []).map((i) => describeRaffleItem(i, t)).filter(Boolean);
+  const tokens = withUniqueKeys((data.tokens ?? []).map((i) => describeTokenItem(i, t)).filter(Boolean));
+  const raffles = withUniqueKeys((data.raffles ?? []).map((i) => describeRaffleItem(i, t)).filter(Boolean));
   if (tokens.length === 0 && raffles.length === 0) return null;
 
   return (

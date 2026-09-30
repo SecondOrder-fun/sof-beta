@@ -15,7 +15,7 @@ const GWEI = 10n ** 9n;
 const NOW = Math.floor(Date.now() / 1000);
 const launch = { t: NOW - 86400, priceWei: String(2n * GWEI) };
 
-const market = { fdvWei: 47n * 10n ** 18n, launchFdvWei: 2n * 10n ** 18n, priceWei: 47n * GWEI, multiple: 23.5 };
+const market = { fdvWei: 47n * 10n ** 18n, launchFdvWei: 2n * 10n ** 18n, launchPriceWei: 2n * GWEI, priceWei: 47n * GWEI, multiple: 23.5 };
 
 const setup = ({ chart, isLoading = false, isError = false, m = market } = {}) => {
   useTokenChart.mockReturnValue({ data: chart, isLoading, isError });
@@ -51,7 +51,18 @@ describe("PriceChart", () => {
     const atLaunch = { ...market, fdvWei: 2n * 10n ** 18n, priceWei: 2n * GWEI, multiple: 1 };
     setup({ chart: { tradeCount: 0, launch, points: [{ t: launch.t, priceWei: launch.priceWei }] }, m: atLaunch });
     expect(screen.getByText("chart.empty")).toBeInTheDocument();
-    expect(screen.getByText('chart.launchLine{"fdv":"2.00"}')).toBeInTheDocument();
+    expect(screen.getByText('chart.launchLine{"fdv":"2"}')).toBeInTheDocument();
+    expect(screen.queryByText(/chart\.change/)).not.toBeInTheDocument();
+  });
+
+  it("an untraded pool at its tick-rounded launch price is still 'no trades yet'", () => {
+    // Requested 2 gwei; the pool opened (and still sits) at 1.99 gwei.
+    const opened = 1_990_000_000n;
+    const untraded = { fdvWei: opened * 10n ** 9n, launchFdvWei: opened * 10n ** 9n, launchPriceWei: opened, priceWei: opened, multiple: 1 };
+    setup({ chart: { tradeCount: 0, launch, points: [{ t: launch.t, priceWei: launch.priceWei }] }, m: untraded });
+    expect(screen.getByText("chart.empty")).toBeInTheDocument();
+    // The baseline is where the pool opened, printed like the headline.
+    expect(screen.getByText('chart.launchLine{"fdv":"1.99"}')).toBeInTheDocument();
     expect(screen.queryByText(/chart\.change/)).not.toBeInTheDocument();
   });
 
@@ -65,6 +76,13 @@ describe("PriceChart", () => {
   it("says so when the history cannot be loaded", () => {
     setup({ isError: true });
     expect(screen.getByText("chart.unavailable")).toBeInTheDocument();
+  });
+
+  it("keeps the cached history on screen when a background refetch fails", () => {
+    const atLaunch = { ...market, fdvWei: 2n * 10n ** 18n, priceWei: 2n * GWEI, multiple: 1 };
+    setup({ chart: { tradeCount: 0, launch, points: [{ t: launch.t, priceWei: launch.priceWei }] }, isError: true, m: atLaunch });
+    expect(screen.queryByText("chart.unavailable")).not.toBeInTheDocument();
+    expect(screen.getByText("chart.empty")).toBeInTheDocument();
   });
 
   it("defaults to 24h and refetches for the range picked", () => {

@@ -7,8 +7,15 @@
 //
 // Reads GET /api/launchpad/tokens/:address/chart. The live pool price (from
 // useLaunchMarkets) extends the line to "now" and drives the headline, so the
-// headline matches the buy panel even between indexer ticks. With no trades,
-// it shows the launch valuation and an empty state instead of a flat line.
+// headline matches the buy panel even between indexer ticks; the pool's own
+// launch price (not the requested one the indexer stores) anchors the launch
+// baseline and the multiples, so they agree with the header's multiple. With
+// no trades, it shows the launch valuation and an empty state instead of a
+// flat line. A failed refetch keeps the cached history on screen; only a
+// failed read with nothing cached says the history is unavailable.
+//
+// Every ETH figure — headline, tooltip, axis, launch line — prints through
+// formatFdvEth, so one valuation never reads two ways on the same card.
 
 import { useId, useMemo, useState } from "react";
 import PropTypes from "prop-types";
@@ -27,11 +34,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useTokenChart } from "@/hooks/useLaunchActivity";
-import { CHART_RANGES, buildChartSeries, formatChartTime } from "@/lib/launchChart";
+import { CHART_RANGES, buildChartSeries, ethToWei, formatChartTime } from "@/lib/launchChart";
 import { formatFdvEth, formatMultiple, formatPriceGwei } from "@/lib/launchFormat";
 import { cn } from "@/lib/utils";
 
-const fmtEth = (n) => (n >= 100 ? n.toFixed(0) : n >= 10 ? n.toFixed(1) : n.toFixed(2));
+/** Decimals on every ETH figure the chart prints; trailing zeros are dropped. */
+const ETH_DECIMALS = 2;
 
 const ChartTooltip = ({ active, payload, range }) => {
   const { t } = useTranslation("launchpad");
@@ -41,7 +49,7 @@ const ChartTooltip = ({ active, payload, range }) => {
     <div className="rounded-lg border bg-background px-3 py-2 text-sm shadow-md space-y-1">
       <div className="text-xs text-muted-foreground">{formatChartTime(p.t, range === "all" ? "all" : "24h")}</div>
       <div className="text-lg font-semibold text-heading">
-        {fmtEth(p.fdv)} <span className="text-xs font-medium text-muted-foreground">{t("chart.ethFdv")}</span>
+        {formatFdvEth(p.fdvWei, ETH_DECIMALS)} <span className="text-xs font-medium text-muted-foreground">{t("chart.ethFdv")}</span>
       </div>
       <div className="text-muted-foreground">{t("detail.pricePerToken", { price: formatPriceGwei(BigInt(p.priceWei)) })}</div>
       <div className="font-semibold text-fabric-red">{t("chart.multiple", { value: formatMultiple(p.multiple) })}</div>
@@ -64,12 +72,21 @@ const PriceChart = ({ token, market }) => {
   const view = useMemo(
     () =>
       chart?.launch
-        ? buildChartSeries({ chart, currentPriceWei: market?.priceWei, nowSec: Math.floor(Date.now() / 1000) })
+        ? buildChartSeries({
+            chart,
+            launchPriceWei: market?.launchPriceWei,
+            currentPriceWei: market?.priceWei,
+            nowSec: Math.floor(Date.now() / 1000),
+          })
         : null,
-    [chart, market?.priceWei],
+    [chart, market?.launchPriceWei, market?.priceWei],
   );
 
-  const headline = market ? formatFdvEth(market.fdvWei, 2) : view?.series.length ? fmtEth(view.series.at(-1).fdv) : null;
+  const headline = market
+    ? formatFdvEth(market.fdvWei, ETH_DECIMALS)
+    : view?.series.length
+      ? formatFdvEth(view.series.at(-1).fdvWei, ETH_DECIMALS)
+      : null;
   const change = view?.hasTrades ? view.changePct : null;
 
   return (
@@ -102,7 +119,7 @@ const PriceChart = ({ token, market }) => {
                   <span className="font-semibold text-fabric-red">
                     {t("detail.sinceLaunch", {
                       multiple: formatMultiple(market.multiple),
-                      launchFdv: formatFdvEth(market.launchFdvWei, 2),
+                      launchFdv: formatFdvEth(market.launchFdvWei, ETH_DECIMALS),
                     })}
                   </span>
                   {" · "}
@@ -125,7 +142,7 @@ const PriceChart = ({ token, market }) => {
           <div className="relative h-64">
             {isLoading ? (
               <Skeleton className="h-full w-full" />
-            ) : isError || !view ? (
+            ) : (isError && !chart) || !view ? (
               <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                 {t("chart.unavailable")}
               </div>
@@ -134,7 +151,7 @@ const PriceChart = ({ token, market }) => {
                 <span className="absolute inset-x-0 bottom-10 border-t border-dashed border-muted-foreground" aria-hidden="true" />
                 <span className="absolute left-0 bottom-[34px] h-2.5 w-2.5 rounded-full bg-fabric-red" aria-hidden="true" />
                 <span className="absolute left-5 bottom-12 text-xs text-muted-foreground">
-                  {t("chart.launchLine", { fdv: fmtEth(view.launchFdv) })}
+                  {t("chart.launchLine", { fdv: formatFdvEth(view.launchFdvWei, ETH_DECIMALS) })}
                 </span>
                 <span className="text-sm text-muted-foreground">{t("chart.empty")}</span>
               </div>
@@ -161,7 +178,7 @@ const PriceChart = ({ token, market }) => {
                     orientation="right"
                     width={56}
                     domain={[0, "auto"]}
-                    tickFormatter={(v) => t("chart.axisEth", { value: fmtEth(v) })}
+                    tickFormatter={(v) => t("chart.axisEth", { value: formatFdvEth(ethToWei(v), ETH_DECIMALS) })}
                     tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
                     axisLine={false}
                     tickLine={false}
@@ -171,7 +188,7 @@ const PriceChart = ({ token, market }) => {
                     stroke="hsl(var(--muted-foreground))"
                     strokeDasharray="4 6"
                     label={{
-                      value: t("chart.launchLine", { fdv: fmtEth(view.launchFdv) }),
+                      value: t("chart.launchLine", { fdv: formatFdvEth(view.launchFdvWei, ETH_DECIMALS) }),
                       position: "insideBottomLeft",
                       fontSize: 11,
                       fill: "hsl(var(--muted-foreground))",
@@ -205,6 +222,7 @@ PriceChart.propTypes = {
   market: PropTypes.shape({
     fdvWei: PropTypes.any,
     launchFdvWei: PropTypes.any,
+    launchPriceWei: PropTypes.any,
     priceWei: PropTypes.any,
     multiple: PropTypes.number,
   }),

@@ -1,7 +1,13 @@
 // src/components/launchpad/TokenCard.jsx
 // One launched token in the discovery grid, with its raffle badge when a
 // season is priced in it. The live raffle strip's "X left" follows the clock
-// (useNow) rather than freezing at first render.
+// (useNow) rather than freezing at first render; the clock runs inside
+// RaffleTimeLeft, so a card with no countdown on it keeps no timer.
+//
+// The strip's prize is the season summary's pool, which lags a live season
+// (the backend writes it at start, status changes and completion). The token
+// page's RaffleCard reads it live from the curve; doing that here would add a
+// curve read per card, so the grid keeps the one batched badge request.
 
 import PropTypes from "prop-types";
 import { Link } from "react-router-dom";
@@ -24,9 +30,20 @@ import {
   formatTimeLeft,
 } from "@/lib/launchFormat";
 
-const TokenCard = ({ launch, market, raffle }) => {
+const RaffleTimeLeft = ({ endTime }) => {
   const { t } = useTranslation("launchpad");
   const nowMs = useNow();
+  return (
+    <span className="shrink-0 text-muted-foreground">
+      {t("card.raffleLeft", { time: formatTimeLeft(endTime, nowMs) })}
+    </span>
+  );
+};
+
+RaffleTimeLeft.propTypes = { endTime: PropTypes.number.isRequired };
+
+const TokenCard = ({ launch, market, raffle }) => {
+  const { t } = useTranslation("launchpad");
 
   return (
     <Link
@@ -90,11 +107,7 @@ const TokenCard = ({ launch, market, raffle }) => {
                   symbol: launch.symbol,
                 })}
               </span>
-              {raffle.endTime ? (
-                <span className="shrink-0 text-muted-foreground">
-                  {t("card.raffleLeft", { time: formatTimeLeft(raffle.endTime, nowMs) })}
-                </span>
-              ) : null}
+              {raffle.endTime ? <RaffleTimeLeft endTime={raffle.endTime} /> : null}
             </div>
           ) : null}
         </CardContent>
