@@ -64,6 +64,11 @@ contract UniV4LaunchRouter is ILaunchRouter, IUnlockCallback, ReentrancyGuard {
         uint256 amountIn;
         address payer;
         address recipient;
+        /// @dev The edge of the launch position the swap may not cross: its floor for a buy,
+        ///      its ceiling for a sell. Outside the range the pool has no liquidity, so a swap
+        ///      allowed past it would strand the price at MIN/MAX_SQRT_PRICE — where quoting
+        ///      reads zero liquidity and the token shows an absurd price — for no extra fill.
+        uint160 priceLimit;
     }
 
     constructor(address _poolManager, address _placer, address _launchpad) {
@@ -87,10 +92,10 @@ contract UniV4LaunchRouter is ILaunchRouter, IUnlockCallback, ReentrancyGuard {
         returns (uint256 tokensOut)
     {
         if (msg.value == 0) revert RouterZeroAmount();
-        PoolKey memory key = _checkedKey(token, recipient, deadline);
+        (PoolKey memory key, uint160 floor,) = _checkedKey(token, recipient, deadline);
 
         (uint256 out, uint256 ethSpent) = abi.decode(
-            poolManager.unlock(abi.encode(Swap(BUY, key, msg.value, msg.sender, recipient))), (uint256, uint256)
+            poolManager.unlock(abi.encode(Swap(BUY, key, msg.value, msg.sender, recipient, floor))), (uint256, uint256)
         );
         if (out < minTokensOut) revert InsufficientOutput(out, minTokensOut);
 
@@ -112,10 +117,11 @@ contract UniV4LaunchRouter is ILaunchRouter, IUnlockCallback, ReentrancyGuard {
         returns (uint256 ethOut)
     {
         if (tokensIn == 0) revert RouterZeroAmount();
-        PoolKey memory key = _checkedKey(token, recipient, deadline);
+        (PoolKey memory key,, uint160 ceiling) = _checkedKey(token, recipient, deadline);
 
         (uint256 out, uint256 tokensSpent) = abi.decode(
-            poolManager.unlock(abi.encode(Swap(SELL, key, tokensIn, msg.sender, recipient))), (uint256, uint256)
+            poolManager.unlock(abi.encode(Swap(SELL, key, tokensIn, msg.sender, recipient, ceiling))),
+            (uint256, uint256)
         );
         if (out < minEthOut) revert InsufficientOutput(out, minEthOut);
 
@@ -141,7 +147,7 @@ contract UniV4LaunchRouter is ILaunchRouter, IUnlockCallback, ReentrancyGuard {
             IPoolManager.SwapParams({
                 zeroForOne: true,
                 amountSpecified: -int256(s.amountIn),
-                sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+                sqrtPriceLimitX96: s.priceLimit
             }),
             ""
         );
@@ -163,7 +169,7 @@ contract UniV4LaunchRouter is ILaunchRouter, IUnlockCallback, ReentrancyGuard {
             IPoolManager.SwapParams({
                 zeroForOne: false,
                 amountSpecified: -int256(s.amountIn),
-                sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
+                sqrtPriceLimitX96: s.priceLimit
             }),
             ""
         );
@@ -183,12 +189,22 @@ contract UniV4LaunchRouter is ILaunchRouter, IUnlockCallback, ReentrancyGuard {
     // Internals
     // ------------------------------------------------------------------
 
-    function _checkedKey(address token, address recipient, uint256 deadline) private view returns (PoolKey memory key) {
+    /// @return key     The launch pool's key.
+    /// @return floor   sqrtPrice at the position's lower tick — the furthest a buy may move.
+    /// @return ceiling sqrtPrice at the position's upper tick — the furthest a sell may move.
+    function _checkedKey(address token, address recipient, uint256 deadline)
+        private
+        view
+        returns (PoolKey memory key, uint160 floor, uint160 ceiling)
+    {
         if (block.timestamp > deadline) revert Expired(deadline);
         if (recipient == address(0)) revert RouterZeroAddress();
         if (!launchpad.isLaunchToken(token)) revert NotALaunchToken(token);
 
-        key = placer.getPlacement(token).key;
+        UniV4LiquidityPlacer.Placement memory p = placer.getPlacement(token);
+        key = p.key;
         if (Currency.unwrap(key.currency1) != token) revert NoPool(token);
+        floor = TickMath.getSqrtPriceAtTick(p.tickLower);
+        ceiling = TickMath.getSqrtPriceAtTick(p.tickUpper);
     }
 }

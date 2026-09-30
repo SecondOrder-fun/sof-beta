@@ -9,6 +9,7 @@ import { InfoFiMarketFactoryAbi as InfoFiFactoryAbi, InfoFiMarketAbi, ERC20Abi }
 import { useSmartTransactions } from '@/hooks/useSmartTransactions';
 import { useRaffleAccount } from '@/hooks/useRaffleAccount';
 import { useLiveSubscription } from '@/hooks/chain/useLiveSubscription';
+import { readMarketCollateral } from '@/services/onchainInfoFi';
 
 /**
  * Hook for interacting with InfoFi prediction markets
@@ -195,12 +196,13 @@ export function useInfoFiMarket(marketId) {
       setError('');
 
       const parsedAmount = parseUnits(amount, 18);
+      // Each market is collateralised in its own season's quote token; approve that,
+      // read off the market, not a platform-wide default.
+      const collateral = await readMarketCollateral(publicClient, marketDetails.address);
 
       const hash = await executeBatch([
         {
-          // TODO: follow the season's collateral once InfoFiMarketFactory
-          // resolves it per season; until then this is the platform default.
-          to: contracts.QUOTE_TOKEN,
+          to: collateral,
           data: encodeFunctionData({
             abi: ERC20Abi,
             functionName: 'approve',

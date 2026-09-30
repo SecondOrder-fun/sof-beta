@@ -117,6 +117,9 @@ contract RolloverEscrow is IRolloverEscrow, AccessControl, ReentrancyGuard, Paus
     event CohortClosed(uint256 indexed seasonId);
     event DefaultBonusBpsUpdated(uint16 oldBps, uint16 newBps);
     event TreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
+    /// @notice A spend went ahead without its bonus because the treasury could not fund it
+    ///         in the cohort's token (balance or allowance short).
+    event BonusUnfunded(address indexed user, uint256 indexed seasonId, uint256 bonusWanted);
 
     // -----------------------------------------------------------------------
     // Constructor
@@ -311,7 +314,12 @@ contract RolloverEscrow is IRolloverEscrow, AccessControl, ReentrancyGuard, Paus
 
     /**
      * @notice Spend rollover balance to buy tickets for the next season, with a bonus
-     *         pulled from treasury.
+     *         pulled from treasury when the treasury can fund it.
+     * @dev The bonus is paid in the cohort's own token. A season priced in a launch token
+     *      has a treasury that may hold none of it, so rather than revert every spend, an
+     *      unfundable bonus is skipped (`BonusUnfunded`) and the spend goes ahead at the base
+     *      amount. `getBonusAmount` reports the same funded figure, so a client quoting
+     *      from it prices the tickets the curve will actually charge for.
      * @param seasonId     The rollover cohort season.
      * @param quoteAmount    Amount of rollover balance to spend (must not exceed available balance).
      * @param ticketAmount Number of raffle tickets to buy (pre-calculated by UI).
@@ -331,7 +339,9 @@ contract RolloverEscrow is IRolloverEscrow, AccessControl, ReentrancyGuard, Paus
 
         CohortState storage cohort = _cohorts[seasonId];
         address curve = cohort.bondingCurve;
-        uint256 bonusAmount = (quoteAmount * uint256(cohort.bonusBps)) / 10_000;
+        uint256 bonusWanted = (quoteAmount * uint256(cohort.bonusBps)) / 10_000;
+        uint256 bonusAmount = _fundable(cohort.token, bonusWanted) ? bonusWanted : 0;
+        if (bonusWanted > 0 && bonusAmount == 0) emit BonusUnfunded(msg.sender, seasonId, bonusWanted);
 
         // Checks-effects-interactions: update state before external calls
         pos.spent += quoteAmount;
@@ -343,7 +353,7 @@ contract RolloverEscrow is IRolloverEscrow, AccessControl, ReentrancyGuard, Paus
         IERC20 token = IERC20(cohort.token);
 
         // Pull bonus from treasury into this contract
-        token.safeTransferFrom(treasury, address(this), bonusAmount);
+        if (bonusAmount > 0) token.safeTransferFrom(treasury, address(this), bonusAmount);
 
         // Approve curve for the total (base + bonus)
         uint256 totalQuote = quoteAmount + bonusAmount;
@@ -449,10 +459,20 @@ contract RolloverEscrow is IRolloverEscrow, AccessControl, ReentrancyGuard, Paus
     }
 
     /**
-     * @notice Returns the bonus amount for a given base amount in a season.
+     * @notice Returns the bonus a spend of `amount` would receive in a season: the cohort's
+     *         bonus rate, or zero while the treasury cannot fund it (see spendFromRollover).
      */
     function getBonusAmount(uint256 seasonId, uint256 amount) external view returns (uint256) {
-        return (amount * uint256(_cohorts[seasonId].bonusBps)) / 10_000;
+        CohortState storage cohort = _cohorts[seasonId];
+        uint256 wanted = (amount * uint256(cohort.bonusBps)) / 10_000;
+        return _fundable(cohort.token, wanted) ? wanted : 0;
+    }
+
+    /// @dev Whether the treasury can pay `amount` of `token` to this contract right now.
+    function _fundable(address token, uint256 amount) internal view returns (bool) {
+        if (amount == 0 || token == address(0)) return amount == 0;
+        return IERC20(token).balanceOf(treasury) >= amount
+            && IERC20(token).allowance(treasury, address(this)) >= amount;
     }
 
     // -----------------------------------------------------------------------

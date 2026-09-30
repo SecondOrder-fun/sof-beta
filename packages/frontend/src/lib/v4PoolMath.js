@@ -199,7 +199,8 @@ export function soldFraction(sqrtNowX96, tickLower, tickUpper) {
  * @param {object} p
  * @param {bigint} p.sqrtPriceX96   current price
  * @param {bigint} p.liquidity      from tradableLiquidity()
- * @param {number} p.lpFee          hundredths of a bip (10_000 = 1%)
+ * @param {number} p.lpFee          the swap fee in hundredths of a bip (10_000 = 1%) —
+ *                                  pass market.buyFee, which includes any protocol fee
  * @param {bigint} p.ethIn          wei
  * @param {bigint} [p.sqrtLowerX96] position floor; a buy past it is capped
  * @returns {{ tokensOut: bigint, sqrtPriceAfter: bigint, priceImpact: number, exceedsRange: boolean }}
@@ -243,7 +244,7 @@ export function quoteBuy({ sqrtPriceX96, liquidity, lpFee, ethIn, sqrtLowerX96 }
  * @param {object} p
  * @param {bigint} p.sqrtPriceX96
  * @param {bigint} p.liquidity
- * @param {number} p.lpFee
+ * @param {number} p.lpFee          the swap fee — pass market.sellFee
  * @param {bigint} p.tokensIn
  * @param {bigint} [p.sqrtUpperX96] launch price; there is no liquidity to sell into above it
  * @returns {{ ethOut: bigint, sqrtPriceAfter: bigint, priceImpact: number, exceedsRange: boolean }}
@@ -294,9 +295,23 @@ export function minimumReceived(amount, slippagePct) {
  * @param {bigint} p.wholeSupply               TOKEN_SUPPLY / 1e18
  * @returns {object | null} null when the pool is not initialised (no placement)
  */
+/**
+ * The fee v4 actually charges on a swap: the LP fee combined with the protocol fee
+ * for that direction (ProtocolFeeLibrary.calculateSwapFee). slot0's protocolFee packs
+ * two 12-bit values — low for zeroForOne (buys here), high for oneForZero (sells).
+ * @param {number} protocolFee  slot0.protocolFee
+ * @param {number} lpFee        slot0.lpFee
+ * @param {boolean} zeroForOne  true for a buy (ETH in), false for a sell
+ * @returns {number} hundredths of a bip
+ */
+export function swapFeeFor(protocolFee, lpFee, zeroForOne) {
+  const proto = zeroForOne ? protocolFee & 0xfff : (protocolFee >> 12) & 0xfff;
+  return proto + lpFee - Math.floor((proto * lpFee) / 1_000_000);
+}
+
 export function deriveMarketState({ slot0Word, liquidityWord, placement, wholeSupply }) {
   if (!placement || !slot0Word) return null;
-  const { sqrtPriceX96, tick, lpFee } = decodeSlot0(slot0Word);
+  const { sqrtPriceX96, tick, lpFee, protocolFee } = decodeSlot0(slot0Word);
   if (sqrtPriceX96 === 0n) return null;
 
   const tickLower = Number(placement.tickLower);
@@ -312,6 +327,10 @@ export function deriveMarketState({ slot0Word, liquidityWord, placement, wholeSu
     sqrtPriceX96,
     tick,
     lpFee,
+    // What a buy / sell is actually charged — LP fee plus any protocol fee. Quote with
+    // these, not lpFee, or a protocol fee makes every quote (and its minimum-out) high.
+    buyFee: swapFeeFor(protocolFee, lpFee, true),
+    sellFee: swapFeeFor(protocolFee, lpFee, false),
     tickLower,
     tickUpper,
     launchSqrtX96,

@@ -488,6 +488,13 @@ contract RolloverEscrowDepositTest is Test {
         vm.prank(admin);
         escrow.openCohort(SEASON_ID, 600, address(sofToken)); // 6% bonus
 
+        // Unfunded treasury: no bonus is quoted, because none would be paid.
+        assertEq(escrow.getBonusAmount(SEASON_ID, 1000e18), 0, "unfunded treasury quotes no bonus");
+
+        sofToken.mint(treasury, 1000e18);
+        vm.prank(treasury);
+        sofToken.approve(address(escrow), type(uint256).max);
+
         uint256 bonus = escrow.getBonusAmount(SEASON_ID, 1000e18);
         assertEq(bonus, 60e18, "6% of 1000 SOF = 60 SOF");
     }
@@ -614,6 +621,39 @@ contract RolloverEscrowSpendTest is Test {
         (,,,, uint256 totalSpent, uint256 totalBonusPaid,) = escrow.getCohortState(SEASON_ID);
         assertEq(totalSpent, sofAmount, "cohort totalSpent");
         assertEq(totalBonusPaid, bonusAmount, "cohort totalBonusPaid");
+    }
+
+    // =========================================================================
+    // Launch-token cohorts: the treasury may hold none of the cohort's token.
+    // The spend goes ahead at the base amount instead of reverting.
+    // =========================================================================
+    function test_spend_withoutTreasuryAllowance_skipsBonus() public {
+        vm.prank(treasury);
+        sofToken.approve(address(escrow), 0);
+        _assertSpendWithoutBonus();
+    }
+
+    function test_spend_withEmptyTreasury_skipsBonus() public {
+        uint256 held = sofToken.balanceOf(treasury);
+        vm.prank(treasury);
+        // forge-lint: disable-next-line(erc20-unchecked-transfer)
+        sofToken.transfer(address(0xDEAD), held);
+        _assertSpendWithoutBonus();
+    }
+
+    function _assertSpendWithoutBonus() internal {
+        uint256 sofAmount = 50e18;
+        uint256 wanted = (sofAmount * BONUS_BPS) / 10_000;
+        assertEq(escrow.getBonusAmount(SEASON_ID, sofAmount), 0, "quote matches what will be paid");
+
+        vm.expectEmit(true, true, false, true);
+        emit RolloverEscrow.BonusUnfunded(user, SEASON_ID, wanted);
+        vm.prank(user);
+        escrow.spendFromRollover(SEASON_ID, sofAmount, 50, sofAmount);
+
+        assertEq(raffleToken.balanceOf(user), 50, "base amount still buys tickets");
+        (,,,,, uint256 totalBonusPaid,) = escrow.getCohortState(SEASON_ID);
+        assertEq(totalBonusPaid, 0, "no bonus recorded");
     }
 
     // =========================================================================

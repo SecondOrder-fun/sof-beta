@@ -334,9 +334,6 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         emit PoolParamsUpdated(_fee, _tickSpacing, _rangeWidthTicks);
     }
 
-    /// @notice Recover the rounding remainder described in the contract docs.
-    /// @dev Only reachable for tokens this contract still holds a balance of, which after
-    ///      a successful placement is dust by construction.
     /// @notice Set the pool-initialization gate. It must be a `LaunchPoolGate` for this
     ///         placer, deployed at an address whose hook bits are exactly before-initialize.
     function setGate(address _gate) external onlyRole(CONFIG_ROLE) {
@@ -347,6 +344,9 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         emit GateUpdated(_gate);
     }
 
+    /// @notice Recover the rounding remainder described in the contract docs.
+    /// @dev Only reachable for tokens this contract still holds a balance of, which after
+    ///      a successful placement is dust by construction.
     function sweepDust(address token, address to) external onlyRole(CONFIG_ROLE) {
         if (to == address(0)) revert ZeroAddress();
         uint256 balance = IERC20(token).balanceOf(address(this));
