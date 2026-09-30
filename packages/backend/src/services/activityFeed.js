@@ -8,6 +8,8 @@
  *   buildChart          — price points for one token over a range
  *   raffleState         — a season's lifecycle stage, as the raffle UI names it
  *   summarizeSeason     — one season, shaped for the badge and card
+ *   liveSeasonCurves,
+ *   withLivePrizePools  — a live season's prize pool from its curve's reserves
  *   pickRaffleForToken  — which of a token's seasons its badge should show
  *   buildTokenActivity  — the ticker's tokens row: buys, sells, launches
  *   buildRaffleActivity — the ticker's raffles row: entries, openings, closings, wins
@@ -132,6 +134,36 @@ export function summarizeSeason(season) {
     winner: season.winner_address ?? null,
     bondingCurve: season.bonding_curve_address ?? null,
   };
+}
+
+/**
+ * The bonding curves whose reserves are a season's live prize pool: those of
+ * live seasons. What a route passes to launchpadActivityDb.curveReserves.
+ * @param {object[]} seasons  season_contracts rows
+ * @returns {string[]}
+ */
+export function liveSeasonCurves(seasons) {
+  return seasons
+    .filter((s) => raffleState(s) === "live" && s.bonding_curve_address)
+    .map((s) => s.bonding_curve_address);
+}
+
+/**
+ * Seasons with a live season's `total_prize_pool` taken from its curve's
+ * current reserves. season_contracts records the pool only at start, status
+ * changes and completion, so a live season there reads 0 (or a stale value).
+ * Other seasons, and a live one whose curve has no curve_state row, are
+ * returned unchanged. `total_participants` stays as stored: no source the
+ * backend keeps current per trade counts a season's holders.
+ * @param {object[]} seasons  season_contracts rows
+ * @param {Map<string, string>} reservesByCurve  curve (lowercase) -> wei
+ */
+export function withLivePrizePools(seasons, reservesByCurve) {
+  return seasons.map((s) => {
+    if (raffleState(s) !== "live" || !s.bonding_curve_address) return s;
+    const reserves = reservesByCurve.get(String(s.bonding_curve_address).toLowerCase());
+    return reserves == null ? s : { ...s, total_prize_pool: reserves };
+  });
 }
 
 const PRIORITY = { live: 0, drawing: 1, upcoming: 2, ended: 3, cancelled: 4 };

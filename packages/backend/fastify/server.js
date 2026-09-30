@@ -16,6 +16,7 @@ import { startRolloverEventListener } from "../src/listeners/rolloverEventListen
 import { startAccountCreatedListener } from "../src/listeners/accountCreatedListener.js";
 import { startTokenLaunchedListener } from "../src/listeners/tokenLaunchedListener.js";
 import { startLaunchTradeListener } from "../src/listeners/launchTradeListener.js";
+import { startWithRetry } from "../src/lib/startWithRetry.js";
 import { getDeployment } from "@sof/contracts/deployments";
 import { infoFiPositionService } from "../src/services/infoFiPositionService.js";
 import { historicalOddsService } from "../shared/historicalOddsService.js";
@@ -259,8 +260,8 @@ let unwatchSeasonStatusListeners = []; // array returned by startSeasonStatusLis
 let unwatchMarketCreated;
 let unwatchRollover;
 let unwatchAccountCreated;
-let unwatchTokenLaunched;
-let unwatchLaunchTrades;
+let unwatchTokenLaunched; // startWithRetry stop: also cancels a pending start retry
+let unwatchLaunchTrades; // same
 const positionUpdateListeners = new Map(); // Map of seasonId -> unwatch function
 const tradeListeners = new Map(); // Map of fpmmAddress -> unwatch function
 let stopSharedHead; // halts the shared chain-head tracker on shutdown
@@ -594,41 +595,49 @@ async function startListeners() {
     // chain where deploy step 22 skipped for want of a Uniswap v4 PoolManager.
     // That is a normal state, not a misconfiguration — the raffle stack runs
     // without the launchpad — so it logs at info and moves on.
+    //
+    // Both launch listeners start independently and in the background, each
+    // retried with bounded backoff (startWithRetry: 5s doubling to 5 min, for
+    // as long as it takes): their start reads the chain and the database, and
+    // one transient failure must neither leave a listener down until the next
+    // deploy nor keep the other from starting. The stop functions stored below
+    // also cancel a pending retry, so shutdown never races a late start.
     try {
-      const launchpadAddress =
-        getDeployment(NETWORK.toLowerCase()).TokenLaunchpad;
+      const deployment = getDeployment(NETWORK.toLowerCase());
+      const launchpadAddress = deployment.TokenLaunchpad;
       if (
         launchpadAddress &&
         launchpadAddress !== "0x0000000000000000000000000000000000000000"
       ) {
-        unwatchTokenLaunched = await startTokenLaunchedListener(
-          launchpadAddress,
-          app.log,
-        );
-        app.log.info("✅ TokenLaunchedListener started");
+        unwatchTokenLaunched = startWithRetry({
+          label: "TokenLaunchedListener",
+          start: () => startTokenLaunchedListener(launchpadAddress, app.log),
+          logger: app.log,
+        }).stop;
 
         // Trades on launch pools. Needs the v4 PoolManager too; a chain where
         // deploy step 22 skipped has none, and then there are no pools to watch.
-        const poolManager = getDeployment(NETWORK.toLowerCase()).PoolManager;
+        const poolManager = deployment.PoolManager;
         if (poolManager && poolManager !== "0x0000000000000000000000000000000000000000") {
-          try {
-            // Optional: where the trusted-router history starts. Without it the
-            // listener reads RouterUpdated from the lookback window (or the
-            // stored cursor, if older).
-            const rawDeployBlock = (process.env.LAUNCHPAD_DEPLOY_BLOCK || "").trim();
-            if (rawDeployBlock && !/^\d+$/.test(rawDeployBlock)) {
-              app.log.warn(`LAUNCHPAD_DEPLOY_BLOCK is not a block number (${rawDeployBlock}) — ignored`);
-            }
-            unwatchLaunchTrades = await startLaunchTradeListener({
-              poolManager,
-              launchpad: launchpadAddress,
-              deployBlock: /^\d+$/.test(rawDeployBlock) ? BigInt(rawDeployBlock) : undefined,
-              logger: app.log,
-            });
-            app.log.info("✅ LaunchTradeListener started");
-          } catch (error) {
-            app.log.error(`❌ Failed to start LaunchTradeListener: ${error.message}`);
+          // Optional: where the trusted-router history starts. Without it the
+          // listener reads RouterUpdated from the lookback window (or the
+          // stored cursor, if older).
+          const rawDeployBlock = (process.env.LAUNCHPAD_DEPLOY_BLOCK || "").trim();
+          if (rawDeployBlock && !/^\d+$/.test(rawDeployBlock)) {
+            app.log.warn(`LAUNCHPAD_DEPLOY_BLOCK is not a block number (${rawDeployBlock}) — ignored`);
           }
+          const deployBlock = /^\d+$/.test(rawDeployBlock) ? BigInt(rawDeployBlock) : undefined;
+          unwatchLaunchTrades = startWithRetry({
+            label: "LaunchTradeListener",
+            start: () =>
+              startLaunchTradeListener({
+                poolManager,
+                launchpad: launchpadAddress,
+                deployBlock,
+                logger: app.log,
+              }),
+            logger: app.log,
+          }).stop;
         } else {
           app.log.info("ℹ️  No PoolManager in deployments — LaunchTrade listener skipped");
         }
@@ -639,7 +648,7 @@ async function startListeners() {
       }
     } catch (error) {
       app.log.error(
-        `❌ Failed to start TokenLaunchedListener: ${error.message}`,
+        `❌ Failed to set up the launch listeners: ${error.message}`,
       );
     }
   } catch (error) {

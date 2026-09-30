@@ -35,6 +35,7 @@ const {
   listSeasonsForToken,
   listRecentEntries,
   hiddenTokens,
+  curveReserves,
 } = await import("../../shared/services/launchpadActivityDb.js");
 
 beforeEach(() => {
@@ -118,6 +119,41 @@ describe("trade ordering tie-breaks on log_index", () => {
       ["order", "block_number", { ascending: false }],
       ["order", "log_index", { ascending: false }],
     ]);
+  });
+});
+
+// Filtering hidden tokens after the limit let a wash-traded hidden token push
+// every visible trade out of the page, emptying the ticker's tokens row.
+describe("listRecentTrades hides hidden tokens in the query", () => {
+  it("inner-joins token_launches on is_hidden = false, before the limit", async () => {
+    await listRecentTrades(20);
+    expect(queries).toHaveLength(1);
+    const q = queries[0];
+    expect(q.find(([m]) => m === "select")[1]).toContain("token_launches!inner(is_hidden)");
+    expect(q).toContainEqual(["eq", "token_launches.is_hidden", false]);
+    expect(q).toContainEqual(["limit", 20]);
+  });
+
+  it("drops the join's column from the rows", async () => {
+    result = { data: [{ tx_hash: "0x1", log_index: 0, token_address: "0xt", token_launches: { is_hidden: false } }], error: null };
+    expect(await listRecentTrades(5)).toEqual([{ tx_hash: "0x1", log_index: 0, token_address: "0xt" }]);
+  });
+});
+
+describe("curveReserves", () => {
+  it("reads every curve's reserves in one query, keyed lowercase", async () => {
+    result = { data: [{ bonding_curve_address: "0xabc", sof_reserves: "123" }], error: null };
+    const reserves = await curveReserves(["0xABC", "0xdef", "0xabc"]);
+    expect(queries).toHaveLength(1);
+    expect(calls).toContainEqual(["from", "curve_state"]);
+    expect(calls).toContainEqual(["in", "bonding_curve_address", ["0xabc", "0xdef"]]);
+    expect(reserves.get("0xabc")).toBe("123");
+    expect(reserves.has("0xdef")).toBe(false);
+  });
+
+  it("does not query for no curves", async () => {
+    expect((await curveReserves([])).size).toBe(0);
+    expect(calls).toEqual([]);
   });
 });
 

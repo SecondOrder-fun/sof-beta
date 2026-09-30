@@ -86,14 +86,11 @@ describe("buildLaunchRow", () => {
     expect(row.metadata_uri).toBeNull();
   });
 
-  // A missing block timestamp must not drop the launch — the row is the only
-  // record of the token's name and symbol.
-  it("falls back to now when the block timestamp is unavailable", () => {
-    const before = Date.now();
-    const row = buildLaunchRow(log(), TOTAL_SUPPLY, undefined);
-    const at = new Date(row.launched_at).getTime();
-    expect(at).toBeGreaterThanOrEqual(before - 1000);
-    expect(at).toBeLessThanOrEqual(Date.now() + 1000);
+  // No stand-in time: the insert ignores a launch already indexed, so a
+  // launched_at of "now" would never be corrected. The caller retries instead.
+  it("throws when the block timestamp is unavailable", () => {
+    expect(() => buildLaunchRow(log(), TOTAL_SUPPLY, undefined)).toThrow("block time is required");
+    expect(() => buildLaunchRow(log(), TOTAL_SUPPLY, null)).toThrow("block time is required");
   });
 
   it("returns null for a log with no decoded args", () => {

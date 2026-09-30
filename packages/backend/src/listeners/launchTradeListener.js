@@ -48,9 +48,13 @@
  *    throws, which fails the poller tick before its cursor moves, so the range
  *    is retried. (A row written without its block time or trader would never
  *    be repaired: the trade insert ignores duplicates.) A completed boot scan
- *    starts the poller right after the block it scanned to; a failed one at
- *    the scan's first block (or, if it never learned its window, the stored
- *    cursor or the lookback window's start — bootScanWindow).
+ *    starts the poller right after the block it scanned to, and saves that
+ *    block as the cursor unless the stored cursor is older than the scan's
+ *    window (the gap between them is still the poller's to cover); a failed
+ *    one at the scan's first block (or, if it never learned its window, the
+ *    stored cursor or the lookback window's start — bootScanWindow). Only
+ *    trades this process inserted are broadcast as TokenTrade, so a replayed
+ *    range never re-announces old trades as live.
  */
 
 import { PoolManagerABI, TokenLaunchpadABI, UniV4LaunchRouterABI } from "@sof/contracts";
@@ -90,7 +94,11 @@ let launchesCovered = /** @type {{ from: bigint, to: bigint } | null} */ (null);
 
 /** Every launch router seen, lowercase. See point 3 above. */
 const routers = new Set();
-/** First block of the RouterUpdated history; unset = the lookback window's. */
+/**
+ * First block of the RouterUpdated history, set at startup to the earliest
+ * block the poller may process (or the deploy block); unset (only before
+ * startup sets it) = the lookback window's.
+ */
 let routerHistoryFrom = /** @type {bigint | undefined} */ (undefined);
 /** Last block RouterUpdated has been read up to; null before the first read. */
 let routerScannedTo = /** @type {bigint | null} */ (null);
@@ -277,17 +285,22 @@ async function buildRows(logs, { launchpad, poolManager }) {
 }
 
 /**
- * Store a batch of swaps, then broadcast them. Throws if they could not be
- * stored, so the poller retries the range instead of moving past it.
+ * Store a batch of swaps, then broadcast the ones this call inserted. Throws
+ * if they could not be stored, so the poller retries the range instead of
+ * moving past it. Rows already stored (a restart's replay, a retried range)
+ * are not broadcast again: TokenTrade means a live trade.
  */
 async function persist(logs, ctx, sseService) {
   const built = await buildRows(logs, ctx);
   if (!built.length) return;
 
-  await tokenLaunchesDb.insertLaunchTrades(built.map((b) => b.row));
+  const inserted = await tokenLaunchesDb.insertLaunchTrades(built.map((b) => b.row));
 
   if (!sseService) return;
+  const tradeKey = (txHash, logIndex) => `${lc(txHash)}:${Number(logIndex)}`;
+  const fresh = new Set((inserted ?? []).map((r) => tradeKey(r.tx_hash, r.log_index)));
   for (const { row, symbol } of built) {
+    if (!fresh.has(tradeKey(row.tx_hash, row.log_index))) continue;
     sseService.broadcast("raffle", {
       type: "TokenTrade",
       token: row.token_address,
@@ -331,6 +344,8 @@ export async function startLaunchTradeListener({ poolManager, launchpad, deployB
 
   const blockCursor = await createBlockCursor(`${poolManager}:Swap:launchpad`);
   const stored = await blockCursor.get();
+  /** The first block the stored cursor has the poller process, if any. */
+  const cursorNext = stored !== null && stored !== undefined ? stored + 1n : undefined;
 
   // Boot scan: router history, launches, then their swaps, over the lookback
   // window. All reads are chunked. Where the poller starts after it: see
@@ -345,8 +360,8 @@ export async function startLaunchTradeListener({ poolManager, launchpad, deployB
     routerHistoryFrom =
       typeof deployBlock === "bigint"
         ? deployBlock
-        : stored !== null && stored !== undefined
-          ? minBig(window.from, stored + 1n)
+        : cursorNext !== undefined
+          ? minBig(window.from, cursorNext)
           : window.from;
     const known = await trustedRouters(launchpad, window.head);
     logger.info(`[LAUNCH_TRADES] ${known.size} launch router(s) trusted`);
@@ -370,9 +385,26 @@ export async function startLaunchTradeListener({ poolManager, launchpad, deployB
     }
     // Not the head at poller start: blocks mined during the scan would be skipped.
     resumeFrom = window.head + 1n;
+    // The scan stored [window.from, head]. When that reaches back to the
+    // stored cursor (or there is none), move the cursor to the head, so the
+    // poller resumes after it instead of processing the window a second time.
+    // A cursor older than the window keeps its place: the blocks between it
+    // and the window were not scanned, and the poller must still cover them.
+    if (cursorNext === undefined || (cursorNext >= window.from && stored < window.head)) {
+      await blockCursor.set(window.head);
+    }
   } catch (err) {
     logger.error(`❌ [LAUNCH_TRADES] boot scan failed, poller will re-cover it: ${err.message}`);
     resumeFrom = window ? window.from : await resumeWithoutWindow(publicClient, blockCursor);
+    // Failed before learning its window: the router history was never given
+    // a start, and must reach back to the earliest block the poller may
+    // process — the stored cursor's next block, or the window resumeFrom is.
+    if (routerHistoryFrom === undefined) {
+      routerHistoryFrom =
+        typeof deployBlock === "bigint"
+          ? deployBlock
+          : [cursorNext, resumeFrom].filter((b) => typeof b === "bigint").reduce(minBig);
+    }
   }
 
   const unwatch = await startContractEventPolling({
