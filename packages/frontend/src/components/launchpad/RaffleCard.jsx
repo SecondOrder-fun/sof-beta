@@ -2,7 +2,7 @@
 //
 // The raffle priced in a launch token, on that token's page. Leads with the
 // season the backend features (live > drawing > upcoming > latest result) and
-// renders one of five states:
+// renders one of six states:
 //
 //   live      — prize pool, next ticket price, tickets and players, the ticket
 //               price ladder (MiniCurveChart), your tickets, and the primary
@@ -11,6 +11,8 @@
 //   drawing   — entries closed, VRF drawing; no CTA
 //   ended     — winner and prize (or "cancelled"); CTA to open the next season
 //   none      — the token has no season yet; CTA to open the first
+//   unavailable — the seasons read failed with nothing cached; says so, no CTA
+//                 (a failed read is not evidence that there is no raffle)
 //
 // Composed from existing primitives: Card in a Pastel Rose frame, Badge
 // (RaffleBadge), Button, CountdownTimer and MiniCurveChart. The prize pool is
@@ -63,15 +65,33 @@ Stat.propTypes = { label: PropTypes.node.isRequired, children: PropTypes.node };
 
 const seasonTitle = (raffle, t) => raffle.name || t("raffle.season", { id: raffle.seasonId });
 
+/**
+ * The next ticket's price when the indexed current step is missing: the first
+ * step whose range the supply has not passed (the ladder's own rule, see
+ * MiniCurveChart), else the last step.
+ * @param {{ rangeTo: bigint, price: bigint }[]} steps
+ * @param {bigint} supply
+ * @returns {bigint | null}
+ */
+const fallbackStepPrice = (steps, supply) => {
+  if (!steps?.length) return null;
+  return (steps.find((s) => s.rangeTo >= supply) ?? steps[steps.length - 1]).price;
+};
+
 const LiveRaffle = ({ raffle, symbol, market }) => {
   const { t } = useTranslation("launchpad");
   const navigate = useNavigate();
-  const { curveStep, curveSupply, allBondSteps } = useCurveState(raffle.bondingCurve, { isActive: true });
+  const { curveStep, curveSupply, allBondSteps, isPriceLoading } = useCurveState(raffle.bondingCurve, {
+    isActive: true,
+  });
   const { position } = usePlayerPosition(raffle.bondingCurve);
 
   const prizePool = BigInt(raffle.prizePool);
   const prizeEthWei = market?.priceWei != null ? (prizePool * market.priceWei) / 10n ** 18n : null;
   const myTickets = position?.tickets ?? 0n;
+  // Skeleton only while a price read is in flight; a missing curve state (e.g.
+  // a 404 from the indexer) falls back to the ladder rather than spinning.
+  const nextTicketPrice = curveStep?.price ?? fallbackStepPrice(allBondSteps, curveSupply);
 
   return (
     <Frame tone="rose" label={t("raffle.cardLabel", { state: t("raffle.badgeLive") })}>
@@ -102,7 +122,13 @@ const LiveRaffle = ({ raffle, symbol, market }) => {
 
       <div className="grid grid-cols-3 gap-2 text-sm">
         <Stat label={t("raffle.nextTicket")}>
-          {curveStep ? `${formatSupply(curveStep.price)} ${symbol}` : <Skeleton className="h-5 w-16" />}
+          {nextTicketPrice != null ? (
+            t("raffle.ticketPrice", { price: formatSupply(nextTicketPrice), symbol })
+          ) : isPriceLoading ? (
+            <Skeleton className="h-5 w-16" />
+          ) : (
+            "—"
+          )}
         </Stat>
         <Stat label={t("raffle.ticketsSold")}>{Number(raffle.tickets).toLocaleString()}</Stat>
         <Stat label={t("raffle.players")}>{Number(raffle.participants).toLocaleString()}</Stat>
@@ -113,7 +139,8 @@ const LiveRaffle = ({ raffle, symbol, market }) => {
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>{t("raffle.priceRises")}</span>
             {curveStep ? (
-              <span>{t("raffle.step", { step: Number(curveStep.step), total: allBondSteps.length })}</span>
+              // The contract's step index is 0-based; people count from 1.
+              <span>{t("raffle.step", { step: Number(curveStep.step) + 1, total: allBondSteps.length })}</span>
             ) : null}
           </div>
           <div className="h-16">
@@ -187,9 +214,19 @@ OpenSeasonCta.propTypes = { label: PropTypes.string.isRequired };
 
 const RaffleCard = ({ token, symbol, market }) => {
   const { t } = useTranslation("launchpad");
-  const { data, isLoading } = useTokenSeasons(token);
+  const { data, isLoading, isError } = useTokenSeasons(token);
 
   if (isLoading) return <Skeleton className="h-40 w-full rounded-xl" />;
+
+  // A failed read with nothing cached: say so. Showing "No raffle yet" here
+  // would invite opening a season that may already exist.
+  if (isError && !data) {
+    return (
+      <Frame tone="muted" label={t("raffle.cardLabel", { state: t("raffle.unavailableState") })}>
+        <p className="text-sm text-muted-foreground">{t("raffle.unavailable")}</p>
+      </Frame>
+    );
+  }
 
   const raffle = data?.featured ?? null;
 

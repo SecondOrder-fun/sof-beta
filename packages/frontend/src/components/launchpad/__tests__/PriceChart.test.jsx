@@ -41,11 +41,25 @@ describe("PriceChart", () => {
     expect(screen.getByText('chart.change{"sign":"−","pct":"50.0","range":"chart.range.24h"}')).toBeInTheDocument();
   });
 
+  it("names the headline unit through i18n", () => {
+    setup({ chart: { tradeCount: 1, launch, points: [{ t: NOW - 3600, priceWei: String(40n * GWEI) }] } });
+    expect(screen.getByText("chart.ethUnit")).toBeInTheDocument();
+  });
+
   it("with no trades, shows the launch baseline and an empty state, not a flat line", () => {
-    setup({ chart: { tradeCount: 0, launch, points: [{ t: launch.t, priceWei: launch.priceWei }] } });
+    // The live pool still at the launch price: nothing has traded anywhere.
+    const atLaunch = { ...market, fdvWei: 2n * 10n ** 18n, priceWei: 2n * GWEI, multiple: 1 };
+    setup({ chart: { tradeCount: 0, launch, points: [{ t: launch.t, priceWei: launch.priceWei }] }, m: atLaunch });
     expect(screen.getByText("chart.empty")).toBeInTheDocument();
     expect(screen.getByText('chart.launchLine{"fdv":"2.00"}')).toBeInTheDocument();
     expect(screen.queryByText(/chart\.change/)).not.toBeInTheDocument();
+  });
+
+  it("draws a move the live pool shows before the indexer has any trade, rather than 'no trades yet'", () => {
+    setup({ chart: { tradeCount: 0, launch, points: [{ t: launch.t, priceWei: launch.priceWei }] } });
+    expect(screen.queryByText("chart.empty")).not.toBeInTheDocument();
+    // 2 -> 47 gwei over the range.
+    expect(screen.getByText('chart.change{"sign":"+","pct":"2250.0","range":"chart.range.24h"}')).toBeInTheDocument();
   });
 
   it("says so when the history cannot be loaded", () => {

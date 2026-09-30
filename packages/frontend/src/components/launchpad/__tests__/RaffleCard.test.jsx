@@ -1,6 +1,6 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import RaffleCard from "@/components/launchpad/RaffleCard";
 import RaffleBadge from "@/components/launchpad/RaffleBadge";
@@ -44,12 +44,16 @@ const season = (over) => ({
   ...over,
 });
 
-const setup = ({ featured = season(), myTickets = 0n, isLoading = false, market } = {}) => {
-  useTokenSeasons.mockReturnValue({ data: featured === undefined ? undefined : { featured }, isLoading });
+const LADDER = Array.from({ length: 10 }, (_, i) => ({ rangeTo: BigInt((i + 1) * 500), price: BigInt(1000 + i * 1000) * ETH }));
+
+const setup = ({ featured = season(), noData = false, myTickets = 0n, isLoading = false, isError = false, market, curve } = {}) => {
+  useTokenSeasons.mockReturnValue({ data: noData ? undefined : { featured }, isLoading, isError });
   useCurveState.mockReturnValue({
     curveStep: { step: 4n, price: 12_000n * ETH, rangeTo: 2000n },
     curveSupply: 1532n,
-    allBondSteps: Array.from({ length: 10 }, (_, i) => ({ rangeTo: BigInt((i + 1) * 500), price: BigInt(1000 + i * 1000) * ETH })),
+    allBondSteps: LADDER,
+    isPriceLoading: false,
+    ...curve,
   });
   usePlayerPosition.mockReturnValue({ position: myTickets ? { tickets: myTickets, probBps: 261 } : null });
   return render(
@@ -67,11 +71,35 @@ describe("RaffleCard", () => {
     expect(screen.getByText("raffle.badgeLive")).toBeInTheDocument();
     expect(screen.getByText('raffle.season{"id":3}')).toBeInTheDocument();
     expect(screen.getByText("18.4M")).toBeInTheDocument();
-    expect(screen.getByText("12K POND")).toBeInTheDocument();
+    expect(screen.getByText('raffle.ticketPrice{"price":"12K","symbol":"POND"}')).toBeInTheDocument();
     expect(screen.getByText("1,532")).toBeInTheDocument();
     expect(screen.getByText("312")).toBeInTheDocument();
     expect(screen.getByText("ticket-ladder")).toBeInTheDocument();
-    expect(screen.getByText('raffle.step{"step":4,"total":10}')).toBeInTheDocument();
+    // On-chain step index 4 is the fifth step.
+    expect(screen.getByText('raffle.step{"step":5,"total":10}')).toBeInTheDocument();
+  });
+
+  it("live: without an indexed current step, prices the next ticket from the ladder", () => {
+    // 1532 sold: the first step whose range reaches it is the fourth (to 2000, 4K).
+    const { container } = setup({ curve: { curveStep: null } });
+    expect(screen.getByText('raffle.ticketPrice{"price":"4K","symbol":"POND"}')).toBeInTheDocument();
+    expect(container.querySelector(".animate-pulse")).toBeNull();
+    // No current step, so no "step N of M" label either.
+    expect(screen.queryByText(/raffle\.step/)).not.toBeInTheDocument();
+  });
+
+  it("live: past the last step's range, prices the next ticket at the last step", () => {
+    setup({ curve: { curveStep: null, curveSupply: 9999n } });
+    expect(screen.getByText('raffle.ticketPrice{"price":"10K","symbol":"POND"}')).toBeInTheDocument();
+  });
+
+  it("live: a skeleton only while the price is loading, a dash once it is known to be missing", () => {
+    const { container, unmount } = setup({ curve: { curveStep: null, allBondSteps: [], isPriceLoading: true } });
+    expect(container.querySelector(".animate-pulse")).not.toBeNull();
+    unmount();
+    const second = setup({ curve: { curveStep: null, allBondSteps: [], isPriceLoading: false } });
+    expect(second.container.querySelector(".animate-pulse")).toBeNull();
+    expect(screen.getByText("—")).toBeInTheDocument();
   });
 
   it("live: the CTA goes to the season", () => {
@@ -131,8 +159,21 @@ describe("RaffleCard", () => {
     expect(screen.getByRole("button", { name: "raffle.openFirst" })).toBeInTheDocument();
   });
 
+  it("error with nothing cached: says the raffle is unavailable, with no CTA and no no-raffle claim", () => {
+    setup({ noData: true, isError: true });
+    expect(screen.getByText("raffle.unavailable")).toBeInTheDocument();
+    expect(screen.queryByText("raffle.badgeNone")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("error on a refetch: keeps showing the cached season", () => {
+    setup({ isError: true });
+    expect(screen.getByText("raffle.badgeLive")).toBeInTheDocument();
+    expect(screen.queryByText("raffle.unavailable")).not.toBeInTheDocument();
+  });
+
   it("loading: a skeleton, not the no-raffle state", () => {
-    setup({ featured: undefined, isLoading: true });
+    setup({ noData: true, isLoading: true });
     expect(screen.queryByText("raffle.badgeNone")).not.toBeInTheDocument();
   });
 });
@@ -158,5 +199,19 @@ describe("RaffleBadge", () => {
   it("renders nothing without a raffle", () => {
     const { container } = renderBadge(null);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  describe("with a moving clock", () => {
+    afterEach(() => vi.useRealTimers());
+
+    it("keeps the opens-in countdown current instead of freezing at first render", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-09-30T12:00:00Z"));
+      const startTime = Math.floor(Date.now() / 1000) + 2 * 3600 + 10 * 60;
+      renderBadge({ state: "upcoming", startTime });
+      expect(screen.getByText('raffle.badgeOpensIn{"time":"2h 10m"}')).toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(60_000));
+      expect(screen.getByText('raffle.badgeOpensIn{"time":"2h 9m"}')).toBeInTheDocument();
+    });
   });
 });

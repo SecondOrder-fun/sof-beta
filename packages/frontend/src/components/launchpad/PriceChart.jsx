@@ -82,7 +82,7 @@ const PriceChart = ({ token, market }) => {
               {headline != null ? (
                 <div className="flex items-baseline gap-3 flex-wrap">
                   <span className="text-4xl font-semibold tracking-tight text-heading">
-                    {headline} <span className="text-lg font-medium text-muted-foreground">ETH</span>
+                    {headline} <span className="text-lg font-medium text-muted-foreground">{t("chart.ethUnit")}</span>
                   </span>
                   {change != null ? (
                     <span className={cn("text-sm font-semibold", change >= 0 ? "text-success" : "text-destructive")}>
@@ -161,7 +161,7 @@ const PriceChart = ({ token, market }) => {
                     orientation="right"
                     width={56}
                     domain={[0, "auto"]}
-                    tickFormatter={(v) => `${fmtEth(v)} ETH`}
+                    tickFormatter={(v) => t("chart.axisEth", { value: fmtEth(v) })}
                     tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
                     axisLine={false}
                     tickLine={false}

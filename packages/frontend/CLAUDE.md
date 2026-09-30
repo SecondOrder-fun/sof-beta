@@ -52,13 +52,17 @@ feed, the price chart (`/tokens/:address/chart`), the raffle card
 (`/tokens/:address/seasons`), the raffle badges on a page of cards (one
 `/raffles?tokens=` request), and the site-wide activity ticker (`/api/activity`).
 Each renders nothing (ticker, badge) or an honest empty state (chart, card) when
-the backend has no data.
+the backend has no data. A failed read is not "no data": the raffle card says it
+is unavailable rather than offering to open a season, and a failed refetch keeps
+the last data on screen.
 
 **The activity ticker is site-wide** (`components/layout/ActivityTicker.jsx`,
 under both headers in `App.jsx`), not launchpad-only: the raffles row is the whole
 platform's activity. Its motion rules are accessibility requirements, tested:
 hover/focus pauses a row, the pause button stops both, `prefers-reduced-motion`
 stops it, and the loop's duplicate copy is `aria-hidden` and out of the tab order.
+A sparse row repeats its items inside each copy until a copy spans the row; every
+repeat is hidden the same way, so assistive tech meets each item once.
 An InfoFi markets row slots in as a third `TickerRow`.
 
 **The raffle accent is a token, not a colour.** The raffle Badge variants

@@ -1,6 +1,7 @@
 // src/components/launchpad/TokenCard.jsx
 // One launched token in the discovery grid, with its raffle badge when a
-// season is priced in it.
+// season is priced in it. The live raffle strip's "X left" follows the clock
+// (useNow) rather than freezing at first render.
 
 import PropTypes from "prop-types";
 import { Link } from "react-router-dom";
@@ -12,6 +13,7 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import TokenArt from "@/components/launchpad/TokenArt";
 import RaffleBadge from "@/components/launchpad/RaffleBadge";
+import { useNow } from "@/hooks/useNow";
 import { shortAddress } from "@/lib/format";
 import {
   formatAge,
@@ -24,6 +26,7 @@ import {
 
 const TokenCard = ({ launch, market, raffle }) => {
   const { t } = useTranslation("launchpad");
+  const nowMs = useNow();
 
   return (
     <Link
@@ -89,7 +92,7 @@ const TokenCard = ({ launch, market, raffle }) => {
               </span>
               {raffle.endTime ? (
                 <span className="shrink-0 text-muted-foreground">
-                  {t("card.raffleLeft", { time: formatTimeLeft(raffle.endTime) })}
+                  {t("card.raffleLeft", { time: formatTimeLeft(raffle.endTime, nowMs) })}
                 </span>
               ) : null}
             </div>

@@ -6,6 +6,11 @@
 //
 // Pure (the translator is passed in), so each event kind's wording and link
 // target is tested without rendering the ticker.
+//
+// Keys must be unique within a row: one transaction can carry several events
+// (a batched buy, two entries), so a tx hash alone is not enough. The feed's
+// `logIndex` disambiguates; until every row carries it, the next-best field
+// stands in (the token for trades, the wallet for entries).
 
 import { shortAddress } from '@/lib/format';
 import { formatFdvEth, formatSupply, formatTimeLeft } from '@/lib/launchFormat';
@@ -28,7 +33,7 @@ const ticker = (symbol) => (symbol ? `$${symbol}` : null);
  */
 export function describeTokenItem(item, t) {
   const base = {
-    key: `${item.kind}:${item.txHash}`,
+    key: `${item.kind}:${item.txHash}:${item.logIndex ?? item.token}`,
     href: `/tokens/${item.token}`,
     who: item.who ? shortAddress(item.who) : null,
     symbol: ticker(item.symbol),
@@ -60,7 +65,8 @@ export function describeTokenItem(item, t) {
 export function describeRaffleItem(item, t, nowMs = Date.now()) {
   const season = item.seasonName || t('raffle.season', { id: item.seasonId });
   const base = {
-    key: `${item.kind}:${item.seasonId}:${item.txHash ?? item.at}`,
+    // opened / closing / won happen once per season; entries need the log index.
+    key: `${item.kind}:${item.seasonId}:${item.txHash ?? item.at}:${item.logIndex ?? item.who ?? ''}`,
     href: `/raffles/${item.seasonId}`,
     who: item.who ? shortAddress(item.who) : null,
     symbol: ticker(item.symbol),
@@ -70,14 +76,26 @@ export function describeRaffleItem(item, t, nowMs = Date.now()) {
     case 'entry':
       return { ...base, verb: t('ticker.entered'), amount: t('ticker.tickets', { count: Number(item.tickets) }), tail: season };
     case 'won':
+      // The prize names its token, so no separate $SYMBOL chip; with no symbol
+      // known a bare number would mislead, so the prize is left out.
       return {
         ...base,
+        symbol: null,
         verb: t('ticker.won'),
-        amount: item.symbol ? `${formatSupply(BigInt(item.prizePool ?? 0))} ${item.symbol} ·` : null,
+        amount: item.symbol
+          ? t('ticker.prize', { prize: formatSupply(BigInt(item.prizePool ?? 0)), symbol: item.symbol })
+          : null,
         tail: season,
       };
     case 'opened':
-      return { ...base, verb: t('ticker.opened'), amount: t('ticker.seasonOn', { season }), tail: null };
+      // "opened Season 3 on $POND", or just "opened Season 3" when the season is
+      // not priced in a launch token.
+      return {
+        ...base,
+        verb: t('ticker.opened'),
+        amount: item.symbol ? t('ticker.seasonOn', { season }) : t('ticker.season', { season }),
+        tail: null,
+      };
     case 'closing':
       return {
         ...base,

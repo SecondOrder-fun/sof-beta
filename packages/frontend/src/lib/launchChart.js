@@ -36,10 +36,16 @@ export function buildChartSeries({ chart, currentPriceWei, nowSec, wholeSupply =
   const launchFdv = fdvEth(launchPrice, wholeSupply);
   const raw = [...(chart.points ?? [])];
 
-  // No trade in the range and the line enters at the launch price: nothing has
-  // ever traded, so there is no line to draw. (A quiet range after earlier
-  // trades enters at the last traded price instead, and still draws.)
-  const hasTrades = chart.tradeCount > 0 || (raw.length > 0 && BigInt(raw[0].priceWei) !== launchPrice);
+  // No trade in the range, the line enters at the launch price, and the live
+  // pool still sits at the launch price: nothing has ever traded, so there is
+  // no line to draw. (A quiet range after earlier trades enters at the last
+  // traded price instead, and still draws. A live price off the launch price
+  // means the pool has traded even if the indexer has not caught up — without
+  // it the headline would show a move while the chart said "No trades yet".)
+  const hasTrades =
+    chart.tradeCount > 0 ||
+    (raw.length > 0 && BigInt(raw[0].priceWei) !== launchPrice) ||
+    (currentPriceWei != null && BigInt(currentPriceWei) !== launchPrice);
 
   // Carry the line to "now" at the live price, so a quiet stretch reads as
   // flat instead of stopping at the last trade.

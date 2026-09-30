@@ -37,6 +37,16 @@ describe("describeTokenItem", () => {
     expect(d).toMatchObject({ tone: "launch", verb: "ticker.launched", amount: null, tail: 'ticker.atFdv{"fdv":"1"}' });
   });
 
+  it("keys each event of a batched transaction separately", () => {
+    const row = { kind: "buy", who: WALLET, token: TOKEN, symbol: "POND", ethAmount: "1", priceWei: "1", txHash: "0xabc" };
+    const a = describeTokenItem({ ...row, logIndex: 3 }, t);
+    const b = describeTokenItem({ ...row, logIndex: 7 }, t);
+    expect(a.key).not.toBe(b.key);
+    // Without a log index, two tokens bought in one tx still get distinct keys.
+    const other = "0x2222222222222222222222222222222222222222";
+    expect(describeTokenItem(row, t).key).not.toBe(describeTokenItem({ ...row, token: other }, t).key);
+  });
+
   it("gives every tone a colour", () => {
     for (const tone of ["buy", "sell", "launch", "raffle", "closing"]) expect(TONE_CLASS[tone]).toBeTruthy();
   });
@@ -57,9 +67,45 @@ describe("describeRaffleItem", () => {
     });
   });
 
-  it("shapes a win with the prize in the token", () => {
+  it("keys two entries in one transaction separately", () => {
+    const row = { ...base, kind: "entry", who: WALLET, tickets: "1", txHash: "0x1", at: "x" };
+    const a = describeRaffleItem({ ...row, logIndex: 1 }, t);
+    const b = describeRaffleItem({ ...row, logIndex: 2 }, t);
+    expect(a.key).not.toBe(b.key);
+    const other = "0x4000000000000000000000000000000000000000";
+    expect(describeRaffleItem(row, t).key).not.toBe(describeRaffleItem({ ...row, who: other }, t).key);
+  });
+
+  it("shapes a win with the prize in the token, named once", () => {
     const d = describeRaffleItem({ ...base, kind: "won", who: WALLET, prizePool: String(18_400_000n * ETH), at: "x" }, t);
-    expect(d.amount).toBe("18.4M POND ·");
+    expect(d).toMatchObject({
+      verb: "ticker.won",
+      amount: 'ticker.prize{"prize":"18.4M","symbol":"POND"}',
+      // The prize already names the token; no second $POND chip.
+      symbol: null,
+      tail: 'raffle.season{"id":3}',
+    });
+  });
+
+  it("shapes a win without a known token as just the season", () => {
+    const d = describeRaffleItem({ ...base, symbol: null, kind: "won", who: WALLET, prizePool: String(ETH), at: "x" }, t);
+    expect(d).toMatchObject({ amount: null, symbol: null, tail: 'raffle.season{"id":3}' });
+  });
+
+  it("shapes an opening as the season on its token", () => {
+    const d = describeRaffleItem({ ...base, kind: "opened", at: "x" }, t);
+    expect(d).toMatchObject({
+      verb: "ticker.opened",
+      amount: 'ticker.seasonOn{"season":"raffle.season{\\"id\\":3}"}',
+      symbol: "$POND",
+      tail: null,
+    });
+  });
+
+  it("shapes an opening without a token as the season alone, with no dangling 'on'", () => {
+    const d = describeRaffleItem({ ...base, symbol: null, kind: "opened", at: "x" }, t);
+    expect(d.amount).toBe('ticker.season{"season":"raffle.season{\\"id\\":3}"}');
+    expect(d.symbol).toBeNull();
   });
 
   it("prefers the season's own name", () => {

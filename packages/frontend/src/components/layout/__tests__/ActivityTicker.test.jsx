@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import ActivityTicker from "@/components/layout/ActivityTicker";
 import { useActivityFeed } from "@/hooks/useLaunchActivity";
@@ -73,11 +73,81 @@ describe("ActivityTicker", () => {
     expect(screen.getByText("ticker.rafflesEmpty")).toBeInTheDocument();
   });
 
-  it("renders nothing when both rows are empty, while loading, or on error", () => {
+  it("renders nothing when both rows are empty, while loading, or when the first read fails", () => {
     const { container, unmount } = setup({ data: { tokens: [], raffles: [] } });
     expect(container).toBeEmptyDOMElement();
     unmount();
     expect(setup({ data: null }).container).toBeEmptyDOMElement();
-    expect(setup({ isError: true }).container).toBeEmptyDOMElement();
+    expect(setup({ data: null, isError: true }).container).toBeEmptyDOMElement();
+  });
+
+  it("keeps showing the last data when a refetch fails", () => {
+    setup({ isError: true });
+    expect(screen.getByRole("region", { name: "ticker.label" })).toBeInTheDocument();
+    expect(screen.getAllByRole("link")).toHaveLength(3);
+  });
+
+  describe("a sparse feed", () => {
+    // Lay out a 1000px row and 100px per item, so one pass of the tokens row
+    // (2 items) is 200px and of the raffles row (1 item) is 100px.
+    const ROW = 1000;
+    const ITEM = 100;
+    let matchMedia;
+
+    beforeEach(() => {
+      vi.stubGlobal(
+        "ResizeObserver",
+        class {
+          observe() {}
+          disconnect() {}
+        },
+      );
+      vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function () {
+        return this.firstElementChild?.dataset?.testid === "ticker-track" ? ROW : 0;
+      });
+      vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function () {
+        return this.tagName === "UL" ? this.children.length * ITEM : 0;
+      });
+      matchMedia = window.matchMedia;
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+      window.matchMedia = matchMedia;
+    });
+
+    const copies = () => [...document.querySelectorAll('[data-testid="ticker-track"]')].map((track) => [...track.children]);
+
+    it("repeats items inside each copy until a copy spans the row, capped", () => {
+      setup();
+      const [tokens, raffles] = copies();
+      // 1000 / 200 = 5 passes of 2 items; 1000 / 100 = 10 passes of 1 item (the cap).
+      tokens.forEach((ul) => expect(ul.children).toHaveLength(10));
+      raffles.forEach((ul) => expect(ul.children).toHaveLength(10));
+    });
+
+    it("exposes only the first instance of each item to assistive tech and the tab order", () => {
+      setup();
+      const bar = screen.getByRole("region", { name: "ticker.label" });
+      const links = within(bar).getAllByRole("link");
+      expect(links.map((a) => a.getAttribute("href"))).toEqual([`/tokens/${TOKEN}`, `/tokens/${TOKEN}`, "/raffles/2"]);
+      const focusable = bar.querySelectorAll('a:not([tabindex="-1"])');
+      expect(focusable).toHaveLength(3);
+      // Every repeat in the visible copy is hidden, as is the whole second copy.
+      const [tokens, raffles] = copies();
+      const exposed = (ul) => [...ul.children].filter((li) => !li.hasAttribute("aria-hidden"));
+      expect(exposed(tokens[0])).toEqual([...tokens[0].children].slice(0, 2));
+      expect(exposed(raffles[0])).toEqual([...raffles[0].children].slice(0, 1));
+      [tokens[1], raffles[1]].forEach((ul) => expect(ul).toHaveAttribute("aria-hidden", "true"));
+    });
+
+    it("does not repeat when motion is reduced, where the row stands still", () => {
+      window.matchMedia = vi.fn().mockReturnValue({ matches: true });
+      setup();
+      const [tokens, raffles] = copies();
+      expect(tokens[0].children).toHaveLength(2);
+      expect(raffles[0].children).toHaveLength(1);
+    });
   });
 });

@@ -49,6 +49,24 @@ describe("buildChartSeries", () => {
     expect(hasTrades).toBe(false);
   });
 
+  it("has trades once the live pool price has left the launch price, even before the indexer sees one", () => {
+    const { hasTrades } = buildChartSeries({
+      chart: { tradeCount: 0, launch, points: [{ t: 1000, priceWei: String(GWEI) }] },
+      currentPriceWei: 3n * GWEI,
+      nowSec: 2000,
+    });
+    expect(hasTrades).toBe(true);
+  });
+
+  it("has no trades when the live pool price still sits at the launch price", () => {
+    const { hasTrades } = buildChartSeries({
+      chart: { tradeCount: 0, launch, points: [{ t: 1000, priceWei: String(GWEI) }] },
+      currentPriceWei: GWEI,
+      nowSec: 2000,
+    });
+    expect(hasTrades).toBe(false);
+  });
+
   it("still has trades for a quiet range after earlier trading", () => {
     const { hasTrades } = buildChartSeries({
       chart: { tradeCount: 0, launch, points: [{ t: 1500, priceWei: String(4n * GWEI) }] },
