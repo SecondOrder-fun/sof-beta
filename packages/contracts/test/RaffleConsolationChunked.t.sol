@@ -75,6 +75,7 @@ contract RaffleConsolationChunkedTest is Test {
     function setUp() public {
         sof = new MockSOF("SOF", "SOF", 18);
         raffle = new RaffleHarness(address(0xC0DE), 0, bytes32(0));
+        raffle.setQuoteTokenAllowed(address(sof), true);
         factory = new SeasonFactory(address(raffle));
         raffle.setSeasonFactory(address(factory));
         raffle.grantRole(raffle.SEASON_FACTORY_ROLE(), address(factory));

@@ -97,6 +97,7 @@ contract RaffleFinalizeSeasonTest is Test {
 
         address mockCoordinator = address(0xCAFE);
         raffle = new RaffleFinalizeHarness(mockCoordinator, 0, bytes32(0));
+        raffle.setQuoteTokenAllowed(address(sof), true);
 
         factory = new SeasonFactory(address(raffle));
         raffle.setSeasonFactory(address(factory));
@@ -196,6 +197,7 @@ contract RaffleFinalizeSeasonTest is Test {
         cfg.treasuryAddress = treasury;
         cfg.quoteToken = address(other);
 
+        raffle.setQuoteTokenAllowed(address(other), true);
         uint256 seasonId = raffle.createSeason(cfg, _steps(), 50, 70);
         (RaffleTypes.SeasonConfig memory out,,,,) = raffle.getSeasonDetails(seasonId);
         SOFBondingCurve curve = SOFBondingCurve(out.bondingCurve);
