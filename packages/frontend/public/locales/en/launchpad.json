@@ -53,6 +53,7 @@
     "count_one": "{{count}} token",
     "count_other": "{{count}} tokens",
     "showing": "Showing the {{count}} most recent",
+    "loadMore": "Load more",
     "launchCta": "Launch a token"
   },
   "card": {

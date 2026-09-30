@@ -41,6 +41,9 @@ contract DeployPaymaster is Script {
         //
         // Per-season SOFBondingCurve targets are NOT in the static set; they
         // are validated dynamically via IRaffleCurveRegistry(raffle).isSofCurve.
+        // So are launch tokens and allowlisted quote tokens (isAllowedQuoteToken) and
+        // the launchpad plus its advertised router (raffle.launchpad(), .router()) —
+        // steps 21-23 need no paymaster wiring.
         //
         // RolloverEscrow (step 16) and SOFExchange (step 18) deploy AFTER this
         // script in the DeployAll chain, so their addresses are still zero in

@@ -45,8 +45,10 @@ All pollers share one chain-head source: `startListeners` registers and starts a
 - The event's `placementId` **is** the Uniswap v4 PoolId, so `token_launches.pool_id`
   is the key `launchTradeListener` uses to attribute PoolManager `Swap` logs to a token.
 
-Because a missed launch is unrecoverable, `processTokenLaunchedLog` lets a transient (or
-unknown) insert failure **throw**: the poller tick fails before its cursor moves and the
+Because a missed launch is unrecoverable, `processTokenLaunchedLog` lets a failed
+block-time read, or a transient (or unknown) insert failure, **throw** — there is no
+stand-in `launched_at`, since the insert ignores a launch already indexed and a wrong time
+would never be corrected: the poller tick fails before its cursor moves and the
 range is retried (`contractEventPolling` never advances past a range whose `onLogs` threw —
 tested). A row that can **never** be stored — a Postgres data or constraint error, SQLSTATE
 class 22/23, which supabase-js surfaces as `error.code` — is logged at error level with its
@@ -57,13 +59,20 @@ TEXT rejects it), name/symbol cut to the launchpad's 48/16 limits, and a metadat
 `src/lib/bootScanWindow.js`) hand the live poller `resumeNoLaterThan`: the block after the
 scanned head when the scan finished (so blocks mined during the scan are covered even with
 an empty cursor), the failed block when it failed partway, and the stored cursor — or the
-lookback window's start — when it failed before learning its window.
+lookback window's start — when it failed before learning its window. After a completed
+scan `launchTradeListener` also saves the scanned head as its cursor (unless the stored
+cursor is older than the window — the blocks between were not scanned), so the poller
+does not process the window a second time.
 `launchTradeListener` indexes launches through the same exported function, so whichever
 listener's insert wins broadcasts `TokenLaunched` — exactly once.
 
 The listener is skipped, at info level, when `TokenLaunchpad` is absent from the
 deployment JSON. That is a normal state: the raffle stack deploys independently of the
-launchpad, and deploy step 22 skips on a chain with no Uniswap v4.
+launchpad, and deploy step 22 skips on a chain with no Uniswap v4. The two launch
+listeners start independently, in the background, through `src/lib/startWithRetry.js`:
+a failed start (a chain or database read) is logged and retried with backoff (5 s
+doubling to a 5-minute cap, indefinitely), never crashing the server; the stop function
+it returns cancels a pending retry, so shutdown never races a late start.
 
 `launchTradeListener` indexes trades on launch pools into `launch_trades` from the v4
 PoolManager's `Swap` event. Rules it depends on:
@@ -81,6 +90,8 @@ PoolManager's `Swap` event. Rules it depends on:
   indexer lagged a tick. The span already read is tracked in memory, so a retried range
   (or the part of the poller's first range the boot scan covered) is not read again. A
   launch skipped as unstorable is not watched either — its trades could not be stored.
+  The starting pool map (`tokenLaunchesDb.listPoolIndex`) is paged by keyset until
+  exhausted: PostgREST caps a response at 1,000 rows by default.
 - **`amount0 < 0` is a BUY, and `sender` is the router.** Pinned against a real swap by
   `contracts/test/UniV4LaunchRouter.t.sol:test_swapEventSignConvention_forTheIndexer`
   (IPoolManager's own comment reads as the opposite sign). The real trader comes from
@@ -97,6 +108,9 @@ PoolManager's `Swap` event. Rules it depends on:
   read or trade insert throws, so the range is retried; a row written with `block_time`
   NULL or the router as trader would never be repaired, since the insert ignores
   duplicates. Blocks and receipts are fetched 4 at a time.
+- **Broadcast only what was inserted.** `insertLaunchTrades` returns the rows its
+  `ON CONFLICT DO NOTHING` actually inserted, and only those go out as `TokenTrade` SSE —
+  a restart's replay or a retried range never re-announces old trades as live.
 
 Seasons link to launch tokens through `season_contracts.quote_token_address`, and record
 their grand-prize `winner_address` (migration 024). The season listeners only send those
@@ -109,15 +123,26 @@ Shaping for all of them is pure, in `src/services/activityFeed.js`. Rules they s
 
 - **Hidden tokens** (`token_launches.is_hidden`) are absent everywhere: the token, chart
   and seasons routes 404 them, and `/raffles` and `/api/activity` drop their trades and
-  the seasons priced in them (`launchpadActivityDb.hiddenTokens`).
+  the seasons priced in them (`launchpadActivityDb.hiddenTokens`). The ticker's recent
+  trades exclude them **in the query** (inner join to `token_launches` on
+  `is_hidden = false`), so a heavily traded hidden token cannot use up the row's limit.
+  That query's `(block_number DESC, log_index DESC)` order is served by
+  `launch_trades_recent_idx` (migration 025).
+- **A live season's prize pool is its curve's reserves** (`curve_state.sof_reserves`,
+  one batched query per request via `launchpadActivityDb.curveReserves`):
+  `season_contracts` records `total_prize_pool` only at start, status changes and
+  completion. Participants stay as `season_contracts` last recorded them — nothing the
+  backend keeps current per trade counts a season's holders (`user_raffle_positions` is
+  refreshed only by the historical sync).
 - **Raffle entries are scoped by bonding curve.** `season_id` restarts on a Raffle
   redeploy, so an entry counts for a season only if its `bonding_curve_address` matches
   the season's (migration 020).
 - The chart reads **every** trade in range, paged newest-first by
   `(block_number, log_index)` keyset and returned oldest first, up to 50,000. Past that
   the oldest are dropped (never the latest price), the response says `truncated: true`,
-  and the line enters at the newest trade left out instead of the launch price. Feeds
-  that order trades tie-break on `log_index` within a block.
+  and the line enters at the newest trade left out instead of the launch price (the last
+  trade before the range is read only for a complete range). Feeds that order trades
+  tie-break on `log_index` within a block.
 - **"won" items are dated by the season's `end_time`**, and recent seasons are ordered by
   `end_time`/`start_time`, never `updated_at`: every listener write (replays on restart
   included) bumps `updated_at`, which would resurface old wins as new. A won item carries

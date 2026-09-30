@@ -9,6 +9,8 @@ import {
   buildTokenActivity,
   buildRaffleActivity,
   CLOSING_WINDOW_SEC,
+  liveSeasonCurves,
+  withLivePrizePools,
 } from "../../src/services/activityFeed.js";
 
 const NOW = 1_700_000_000;
@@ -260,5 +262,33 @@ describe("buildRaffleActivity", () => {
       seasons: [], symbols: {}, nowSec: NOW,
     });
     expect(items).toEqual([]);
+  });
+});
+
+// season_contracts records the prize pool only at start, status changes and
+// completion, so a live season read 0 there. Its curve's reserves are the pool.
+describe("withLivePrizePools", () => {
+  const seasons = [
+    { season_id: 3, status: 1, total_prize_pool: "0", bonding_curve_address: "0xCurveA" },
+    { season_id: 2, status: 1, total_prize_pool: "5", bonding_curve_address: "0xcurveb" },
+    { season_id: 1, status: 5, total_prize_pool: "900", bonding_curve_address: "0xcurvec" },
+    { season_id: 0, status: 1, total_prize_pool: "0", bonding_curve_address: null },
+  ];
+  const reserves = new Map([["0xcurvea", "12345"], ["0xcurvec", "1"]]);
+
+  it("replaces a live season's pool with its curve's reserves (case-insensitive)", () => {
+    const out = withLivePrizePools(seasons, reserves);
+    expect(out.map((s) => s.total_prize_pool)).toEqual(["12345", "5", "900", "0"]);
+    expect(summarizeSeason(out[0]).prizePool).toBe("12345");
+  });
+
+  it("leaves ended seasons, and live ones with no curve_state row, as stored", () => {
+    const out = withLivePrizePools(seasons, reserves);
+    expect(out[1]).toBe(seasons[1]);
+    expect(out[2]).toBe(seasons[2]);
+  });
+
+  it("asks only for live seasons' curves", () => {
+    expect(liveSeasonCurves(seasons)).toEqual(["0xCurveA", "0xcurveb"]);
   });
 });

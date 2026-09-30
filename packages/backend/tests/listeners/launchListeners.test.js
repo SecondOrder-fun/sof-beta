@@ -15,8 +15,12 @@ vi.mock("../../src/lib/viemClient.js", () => ({ publicClient }));
 vi.mock("../../src/config/chain.js", () => ({ getChainByKey: () => ({ lookbackBlocks: 5_000n }) }));
 /** What each listener's stored block cursor holds; null = never persisted. */
 let storedCursor = null;
+/** Every cursor write; a write is what the poller then reads back. */
+const cursorSet = vi.fn(async (block) => {
+  storedCursor = block;
+});
 vi.mock("../../src/lib/blockCursor.js", () => ({
-  createBlockCursor: vi.fn(async () => ({ get: vi.fn(async () => storedCursor), set: vi.fn(), flush: vi.fn() })),
+  createBlockCursor: vi.fn(async () => ({ get: vi.fn(async () => storedCursor), set: cursorSet, flush: vi.fn() })),
 }));
 
 const sse = { broadcast: vi.fn() };
@@ -114,7 +118,10 @@ beforeEach(() => {
   publicClient.readContract.mockImplementation(async ({ functionName }) =>
     functionName === "router" ? ROUTER : SUPPLY,
   );
-  tokenLaunchesDb.insertLaunchTrades.mockResolvedValue(1);
+  // As the DB behaves: every row is new (the RETURNING set is all of them).
+  tokenLaunchesDb.insertLaunchTrades.mockImplementation(async (rows) =>
+    rows.map((r) => ({ tx_hash: String(r.tx_hash).toLowerCase(), log_index: r.log_index })),
+  );
   tokenLaunchesDb.listPoolIndex.mockResolvedValue([]);
   fakeLaunchStore();
 });
@@ -173,6 +180,25 @@ describe("tokenLaunchedListener.processTokenLaunchedLog", () => {
     expect(isPermanentDbError(null)).toBe(false);
   });
 
+  // launched_at is insert-if-absent and never corrected, and the trade
+  // listener indexes historical launches through here: "now" would stick.
+  it.each([
+    ["the read fails", () => publicClient.getBlock.mockRejectedValueOnce(new Error("block unavailable"))],
+    ["the block has no timestamp", () => publicClient.getBlock.mockResolvedValueOnce({})],
+  ])("throws, storing nothing, when %s", async (_label, arrange) => {
+    arrange();
+    await expect(processTokenLaunchedLog(launchLog(), SUPPLY, logger, sse)).rejects.toThrow();
+    expect(tokenLaunchesDb.insertTokenLaunch).not.toHaveBeenCalled();
+    expect(sse.broadcast).not.toHaveBeenCalled();
+  });
+
+  it("stores the block's own time as launched_at", async () => {
+    await processTokenLaunchedLog(launchLog(), SUPPLY, logger, sse);
+    expect(tokenLaunchesDb.insertTokenLaunch.mock.calls[0][0].launched_at).toBe(
+      new Date(1_700_000_000 * 1000).toISOString(),
+    );
+  });
+
   // U+0000 is legal in an event string and fatal in Postgres TEXT.
   it("stores a name holding a NUL character instead of failing on it", async () => {
     await processTokenLaunchedLog(
@@ -191,6 +217,16 @@ describe("tokenLaunchedListener boot scan", () => {
     await startTokenLaunchedListener(LAUNCHPAD, logger);
 
     expect(pollerParams().resumeNoLaterThan).toBe(6_123n);
+  });
+
+  it("starts the live poller at a launch whose block time could not be read", async () => {
+    publicClient.getContractEvents.mockResolvedValueOnce([launchLog({ blockNumber: 7_001n })]);
+    publicClient.getBlock.mockRejectedValueOnce(new Error("block unavailable"));
+
+    await startTokenLaunchedListener(LAUNCHPAD, logger);
+
+    expect(tokenLaunchesDb.insertTokenLaunch).not.toHaveBeenCalled();
+    expect(pollerParams().resumeNoLaterThan).toBe(7_001n);
   });
 
   // With no cursor the poller would start at the head it reads — later than
@@ -331,6 +367,65 @@ describe("launchTradeListener boot scan", () => {
     await startLaunchTradeListener({ poolManager: POOL_MANAGER, launchpad: LAUNCHPAD, logger });
     expect(pollerParams().resumeNoLaterThan).toBeUndefined();
   });
+
+  // The poller starts at the stored cursor + 1 when that is earlier than
+  // resumeNoLaterThan, so without saving the scanned head it re-processed the
+  // whole window the scan had just stored.
+  it.each([
+    ["no stored cursor", null],
+    ["a stored cursor inside the window", 9_000n],
+  ])("saves the scanned head as the cursor after a completed scan (%s)", async (_label, stored) => {
+    storedCursor = stored;
+    await startLaunchTradeListener({ poolManager: POOL_MANAGER, launchpad: LAUNCHPAD, logger });
+    expect(cursorSet).toHaveBeenCalledWith(10_000n);
+    expect(storedCursor).toBe(10_000n); // what the poller reads: it resumes at 10,001
+    expect(pollerParams().resumeNoLaterThan).toBe(10_001n);
+  });
+
+  // The blocks between an old cursor and the window were never scanned.
+  it("keeps a cursor older than the window, so the poller still covers the gap", async () => {
+    storedCursor = 2_000n;
+    await startLaunchTradeListener({ poolManager: POOL_MANAGER, launchpad: LAUNCHPAD, logger });
+    expect(cursorSet).not.toHaveBeenCalled();
+  });
+
+  it("does not move the cursor when the scan fails", async () => {
+    publicClient.getContractEvents.mockRejectedValueOnce(new Error("range too large"));
+    await startLaunchTradeListener({ poolManager: POOL_MANAGER, launchpad: LAUNCHPAD, logger });
+    expect(cursorSet).not.toHaveBeenCalled();
+  });
+});
+
+// A scan that failed before learning its window left the router history
+// starting at the lookback window, while the poller resumed from an older
+// stored cursor: replayed swaps through an earlier router would store the
+// router as the trader.
+describe("launchTradeListener router history after a scan that never learned its window", () => {
+  const firstRouterQuery = async () => {
+    await __test.trustedRouters(LAUNCHPAD, 10_000n);
+    return queriesFor("RouterUpdated")[0].fromBlock;
+  };
+
+  it("starts at the stored cursor's next block", async () => {
+    storedCursor = 2_000n;
+    publicClient.getBlockNumber.mockRejectedValueOnce(new Error("rpc down"));
+    await startLaunchTradeListener({ poolManager: POOL_MANAGER, launchpad: LAUNCHPAD, logger });
+    expect(pollerParams().resumeNoLaterThan).toBeUndefined(); // the poller resumes at 2,001
+    expect(await firstRouterQuery()).toBe(2_001n);
+  });
+
+  it("starts at the window the poller resumes from, with no cursor", async () => {
+    publicClient.getBlockNumber.mockRejectedValueOnce(new Error("rpc down")).mockResolvedValue(10_000n);
+    await startLaunchTradeListener({ poolManager: POOL_MANAGER, launchpad: LAUNCHPAD, logger });
+    expect(await firstRouterQuery()).toBe(5_000n);
+  });
+
+  it("starts at the deploy block when known", async () => {
+    storedCursor = 2_000n;
+    publicClient.getBlockNumber.mockRejectedValueOnce(new Error("rpc down"));
+    await startLaunchTradeListener({ poolManager: POOL_MANAGER, launchpad: LAUNCHPAD, logger, deployBlock: 1_234n });
+    expect(await firstRouterQuery()).toBe(1_234n);
+  });
 });
 
 describe("launchTradeListener trusted routers", () => {
@@ -425,6 +520,26 @@ describe("launchTradeListener.persist", () => {
     publicClient.readContract.mockRejectedValueOnce(new Error("rpc down"));
     await expect(__test.persist([swap(1)], ctx, sse)).rejects.toThrow("launch router unknown");
     expect(tokenLaunchesDb.insertLaunchTrades).not.toHaveBeenCalled();
+  });
+
+  // A restart or a retried range re-sends trades already stored; broadcasting
+  // them would announce old trades as live.
+  it("broadcasts only the trades the insert actually stored", async () => {
+    tokenLaunchesDb.insertLaunchTrades.mockResolvedValueOnce([{ tx_hash: "0xtx2", log_index: 0 }]);
+    await __test.persist([swap(1), swap(2)], ctx, sse);
+    const trades = sse.broadcast.mock.calls.filter(([, e]) => e.type === "TokenTrade");
+    expect(trades.map(([, e]) => e.txHash)).toEqual(["0xtx2"]);
+  });
+
+  it("broadcasts nothing for a fully replayed batch", async () => {
+    tokenLaunchesDb.insertLaunchTrades.mockResolvedValueOnce([]);
+    await __test.persist([swap(1), swap(2)], ctx, sse);
+    expect(sse.broadcast).not.toHaveBeenCalled();
+  });
+
+  it("broadcasts every trade of a new batch", async () => {
+    await __test.persist([swap(1), swap(2)], ctx, sse);
+    expect(sse.broadcast.mock.calls.filter(([, e]) => e.type === "TokenTrade")).toHaveLength(2);
   });
 
   it("fetches receipts only for swaps sent by the launch router", async () => {

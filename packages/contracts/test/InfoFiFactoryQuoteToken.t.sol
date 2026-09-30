@@ -198,6 +198,20 @@ contract InfoFiFactoryQuoteTokenTest is Test {
         emit TreasuryLow(address(tokenB), 500e18, SEED);
         _crossThreshold(seasonB, playerB);
     }
+
+    /// A season's quote token is fixed at creation, so the factory reads it from the raffle
+    /// once: position updates happen on every ticket trade and must not re-decode the whole
+    /// season config each time.
+    function test_quoteTokenIsReadFromTheRaffleOnce() public {
+        uint256 seasonA = _createSeason(address(tokenA));
+        _fundTreasury(tokenA, 10_000e18);
+        bytes memory read = abi.encodeCall(raffle.getSeasonDetails, (seasonA));
+
+        vm.expectCall(address(raffle), read, 1);
+        factory.onPositionUpdate(seasonA, playerA, 0, 10, 1000);
+        factory.onPositionUpdate(seasonA, playerA, 10, 20, 1000);
+        assertEq(factory.getSeasonQuoteToken(seasonA), address(tokenA));
+    }
 }
 
 /// @notice `seedAmountFor` scales the seed by the token's own decimals.

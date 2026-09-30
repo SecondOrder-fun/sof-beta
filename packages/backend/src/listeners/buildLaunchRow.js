@@ -46,12 +46,15 @@ export function storableText(value, max) {
  *
  * @param {object} log - viem decoded log
  * @param {bigint} totalSupply - TOKEN_SUPPLY, read once at listener start
- * @param {number} [blockTimeSec] - block timestamp; falls back to now
+ * @param {number | bigint} blockTimeSec - block timestamp. Required, with no
+ *   fallback: a stored launched_at is never corrected (insert-if-absent)
  * @returns {object | null} row, or null if the log is unusable
+ * @throws if `blockTimeSec` is missing
  */
 export function buildLaunchRow(log, totalSupply, blockTimeSec) {
   const args = log?.args;
   if (!args?.token || !args?.creator) return null;
+  if (blockTimeSec == null) throw new Error("buildLaunchRow: block time is required");
 
   const startPriceWei = BigInt(args.startPriceWei ?? 0n);
   // Implied FDV is price * WHOLE tokens, not price * raw supply. Getting this
@@ -79,9 +82,7 @@ export function buildLaunchRow(log, totalSupply, blockTimeSec) {
       args.placementId && !/^0x0+$/.test(args.placementId)
         ? args.placementId
         : null,
-    launched_at: new Date(
-      (blockTimeSec != null ? Number(blockTimeSec) : Math.floor(Date.now() / 1000)) * 1000,
-    ).toISOString(),
+    launched_at: new Date(Number(blockTimeSec) * 1000).toISOString(),
     block_number: log.blockNumber != null ? Number(log.blockNumber) : null,
     tx_hash: log.transactionHash ?? null,
   };

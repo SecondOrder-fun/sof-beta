@@ -66,9 +66,10 @@ export function isPermanentDbError(err) {
 /**
  * Index one TokenLaunched log, broadcasting it when THIS call inserted the row.
  *
- * Throws when the row could not be stored but might be on a retry (transient
- * or unknown failure), so the caller's range is retried: the event is the only
- * source of the name and symbol. A row that can never be stored (see
+ * Throws when the row could not be stored but might be on a retry (the block's
+ * time could not be read, or a transient or unknown insert failure), so the
+ * caller's range is retried: the event is the only source of the name and
+ * symbol. A row that can never be stored (see
  * isPermanentDbError) is logged at error level with its tx hash and skipped —
  * retrying it would block every later launch, and the trade listener, forever.
  *
@@ -81,18 +82,14 @@ export function isPermanentDbError(err) {
  *   not (and will not be) stored
  */
 export async function processTokenLaunchedLog(log, totalSupply, logger, sseService) {
-  let blockTimeSec;
-  try {
-    const block = await publicClient.getBlock({ blockNumber: log.blockNumber });
-    blockTimeSec = block?.timestamp;
-  } catch {
-    // A missing block timestamp is not worth dropping the launch over —
-    // buildLaunchRow falls back to now, which is close enough for ordering
-    // a feed that is being indexed live.
-    blockTimeSec = undefined;
-  }
+  // A failed block-time read throws, so the range is retried. Never a
+  // stand-in time: the insert ignores a launch already indexed, so a wrong
+  // launched_at would never be corrected — and the trade listener indexes
+  // historical launches through here too, where "now" is far from the truth.
+  const block = await publicClient.getBlock({ blockNumber: log.blockNumber });
+  if (block?.timestamp == null) throw new Error(`block ${log.blockNumber} has no timestamp`);
 
-  const row = buildLaunchRow(log, totalSupply, blockTimeSec);
+  const row = buildLaunchRow(log, totalSupply, block.timestamp);
   if (!row) {
     logger.warn({ topics: log.topics }, "TokenLaunched log missing args — skipping");
     return "skipped";

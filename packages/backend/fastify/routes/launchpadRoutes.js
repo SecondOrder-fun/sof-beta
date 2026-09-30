@@ -1,8 +1,18 @@
 /**
  * launchpadRoutes — the read side of the launch indexer.
  *
- * Mounted at /api/launchpad. Serves what tokenLaunchedListener indexed, so the
- * frontend's discovery feed stops doing its own multicall fan-out.
+ * Mounted at /api/launchpad. Serves what the launch indexer stored, so the
+ * frontend stops doing its own multicall fan-out:
+ *
+ *   /tokens, /tokens/:address        launches (tokenLaunchedListener)
+ *   /tokens/:address/trades, /chart  pool trades (launchTradeListener)
+ *   /tokens/:address/seasons,        raffle seasons priced in a token
+ *   /raffles?tokens=                 (season_contracts; a live season's prize
+ *                                    pool from its curve's curve_state)
+ *
+ * Shaping for the chart, seasons and raffles lives in
+ * src/services/activityFeed.js. A hidden token 404s on the token, chart and
+ * seasons routes and is omitted from /tokens and /raffles.
  *
  * Rows are returned in the shape the frontend already uses on-chain (camelCase,
  * bigints as strings) rather than raw snake_case columns. That is deliberate:
@@ -15,8 +25,10 @@ import { launchpadActivityDb } from "../../shared/services/launchpadActivityDb.j
 import {
   CHART_RANGES,
   buildChart,
+  liveSeasonCurves,
   pickRaffleForToken,
   summarizeSeason,
+  withLivePrizePools,
 } from "../../src/services/activityFeed.js";
 
 const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
@@ -76,6 +88,18 @@ function toTradeResponse(row) {
 }
 
 const MAX_BADGE_TOKENS = 100;
+
+/**
+ * Seasons with each live one's prize pool read from its curve's current
+ * reserves (activityFeed.withLivePrizePools) — one curve_state query for the
+ * whole list, none when no season is live.
+ * @param {object[]} seasons
+ */
+async function withLiveNumbers(seasons) {
+  const curves = liveSeasonCurves(seasons);
+  if (!curves.length) return seasons;
+  return withLivePrizePools(seasons, await launchpadActivityDb.curveReserves(curves));
+}
 
 export default async function launchpadRoutes(fastify) {
   /**
@@ -194,14 +218,15 @@ export default async function launchpadRoutes(fastify) {
       const rangeSec = CHART_RANGES[range];
       const sinceIso = rangeSec == null ? null : new Date((nowSec - rangeSec) * 1000).toISOString();
 
-      const [{ trades, truncated, before }, rangeSeed] = await Promise.all([
-        launchpadActivityDb.listTradesSince(address, sinceIso),
-        launchpadActivityDb.lastTradeBefore(address, sinceIso),
-      ]);
+      const { trades, truncated, before } = await launchpadActivityDb.listTradesSince(address, sinceIso);
+      // The seed is the price in force where the line enters. A truncated
+      // range enters at `before` (the newest trade the cap left out), so the
+      // last trade before the range is only read for a complete one.
+      const seed = truncated ? before : await launchpadActivityDb.lastTradeBefore(address, sinceIso);
 
       const chart = buildChart({
         trades,
-        seed: truncated ? before : rangeSeed,
+        seed,
         truncated,
         launch: { launchedAt: launch.launched_at, startPriceWei: launch.start_price_wei },
         rangeSec,
@@ -219,7 +244,9 @@ export default async function launchpadRoutes(fastify) {
    *
    * Every raffle season priced in this token, newest first, plus the one the
    * raffle card should lead with (live > drawing > upcoming > latest result).
-   * 404 for a hidden token, like the token and chart routes.
+   * A live season's prizePool is its curve's current reserves; participants
+   * are as season_contracts last recorded them. 404 for a hidden token, like
+   * the token and chart routes.
    */
   fastify.get("/tokens/:address/seasons", async (request, reply) => {
     const { address } = request.params;
@@ -234,7 +261,8 @@ export default async function launchpadRoutes(fastify) {
       if (hidden.size) {
         return reply.code(404).send({ error: "token not found" });
       }
-      return { seasons: seasons.map(summarizeSeason), featured: pickRaffleForToken(seasons) };
+      const current = await withLiveNumbers(seasons);
+      return { seasons: current.map(summarizeSeason), featured: pickRaffleForToken(current) };
     } catch (err) {
       request.log.error({ err, address }, "launchpad seasons failed");
       return reply.code(500).send({ error: "failed to load seasons" });
@@ -245,8 +273,8 @@ export default async function launchpadRoutes(fastify) {
    * GET /api/launchpad/raffles?tokens=0x..,0x..
    *
    * The raffle badge for a page of token cards, in one request: token -> the
-   * season its badge shows. Tokens with no season, and hidden tokens, are
-   * omitted.
+   * season its badge shows (prize pool live, as in /tokens/:address/seasons).
+   * Tokens with no season, and hidden tokens, are omitted.
    */
   fastify.get("/raffles", async (request, reply) => {
     const tokens = String(request.query?.tokens ?? "")
@@ -266,10 +294,10 @@ export default async function launchpadRoutes(fastify) {
         launchpadActivityDb.hiddenTokens(tokens),
         launchpadActivityDb.listSeasonsForTokens(tokens),
       ]);
+      const visible = seasons.filter((s) => !hidden.has(String(s.quote_token_address).toLowerCase()));
       const byToken = new Map();
-      for (const s of seasons) {
+      for (const s of await withLiveNumbers(visible)) {
         const key = s.quote_token_address;
-        if (hidden.has(String(key).toLowerCase())) continue;
         if (!byToken.has(key)) byToken.set(key, []);
         byToken.get(key).push(s);
       }

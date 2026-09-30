@@ -38,8 +38,10 @@ export default async function activityRoutes(fastify) {
         ...trades.map((t) => t.token_address),
         ...seasons.map((s) => s.quote_token_address).filter(Boolean),
       ];
-      // Hidden tokens drop out of both rows: their trades, and seasons priced
-      // in them. (Recent launches are already queried without them.)
+      // Hidden tokens drop out of both rows. Recent trades and launches are
+      // already queried without them (so a hidden token's trades cannot use up
+      // the trade limit); the set below drops the seasons priced in one, and
+      // re-checks the trades.
       const [symbols, hidden] = await Promise.all([
         launchpadActivityDb.symbolsFor(tokens),
         launchpadActivityDb.hiddenTokens(tokens),

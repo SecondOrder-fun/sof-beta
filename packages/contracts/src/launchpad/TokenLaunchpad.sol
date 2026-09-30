@@ -59,7 +59,10 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
     uint256 public constant MAX_NAME_LENGTH = 48;
     uint256 public constant MAX_SYMBOL_LENGTH = 16;
 
-    /// @notice Where a launched token's supply is placed. Swappable venue (§ILiquidityPlacer).
+    /// @notice Where the NEXT launch's supply is placed. Swappable venue (§ILiquidityPlacer).
+    /// @dev Each launch records the placer that placed it (`Launch.placer`, `placerOf`), so
+    ///      swapping this changes where new launches go and nothing about existing ones:
+    ///      routers and clients look a token's pool up through ITS placer, never this one.
     ILiquidityPlacer public placer;
 
     /// @notice The router the app trades launched tokens through.
@@ -90,6 +93,8 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
         uint64 launchedAt;
         uint256 startPriceWei;
         bytes32 placementId;
+        /// @dev The placer that holds this launch's position — where its pool is looked up.
+        address placer;
     }
 
     /// @notice Every launch, in order. Index is the launch id.
@@ -179,7 +184,8 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
                 creator: msg.sender,
                 launchedAt: uint64(block.timestamp),
                 startPriceWei: startPriceWei,
-                placementId: placementId
+                placementId: placementId,
+                placer: address(currentPlacer)
             })
         );
         _launchIdPlusOne[token] = launchId + 1;
@@ -218,6 +224,14 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
         return _launchIdPlusOne[token] != 0;
     }
 
+    /// @notice The placer holding `token`'s position; zero if `token` was not launched here.
+    /// @dev Where a token's pool is looked up. Not `placer`: that is only where the next
+    ///      launch goes, and may have been replaced since this token launched.
+    function placerOf(address token) external view returns (address) {
+        uint256 stored = _launchIdPlusOne[token];
+        return stored == 0 ? address(0) : _launches[stored - 1].placer;
+    }
+
     function launchIdOf(address token) external view returns (uint256 launchId, bool exists) {
         uint256 stored = _launchIdPlusOne[token];
         return stored == 0 ? (0, false) : (stored - 1, true);
@@ -227,6 +241,8 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
     // Config
     // ------------------------------------------------------------------
 
+    /// @notice Where new launches are placed. Existing launches keep the placer that placed
+    ///         them (`placerOf`).
     function setPlacer(address _placer) external onlyRole(CONFIG_ROLE) {
         if (_placer == address(0)) revert InvalidAddress();
         emit PlacerUpdated(address(placer), _placer);

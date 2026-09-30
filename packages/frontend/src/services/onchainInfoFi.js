@@ -822,19 +822,6 @@ const fpmmBuyAbi = [
 ];
 
 /**
- * Build an array of { to, data } call objects for placing a bet via FPMM.
- * Returns 1 call (buy only) or 2 calls (approve + buy) depending on current allowance.
- * Caller should pass these to executeBatch(calls).
- *
- * @param {Object} params
- * @param {boolean} params.prediction - true for YES, false for NO
- * @param {string|number|bigint} params.amount - SOF amount (18 decimals) as human string/number or bigint
- * @param {string} params.account - The user's wallet address (needed for allowance check)
- * @param {string} params.fpmmAddress - FPMM market contract address
- * @param {string} [params.networkKey] - Network key
- * @returns {Promise<Array<{to: string, data: string}>>} Array of call objects for executeBatch
- */
-/**
  * The ERC-20 a market is collateralised in. Each market uses its own season's
  * quote token (the FPMM manager has no platform-wide collateral), so read it
  * off the market rather than from the deployment config.
@@ -859,6 +846,19 @@ export async function readMarketCollateral(publicClient, fpmmAddress) {
   return token;
 }
 
+/**
+ * Build an array of { to, data } call objects for placing a bet via FPMM.
+ * Returns 1 call (buy only) or 2 calls (approve + buy) depending on current allowance.
+ * Caller should pass these to executeBatch(calls).
+ *
+ * @param {Object} params
+ * @param {boolean} params.prediction - true for YES, false for NO
+ * @param {string|number|bigint} params.amount - collateral amount (the market's quote token, 18 decimals) as human string/number or bigint
+ * @param {string} params.account - The user's wallet address (needed for allowance check)
+ * @param {string} params.fpmmAddress - FPMM market contract address
+ * @param {string} [params.networkKey] - Network key
+ * @returns {Promise<Array<{to: string, data: string}>>} Array of call objects for executeBatch
+ */
 export async function buildPlaceBetCalls({
   prediction,
   amount,

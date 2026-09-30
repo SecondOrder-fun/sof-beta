@@ -77,7 +77,8 @@ CREATE TABLE IF NOT EXISTS launch_trades (
   log_index INTEGER NOT NULL,
   token_address TEXT NOT NULL REFERENCES token_launches (token_address) ON DELETE CASCADE,
   pool_id TEXT NOT NULL,
-  trader TEXT,                            -- the Swap's `sender`: usually a router, not the EOA
+  trader TEXT,                            -- the account, from the launch router's Bought/Sold event;
+                                          -- the Swap's `sender` (e.g. the router) only if that is impossible
   side TEXT NOT NULL CHECK (side IN ('BUY', 'SELL')),
   eth_amount TEXT NOT NULL,               -- wei, unsigned
   token_amount TEXT NOT NULL,             -- raw units, unsigned

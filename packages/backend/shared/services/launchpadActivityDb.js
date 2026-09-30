@@ -167,17 +167,30 @@ export async function listRecentEntries(limit = 20) {
   return data || [];
 }
 
-/** Recent launch-pool trades across every token. */
+/**
+ * Recent launch-pool trades across every visible token, newest first.
+ *
+ * Hidden tokens are filtered IN the query — an inner join to token_launches
+ * (launch_trades.token_address's foreign key) on is_hidden = false — so the
+ * limit counts visible trades only. Filtering after the limit would let a
+ * hidden token that trades heavily push every visible trade out of the page
+ * and empty the ticker's tokens row.
+ */
 export async function listRecentTrades(limit = 20) {
   if (!hasSupabase) return [];
   const { data, error } = await supabase
     .from("launch_trades")
-    .select("tx_hash, log_index, token_address, trader, side, eth_amount, price_wei, block_time, block_number")
+    .select(
+      "tx_hash, log_index, token_address, trader, side, eth_amount, price_wei, block_time, block_number, " +
+        "token_launches!inner(is_hidden)",
+    )
+    .eq("token_launches.is_hidden", false)
     .order("block_number", { ascending: false })
     .order("log_index", { ascending: false })
     .limit(limit);
   if (error) fail("listRecentTrades", error);
-  return data || [];
+  // The join is only a filter; drop its column from the rows.
+  return (data || []).map(({ token_launches: _join, ...trade }) => trade);
 }
 
 /** Recent launches. */
@@ -222,7 +235,32 @@ export async function hiddenTokens(tokens) {
   return new Set((data || []).map((r) => lc(r.token_address)));
 }
 
+/**
+ * Current quote-token reserves of each bonding curve, from curve_state
+ * (migration 018; the column is still named sof_reserves), which
+ * positionUpdateListener refreshes on every trade. A live season's prize pool
+ * is its curve's reserves — Raffle copies curve.getReserves() into
+ * totalPrizePool when the season ends — while season_contracts only records
+ * it at a status change. One query for any number of curves.
+ * @param {string[]} curves
+ * @returns {Promise<Map<string, string>>} curve (lowercase) -> reserves in wei
+ */
+export async function curveReserves(curves) {
+  if (!hasSupabase || !curves?.length) return new Map();
+  const { data, error } = await supabase
+    .from("curve_state")
+    .select("bonding_curve_address, sof_reserves")
+    .in("bonding_curve_address", [...new Set(curves.map(lc))]);
+  if (error) fail("curveReserves", error);
+  return new Map(
+    (data || [])
+      .filter((r) => r.sof_reserves != null)
+      .map((r) => [lc(r.bonding_curve_address), String(r.sof_reserves)]),
+  );
+}
+
 export const launchpadActivityDb = {
+  curveReserves,
   listTradesSince,
   lastTradeBefore,
   listSeasonsForToken,

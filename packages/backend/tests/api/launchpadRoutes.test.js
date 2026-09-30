@@ -13,9 +13,11 @@ const lastTradeBefore = vi.fn(async () => null);
 const listSeasonsForToken = vi.fn(async () => []);
 const listSeasonsForTokens = vi.fn(async () => []);
 const hiddenTokens = vi.fn(async () => new Set());
+const curveReserves = vi.fn(async () => new Map());
 
 vi.mock("../../shared/services/launchpadActivityDb.js", () => ({
   launchpadActivityDb: {
+    curveReserves: (...a) => curveReserves(...a),
     listTradesSince: (...a) => listTradesSince(...a),
     lastTradeBefore: (...a) => lastTradeBefore(...a),
     listSeasonsForToken: (...a) => listSeasonsForToken(...a),
@@ -315,6 +317,29 @@ describe("GET /api/launchpad/tokens/:address/chart", () => {
     expect(body.launch.priceWei).toBe("1000000000");
   });
 
+  // The seed a truncated range would discard is not queried at all.
+  it("does not read the last trade before the range when the range is truncated", async () => {
+    getTokenLaunch.mockResolvedValueOnce(row());
+    listTradesSince.mockResolvedValueOnce({
+      trades: [{ price_wei: "7000000000", block_time: new Date().toISOString() }],
+      truncated: true,
+      before: { price_wei: "6900000000", block_time: new Date(Date.now() - 60_000).toISOString() },
+    });
+    const res = await app.inject({ method: "GET", url: `/api/launchpad/tokens/${TOKEN}/chart?range=24h` });
+    expect(res.statusCode).toBe(200);
+    expect(lastTradeBefore).not.toHaveBeenCalled();
+    expect(res.json().points[0].priceWei).toBe("6900000000");
+  });
+
+  it("enters a complete range at the last trade before it", async () => {
+    getTokenLaunch.mockResolvedValueOnce(row());
+    lastTradeBefore.mockResolvedValueOnce({ price_wei: "5000000000", block_time: "2026-01-01T00:00:00.000Z" });
+    const res = await app.inject({ method: "GET", url: `/api/launchpad/tokens/${TOKEN}/chart?range=1h` });
+    expect(lastTradeBefore).toHaveBeenCalledTimes(1);
+    expect(lastTradeBefore.mock.calls[0][1]).toBe(listTradesSince.mock.calls[0][1]);
+    expect(res.json().points[0].priceWei).toBe("5000000000");
+  });
+
   it("queries only the requested window", async () => {
     getTokenLaunch.mockResolvedValueOnce(row());
     await app.inject({ method: "GET", url: `/api/launchpad/tokens/${TOKEN}/chart?range=1h` });
@@ -360,6 +385,25 @@ describe("GET /api/launchpad/tokens/:address/seasons", () => {
   it("features nothing for a token with no raffle", async () => {
     const res = await app.inject({ method: "GET", url: `/api/launchpad/tokens/${TOKEN}/seasons` });
     expect(res.json()).toEqual({ seasons: [], featured: null });
+    expect(curveReserves).not.toHaveBeenCalled();
+  });
+
+  // season_contracts records the pool only at status changes, so a live
+  // season read 0 there. Its curve's reserves are the live pool.
+  it("reads a live season's prize pool from its curve's reserves, in one query", async () => {
+    listSeasonsForToken.mockResolvedValueOnce([
+      { season_id: 5, status: 1, total_prize_pool: "0", quote_token_address: TOKEN, bonding_curve_address: "0xCURVE5" },
+      { season_id: 4, status: 1, total_prize_pool: "0", quote_token_address: TOKEN, bonding_curve_address: "0xcurve4" },
+      { season_id: 3, status: 5, total_prize_pool: "900", quote_token_address: TOKEN, bonding_curve_address: "0xcurve3" },
+    ]);
+    curveReserves.mockResolvedValueOnce(new Map([["0xcurve5", "12345"], ["0xcurve3", "1"]]));
+
+    const body = (await app.inject({ method: "GET", url: `/api/launchpad/tokens/${TOKEN}/seasons` })).json();
+
+    expect(curveReserves).toHaveBeenCalledTimes(1);
+    expect(curveReserves).toHaveBeenCalledWith(["0xCURVE5", "0xcurve4"]); // live seasons only
+    expect(body.seasons.map((s) => s.prizePool)).toEqual(["12345", "0", "900"]); // no curve row -> as stored
+    expect(body.featured).toMatchObject({ seasonId: 5, prizePool: "12345" });
   });
 
   it("404s a hidden token rather than listing its seasons", async () => {
@@ -395,6 +439,19 @@ describe("GET /api/launchpad/raffles", () => {
     ]);
     const res = await app.inject({ method: "GET", url: `/api/launchpad/raffles?tokens=${TOKEN},${OTHER}` });
     expect(Object.keys(res.json().raffles)).toEqual([TOKEN]);
+  });
+
+  it("badges a live season with its curve's reserves, one query for the page, skipping hidden tokens", async () => {
+    hiddenTokens.mockResolvedValueOnce(new Set([OTHER]));
+    listSeasonsForTokens.mockResolvedValueOnce([
+      { season_id: 5, status: 1, total_prize_pool: "0", quote_token_address: TOKEN, bonding_curve_address: "0xc5" },
+      { season_id: 2, status: 1, total_prize_pool: "0", quote_token_address: OTHER, bonding_curve_address: "0xc2" },
+    ]);
+    curveReserves.mockResolvedValueOnce(new Map([["0xc5", "777"]]));
+    const res = await app.inject({ method: "GET", url: `/api/launchpad/raffles?tokens=${TOKEN},${OTHER}` });
+    expect(curveReserves).toHaveBeenCalledTimes(1);
+    expect(curveReserves).toHaveBeenCalledWith(["0xc5"]);
+    expect(res.json().raffles[TOKEN]).toMatchObject({ seasonId: 5, prizePool: "777" });
   });
 
   it("answers an empty list without touching the database", async () => {
