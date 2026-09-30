@@ -56,7 +56,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS token_launches_pool_id_idx
   ON token_launches (pool_id)
   WHERE pool_id IS NOT NULL;
 
-CREATE OR REPLACE FUNCTION token_launches_touch_updated_at() RETURNS TRIGGER AS $$
+CREATE OR REPLACE FUNCTION token_launches_touch_updated_at() RETURNS TRIGGER
+SET search_path = '' AS $$
 BEGIN
   NEW.updated_at = NOW();
   RETURN NEW;
@@ -70,6 +71,14 @@ CREATE TRIGGER token_launches_touch
 
 GRANT SELECT ON token_launches TO anon;
 GRANT ALL ON token_launches TO service_role;
+
+-- RLS on, read-only for everyone else. Supabase's default privileges grant anon
+-- and authenticated full write on new public tables, and the anon key ships in
+-- the frontend — without RLS anyone could forge or hide a launch. The indexer
+-- writes with the service role, which bypasses RLS.
+ALTER TABLE token_launches ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS token_launches_read ON token_launches;
+CREATE POLICY token_launches_read ON token_launches FOR SELECT USING (true);
 
 -- launch_trades is fed by launchTradeListener from PoolManager Swap events.
 --
@@ -106,3 +115,8 @@ CREATE INDEX IF NOT EXISTS launch_trades_token_block_idx
 
 GRANT SELECT ON launch_trades TO anon;
 GRANT ALL ON launch_trades TO service_role;
+
+-- Same as token_launches: public read, writes only via the service role.
+ALTER TABLE launch_trades ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS launch_trades_read ON launch_trades;
+CREATE POLICY launch_trades_read ON launch_trades FOR SELECT USING (true);
