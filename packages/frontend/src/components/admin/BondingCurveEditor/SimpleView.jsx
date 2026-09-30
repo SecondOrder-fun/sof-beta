@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { formatEthAmount, tokensToEthWei } from "@/lib/launchFormat";
 
 /**
  * Hook for numeric input that allows empty field while editing.
@@ -52,7 +54,13 @@ const SimpleView = ({
   setBasePrice,
   setPriceDelta,
   resetToLinear,
+  symbol,
+  priceWei,
 }) => {
+  const { t } = useTranslation("raffle");
+  // What the first ticket costs in ETH, when the quote token has a pool price.
+  const baseEthWei = tokensToEthWei(basePrice, priceWei);
+
   // Computed values for display
   const stepSize = numSteps > 0 ? Math.ceil(maxTickets / numSteps) : 0;
   const finalPrice = basePrice + (numSteps - 1) * priceDelta;
@@ -121,7 +129,7 @@ const SimpleView = ({
         </div>
 
         <div className="space-y-1">
-          <label className="text-sm font-medium">Initial Price (SOF)</label>
+          <label className="text-sm font-medium">{t("curveEditor.initialPrice", { symbol })}</label>
           <Input
             type="number"
             min={0.01}
@@ -134,10 +142,15 @@ const SimpleView = ({
           <p className="text-xs text-muted-foreground">
             Starting price per ticket
           </p>
+          {baseEthWei != null ? (
+            <p className="text-xs text-muted-foreground">
+              {t("quoteToken.ethEquivalent", { eth: formatEthAmount(baseEthWei) })}
+            </p>
+          ) : null}
         </div>
 
         <div className="space-y-1">
-          <label className="text-sm font-medium">Step Price Increase (SOF)</label>
+          <label className="text-sm font-medium">{t("curveEditor.stepIncrease", { symbol })}</label>
           <Input
             type="number"
             min={0}
@@ -160,7 +173,7 @@ const SimpleView = ({
           <div>
             <span className="text-muted-foreground">Price Range:</span>
             <p className="font-mono">
-              {basePrice.toFixed(2)} → {finalPrice.toFixed(2)} SOF
+              {t("curveEditor.priceRange", { from: basePrice.toFixed(2), to: finalPrice.toFixed(2), symbol })}
             </p>
           </div>
           <div>
@@ -188,6 +201,10 @@ SimpleView.propTypes = {
   setBasePrice: PropTypes.func.isRequired,
   setPriceDelta: PropTypes.func.isRequired,
   resetToLinear: PropTypes.func.isRequired,
+  /** The season's quote token symbol, which ticket prices are in. */
+  symbol: PropTypes.string.isRequired,
+  /** The quote token's pool price (wei of ETH per whole token), for a launch token. */
+  priceWei: PropTypes.any,
 };
 
 export default SimpleView;

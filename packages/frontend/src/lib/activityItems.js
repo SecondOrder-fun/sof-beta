@@ -16,10 +16,11 @@
 // (a batched buy, two entries by one wallet). The feed's `logIndex` is the
 // key when present; otherwise the next-best field stands in (the token for
 // trades, the wallet for entries) and withUniqueKeys numbers what still
-// collides, in feed order.
+// collides, in feed order. A closing season has no transaction and is keyed by
+// its season.
 
 import { shortAddress } from '@/lib/format';
-import { formatFdvEth, formatSupply, formatTimeLeft } from '@/lib/launchFormat';
+import { formatEthAmount, formatFdvEth, formatSupply, formatTimeLeft } from '@/lib/launchFormat';
 import { DEFAULT_WHOLE_SUPPLY } from '@/lib/launchChart';
 import { grandPrizeWei } from '@/lib/prizeMath';
 
@@ -62,7 +63,8 @@ export function describeTokenItem(item, t) {
       tail: [t('ticker.fdv', { fdv: formatFdvEth(BigInt(item.fdvWei ?? 0), 1) })],
     };
   }
-  const eth = formatFdvEth(BigInt(item.ethAmount ?? 0), 2);
+  // A trade can be tiny; keep its significant digits rather than show "0 ETH".
+  const eth = formatEthAmount(item.ethAmount ?? 0);
   const fdvWei = item.priceWei ? BigInt(item.priceWei) * DEFAULT_WHOLE_SUPPLY : null;
   return {
     ...base,
@@ -84,12 +86,18 @@ export function describeTokenItem(item, t) {
  */
 export function describeRaffleItem(item, t, nowMs = Date.now()) {
   const season = item.seasonName || t('raffle.season', { id: item.seasonId });
-  // opened / closing / won happen once per season; an entry is one log in a
-  // transaction, keyed by its log index, else by its wallet (withUniqueKeys
-  // separates one wallet's two entries in one transaction).
+  // opened / won happen once per season, in one transaction; an entry is one
+  // log in a transaction, keyed by its log index, else by its wallet
+  // (withUniqueKeys separates one wallet's two entries in one transaction).
+  // A closing season is a state, not an event: it has no transaction, and the
+  // feed stamps its `at` with the request time, so it is keyed by the season
+  // alone — keying by `at` would remount it on every refetch.
   const disambiguator = item.logIndex ?? (item.kind === 'entry' ? item.who : null);
   const base = {
-    key: `${item.kind}:${item.seasonId}:${item.txHash ?? item.at}${disambiguator != null ? `:${disambiguator}` : ''}`,
+    key:
+      item.kind === 'closing'
+        ? `closing:${item.seasonId}`
+        : `${item.kind}:${item.seasonId}:${item.txHash ?? item.at}${disambiguator != null ? `:${disambiguator}` : ''}`,
     href: `/raffles/${item.seasonId}`,
     who: item.who ? shortAddress(item.who) : null,
     tone: 'raffle',
@@ -124,7 +132,7 @@ export function describeRaffleItem(item, t, nowMs = Date.now()) {
         parts: [
           verb(t('ticker.closing')),
           ...seasonParts(item, season, t),
-          plain(t('ticker.inTime', { time: formatTimeLeft(item.endsAt, nowMs) })),
+          plain(t('ticker.inTime', { time: formatTimeLeft(item.endsAt, t, nowMs) })),
         ],
         tail: [t('ticker.players', { count: Number(item.participants ?? 0) })],
       };

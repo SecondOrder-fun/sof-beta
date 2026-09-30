@@ -19,12 +19,28 @@ vi.mock("@/hooks/useCurveState", () => ({ useCurveState: vi.fn() }));
 vi.mock("@/hooks/usePlayerPosition", () => ({ usePlayerPosition: vi.fn() }));
 vi.mock("@/hooks/useLiveParticipantCount", () => ({ useLiveParticipantCount: vi.fn() }));
 // The ladder chart and the countdown have their own tests; stub them here.
-vi.mock("@/components/curve/MiniCurveChart", () => ({ default: () => <div>ticket-ladder</div> }));
-vi.mock("@/components/common/CountdownTimer", () => ({ default: () => <span>countdown</span> }));
-vi.mock("react-i18next", async (importOriginal) => ({
-  ...(await importOriginal()),
-  useTranslation: () => ({ t: (key, opts) => (opts ? `${key}${JSON.stringify(opts)}` : key) }),
+const miniCurve = vi.hoisted(() => ({ props: null }));
+vi.mock("@/components/curve/MiniCurveChart", () => ({
+  default: (props) => {
+    miniCurve.props = props;
+    return <div>ticket-ladder</div>;
+  },
 }));
+vi.mock("@/components/common/CountdownTimer", () => ({ default: () => <span>countdown</span> }));
+// Echo the key and options, except the time units, which read as English so a
+// countdown is legible in assertions ("2h 10m").
+vi.mock("react-i18next", async (importOriginal) => {
+  const units = { "time.days": "d", "time.hours": "h", "time.minutes": "m" };
+  const t = (key, opts) =>
+    key === "time.pair"
+      ? `${opts.first} ${opts.second}`
+      : units[key]
+        ? `${opts.count}${units[key]}`
+        : opts
+          ? `${key}${JSON.stringify(opts)}`
+          : key;
+  return { ...(await importOriginal()), useTranslation: () => ({ t }) };
+});
 
 const TOKEN = "0x1111111111111111111111111111111111111111";
 const WINNER = "0x7a0000000000000000000000000000000000005d";
@@ -93,32 +109,32 @@ describe("RaffleCard", () => {
   });
 
   it("live: past the last step's range, prices the next ticket at the last step", () => {
-    setup({ curve: { curveStep: null, curveSupply: 9999n } });
+    setup({ curve: { hasState: true, curveStep: null, curveSupply: 9999n } });
     expect(screen.getByText('raffle.ticketPrice{"price":"10,000","symbol":"POND"}')).toBeInTheDocument();
   });
 
   describe("at an exact step boundary, the next ticket is on the next step", () => {
     // 2000 sold fills the fourth step (to 2000, 4K) exactly; ticket 2001 costs 5K.
     it("even though the indexed current step still points at the filled one", () => {
-      setup({ curve: { curveStep: { step: 3n, price: LADDER[3].price, rangeTo: 2000n }, curveSupply: 2000n } });
+      setup({ curve: { curveStep: { step: 3n, price: LADDER[3].price, rangeTo: 2000n }, curveSupply: 2000n, hasState: true } });
       expect(screen.getByText('raffle.ticketPrice{"price":"5,000","symbol":"POND"}')).toBeInTheDocument();
       expect(screen.getByText('raffle.step{"step":5,"total":10}')).toBeInTheDocument();
     });
 
     it("from the ladder when there is no indexed current step", () => {
-      setup({ curve: { curveStep: null, curveSupply: 2000n } });
+      setup({ curve: { curveStep: null, curveSupply: 2000n, hasState: true } });
       expect(screen.getByText('raffle.ticketPrice{"price":"5,000","symbol":"POND"}')).toBeInTheDocument();
     });
 
     it("and one ticket short of the boundary is still on the current step", () => {
-      setup({ curve: { curveStep: { step: 3n, price: LADDER[3].price, rangeTo: 2000n }, curveSupply: 1999n } });
+      setup({ curve: { curveStep: { step: 3n, price: LADDER[3].price, rangeTo: 2000n }, curveSupply: 1999n, hasState: true } });
       expect(screen.getByText('raffle.ticketPrice{"price":"4,000","symbol":"POND"}')).toBeInTheDocument();
       expect(screen.getByText('raffle.step{"step":4,"total":10}')).toBeInTheDocument();
     });
   });
 
   it("live: prices a ticket with its fraction rather than truncating to whole tokens", () => {
-    setup({ curve: { curveStep: { step: 0n, price: ETH / 2n, rangeTo: 500n }, curveSupply: 10n } });
+    setup({ curve: { hasState: true, curveStep: { step: 0n, price: ETH / 2n, rangeTo: 500n }, curveSupply: 10n } });
     expect(screen.getByText('raffle.ticketPrice{"price":"0.5","symbol":"POND"}')).toBeInTheDocument();
   });
 
@@ -131,6 +147,26 @@ describe("RaffleCard", () => {
     expect(screen.queryByText("18.4M")).not.toBeInTheDocument();
     expect(screen.queryByText("312")).not.toBeInTheDocument();
     expect(useLiveParticipantCount).toHaveBeenCalledWith(3, { initialCount: 312 });
+  });
+
+  it("live: before the curve state loads, the next ticket and the ladder use the summary's tickets, not the 0 placeholder", () => {
+    // The hook's placeholder supply is 0n until the state arrives; 1,532 are sold.
+    setup({ curve: { hasState: false, curveStep: null, curveSupply: 0n } });
+    // 1,532 sits on the fourth step (to 2000, 4K) — not the first (1K), as 0 would say.
+    expect(screen.getByText('raffle.ticketPrice{"price":"4,000","symbol":"POND"}')).toBeInTheDocument();
+    expect(miniCurve.props.curveSupply).toBe(1532n);
+    expect(screen.getByText("1,532")).toBeInTheDocument();
+  });
+
+  it("live: once the curve state loads, the ladder follows it", () => {
+    setup({ curve: { hasState: true, curveReserves: 25_000_000n * ETH, curveSupply: 1800n } });
+    expect(miniCurve.props.curveSupply).toBe(1800n);
+  });
+
+  it("live: keeps a small pool's ETH equivalent instead of rounding it to 0", () => {
+    // 80K tokens at 50 gwei each = 0.004 ETH.
+    setup({ curve: { hasState: true, curveReserves: 80_000n * ETH, curveSupply: 10n }, market: { priceWei: 50n * 10n ** 9n } });
+    expect(screen.getByText('raffle.prizeEth{"eth":"0.004"}')).toBeInTheDocument();
   });
 
   it("live: prices the pool in ETH from the live reserves", () => {
@@ -190,7 +226,8 @@ describe("RaffleCard", () => {
     setup({ featured: season({ state: "ended", winner: WINNER, grandPrize: String(12_000_000n * ETH) }) });
     expect(screen.getByText(/raffle\.wonTitle.*"prize":"12M","symbol":"POND"/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "raffle.openNext" }));
-    expect(navigate).toHaveBeenCalledWith("/create-season");
+    // The next season is priced in this token: /create-season preselects it.
+    expect(navigate).toHaveBeenCalledWith(`/create-season?quoteToken=${TOKEN}`);
   });
 
   it("ended: applies the season's grand-prize share to the pool when only the bps is known", () => {
@@ -212,10 +249,23 @@ describe("RaffleCard", () => {
     expect(screen.queryByText(/raffle\.wonTitle/)).not.toBeInTheDocument();
   });
 
-  it("none: invites the first season", () => {
+  it("cancelled: badged and labelled cancelled, not ended", () => {
+    setup({ featured: season({ state: "cancelled" }) });
+    expect(screen.getByText("raffle.badgeCancelled")).toBeInTheDocument();
+    expect(screen.queryByText("raffle.badgeEnded")).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: 'raffle.cardLabel{"state":"raffle.badgeCancelled"}' })).toBeInTheDocument();
+  });
+
+  it("ended: labelled ended", () => {
+    setup({ featured: season({ state: "ended", winner: WINNER }) });
+    expect(screen.getByRole("region", { name: 'raffle.cardLabel{"state":"raffle.badgeEnded"}' })).toBeInTheDocument();
+  });
+
+  it("none: invites the first season, priced in this token", () => {
     setup({ featured: null });
     expect(screen.getByText("raffle.badgeNone")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "raffle.openFirst" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "raffle.openFirst" }));
+    expect(navigate).toHaveBeenCalledWith(`/create-season?quoteToken=${TOKEN}`);
   });
 
   it("error with nothing cached: says the raffle is unavailable, with no CTA and no no-raffle claim", () => {
@@ -252,7 +302,15 @@ describe("RaffleBadge", () => {
     rerender(<RaffleBadge raffle={{ state: "ended" }} />);
     expect(screen.getByText("raffle.badgeEnded")).toBeInTheDocument();
     rerender(<RaffleBadge raffle={{ state: "cancelled" }} />);
-    expect(screen.getByText("raffle.badgeEnded")).toBeInTheDocument();
+    expect(screen.getByText("raffle.badgeCancelled")).toBeInTheDocument();
+    expect(screen.queryByText("raffle.badgeEnded")).not.toBeInTheDocument();
+  });
+
+  it("styles a cancelled raffle like an ended one", () => {
+    const { rerender } = renderBadge({ state: "ended" });
+    const ended = screen.getByText("raffle.badgeEnded").className;
+    rerender(<RaffleBadge raffle={{ state: "cancelled" }} />);
+    expect(screen.getByText("raffle.badgeCancelled").className).toBe(ended);
   });
 
   it("renders nothing without a raffle", () => {

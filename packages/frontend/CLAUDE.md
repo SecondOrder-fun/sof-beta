@@ -115,6 +115,31 @@ trading off (the panel keeps quoting and says trading is off). Minimum-out is th
 quote less the slippage setting; `UniV4LaunchRouter.t.sol` pins the router to the
 same amounts the quote math is pinned to, so the quote shown is the trade made.
 
+## Season quote token ("Priced in")
+
+Both create-season forms (`components/admin/CreateSeasonForm.jsx`,
+`components/mobile/MobileCreateSeason.jsx`) choose the token a season is priced
+in with `QuoteTokenPicker`, over `useQuoteTokenChoice`. It cannot change after
+creation: tickets, the prize pool and the season's InfoFi markets all use it.
+The picker is Select (groups: the connected account's own launches — creator
+matched case-insensitively against the EOA and the smart account — then tokens
+approved by the platform, at least `QUOTE_TOKEN` as "Platform default", then the
+newest other launches), TokenArt, an Input for pasting any address, and the
+outline Badge.
+
+**Eligibility mirrors `Raffle.isAllowedQuoteToken`:** `Raffle.allowedQuoteTokens(token)`
+OR `TokenLaunchpad.isLaunchToken(token)` on the deployment's `TokenLaunchpad`
+(`hooks/useQuoteTokenInfo.js`, one multicall with the token's name, symbol and
+decimals). A pasted token, or one preselected by `/create-season?quoteToken=0x…`
+(the token page's raffle card links there), goes through that check and blocks
+submission until it passes — so `QuoteTokenNotAllowed` never fires. A failed
+read blocks too; it is not read as "not allowed". The rule assumes the Raffle's
+`launchpad()` is the deployment's `TokenLaunchpad`; if a deploy wires them
+differently, change the check with it. The curve's prices take the chosen
+token's decimals and symbol, and a launch token's pool price
+(`useLaunchMarkets`) adds an "≈ X ETH" line. `useRaffleWrite` falls back to
+`QUOTE_TOKEN` only when no token is chosen.
+
 ## ABI Imports
 
 ```js

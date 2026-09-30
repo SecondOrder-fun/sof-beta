@@ -5,10 +5,20 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import TokenCard from "@/components/launchpad/TokenCard";
 import { useNow } from "@/hooks/useNow";
 
-vi.mock("react-i18next", async (importOriginal) => ({
-  ...(await importOriginal()),
-  useTranslation: () => ({ t: (key, opts) => (opts ? `${key}${JSON.stringify(opts)}` : key) }),
-}));
+// Echo the key and options, except the time units, which read as English so a
+// countdown is legible in assertions ("3h 5m").
+vi.mock("react-i18next", async (importOriginal) => {
+  const units = { "time.days": "d", "time.hours": "h", "time.minutes": "m" };
+  const t = (key, opts) =>
+    key === "time.pair"
+      ? `${opts.first} ${opts.second}`
+      : units[key]
+        ? `${opts.count}${units[key]}`
+        : opts
+          ? `${key}${JSON.stringify(opts)}`
+          : key;
+  return { ...(await importOriginal()), useTranslation: () => ({ t }) };
+});
 // The real clock, wrapped so a test can see which cards run one.
 vi.mock("@/hooks/useNow", async (importOriginal) => {
   const actual = await importOriginal();
@@ -45,6 +55,23 @@ describe("TokenCard raffle strip", () => {
     expect(screen.getByText('card.raffleLeft{"time":"3h 5m"}')).toBeInTheDocument();
     act(() => vi.advanceTimersByTime(60_000));
     expect(screen.getByText('card.raffleLeft{"time":"3h 4m"}')).toBeInTheDocument();
+  });
+
+  it("names the prize pool when there is one", () => {
+    renderCard({ state: "live", seasonId: 3, name: null, prizePool: String(18_400_000n * ETH) });
+    expect(
+      screen.getByText('card.raffleStrip{"season":"raffle.season{\\"id\\":3}","prize":"18.4M","symbol":"POND"}'),
+    ).toBeInTheDocument();
+  });
+
+  it.each([
+    ["a zero pool", "0"],
+    ["no pool at all", undefined],
+  ])("with %s, shows the season alone rather than '0 POND'", (_label, prizePool) => {
+    renderCard({ state: "live", seasonId: 3, name: null, prizePool });
+    expect(screen.getByText('raffle.season{"id":3}')).toBeInTheDocument();
+    expect(screen.queryByText(/card\.raffleStrip/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/"prize":"0"/)).not.toBeInTheDocument();
   });
 });
 

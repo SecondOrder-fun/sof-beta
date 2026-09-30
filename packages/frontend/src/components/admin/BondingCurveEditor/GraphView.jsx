@@ -3,6 +3,7 @@
 
 import { useState, useMemo, useCallback, useRef } from "react";
 import PropTypes from "prop-types";
+import { useTranslation } from "react-i18next";
 import { scaleLinear } from "@visx/scale";
 import { Group } from "@visx/group";
 import { AxisLeft, AxisBottom } from "@visx/axis";
@@ -27,7 +28,9 @@ const GraphView = ({
   removeStep,
   updateStepPosition,
   insertStepBetween,
+  symbol,
 }) => {
+  const { t } = useTranslation("raffle");
   const svgRef = useRef(null);
   const [draggingIndex, setDraggingIndex] = useState(null);
   const [hoverIndex, setHoverIndex] = useState(null);
@@ -525,7 +528,7 @@ const GraphView = ({
                         fontSize={10}
                         fontFamily="monospace"
                       >
-                        {point.y.toFixed(2)} SOF
+                        {t("curveEditor.pointPrice", { price: point.y.toFixed(2), symbol })}
                       </text>
                       <text
                         x={cx + 55}
@@ -555,7 +558,7 @@ const GraphView = ({
                 dy: "0.33em",
                 dx: -4,
               })}
-              label="Price (SOF)"
+              label={t("curveEditor.stepPrice", { symbol })}
               labelProps={{
                 fill: "hsl(var(--muted-foreground))",
                 fontSize: 11,
@@ -623,6 +626,8 @@ GraphView.propTypes = {
   removeStep: PropTypes.func.isRequired,
   updateStepPosition: PropTypes.func.isRequired,
   insertStepBetween: PropTypes.func.isRequired,
+  /** The season's quote token symbol, which ticket prices are in. */
+  symbol: PropTypes.string.isRequired,
 };
 
 export default GraphView;

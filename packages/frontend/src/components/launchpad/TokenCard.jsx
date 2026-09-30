@@ -4,10 +4,10 @@
 // (useNow) rather than freezing at first render; the clock runs inside
 // RaffleTimeLeft, so a card with no countdown on it keeps no timer.
 //
-// The strip's prize is the season summary's pool, which lags a live season
-// (the backend writes it at start, status changes and completion). The token
-// page's RaffleCard reads it live from the curve; doing that here would add a
-// curve read per card, so the grid keeps the one batched badge request.
+// The strip's prize is the pool from the one batched badge request (the backend
+// reads a live season's from its curve), not a curve read per card. A pool of
+// zero — nothing sold yet, or not known — shows the season alone rather than
+// "0 POND".
 
 import PropTypes from "prop-types";
 import { Link } from "react-router-dom";
@@ -35,12 +35,19 @@ const RaffleTimeLeft = ({ endTime }) => {
   const nowMs = useNow();
   return (
     <span className="shrink-0 text-muted-foreground">
-      {t("card.raffleLeft", { time: formatTimeLeft(endTime, nowMs) })}
+      {t("card.raffleLeft", { time: formatTimeLeft(endTime, t, nowMs) })}
     </span>
   );
 };
 
 RaffleTimeLeft.propTypes = { endTime: PropTypes.number.isRequired };
+
+/** The live strip's label: the season, with its pool when there is one to name. */
+const raffleStripLabel = (raffle, symbol, t) => {
+  const season = raffle.name || t("raffle.season", { id: raffle.seasonId });
+  const pool = BigInt(raffle.prizePool ?? 0);
+  return pool > 0n ? t("card.raffleStrip", { season, prize: formatSupply(pool), symbol }) : season;
+};
 
 const TokenCard = ({ launch, market, raffle }) => {
   const { t } = useTranslation("launchpad");
@@ -101,11 +108,7 @@ const TokenCard = ({ launch, market, raffle }) => {
           {raffle?.state === "live" ? (
             <div className="flex items-center justify-between gap-2 rounded-lg border border-pastel-rose px-3 py-2 text-xs">
               <span className="font-semibold text-raffle truncate">
-                {t("card.raffleStrip", {
-                  season: raffle.name || t("raffle.season", { id: raffle.seasonId }),
-                  prize: formatSupply(BigInt(raffle.prizePool ?? 0)),
-                  symbol: launch.symbol,
-                })}
+                {raffleStripLabel(raffle, launch.symbol, t)}
               </span>
               {raffle.endTime ? <RaffleTimeLeft endTime={raffle.endTime} /> : null}
             </div>

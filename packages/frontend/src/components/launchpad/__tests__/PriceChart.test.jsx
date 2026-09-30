@@ -1,10 +1,16 @@
-import { render, screen, fireEvent } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent, act } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import PriceChart from "@/components/launchpad/PriceChart";
 import { useTokenChart } from "@/hooks/useLaunchActivity";
+import { buildChartSeries } from "@/lib/launchChart";
 
 vi.mock("@/hooks/useLaunchActivity", () => ({ useTokenChart: vi.fn() }));
+// The real series builder, wrapped so a test can see the "now" it was given.
+vi.mock("@/lib/launchChart", async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, buildChartSeries: vi.fn(actual.buildChartSeries) };
+});
 vi.mock("react-i18next", async (importOriginal) => ({
   ...(await importOriginal()),
   useTranslation: () => ({ t: (key, opts) => (opts ? `${key}${JSON.stringify(opts)}` : key) }),
@@ -83,6 +89,46 @@ describe("PriceChart", () => {
     setup({ chart: { tradeCount: 0, launch, points: [{ t: launch.t, priceWei: launch.priceWei }] }, isError: true, m: atLaunch });
     expect(screen.queryByText("chart.unavailable")).not.toBeInTheDocument();
     expect(screen.getByText("chart.empty")).toBeInTheDocument();
+  });
+
+  describe("the headline with no price to show", () => {
+    it("is a dash, not a skeleton forever, when both the pool and the chart reads have failed", () => {
+      const { container } = setup({ isError: true, m: null });
+      expect(screen.getByText("—")).toBeInTheDocument();
+      expect(container.querySelector(".animate-pulse")).toBeNull();
+    });
+
+    it("is a skeleton while the chart read is in flight", () => {
+      const { container } = setup({ isLoading: true, m: null });
+      expect(container.querySelector(".animate-pulse")).not.toBeNull();
+      expect(screen.queryByText("—")).not.toBeInTheDocument();
+    });
+
+    it("is a skeleton while the pool read is in flight", () => {
+      useTokenChart.mockReturnValue({ data: undefined, isLoading: false, isError: true });
+      const { container } = render(<PriceChart token={TOKEN} market={undefined} isMarketLoading />);
+      expect(container.querySelector(".animate-pulse")).not.toBeNull();
+      expect(screen.queryByText("—")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("carrying the line to now on a quiet token", () => {
+    afterEach(() => vi.useRealTimers());
+
+    it("moves 'now' with the clock even when neither the history nor the pool changes", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-09-30T12:00:00Z"));
+      const start = Math.floor(Date.now() / 1000);
+      // One old trade; the live pool sits at that price. Nothing will change.
+      const quiet = { tradeCount: 1, launch: { t: start - 86400, priceWei: String(2n * GWEI) }, points: [{ t: start - 3600, priceWei: String(47n * GWEI) }] };
+      setup({ chart: quiet });
+      const lastT = () => buildChartSeries.mock.lastCall[0].nowSec;
+      expect(lastT()).toBe(start);
+      act(() => vi.advanceTimersByTime(30_000));
+      expect(lastT()).toBe(start + 30);
+      act(() => vi.advanceTimersByTime(30_000));
+      expect(lastT()).toBe(start + 60);
+    });
   });
 
   it("defaults to 24h and refetches for the range picked", () => {

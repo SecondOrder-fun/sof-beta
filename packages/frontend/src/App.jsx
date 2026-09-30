@@ -49,11 +49,12 @@ const App = () => {
     );
   }
 
-  // Desktop layout
+  // Desktop layout — also what a mobile browser gets, so the ticker goes
+  // compact there.
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Header />
-      <ActivityTicker />
+      <ActivityTicker compact={isMobileBrowser} />
       <FirstConnectBanner />
       <SignInRetryBanner />
       <SweepBanner />

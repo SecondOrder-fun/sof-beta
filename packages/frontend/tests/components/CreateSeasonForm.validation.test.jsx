@@ -65,6 +65,22 @@ vi.mock('@/hooks/useSmartTransactions', () => ({
   }),
 }));
 
+// The "Priced in" choice reads the chain; it has its own tests
+// (CreateSeasonForm.quoteToken, QuoteTokenPicker). Here: the platform default.
+vi.mock('@/hooks/useQuoteTokenChoice', () => ({
+  useQuoteTokenChoice: () => ({
+    groups: { yours: [], approved: [], newest: [] },
+    selected: { address: '0x5050505050505050505050505050505050505050', name: 'Second Order', symbol: 'SOF', decimals: 18, kind: 'approved', isPlatformDefault: true },
+    quoteToken: '0x5050505050505050505050505050505050505050',
+    status: 'eligible',
+    source: 'default',
+    blocked: false,
+    pasteText: '',
+    setPasteText: vi.fn(),
+    selectFromList: vi.fn(),
+  }),
+}));
+
 import CreateSeasonForm from '@/components/admin/CreateSeasonForm';
 
 describe('CreateSeasonForm - Name Validation', () => {

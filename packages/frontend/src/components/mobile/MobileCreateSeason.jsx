@@ -1,5 +1,7 @@
 // src/components/mobile/MobileCreateSeason.jsx
-// Mobile-optimized 3-step create-season flow with curve presets.
+// Mobile-optimized 3-step create-season flow with curve presets. Step 2 picks
+// the token the season is priced in (QuoteTokenPicker), which the presets'
+// prices are then shown in.
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useAccount } from "wagmi";
 import { isAddress, decodeEventLog } from "viem";
@@ -27,6 +29,10 @@ import { RAFFLE_ABI } from "@/config/contracts";
 import { AUTO_START_BUFFER_SECONDS } from "@/lib/seasonTime";
 import { CURVE_PRESETS } from "@/lib/curvePresets";
 import { generateLinearSteps } from "@/components/admin/BondingCurveEditor/useCurveEditor";
+import QuoteTokenPicker from "@/components/admin/QuoteTokenPicker";
+import { useQuoteTokenChoice } from "@/hooks/useQuoteTokenChoice";
+import { formatEthAmount, tokensToEthWei } from "@/lib/launchFormat";
+import { QUOTE_TOKEN_BLOCK_MESSAGE } from "@/lib/quoteTokenMessages";
 
 // Default timing
 const DEFAULT_START_OFFSET_SECONDS = 5 * 60;
@@ -39,9 +45,10 @@ const fmtLocalDatetime = (sec) => {
 };
 
 /**
- * Curve preset selector — radio card UI.
+ * Curve preset selector — radio card UI. Prices are in the season's quote
+ * token; a launch token's pool price adds the starting price's ETH equivalent.
  */
-function CurvePresetSelector({ selected, onSelect }) {
+function CurvePresetSelector({ selected, onSelect, symbol, priceWei }) {
   const { t } = useTranslation("raffle");
 
   return (
@@ -52,6 +59,7 @@ function CurvePresetSelector({ selected, onSelect }) {
           const isSelected = selected === preset.id;
           const minPrice = preset.basePrice;
           const maxPrice = preset.basePrice + (preset.numSteps - 1) * preset.priceDelta;
+          const startEthWei = tokensToEthWei(minPrice, priceWei);
           return (
             <button
               key={preset.id}
@@ -68,15 +76,21 @@ function CurvePresetSelector({ selected, onSelect }) {
                   {t(preset.labelKey)}
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  {minPrice}–{maxPrice} SOF
+                  {t("curveEditor.presetRange", { min: minPrice, max: maxPrice, symbol })}
                 </span>
               </div>
               <p className="text-xs text-muted-foreground mt-1">
                 {t(preset.descKey, {
                   steps: preset.numSteps,
                   tickets: (preset.maxTickets / 1000).toFixed(0) + "K",
+                  symbol,
                 })}
               </p>
+              {startEthWei != null ? (
+                <p className="text-xs text-muted-foreground">
+                  {t("quoteToken.ethEquivalent", { eth: formatEthAmount(startEthWei) })}
+                </p>
+              ) : null}
             </button>
           );
         })}
@@ -88,12 +102,14 @@ function CurvePresetSelector({ selected, onSelect }) {
 CurvePresetSelector.propTypes = {
   selected: PropTypes.string.isRequired,
   onSelect: PropTypes.func.isRequired,
+  symbol: PropTypes.string.isRequired,
+  priceWei: PropTypes.any,
 };
 
 /**
  * Inner workflow — reads global auth state from AppAuthProvider (mounted in main.jsx).
  */
-function MobileCreateSeasonInner() {
+function MobileCreateSeasonInner({ initialQuoteToken }) {
   const { t } = useTranslation("raffle");
   const navigate = useNavigate();
   const { address, isConnected } = useAccount();
@@ -116,6 +132,12 @@ function MobileCreateSeasonInner() {
   const [curvePreset, setCurvePreset] = useState("standard");
   const [formError, setFormError] = useState("");
   const [createdSeasonId, setCreatedSeasonId] = useState(null);
+
+  // "Priced in": the season's quote token, which scales and labels the curve.
+  const quote = useQuoteTokenChoice({ initialToken: initialQuoteToken });
+  const quoteDecimals = quote.selected?.decimals ?? 18;
+  const quoteSymbol = quote.selected?.symbol || "—";
+  const quotePriceWei = quote.selected?.kind === "launch" ? quote.selected.priceWei : null;
 
   // Default treasury to connected wallet
   useEffect(() => {
@@ -170,15 +192,23 @@ function MobileCreateSeasonInner() {
   // Validation for step 2
   const step2Valid = useMemo(() => {
     if (!treasuryAddress || !isAddress(treasuryAddress.trim())) return false;
+    if (quote.blocked) return false;
     const pct = Number(grandPct);
     return !Number.isNaN(pct) && pct >= 55 && pct <= 75;
-  }, [treasuryAddress, grandPct]);
+  }, [treasuryAddress, grandPct, quote.blocked]);
 
   // Generate steps from preset
   const selectedPreset = CURVE_PRESETS.find((p) => p.id === curvePreset) || CURVE_PRESETS[0];
   const generatedSteps = useMemo(
-    () => generateLinearSteps(selectedPreset.maxTickets, selectedPreset.numSteps, selectedPreset.basePrice, selectedPreset.priceDelta, 18),
-    [selectedPreset],
+    () =>
+      generateLinearSteps(
+        selectedPreset.maxTickets,
+        selectedPreset.numSteps,
+        selectedPreset.basePrice,
+        selectedPreset.priceDelta,
+        quoteDecimals,
+      ),
+    [selectedPreset, quoteDecimals],
   );
 
   const handleSubmit = useCallback(async () => {
@@ -191,6 +221,13 @@ function MobileCreateSeasonInner() {
 
     if (startSec - effectiveChainTime <= AUTO_START_BUFFER_SECONDS) {
       setFormError(t("startTimeTooSoon", { seconds: AUTO_START_BUFFER_SECONDS, adjusted: "" }));
+      return;
+    }
+
+    // A pasted quote token must pass the contract's own check first, so the
+    // transaction never reverts with QuoteTokenNotAllowed.
+    if (quote.blocked) {
+      setFormError(t(QUOTE_TOKEN_BLOCK_MESSAGE[quote.status]));
       return;
     }
 
@@ -209,6 +246,9 @@ function MobileCreateSeasonInner() {
       isActive: false,
       isCompleted: false,
       gated: false,
+      // Unset only when nothing is chosen and no platform default is
+      // configured; useRaffleWrite then applies its own fallback.
+      ...(quote.quoteToken ? { quoteToken: quote.quoteToken } : {}),
     };
 
     const bondSteps = generatedSteps.map((s) => ({
@@ -219,7 +259,7 @@ function MobileCreateSeasonInner() {
     const buyFeeBps = 10;
     const sellFeeBps = 70;
     createSeason.mutate({ config, bondSteps, buyFeeBps, sellFeeBps });
-  }, [name, startTime, endTime, treasuryAddress, grandPct, generatedSteps, chainNow, createSeason, t]);
+  }, [name, startTime, endTime, treasuryAddress, grandPct, generatedSteps, chainNow, createSeason, t, quote.blocked, quote.status, quote.quoteToken]);
 
   // Handle mutation error
   useEffect(() => {
@@ -349,7 +389,14 @@ function MobileCreateSeasonInner() {
                 <p className="text-xs text-muted-foreground mt-1">{t("grandPrizeHelp")}</p>
               </div>
 
-              <CurvePresetSelector selected={curvePreset} onSelect={setCurvePreset} />
+              <QuoteTokenPicker choice={quote} />
+
+              <CurvePresetSelector
+                selected={curvePreset}
+                onSelect={setCurvePreset}
+                symbol={quoteSymbol}
+                priceWei={quotePriceWei}
+              />
             </CardContent>
           </Card>
           <Step2Nav canProceed={step2Valid} onSubmit={handleSubmit} isSubmitting={createSeason?.isPending} />
@@ -434,9 +481,18 @@ Step2Nav.propTypes = {
   isSubmitting: PropTypes.bool,
 };
 
+MobileCreateSeasonInner.propTypes = {
+  initialQuoteToken: PropTypes.string,
+};
+
 /**
  * Public component.
+ * @param {{ initialQuoteToken?: string }} props  a quote token to preselect
  */
-const MobileCreateSeason = () => <MobileCreateSeasonInner />;
+const MobileCreateSeason = ({ initialQuoteToken }) => <MobileCreateSeasonInner initialQuoteToken={initialQuoteToken} />;
+
+MobileCreateSeason.propTypes = {
+  initialQuoteToken: PropTypes.string,
+};
 
 export default MobileCreateSeason;

@@ -52,7 +52,7 @@ const TokenDetail = () => {
   const valid = typeof address === "string" && isAddress(address);
 
   const { data: launch, isLoading, isAvailable } = useTokenLaunch(valid ? address : undefined);
-  const { markets } = useLaunchMarkets(launch ? [launch] : [], { enabled: Boolean(launch) });
+  const { markets, isLoading: isMarketLoading } = useLaunchMarkets(launch ? [launch] : [], { enabled: Boolean(launch) });
   const market = launch ? markets[launch.token.toLowerCase()] : undefined;
   const { data: seasons } = useTokenSeasons(launch?.token);
 
@@ -151,7 +151,7 @@ const TokenDetail = () => {
             </div>
           </section>
 
-          <PriceChart token={launch.token} market={market} />
+          <PriceChart token={launch.token} market={market} isMarketLoading={isMarketLoading} />
 
           {market ? (
             <SupplySold market={market} totalSupply={launch.totalSupply} symbol={launch.symbol} />

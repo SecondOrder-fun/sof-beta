@@ -15,8 +15,11 @@
 //   drawing   — entries closed, VRF drawing; no CTA
 //   ended     — winner and their grand prize — never the whole pool, which
 //               also funds consolation; with the split unknown, no amount —
-//               (or "cancelled"); CTA to open the next season
+//               (or "cancelled", badged and labelled as such); CTA to open
+//               the next season
 //   none      — the token has no season yet; CTA to open the first
+//   Both CTAs open /create-season?quoteToken=<this token>, so the new season
+//   is priced in it.
 //   unavailable — the seasons read failed with nothing cached; says so, no CTA
 //                 (a failed read is not evidence that there is no raffle)
 //
@@ -42,7 +45,7 @@ import { usePlayerPosition } from "@/hooks/usePlayerPosition";
 import { useTokenSeasons } from "@/hooks/useLaunchActivity";
 import { cn } from "@/lib/utils";
 import { shortAddress } from "@/lib/format";
-import { formatFdvEth, formatSupply, formatTokenAmount } from "@/lib/launchFormat";
+import { formatEthAmount, formatSupply, formatTokenAmount } from "@/lib/launchFormat";
 import { grandPrizeWei } from "@/lib/prizeMath";
 
 const Frame = ({ tone, label, children }) => (
@@ -104,14 +107,17 @@ const LiveRaffle = ({ raffle, symbol, market }) => {
   const { position } = usePlayerPosition(raffle.bondingCurve);
   const players = useLiveParticipantCount(raffle.seasonId, { initialCount: Number(raffle.participants) });
 
-  // Live curve state over the season summary, which lags a live season.
+  // Live curve state over the season summary, which lags a live season. Until
+  // the curve state loads, curveSupply is a 0n placeholder, so everything that
+  // needs the supply — the stats, the next ticket's step, the ladder's marker —
+  // reads ticketsSold, which stands in with the summary's count.
   const prizePool = hasState ? curveReserves : BigInt(raffle.prizePool);
   const ticketsSold = hasState ? curveSupply : BigInt(raffle.tickets);
   const prizeEthWei = market?.priceWei != null ? (prizePool * market.priceWei) / 10n ** 18n : null;
   const myTickets = position?.tickets ?? 0n;
   // Skeleton only while a price read is in flight; a missing curve state (e.g.
   // a 404 from the indexer) falls back to the ladder rather than spinning.
-  const next = nextTicketStep(curveStep, allBondSteps, curveSupply);
+  const next = nextTicketStep(curveStep, allBondSteps, ticketsSold);
 
   return (
     <Frame tone="rose" label={t("raffle.cardLabel", { state: t("raffle.badgeLive") })}>
@@ -135,7 +141,7 @@ const LiveRaffle = ({ raffle, symbol, market }) => {
         </div>
         {prizeEthWei != null ? (
           <div className="text-sm text-muted-foreground">
-            {t("raffle.prizeEth", { eth: formatFdvEth(prizeEthWei, 2) })}
+            {t("raffle.prizeEth", { eth: formatEthAmount(prizeEthWei) })}
           </div>
         ) : null}
       </div>
@@ -165,7 +171,7 @@ const LiveRaffle = ({ raffle, symbol, market }) => {
             ) : null}
           </div>
           <div className="h-16">
-            <MiniCurveChart curveSupply={curveSupply} allBondSteps={allBondSteps} currentStep={curveStep} />
+            <MiniCurveChart curveSupply={ticketsSold} allBondSteps={allBondSteps} currentStep={curveStep} />
           </div>
         </div>
       ) : null}
@@ -222,16 +228,22 @@ const UpcomingRaffle = ({ raffle, symbol }) => {
 
 UpcomingRaffle.propTypes = { raffle: PropTypes.object.isRequired, symbol: PropTypes.string };
 
-const OpenSeasonCta = ({ label }) => {
+/** Opens /create-season with this token preselected as the season's quote token. */
+const OpenSeasonCta = ({ label, token }) => {
   const navigate = useNavigate();
   return (
-    <Button type="button" variant="outline" className="w-full" onClick={() => navigate("/create-season")}>
+    <Button
+      type="button"
+      variant="outline"
+      className="w-full"
+      onClick={() => navigate(`/create-season?quoteToken=${token}`)}
+    >
       {label}
     </Button>
   );
 };
 
-OpenSeasonCta.propTypes = { label: PropTypes.string.isRequired };
+OpenSeasonCta.propTypes = { label: PropTypes.string.isRequired, token: PropTypes.string.isRequired };
 
 const RaffleCard = ({ token, symbol, market }) => {
   const { t } = useTranslation("launchpad");
@@ -259,7 +271,7 @@ const RaffleCard = ({ token, symbol, market }) => {
           <span className="font-semibold">{t("raffle.noneTitle", { symbol })}</span>
         </div>
         <p className="text-sm text-muted-foreground">{t("raffle.noneBody", { symbol })}</p>
-        <OpenSeasonCta label={t("raffle.openFirst")} />
+        <OpenSeasonCta label={t("raffle.openFirst")} token={token} />
       </Frame>
     );
   }
@@ -292,8 +304,10 @@ const RaffleCard = ({ token, symbol, market }) => {
           : t("raffle.wonSeasonTitle", { who: shortAddress(raffle.winner), season: seasonTitle(raffle, t) })
         : t("raffle.endedTitle", { season: seasonTitle(raffle, t) });
 
+  const state = raffle.state === "cancelled" ? t("raffle.badgeCancelled") : t("raffle.badgeEnded");
+
   return (
-    <Frame tone="muted" label={t("raffle.cardLabel", { state: t("raffle.badgeEnded") })}>
+    <Frame tone="muted" label={t("raffle.cardLabel", { state })}>
       <div className="flex items-center gap-2 flex-wrap">
         <RaffleBadge raffle={raffle} />
         <span className="font-semibold">{title}</span>
@@ -301,7 +315,7 @@ const RaffleCard = ({ token, symbol, market }) => {
       <p className="text-sm text-muted-foreground">
         {t("raffle.endedBody", { season: seasonTitle(raffle, t), symbol })}
       </p>
-      <OpenSeasonCta label={t("raffle.openNext")} />
+      <OpenSeasonCta label={t("raffle.openNext")} token={token} />
     </Frame>
   );
 };

@@ -6,13 +6,16 @@
 // carrying FDV, price per token and the multiple since launch.
 //
 // Reads GET /api/launchpad/tokens/:address/chart. The live pool price (from
-// useLaunchMarkets) extends the line to "now" and drives the headline, so the
-// headline matches the buy panel even between indexer ticks; the pool's own
+// useLaunchMarkets) extends the line to "now" — a clock (useNow) that moves on
+// its own, so a quiet token's line still reaches the present — and drives the
+// headline, so the headline matches the buy panel even between indexer ticks; the pool's own
 // launch price (not the requested one the indexer stores) anchors the launch
 // baseline and the multiples, so they agree with the header's multiple. With
 // no trades, it shows the launch valuation and an empty state instead of a
 // flat line. A failed refetch keeps the cached history on screen; only a
-// failed read with nothing cached says the history is unavailable.
+// failed read with nothing cached says the history is unavailable. The
+// headline is a skeleton only while a read is in flight; with neither a pool
+// price nor any history, it is a dash.
 //
 // Every ETH figure — headline, tooltip, axis, launch line — prints through
 // formatFdvEth, so one valuation never reads two ways on the same card.
@@ -34,6 +37,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useTokenChart } from "@/hooks/useLaunchActivity";
+import { useNow } from "@/hooks/useNow";
 import { CHART_RANGES, buildChartSeries, ethToWei, formatChartTime } from "@/lib/launchChart";
 import { formatFdvEth, formatMultiple, formatPriceGwei } from "@/lib/launchFormat";
 import { cn } from "@/lib/utils";
@@ -63,11 +67,14 @@ ChartTooltip.propTypes = {
   range: PropTypes.string,
 };
 
-const PriceChart = ({ token, market }) => {
+const PriceChart = ({ token, market, isMarketLoading = false }) => {
   const { t } = useTranslation("launchpad");
   const gradientId = useId().replace(/:/g, "_");
   const [range, setRange] = useState("24h");
   const { data: chart, isLoading, isError } = useTokenChart(token, range);
+  // The clock the line is carried to. On a quiet token neither the history
+  // nor the pool changes, so "now" has to move on its own.
+  const nowMs = useNow();
 
   const view = useMemo(
     () =>
@@ -76,10 +83,10 @@ const PriceChart = ({ token, market }) => {
             chart,
             launchPriceWei: market?.launchPriceWei,
             currentPriceWei: market?.priceWei,
-            nowSec: Math.floor(Date.now() / 1000),
+            nowSec: Math.floor(nowMs / 1000),
           })
         : null,
-    [chart, market?.launchPriceWei, market?.priceWei],
+    [chart, market?.launchPriceWei, market?.priceWei, nowMs],
   );
 
   const headline = market
@@ -111,8 +118,11 @@ const PriceChart = ({ token, market }) => {
                     </span>
                   ) : null}
                 </div>
-              ) : (
+              ) : isLoading || isMarketLoading ? (
                 <Skeleton className="h-10 w-48" />
+              ) : (
+                // Both reads are done and neither has a price: say so.
+                <span className="text-4xl font-semibold tracking-tight text-muted-foreground">—</span>
               )}
               {market ? (
                 <div className="text-sm text-muted-foreground">
@@ -226,6 +236,8 @@ PriceChart.propTypes = {
     priceWei: PropTypes.any,
     multiple: PropTypes.number,
   }),
+  /** The pool read is in flight — the headline waits for it rather than dashing. */
+  isMarketLoading: PropTypes.bool,
 };
 
 export default PriceChart;

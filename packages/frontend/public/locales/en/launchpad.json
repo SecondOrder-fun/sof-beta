@@ -172,6 +172,7 @@
     "badgeOpensSoon": "Opens soon",
     "badgeDrawing": "Drawing",
     "badgeEnded": "Raffle ended",
+    "badgeCancelled": "Raffle cancelled",
     "badgeNone": "No raffle yet",
     "unavailableState": "Unavailable",
     "unavailable": "Raffle details are unavailable right now.",
@@ -246,5 +247,11 @@
     "players_one": "{{count}} player",
     "players_other": "{{count}} players",
     "separator": "·"
+  },
+  "time": {
+    "days": "{{count}}d",
+    "hours": "{{count}}h",
+    "minutes": "{{count}}m",
+    "pair": "{{first}} {{second}}"
   }
 }

@@ -15,9 +15,9 @@
 //     the ceiling is 1000 gwei. In ETH those are 0.000000001 and 0.000001, which
 //     no one can compare at a glance.
 
-import { formatEther, formatGwei } from 'viem';
+import { formatEther, formatGwei, parseUnits } from 'viem';
 
-import { getCountdownParts } from '@/lib/utils';
+import { timeUntil } from '@/lib/utils';
 
 /**
  * Trim a fixed-point string to at most `maxDecimals`, dropping trailing zeros.
@@ -52,6 +52,35 @@ function formatDecimal18(raw, maxDecimals) {
 export function formatFdvEth(wei, maxDecimals = 4) {
   if (wei == null) return '—';
   return formatDecimal18(wei, maxDecimals);
+}
+
+/**
+ * An ETH amount in wei — a trade, a prize's ETH equivalent — with at most two
+ * decimals from 0.01 ETH up, and three significant digits below that, so a
+ * small amount reads "0.004" or "0.0000472" rather than rounding to "0".
+ * @param {bigint | string | null | undefined} wei
+ * @returns {string} e.g. "1,250", "0.4", "0.004", "0.0000472"
+ */
+export function formatEthAmount(wei) {
+  if (wei == null) return '—';
+  const value = BigInt(wei);
+  const magnitude = value < 0n ? -value : value;
+  if (magnitude === 0n || magnitude >= 10n ** 16n) return formatDecimal18(value, 2);
+  const [whole, fraction] = formatEther(value).split('.');
+  const firstDigit = fraction.search(/[1-9]/);
+  return `${whole}.${fraction.slice(0, firstDigit + 3).replace(/0+$/, '')}`;
+}
+
+/**
+ * What an amount of whole tokens — a ticket price typed into a form, say — is
+ * worth in wei of ETH at a pool price.
+ * @param {number} tokens  whole tokens (fractions kept to 6 decimals)
+ * @param {bigint | null | undefined} priceWei  wei of ETH per whole token
+ * @returns {bigint | null} null without a price or a usable amount
+ */
+export function tokensToEthWei(tokens, priceWei) {
+  if (priceWei == null || !Number.isFinite(tokens) || tokens < 0) return null;
+  return (parseUnits(tokens.toFixed(6), 18) * BigInt(priceWei)) / 10n ** 18n;
 }
 
 /**
@@ -132,16 +161,18 @@ export function formatPercent(f) {
 }
 
 /**
- * Time until a unix-seconds timestamp, as a short label: the two largest units.
- * The split into units is getCountdownParts' (the CountdownTimer's own).
+ * Time until a unix-seconds timestamp, as a short label: the two largest units,
+ * named through the launchpad namespace's `time.*` keys so the unit letters are
+ * the reader's language. The split is timeUntil's (and so the CountdownTimer's).
  * @param {bigint | number | null | undefined} unixSeconds
+ * @param {(key: string, opts?: object) => string} t  launchpad-namespace translator
  * @param {number} [nowMs=Date.now()]
  * @returns {string} e.g. "2d 4h", "2h 10m", "9m", "0m" once it has passed
  */
-export function formatTimeLeft(unixSeconds, nowMs = Date.now()) {
+export function formatTimeLeft(unixSeconds, t, nowMs = Date.now()) {
   if (unixSeconds == null) return '—';
-  const { days, hours, minutes } = getCountdownParts(Number(unixSeconds), nowMs);
-  if (days > 0) return hours ? `${days}d ${hours}h` : `${days}d`;
-  if (hours > 0) return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
-  return `${minutes}m`;
+  const [first, second] = timeUntil(Number(unixSeconds), nowMs).map(({ unit, value }) =>
+    t(`time.${unit}`, { count: value }),
+  );
+  return second ? t('time.pair', { first, second }) : first;
 }

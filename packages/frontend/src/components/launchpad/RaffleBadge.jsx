@@ -1,7 +1,8 @@
 // src/components/launchpad/RaffleBadge.jsx
 //
 // A token's raffle state, as one Badge: live (filled Pastel Rose), opening
-// soon and drawing (Pastel Rose outline), ended (muted outline). Takes a
+// soon and drawing (Pastel Rose outline), ended and cancelled (muted outline,
+// each saying which). Takes a
 // season summary from the backend (activityFeed.summarizeSeason). The
 // "Opens in" countdown follows the clock (useNow) rather than freezing at
 // first render; the clock runs inside OpensLabel, so only a badge actually
@@ -21,7 +22,7 @@ const OpensLabel = ({ startTime }) => {
   const { t } = useTranslation("launchpad");
   const nowMs = useNow();
   return startTime * 1000 > nowMs
-    ? t("raffle.badgeOpensIn", { time: formatTimeLeft(startTime, nowMs) })
+    ? t("raffle.badgeOpensIn", { time: formatTimeLeft(startTime, t, nowMs) })
     : t("raffle.badgeOpensSoon");
 };
 
@@ -51,6 +52,12 @@ const RaffleBadge = ({ raffle, className }) => {
         <Badge variant="raffleSoon" className={cn("pl-2", className)}>
           <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
           {t("raffle.badgeDrawing")}
+        </Badge>
+      );
+    case "cancelled":
+      return (
+        <Badge variant="raffleEnded" className={className}>
+          {t("raffle.badgeCancelled")}
         </Badge>
       );
     default:

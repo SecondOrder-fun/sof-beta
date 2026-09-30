@@ -31,6 +31,12 @@ describe("describeTokenItem", () => {
     expect(d.who).toMatch(/^0x3f/);
   });
 
+  it("keeps a small trade's significant digits instead of rounding it to 0 ETH", () => {
+    const row = { kind: "buy", who: WALLET, token: TOKEN, symbol: "POND", priceWei: String(47n * GWEI), txHash: "0x1" };
+    expect(describeTokenItem({ ...row, ethAmount: String(4n * ETH / 1000n) }, t).parts[1].text).toBe('ticker.ethOf{"eth":"0.004"}');
+    expect(describeTokenItem({ ...row, ethAmount: "47200000000000" }, t).parts[1].text).toBe('ticker.ethOf{"eth":"0.0000472"}');
+  });
+
   it("shapes a sell with the sell tone", () => {
     const d = describeTokenItem({ kind: "sell", who: WALLET, token: TOKEN, symbol: "ORB", ethAmount: "1", priceWei: "1", txHash: "0x1" }, t);
     expect(d.tone).toBe("sell");
@@ -143,8 +149,19 @@ describe("describeRaffleItem", () => {
     const nowMs = 1_700_000_000_000;
     const d = describeRaffleItem({ ...base, kind: "closing", endsAt: nowMs / 1000 + 9 * 60, participants: "212", at: "x" }, t, nowMs);
     expect(d.tone).toBe("closing");
-    expect(sentence(d)).toBe(`ticker.closing ${SEASON_ON} $POND ticker.inTime{"time":"9m"}`);
+    // The time's unit goes through the translator too: no hardcoded "m".
+    expect(sentence(d)).toBe(`ticker.closing ${SEASON_ON} $POND ticker.inTime{"time":"time.minutes{\\"count\\":9}"}`);
     expect(d.tail).toEqual(['ticker.players{"count":212}']);
+  });
+
+  it("keys a closing season by the season alone, so a refetch (which restamps `at`) keeps the same item", () => {
+    const row = { ...base, kind: "closing", endsAt: 1_700_000_600, participants: "2" };
+    const first = describeRaffleItem({ ...row, at: "2026-09-30T00:00:00Z" }, t, 1_700_000_000_000);
+    const refetched = describeRaffleItem({ ...row, at: "2026-09-30T00:00:15Z" }, t, 1_700_000_015_000);
+    expect(first.key).toBe("closing:3");
+    expect(refetched.key).toBe(first.key);
+    // Another season closing at the same time is a different item.
+    expect(describeRaffleItem({ ...row, seasonId: 4, at: "2026-09-30T00:00:00Z" }, t).key).not.toBe(first.key);
   });
 
   it("leaves the token out for a season not priced in a launch token", () => {
