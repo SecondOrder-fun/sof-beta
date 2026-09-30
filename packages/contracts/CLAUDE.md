@@ -45,6 +45,7 @@ Test files covering:
 - InfoFi FPMM (`InfoFiFPMM.t.sol`, `FPMMPermit.t.sol`)
 - Airdrop (`SOFAirdrop.t.sol`)
 - Per-season quote tokens (`SeasonQuoteToken.t.sol`)
+- LP fee collection and the 88/12 split (`LaunchLpFees.t.sol`, real `PoolManager`, trades through the router)
 - Launchpad (`TokenLaunchpad.t.sol`, `UniV4LiquidityPlacer.t.sol` — against a real v4
   `PoolManager`, not a mock — and `LaunchpadDeployWiring.t.sol`, which runs deploy steps
   20-23 and asserts the FDV bounds, the circular wiring and a trade through the advertised
@@ -92,6 +93,8 @@ Modular numbered scripts in `script/deploy/`:
   `LaunchPoolGate` hook (CREATE2 through the standard factory, salt mined by `HookMiner` so
   its address carries exactly the before-initialize bit) and `placer.setGate(...)`: without
   it anyone could initialize the next token's pool first and block launches for good.
+  Also sets the placer's `feeTreasury` (`TREASURY_ADDRESS`, else the deployer) — the 12%
+  platform share of LP fees; `collectFees` reverts until it is set.
 - `23_DeployLaunchRouter` — `UniV4LaunchRouter(poolManager, launchpad)`, then
   `launchpad.setRouter(...)`. The router finds each token's pool through the placer that
   launch recorded (`launchpad.placerOf`), so `setPlacer` only redirects NEW launches and
@@ -149,6 +152,17 @@ Version-controlled in `deployments/`:
 - VRF stuck season recovery: 48h timeout + `cancelStuckSeason()`
 - Hash-and-extend retry for winner deduplication (MAX_RETRIES=20)
 - Lock snapshot for off-chain verification of participant state
+
+## Launch LP fees
+
+- **The placer owns every launch position, so it earns the pools' 1% swap fee** in ETH (buys)
+  and the launch token (sells). `UniV4LiquidityPlacer.collectFees(token)` is permissionless: a
+  zero-liquidity `modifyLiquidity` pays out the accrued fees, which are credited 88%
+  (`CREATOR_FEE_BPS`) to the launch's fee recipient and 12% to `feeTreasury`, on both sides.
+  Payouts are pulls (`claimEth(to)`, `claimToken(token, to)`), so no recipient can block a
+  collection. The recipient starts as the creator (`TokenLaunchpad.creatorOf`) and only the
+  current recipient can hand it on (`setFeeRecipient`). `sweepDust` never touches unclaimed
+  fees (`totalClaimableToken`). Fees accrue per placer: collect through `launchpad.placerOf`.
 
 ## Quote tokens and InfoFi collateral
 

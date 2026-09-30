@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {AccessControl} from "openzeppelin-contracts/contracts/access/AccessControl.sol";
+import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
@@ -17,6 +18,11 @@ import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {LaunchPoolGate} from "./LaunchPoolGate.sol";
 import {ILiquidityPlacer} from "./ILiquidityPlacer.sol";
 
+/// @dev The launchpad view the placer reads to find a launch's creator.
+interface ILaunchCreators {
+    function creatorOf(address token) external view returns (address);
+}
+
 error OnlyLaunchpad();
 error NotPoolManager();
 error ZeroAddress();
@@ -27,6 +33,11 @@ error PlacementWouldCostEth(int128 ethDelta);
 error LiquidityIsZero();
 error GateNotSet();
 error InvalidGate(address gate);
+error NoPlacement(address token);
+error FeeTreasuryNotSet();
+error NotFeeRecipient(address caller);
+error NothingToClaim();
+error EthTransferFailed();
 
 /**
  * @title UniV4LiquidityPlacer
@@ -72,14 +83,29 @@ error InvalidGate(address gate);
  *      `place()` revert `PoolAlreadyInitialized` — see `LaunchPoolGate`. `place()` refuses
  *      to run until a gate is set.
  *
+ *      ## LP fees
+ *
+ *      This contract owns every launch position, so the pool's swap fees accrue to it, in
+ *      both ETH and the launch token. `collectFees(token)` is permissionless: it pulls a
+ *      position's accrued fees out of the pool (a zero-liquidity `modifyLiquidity`, which
+ *      v4 pays out as the fees owed) and credits them `CREATOR_FEE_BPS` (88%) to the
+ *      launch's fee recipient and the rest to `feeTreasury`, on both sides alike. Credits
+ *      are claimed with `claimEth` / `claimToken`, a pull the claimant makes to an address
+ *      they choose, so no payout can block a collection and a failed transfer simply
+ *      reverts that claim for a retry. The fee recipient starts as the launch's creator
+ *      and only the current recipient can hand it on (`setFeeRecipient`). Shares are fixed
+ *      when fees are collected: changing the recipient or the treasury later does not
+ *      move fees already credited.
+ *
  *      ## Dust
  *
  *      Liquidity is an integer, so flooring it leaves a token remainder of at most
  *      `(sqrtB - sqrtA) / 2**96` raw units — around 1e-12 whole tokens at realistic
  *      prices. That remainder stays in this contract. It is genuinely dust, and
- *      `sweepDust` exists so it is recoverable rather than silently stuck.
+ *      `sweepDust` exists so it is recoverable rather than silently stuck. It never
+ *      touches collected fees that are still unclaimed.
  */
-contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessControl {
+contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessControl, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     bytes32 public constant CONFIG_ROLE = keccak256("CONFIG_ROLE");
@@ -112,6 +138,23 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
 
     mapping(address token => Placement) private _placements;
 
+    /// @notice The fee recipient's share of every collection, in basis points (88%).
+    uint256 public constant CREATOR_FEE_BPS = 8_800;
+    uint256 private constant BPS = 10_000;
+
+    /// @notice Receives the platform's share (12%) of collected fees.
+    address public feeTreasury;
+
+    /// @dev token => fee recipient; zero means the launch's creator.
+    mapping(address token => address) private _feeRecipients;
+
+    /// @notice Collected fees not yet claimed. ETH is pooled per account across launches;
+    ///         tokens are per launch token.
+    mapping(address account => uint256) public claimableEth;
+    mapping(address token => mapping(address account => uint256)) public claimableToken;
+    /// @notice Unclaimed fees held here in `token` — what `sweepDust` must leave alone.
+    mapping(address token => uint256) public totalClaimableToken;
+
     event LiquidityPlaced(
         address indexed token,
         PoolId indexed poolId,
@@ -124,9 +167,24 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
     event PoolParamsUpdated(uint24 fee, int24 tickSpacing, int24 rangeWidthTicks);
     event GateUpdated(address indexed gate);
     event DustSwept(address indexed token, address indexed to, uint256 amount);
+    event FeesCollected(
+        address indexed token,
+        address indexed recipient,
+        uint256 ethFees,
+        uint256 tokenFees,
+        uint256 recipientEth,
+        uint256 recipientTokens
+    );
+    event FeeRecipientUpdated(address indexed token, address indexed previous, address indexed current);
+    event FeeTreasuryUpdated(address indexed treasury);
+    event FeesClaimed(address indexed account, address indexed currency, address to, uint256 amount);
+
+    uint8 private constant ACTION_PLACE = 0;
+    uint8 private constant ACTION_COLLECT = 1;
 
     /// @dev Encoded through `unlock` so the callback knows what to do.
     struct CallbackData {
+        uint8 action;
         PoolKey key;
         int24 tickLower;
         int24 tickUpper;
@@ -205,7 +263,14 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
 
         poolManager.unlock(
             abi.encode(
-                CallbackData({key: key, tickLower: tickLower, tickUpper: tickUpper, liquidity: liquidity, token: token})
+                CallbackData({
+                    action: ACTION_PLACE,
+                    key: key,
+                    tickLower: tickLower,
+                    tickUpper: tickUpper,
+                    liquidity: liquidity,
+                    token: token
+                })
             )
         );
 
@@ -223,6 +288,7 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         if (msg.sender != address(poolManager)) revert NotPoolManager();
 
         CallbackData memory cb = abi.decode(data, (CallbackData));
+        if (cb.action == ACTION_COLLECT) return _collectInCallback(cb);
 
         (BalanceDelta delta,) = poolManager.modifyLiquidity(
             cb.key,
@@ -251,6 +317,114 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         }
 
         return "";
+    }
+
+    // ------------------------------------------------------------------
+    // LP fees
+    // ------------------------------------------------------------------
+
+    /**
+     * @notice Collect a launch position's accrued swap fees and credit the split.
+     * @dev Permissionless: anyone may trigger it, and it only ever moves fees into the
+     *      claimable balances of the fee recipient and the treasury. Collecting when
+     *      nothing has accrued is a no-op that credits zero.
+     * @return ethFees   ETH collected, in wei
+     * @return tokenFees launch tokens collected, in raw units
+     */
+    function collectFees(address token) external nonReentrant returns (uint256 ethFees, uint256 tokenFees) {
+        Placement memory p = _placements[token];
+        if (p.liquidity == 0) revert NoPlacement(token);
+        address treasury = feeTreasury;
+        if (treasury == address(0)) revert FeeTreasuryNotSet();
+        address recipient = feeRecipientOf(token);
+
+        bytes memory result = poolManager.unlock(
+            abi.encode(
+                CallbackData({
+                    action: ACTION_COLLECT,
+                    key: p.key,
+                    tickLower: p.tickLower,
+                    tickUpper: p.tickUpper,
+                    liquidity: 0,
+                    token: token
+                })
+            )
+        );
+        (ethFees, tokenFees) = abi.decode(result, (uint256, uint256));
+
+        uint256 recipientEth = (ethFees * CREATOR_FEE_BPS) / BPS;
+        uint256 recipientTokens = (tokenFees * CREATOR_FEE_BPS) / BPS;
+        claimableEth[recipient] += recipientEth;
+        claimableEth[treasury] += ethFees - recipientEth;
+        claimableToken[token][recipient] += recipientTokens;
+        claimableToken[token][treasury] += tokenFees - recipientTokens;
+        totalClaimableToken[token] += tokenFees;
+
+        emit FeesCollected(token, recipient, ethFees, tokenFees, recipientEth, recipientTokens);
+    }
+
+    /// @notice Withdraw the caller's collected ETH fees, from every launch, to `to`.
+    function claimEth(address to) external nonReentrant returns (uint256 amount) {
+        if (to == address(0)) revert ZeroAddress();
+        amount = claimableEth[msg.sender];
+        if (amount == 0) revert NothingToClaim();
+        claimableEth[msg.sender] = 0;
+        (bool ok,) = to.call{value: amount}("");
+        if (!ok) revert EthTransferFailed();
+        emit FeesClaimed(msg.sender, address(0), to, amount);
+    }
+
+    /// @notice Withdraw the caller's collected fees in launch token `token` to `to`.
+    function claimToken(address token, address to) external nonReentrant returns (uint256 amount) {
+        if (to == address(0)) revert ZeroAddress();
+        amount = claimableToken[token][msg.sender];
+        if (amount == 0) revert NothingToClaim();
+        claimableToken[token][msg.sender] = 0;
+        totalClaimableToken[token] -= amount;
+        IERC20(token).safeTransfer(to, amount);
+        emit FeesClaimed(msg.sender, token, to, amount);
+    }
+
+    /// @notice Who receives a launch's 88% share: set by `setFeeRecipient`, else its creator.
+    function feeRecipientOf(address token) public view returns (address) {
+        address recipient = _feeRecipients[token];
+        return recipient != address(0) ? recipient : ILaunchCreators(launchpad).creatorOf(token);
+    }
+
+    /// @notice Hand a launch's fee share to another address. Only the current recipient
+    ///         may; fees already collected stay with whoever they were credited to.
+    function setFeeRecipient(address token, address newRecipient) external {
+        if (newRecipient == address(0)) revert ZeroAddress();
+        if (_placements[token].liquidity == 0) revert NoPlacement(token);
+        address current = feeRecipientOf(token);
+        if (msg.sender != current) revert NotFeeRecipient(msg.sender);
+        _feeRecipients[token] = newRecipient;
+        emit FeeRecipientUpdated(token, current, newRecipient);
+    }
+
+    /// @dev Inside `unlock`: a zero-liquidity modify pays out the position's accrued fees
+    ///      as a positive delta, which is then taken to this contract.
+    function _collectInCallback(CallbackData memory cb) private returns (bytes memory) {
+        (BalanceDelta delta,) = poolManager.modifyLiquidity(
+            cb.key,
+            IPoolManager.ModifyLiquidityParams({
+                tickLower: cb.tickLower,
+                tickUpper: cb.tickUpper,
+                liquidityDelta: 0,
+                salt: bytes32(0)
+            }),
+            ""
+        );
+        uint256 ethFees = uint256(uint128(delta.amount0()));
+        uint256 tokenFees = uint256(uint128(delta.amount1()));
+        if (ethFees != 0) poolManager.take(cb.key.currency0, address(this), ethFees);
+        if (tokenFees != 0) poolManager.take(cb.key.currency1, address(this), tokenFees);
+        return abi.encode(ethFees, tokenFees);
+    }
+
+    /// @dev ETH arrives only as collected fees, taken from the PoolManager.
+    receive() external payable {
+        if (msg.sender != address(poolManager)) revert NotPoolManager();
     }
 
     // ------------------------------------------------------------------
@@ -345,14 +519,22 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         emit GateUpdated(_gate);
     }
 
+    /// @notice Set who receives the platform's share of collected fees. Applies to fees
+    ///         collected from now on.
+    function setFeeTreasury(address treasury) external onlyRole(CONFIG_ROLE) {
+        if (treasury == address(0)) revert ZeroAddress();
+        feeTreasury = treasury;
+        emit FeeTreasuryUpdated(treasury);
+    }
+
     /// @notice Recover the rounding remainder described in the contract docs.
-    /// @dev Only reachable for tokens this contract still holds a balance of, which after
-    ///      a successful placement is dust by construction.
+    /// @dev Sweeps only what exceeds the unclaimed fees held in `token`, which after a
+    ///      successful placement is dust by construction.
     function sweepDust(address token, address to) external onlyRole(CONFIG_ROLE) {
         if (to == address(0)) revert ZeroAddress();
-        uint256 balance = IERC20(token).balanceOf(address(this));
-        if (balance == 0) revert ZeroAmount();
-        IERC20(token).safeTransfer(to, balance);
-        emit DustSwept(token, to, balance);
+        uint256 dust = IERC20(token).balanceOf(address(this)) - totalClaimableToken[token];
+        if (dust == 0) revert ZeroAmount();
+        IERC20(token).safeTransfer(to, dust);
+        emit DustSwept(token, to, dust);
     }
 }
