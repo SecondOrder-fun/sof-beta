@@ -405,3 +405,54 @@ describe("deriveMarketState fees", () => {
     expect(m.sellFee).toBe(11_980);
   });
 });
+
+// Pools are permissionless for swaps: a zero-amount swap moves the price out of the
+// position's range for free (measured against a real PoolManager: from the launch
+// tick 207200 up to 253200, both deltas 0). The router then crosses back to the
+// range edge at no cost and fills exactly as before, so the quote must too — or the
+// minimum-out built from it reverts every in-app trade.
+describe("a price pushed outside the range", () => {
+  const PUSHED_ABOVE = 24932902260564625575815087136221213n; // tick 253200
+  const placement = { tickLower: FIX.tickLower, tickUpper: FIX.tickUpper, liquidity: FIX.placementLiquidity };
+  const withSqrtPrice = (sqrt) => {
+    const word = BigInt(FIX.slot0Word);
+    const mask = (1n << 160n) - 1n;
+    return `0x${((word & ~mask) | sqrt).toString(16).padStart(64, "0")}`;
+  };
+
+  it("a buy is quoted from the launch price — exactly the router's fill", () => {
+    const q = quoteBuy({
+      sqrtPriceX96: PUSHED_ABOVE,
+      liquidity: FIX.placementLiquidity,
+      lpFee: FIX.lpFee,
+      ethIn: FIX.buy1.ethIn,
+      sqrtLowerX96: sqrtPriceX96AtTick(FIX.tickLower),
+      sqrtUpperX96: FIX.launchSqrt,
+    });
+    expect(q.tokensOut).toBe(FIX.buy1.tokensOut);
+    expect(q.sqrtPriceAfter).toBe(FIX.buy1.sqrtAfter);
+  });
+
+  it("a sell is quoted from the floor", () => {
+    const sqrtLowerX96 = sqrtPriceX96AtTick(FIX.tickLower);
+    const base = { liquidity: FIX.placementLiquidity, lpFee: FIX.lpFee, tokensIn: 10n ** 24n, sqrtUpperX96: FIX.launchSqrt, sqrtLowerX96 };
+    const fromFloor = quoteSell({ ...base, sqrtPriceX96: sqrtLowerX96 });
+    const pushedBelow = quoteSell({ ...base, sqrtPriceX96: sqrtLowerX96 / 10n });
+    expect(pushedBelow.ethOut).toBe(fromFloor.ethOut);
+    expect(pushedBelow.ethOut).toBeGreaterThan(0n);
+  });
+
+  it("the market reads the launch price, not the pushed one", () => {
+    const m = deriveMarketState({ slot0Word: withSqrtPrice(PUSHED_ABOVE), liquidityWord: "0x0", placement, wholeSupply: WHOLE_SUPPLY });
+    expect(m.sqrtPriceX96).toBe(FIX.launchSqrt);
+    expect(m.multiple).toBe(1);
+    expect(m.fdvWei).toBe(m.launchFdvWei);
+  });
+
+  it("the market reads the floor when pushed below it", () => {
+    const sqrtLowerX96 = sqrtPriceX96AtTick(FIX.tickLower);
+    const m = deriveMarketState({ slot0Word: withSqrtPrice(sqrtLowerX96 / 10n), liquidityWord: "0x0", placement, wholeSupply: WHOLE_SUPPLY });
+    expect(m.sqrtPriceX96).toBe(sqrtLowerX96);
+    expect(m.fdvWei).toBe(m.selloutFdvWei);
+  });
+});

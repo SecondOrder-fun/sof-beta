@@ -18,6 +18,7 @@ import {LaunchPoolGate} from "./LaunchPoolGate.sol";
 import {ILiquidityPlacer} from "./ILiquidityPlacer.sol";
 
 error OnlyLaunchpad();
+error NotPoolManager();
 error ZeroAddress();
 error ZeroAmount();
 error StartPriceUnreachable(uint256 startPriceWei);
@@ -219,7 +220,7 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
 
     /// @inheritdoc IUnlockCallback
     function unlockCallback(bytes calldata data) external override returns (bytes memory) {
-        if (msg.sender != address(poolManager)) revert OnlyLaunchpad();
+        if (msg.sender != address(poolManager)) revert NotPoolManager();
 
         CallbackData memory cb = abi.decode(data, (CallbackData));
 

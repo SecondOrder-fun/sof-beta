@@ -98,7 +98,8 @@ Modular numbered scripts in `script/deploy/`:
   earlier ones stay tradeable. The app never hardcodes a router: it reads
   `TokenLaunchpad.router()` and encodes against `ILaunchRouter`, so **replacing the router is this step plus one `setRouter`** — no client
   release. `setRouter(address(0))` turns in-app trading off (pools stay tradeable elsewhere).
-- `DeployAll.s.sol` — orchestrator that chains 00-23 and auto-writes `deployments/{network}.json`
+- `DeployAll.s.sol` — orchestrator that chains 00-23. It does NOT write `deployments/{network}.json`:
+  `scripts/extract-deployment-addresses.js` builds it from the broadcast log (required post-step)
 
 ```bash
 # Local (Docker Anvil)
@@ -127,7 +128,7 @@ PRIVATE_KEY="0x..." forge script script/deploy/13_DeploySOFSmartAccount.s.sol:De
 ```
 
 After deployment:
-1. `deployments/{network}.json` is auto-updated by DeployAll
+1. Regenerate `deployments/{network}.json` with `scripts/extract-deployment-addresses.js`
 2. Run ABI export if interfaces changed (`npm run build`)
 3. Push env vars via root `deploy:env` (dry-run first)
 4. Verify contract on block explorer (testnet/mainnet only)

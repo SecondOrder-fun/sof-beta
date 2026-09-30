@@ -14,7 +14,7 @@ import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {
-    UniV4LiquidityPlacer, OnlyLaunchpad, ZeroAmount, GateNotSet, InvalidGate
+    UniV4LiquidityPlacer, OnlyLaunchpad, NotPoolManager, ZeroAmount, GateNotSet, InvalidGate
 } from "../src/launchpad/UniV4LiquidityPlacer.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {LaunchPoolGate} from "../src/launchpad/LaunchPoolGate.sol";
@@ -290,7 +290,7 @@ contract UniV4LiquidityPlacerTest is Test, LaunchPoolGateDeployer {
 
     function test_unlockCallbackRejectsNonPoolManager() public {
         vm.prank(address(0xBAD));
-        vm.expectRevert(OnlyLaunchpad.selector);
+        vm.expectRevert(NotPoolManager.selector);
         placer.unlockCallback("");
     }
 

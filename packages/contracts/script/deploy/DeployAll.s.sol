@@ -172,12 +172,16 @@ contract DeployAll is Script {
             vm.stopBroadcast();
         }
 
-        // --- 16c: Treasury SOF approval for RolloverEscrow ---
-        // RolloverEscrow.spendFromRollover() pulls `bonusAmount` via
-        // safeTransferFrom(treasury, ...). If the deployer == treasury (always
-        // true on local Anvil), auto-grant max approval so rollover E2E works
-        // out of the box. On testnet/mainnet the treasury is usually a different
-        // wallet, so log a manual instruction instead.
+        // --- 16c: Treasury quote-token approval for RolloverEscrow ---
+        // RolloverEscrow.spendFromRollover() pulls `bonusAmount` in the cohort's
+        // own quote token via safeTransferFrom(treasury, ...), and a bonus is paid
+        // only if that approval (and balance) is there. This approves the
+        // platform default quote token only: seasons priced in a launch token need
+        // the treasury to approve that token too, or their bonus is skipped
+        // (BonusUnfunded). If the deployer == treasury (always true on local
+        // Anvil), auto-grant max approval so rollover E2E works out of the box. On
+        // testnet/mainnet the treasury is usually a different wallet, so log a
+        // manual instruction instead.
         {
             address deployer = vm.addr(vm.envUint("PRIVATE_KEY"));
             address treasury = vm.envAddress("TREASURY_ADDRESS");
@@ -185,11 +189,12 @@ contract DeployAll is Script {
                 vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
                 IERC20(addrs.quoteToken).approve(addrs.rolloverEscrow, type(uint256).max);
                 vm.stopBroadcast();
-                console2.log("Treasury auto-approved RolloverEscrow for SOF (deployer == treasury)");
+                console2.log("Treasury auto-approved RolloverEscrow for the quote token (deployer == treasury)");
             } else {
-                console2.log("IMPORTANT: Treasury must approve RolloverEscrow for SOF spending");
-                console2.log("  Run: sof.approve(", vm.toString(addrs.rolloverEscrow), ", type(uint256).max)");
-                console2.log("  From the treasury wallet");
+                console2.log("IMPORTANT: Treasury must approve RolloverEscrow to spend the quote token");
+                console2.log("  Run: <quoteToken>.approve(", vm.toString(addrs.rolloverEscrow), ", type(uint256).max)");
+                console2.log("  From the treasury wallet, for", vm.toString(addrs.quoteToken));
+                console2.log("  and again for each launch token whose seasons should pay a rollover bonus");
             }
         }
 
