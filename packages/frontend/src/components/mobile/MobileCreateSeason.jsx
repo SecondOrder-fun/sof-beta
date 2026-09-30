@@ -246,9 +246,8 @@ function MobileCreateSeasonInner({ initialQuoteToken }) {
       isActive: false,
       isCompleted: false,
       gated: false,
-      // Unset only when nothing is chosen and no platform default is
-      // configured; useRaffleWrite then applies its own fallback.
-      ...(quote.quoteToken ? { quoteToken: quote.quoteToken } : {}),
+      // Always set here: submission is blocked until a quote token is chosen.
+      quoteToken: quote.quoteToken,
     };
 
     const bondSteps = generatedSteps.map((s) => ({

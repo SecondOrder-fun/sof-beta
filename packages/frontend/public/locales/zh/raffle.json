@@ -171,7 +171,7 @@
   "sponsoredPrizeLabel": "赞助奖品",
   "sponsoredPrizeHelp": "赞助商可以添加ERC-20代币或NFT作为额外奖品，分配到特定等级。",
   "tierConfigTitle": "奖品等级",
-  "tierConfigHelp": "配置每个等级的获奖者数量。等级1的获奖者还将获得SOF大奖的分成。",
+  "tierConfigHelp": "配置每个等级的获奖者数量。等级1的获奖者还将获得大奖的分成。",
   "addTier": "添加等级",
   "removeTier": "移除",
   "tierLabel": "等级 {{number}}",

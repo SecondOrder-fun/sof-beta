@@ -12,6 +12,7 @@
 // the chain cannot answer in one read. Callers render nothing (ticker, badge)
 // or an honest empty state (chart, card) when the backend has no data.
 
+import { keepPreviousData } from '@tanstack/react-query';
 import { useWarmRead } from '@/hooks/chain/useWarmRead';
 
 export function useActivityFeed({ enabled = true } = {}) {
@@ -49,14 +50,19 @@ export function useTokenSeasons(token) {
  * @returns {Record<string, object>} lowercased token -> featured season summary
  */
 export function useRaffleBadges(tokens) {
-  // Sorted so the same page in a different order hits the same cache entry.
-  const list = [...new Set((tokens ?? []).map((t) => t.toLowerCase()))].sort().slice(0, 100);
+  // The first 100 in the caller's order (the feed's newest first, so a cap drops the
+  // oldest cards' badges, never the newest), then sorted so the same set in a
+  // different order hits the same cache entry.
+  const list = [...new Set((tokens ?? []).map((t) => t.toLowerCase()))].slice(0, 100).sort();
   const { data } = useWarmRead({
     path: '/launchpad/raffles',
     params: { tokens: list.join(',') },
     enabled: list.length > 0,
     refetchInterval: 60_000,
     staleTime: 30_000,
+    // "Load more" grows the list and so the key; keep the current badges on screen
+    // until the bigger request returns instead of blanking every card.
+    placeholderData: keepPreviousData,
   });
   return data?.raffles ?? {};
 }

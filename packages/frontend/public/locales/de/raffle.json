@@ -175,7 +175,7 @@
   "sponsoredPrizeLabel": "Gesponserte Preise",
   "sponsoredPrizeHelp": "Sponsoren können ERC-20-Token oder NFTs als zusätzliche Preise hinzufügen, die bestimmten Rängen zugeordnet werden.",
   "tierConfigTitle": "Preisränge",
-  "tierConfigHelp": "Konfigurieren Sie die Anzahl der Gewinner pro Rang. Rang-1-Gewinner erhalten zusätzlich den aufgeteilten SOF-Hauptpreis.",
+  "tierConfigHelp": "Konfigurieren Sie die Anzahl der Gewinner pro Rang. Rang-1-Gewinner erhalten zusätzlich den aufgeteilten Hauptpreis.",
   "addTier": "Rang hinzufügen",
   "removeTier": "Entfernen",
   "tierLabel": "Rang {{number}}",

@@ -174,7 +174,7 @@
   "sponsoredPrizeLabel": "スポンサー賞品",
   "sponsoredPrizeHelp": "スポンサーはERC-20トークンやNFTを追加賞品として提供し、特定のティアに割り当てることができます。",
   "tierConfigTitle": "賞品ティア",
-  "tierConfigHelp": "ティアごとの当選者数を設定します。ティア1の当選者はSOFグランプリの分配も受け取ります。",
+  "tierConfigHelp": "ティアごとの当選者数を設定します。ティア1の当選者はグランプリの分配も受け取ります。",
   "addTier": "ティアを追加",
   "removeTier": "削除",
   "tierLabel": "ティア {{number}}",

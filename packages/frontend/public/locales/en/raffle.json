@@ -216,7 +216,7 @@
   "sponsoredPrizeLabel": "Sponsored Prizes",
   "sponsoredPrizeHelp": "Sponsors can add ERC-20 tokens or NFTs as additional prizes, assigned to specific tiers.",
   "tierConfigTitle": "Prize Tiers",
-  "tierConfigHelp": "Configure how many winners per tier. Tier 1 winners also receive the SOF grand prize split.",
+  "tierConfigHelp": "Configure how many winners per tier. Tier 1 winners also receive the grand prize split.",
   "addTier": "Add Tier",
   "removeTier": "Remove",
   "tierLabel": "Tier {{number}}",
@@ -414,6 +414,7 @@
     "wrongDecimals": "Seasons can only be priced in 18-decimal tokens. This one uses a different precision, so tickets would be mispriced.",
     "invalidAddress": "Enter a full token address: 0x followed by 40 hexadecimal characters.",
     "checkFailed": "Couldn't check this token right now. Try again in a moment.",
+    "noneChosen": "Choose the token this season is priced in.",
     "ethEquivalent": "≈ {{eth}} ETH at the current pool price",
     "confirmLabel": "Priced in"
   },

@@ -54,21 +54,26 @@ const lower = (a) => (a ? a.toLowerCase() : '');
  *   'invalid'    — the pasted text is not an address
  *   'error'      — the eligibility read failed
  *   'none'       — nothing chosen and no platform default configured
- * Everything but 'eligible' and 'none' blocks submission; with 'none' the
- * write falls back to its own default (useRaffleWrite).
+ * Everything but 'eligible' blocks submission. 'none' blocks too: useRaffleWrite's
+ * own fallback is that same unset platform default, so there is nothing to send.
  */
 
 /**
  * @param {{ initialToken?: string | null }} [options]
  *   a token to preselect (e.g. from `?quoteToken=`); checked like a paste
  */
+/** How many of the newest launches the picker lists. */
+const PICKER_LAUNCH_LIMIT = 100;
+
 export function useQuoteTokenChoice({ initialToken } = {}) {
   const contracts = getContractAddresses(getStoredNetworkKey());
   const platformToken = contracts.QUOTE_TOKEN || '';
 
   const { address: connected } = useAccount();
   const { eoa, sma } = useRaffleAccount();
-  const { launches, isLoading: launchesLoading } = useTokenLaunches();
+  // A wider window than the feed's first page, so "Your launches" still finds a
+  // creator's older tokens (any token can also be pasted).
+  const { launches, isLoading: launchesLoading } = useTokenLaunches({ limit: PICKER_LAUNCH_LIMIT });
 
   // A list pick; null = the platform default.
   const [picked, setPicked] = useState(null);
@@ -181,11 +186,11 @@ export function useQuoteTokenChoice({ initialToken } = {}) {
   return {
     groups,
     selected,
-    /** The address to create the season with; undefined = the write's default. */
+    /** The address to create the season with; undefined whenever submission is blocked. */
     quoteToken: status === 'eligible' ? selected?.address : undefined,
     status,
     source,
-    blocked: status !== 'eligible' && status !== 'none',
+    blocked: status !== 'eligible',
     pasteText,
     setPasteText,
     selectFromList,

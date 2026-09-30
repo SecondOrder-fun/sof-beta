@@ -494,9 +494,8 @@ const CreateSeasonForm = ({ createSeason, chainTimeQuery, activeSection = "all",
       isCompleted: false,
       gated,
       maxParticipants: 0,
-      // Unset only when nothing is chosen and no platform default is
-      // configured; useRaffleWrite then applies its own fallback.
-      ...(quote.quoteToken ? { quoteToken: quote.quoteToken } : {}),
+      // Always set here: submission is blocked until a quote token is chosen.
+      quoteToken: quote.quoteToken,
     };
 
     // Validate bond steps from curve editor

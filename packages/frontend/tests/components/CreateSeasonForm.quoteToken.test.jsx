@@ -108,15 +108,15 @@ describe("CreateSeasonForm — Priced in", () => {
     expect(screen.queryByText(/quoteToken\.ethEquivalent/)).not.toBeInTheDocument();
   });
 
-  it("leaves the quote token to the write's fallback when none is chosen", async () => {
-    useQuoteTokenChoice.mockReturnValue(chosen({ selected: null, quoteToken: undefined, status: "none" }));
+  it("will not submit without a quote token when none is chosen and there is no default", async () => {
+    useQuoteTokenChoice.mockReturnValue(chosen({ selected: null, quoteToken: undefined, status: "none", source: "default", blocked: true }));
     renderForm(createSeason);
     fillRequired();
     const submit = screen.getByRole("button", { name: "createSeasonBtn" });
-    await waitFor(() => expect(submit).toBeEnabled());
-    fireEvent.click(submit);
-    fireEvent.click(await screen.findByRole("button", { name: "confirmSignBtn" }));
-    expect("quoteToken" in createSeason.mutate.mock.calls[0][0].config).toBe(false);
+    expect(submit).toBeDisabled();
+    fireEvent.submit(submit.closest("form"));
+    expect(await screen.findByText("quoteToken.noneChosen")).toBeInTheDocument();
+    expect(createSeason.mutate).not.toHaveBeenCalled();
   });
 
   it("will not submit a token the contract would reject", async () => {

@@ -10,4 +10,5 @@ export const QUOTE_TOKEN_BLOCK_MESSAGE = {
   ineligible: "quoteToken.notAllowed",
   decimals: "quoteToken.wrongDecimals",
   error: "quoteToken.checkFailed",
+  none: "quoteToken.noneChosen",
 };

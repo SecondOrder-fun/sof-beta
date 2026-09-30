@@ -170,7 +170,7 @@
   "sponsoredPrizeLabel": "Premi sponsorizzati",
   "sponsoredPrizeHelp": "Gli sponsor possono aggiungere token ERC-20 o NFT come premi aggiuntivi, assegnati a livelli specifici.",
   "tierConfigTitle": "Livelli di premio",
-  "tierConfigHelp": "Configura quanti vincitori per livello. I vincitori del livello 1 ricevono anche la quota del gran premio SOF.",
+  "tierConfigHelp": "Configura quanti vincitori per livello. I vincitori del livello 1 ricevono anche la quota del gran premio.",
   "addTier": "Aggiungi livello",
   "removeTier": "Rimuovi",
   "tierLabel": "Livello {{number}}",

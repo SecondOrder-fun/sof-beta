@@ -46,9 +46,9 @@ npm run lint         # ESLint (zero warnings enforced)
 The backend indexes launches (`/api/launchpad/tokens`) but not yet metadata, so
 routing the feed through it would add a dependency without adding data.
 
-What only indexed history can answer comes from the backend, through
-`src/hooks/useLaunchActivity.js` (warm reads, no on-chain fallback): the trade
-feed, the price chart (`/tokens/:address/chart`), the raffle card
+What only indexed history can answer comes from the backend as warm reads with no
+on-chain fallback — the trade feed (`LaunchTrades`, a `useWarmRead` of its own) and,
+through `src/hooks/useLaunchActivity.js`, the price chart (`/tokens/:address/chart`), the raffle card
 (`/tokens/:address/seasons`), the raffle badges on a page of cards (one
 `/raffles?tokens=` request), and the site-wide activity ticker (`/api/activity`).
 Each renders nothing (ticker, badge) or an honest empty state (chart, card) when
@@ -138,8 +138,9 @@ page's raffle card links there), goes through that check and blocks submission
 until it passes — so `QuoteTokenNotAllowed` and `QuoteTokenDecimals` never fire. A
 failed read blocks too; it is not read as "not allowed". The curve's prices take the chosen
 token's decimals and symbol, and a launch token's pool price
-(`useLaunchMarkets`) adds an "≈ X ETH" line. `useRaffleWrite` falls back to
-`QUOTE_TOKEN` only when no token is chosen.
+(`useLaunchMarkets`) adds an "≈ X ETH" line. Submission is blocked until a token is chosen, so the forms
+always send `config.quoteToken` (`useRaffleWrite`'s `QUOTE_TOKEN` fallback serves
+other callers).
 
 ## ABI Imports
 
