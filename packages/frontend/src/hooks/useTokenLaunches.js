@@ -12,7 +12,7 @@
 // Once trade volume and metadata are indexed, the backend becomes the primary
 // and this the fallback: neither can be read from `getLaunch`.
 
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { usePublicClient } from 'wagmi';
 
 import { getStoredNetworkKey } from '@/lib/wagmi';
@@ -35,7 +35,8 @@ export const LAUNCHES_PAGE_SIZE = 24;
  */
 
 /**
- * Newest-first launches.
+ * Newest-first launches: the newest `limit` of them. Raise `limit` by
+ * LAUNCHES_PAGE_SIZE to load more; `hasMore` says whether there is more to load.
  *
  * @param {object} [options]
  * @param {number} [options.limit=LAUNCHES_PAGE_SIZE]
@@ -53,6 +54,9 @@ export function useTokenLaunches({ limit = LAUNCHES_PAGE_SIZE, enabled = true } 
     // New launches are the whole point of the page, so this stays warm.
     staleTime: 15_000,
     refetchInterval: 30_000,
+    // Raising `limit` (load more) re-keys the query; keep the current page on screen
+    // meanwhile instead of dropping back to skeletons.
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const [count, supply] = await client.multicall({
         contracts: [
@@ -119,10 +123,15 @@ export function useTokenLaunches({ limit = LAUNCHES_PAGE_SIZE, enabled = true } 
     },
   });
 
+  const launches = query.data?.launches ?? [];
+  const total = query.data?.total ?? 0;
   return {
     ...query,
-    launches: query.data?.launches ?? [],
-    total: query.data?.total ?? 0,
+    launches,
+    total,
+    // More launches exist than were read. Compared with `limit`, not `launches.length`:
+    // a record that failed to read is dropped from `launches` but still used its slot.
+    hasMore: total > limit,
     isAvailable: Boolean(launchpad),
   };
 }

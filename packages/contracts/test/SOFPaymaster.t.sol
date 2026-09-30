@@ -203,4 +203,73 @@ contract SOFPaymasterTest is Test {
         );
         paymaster.validatePaymasterUserOp(op, bytes32(0), 0);
     }
+    // ──────────────────────────────────────────────────────────────────
+    // Launchpad targets
+    // ──────────────────────────────────────────────────────────────────
+
+    function _validate(address target) internal returns (uint256 validationData) {
+        SOFSmartAccount account = factory.createAccount(EOA_OWNER);
+        PackedUserOperation memory op = _userOp(address(account), _singleCallBatch(target));
+        vm.prank(entryPoint);
+        (, validationData) = paymaster.validatePaymasterUserOp(op, bytes32(0), 0);
+    }
+
+    /// Selling approves the router, and a season priced in a launch token approves its
+    /// curve on that token — so launch tokens must be sponsorable without per-token wiring.
+    function test_sponsorsLaunchTokensAndTheLaunchpadAndItsRouter() public {
+        MockLaunchpadForPaymaster launchpad = new MockLaunchpadForPaymaster();
+        address launchToken = address(0x1A0C);
+        address router = address(0x2011);
+        launchpad.setLaunched(launchToken);
+        launchpad.setRouter(router);
+        raffle.setLaunchpad(address(launchpad));
+
+        assertEq(_validate(launchToken), 0, "launch token");
+        assertEq(_validate(address(launchpad)), 0, "launchpad");
+        assertEq(_validate(router), 0, "advertised router");
+    }
+
+    /// The router is read live: after `setRouter` the old one is no longer sponsored.
+    function test_replacedRouterIsNoLongerSponsored() public {
+        MockLaunchpadForPaymaster launchpad = new MockLaunchpadForPaymaster();
+        address oldRouter = address(0x2011);
+        launchpad.setRouter(oldRouter);
+        raffle.setLaunchpad(address(launchpad));
+        launchpad.setRouter(address(0x2012));
+
+        vm.expectRevert(abi.encodeWithSignature("TargetNotAllowed(address)", oldRouter));
+        this.validateExternal(oldRouter);
+    }
+
+    function test_sponsorsAdminAllowlistedQuoteTokens() public {
+        address quote = address(0x9707E);
+        raffle.setQuoteTokenAllowed(quote, true);
+        assertEq(_validate(quote), 0);
+    }
+
+    /// With trading switched off (router 0) a zero target is still refused.
+    function test_zeroRouterDoesNotSponsorTheZeroAddress() public {
+        MockLaunchpadForPaymaster launchpad = new MockLaunchpadForPaymaster();
+        raffle.setLaunchpad(address(launchpad));
+        vm.expectRevert(abi.encodeWithSignature("TargetNotAllowed(address)", address(0)));
+        this.validateExternal(address(0));
+    }
+
+    function validateExternal(address target) external returns (uint256) {
+        return _validate(target);
+    }
+}
+
+/// @dev Stands in for TokenLaunchpad: the views Raffle and the paymaster read.
+contract MockLaunchpadForPaymaster {
+    mapping(address => bool) public isLaunchToken;
+    address public router;
+
+    function setLaunched(address token) external {
+        isLaunchToken[token] = true;
+    }
+
+    function setRouter(address r) external {
+        router = r;
+    }
 }

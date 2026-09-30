@@ -9,9 +9,9 @@ import { getStoredNetworkKey } from '@/lib/wagmi';
 
 const Test = () => {
   const { isConnected, address } = useAccount();
-  const { balance: sofBalance } = useQuoteToken();
   const netKey = getStoredNetworkKey();
   const contracts = getContractAddresses(netKey);
+  const { balance: sofBalance } = useQuoteToken(contracts.QUOTE_TOKEN);
 
   return (
     <div className="space-y-8">

@@ -127,15 +127,16 @@ describe("tradableLiquidity", () => {
     ).toBe(5n);
   });
 
-  it("reports nothing to trade below the range", () => {
+  // After a buy exhausts the range the router parks the price on the floor, where
+  // the tick reads one below tickLower and v4 again reports 0 active liquidity.
+  // Sells back must still quote against the whole position.
+  it("uses the position's liquidity below the range, after a sell-out", () => {
     expect(
       tradableLiquidity({
         activeLiquidity: 0n,
         placementLiquidity: FIX.placementLiquidity,
-        tick: FIX.tickLower - 10,
-        tickUpper: FIX.tickUpper,
       }),
-    ).toBe(0n);
+    ).toBe(FIX.placementLiquidity);
   });
 });
 
@@ -215,6 +216,21 @@ describe("quoteBuy — against real v4 swaps", () => {
     expect(quoteBuy({ ...base, ethIn: -1n }).tokensOut).toBe(0n);
     expect(quoteBuy({ ...base, liquidity: 0n, ethIn: ONE_ETH }).tokensOut).toBe(0n);
   });
+
+  it("quotes nothing — never a negative amount — once the price sits on the floor", () => {
+    const sqrtLowerX96 = sqrtPriceX96AtTick(FIX.tickLower);
+    for (const sqrtPriceX96 of [sqrtLowerX96, sqrtLowerX96 - 1n]) {
+      const q = quoteBuy({
+        sqrtPriceX96,
+        liquidity: FIX.placementLiquidity,
+        lpFee: FIX.lpFee,
+        ethIn: ONE_ETH,
+        sqrtLowerX96,
+      });
+      expect(q.tokensOut).toBe(0n);
+      expect(q.exceedsRange).toBe(true);
+    }
+  });
 });
 
 describe("quoteSell — against a real v4 swap", () => {
@@ -239,6 +255,30 @@ describe("quoteSell — against a real v4 swap", () => {
     });
     expect(q.exceedsRange).toBe(true);
     expect(q.sqrtPriceAfter).toBe(FIX.launchSqrt);
+  });
+
+  it("sells back from the floor against the whole position", () => {
+    const sqrtLowerX96 = sqrtPriceX96AtTick(FIX.tickLower);
+    const q = quoteSell({
+      sqrtPriceX96: sqrtLowerX96,
+      liquidity: FIX.placementLiquidity,
+      lpFee: FIX.lpFee,
+      tokensIn: ONE_ETH * 1_000_000n,
+      sqrtUpperX96: FIX.launchSqrt,
+    });
+    expect(q.ethOut).toBeGreaterThan(0n);
+    expect(q.exceedsRange).toBe(false);
+  });
+
+  it("quotes nothing at the launch price — the pool holds no ETH yet", () => {
+    const q = quoteSell({
+      sqrtPriceX96: FIX.launchSqrt,
+      liquidity: FIX.placementLiquidity,
+      lpFee: FIX.lpFee,
+      tokensIn: ONE_ETH,
+      sqrtUpperX96: FIX.launchSqrt,
+    });
+    expect(q.ethOut).toBe(0n);
   });
 });
 

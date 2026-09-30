@@ -92,9 +92,11 @@ Modular numbered scripts in `script/deploy/`:
   `LaunchPoolGate` hook (CREATE2 through the standard factory, salt mined by `HookMiner` so
   its address carries exactly the before-initialize bit) and `placer.setGate(...)`: without
   it anyone could initialize the next token's pool first and block launches for good.
-- `23_DeployLaunchRouter` — `UniV4LaunchRouter`, then `launchpad.setRouter(...)`. The app
-  never hardcodes a router: it reads `TokenLaunchpad.router()` and encodes against
-  `ILaunchRouter`, so **replacing the router is this step plus one `setRouter`** — no client
+- `23_DeployLaunchRouter` — `UniV4LaunchRouter(poolManager, launchpad)`, then
+  `launchpad.setRouter(...)`. The router finds each token's pool through the placer that
+  launch recorded (`launchpad.placerOf`), so `setPlacer` only redirects NEW launches and
+  earlier ones stay tradeable. The app never hardcodes a router: it reads
+  `TokenLaunchpad.router()` and encodes against `ILaunchRouter`, so **replacing the router is this step plus one `setRouter`** — no client
   release. `setRouter(address(0))` turns in-app trading off (pools stay tradeable elsewhere).
 - `DeployAll.s.sol` — orchestrator that chains 00-23 and auto-writes `deployments/{network}.json`
 
@@ -149,6 +151,10 @@ Version-controlled in `deployments/`:
 
 ## Quote tokens and InfoFi collateral
 
+- **The paymaster needs no per-token or per-router wiring.** `SOFPaymaster` sponsors, besides
+  its static allowlist and SOF curves, any `raffle.isAllowedQuoteToken` target (launch tokens
+  and allowlisted quote tokens — ticket and sell approvals) and the Raffle's launchpad plus
+  the router it currently advertises, all read live.
 - **A season's `quoteToken` must be a launch token or admin-allowlisted.** `Raffle.isAllowedQuoteToken`
   accepts `launchpad.isLaunchToken(token)` (set via `setLaunchpad`) or
   `allowedQuoteTokens[token]` (`setQuoteTokenAllowed`). An arbitrary ERC-20 could be

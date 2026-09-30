@@ -3,8 +3,6 @@ import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useAccount, usePublicClient } from 'wagmi';
 import { formatUnits, parseUnits, encodeFunctionData } from 'viem';
-import { getContractAddresses } from '@/config/contracts';
-import { getStoredNetworkKey } from '@/lib/wagmi';
 import { ERC20Abi } from '@/utils/abis';
 import { useSmartTransactions } from '@/hooks/useSmartTransactions';
 import { useRaffleAccount } from '@/hooks/useRaffleAccount';
@@ -13,13 +11,16 @@ import { useRaffleAccount } from '@/hooks/useRaffleAccount';
  * Hook for interacting with a quote token contract.
  *
  * Seasons are priced in a per-season quote token, so season-scoped callers
- * should pass that season's token (see useSeasonQuoteToken). Callers that are
- * not season-scoped fall back to the platform-level placeholder quote token.
+ * pass that season's token (see useSeasonQuoteToken). There is deliberately no
+ * default: while a season's token is still resolving `tokenAddress` is
+ * undefined, and falling back to the platform token then would show — and let
+ * a user act on — a balance in the wrong token. Until a token is given the hook
+ * reads nothing and reports `balancePending`. A caller that wants the platform
+ * token passes `getContractAddresses(...).QUOTE_TOKEN` explicitly.
  *
  * Reads (balance, allowance) resolve at the SMA per spec §4.3.
  *
- * @param {`0x${string}` | undefined} [tokenAddress] Token to operate on.
- *   Defaults to the platform quote token.
+ * @param {`0x${string}` | undefined} tokenAddress Token to operate on.
  */
 export function useQuoteToken(tokenAddress) {
   const { isConnected } = useAccount();
@@ -28,9 +29,7 @@ export function useQuoteToken(tokenAddress) {
   const { sma: address, isReady: accountReady } = useRaffleAccount();
   const publicClient = usePublicClient();
   const { executeBatch } = useSmartTransactions();
-  const netKey = getStoredNetworkKey();
-  const contracts = getContractAddresses(netKey);
-  const token = tokenAddress || contracts.QUOTE_TOKEN;
+  const token = tokenAddress || undefined;
 
   const [error, setError] = useState('');
 
@@ -69,11 +68,12 @@ export function useQuoteToken(tokenAddress) {
     enabled: balanceEnabled,
     staleTime: 15000, // 15 seconds
   });
-  // True until both the account provider resolves AND the balance query runs.
-  // Consumers (e.g. useBalanceValidation in the buy/sell widget) MUST gate
-  // their `hasZeroBalance` checks on this — otherwise the button shows
-  // "insufficient balance" while the SMA query is still pending.
-  const balancePending = !accountReady || (balanceEnabled && !balanceFetched);
+  // True until the account provider resolves, the token is known, AND the
+  // balance query runs. Consumers (e.g. useBalanceValidation in the buy/sell
+  // widget) MUST gate their `hasZeroBalance` checks on this — otherwise the
+  // button shows "insufficient balance" while the SMA or the season's token is
+  // still resolving.
+  const balancePending = !accountReady || !token || (balanceEnabled && !balanceFetched);
   
   // Query for token details
   const {

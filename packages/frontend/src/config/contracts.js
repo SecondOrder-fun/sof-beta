@@ -90,6 +90,8 @@ export function getContractAddresses(key) {
     // launch routes treat that as "not available on this network" rather than
     // failing, since the raffle stack deploys independently of the launchpad.
     TOKEN_LAUNCHPAD: s(deployment.TokenLaunchpad),
+    // Where NEW launches are placed. Read an existing launch through its own placer
+    // (TokenLaunchpad.placerOf): the launchpad's placer can be replaced.
     LIQUIDITY_PLACER: s(deployment.LiquidityPlacer),
     POOL_MANAGER: s(deployment.PoolManager),
   };

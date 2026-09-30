@@ -76,17 +76,21 @@ export function decodeSlot0(word) {
 /**
  * The liquidity a swap from the current price will actually trade against.
  *
- * At launch the price sits EXACTLY on the position's upper tick, and a range is
- * [lower, upper), so v4 reports active liquidity as 0 — the position is not yet
- * "in range". The first buy crosses the upper tick at zero cost and then trades
- * against the full position. Quoting with the reported 0 would tell the first
- * buyer they receive nothing; this returns what the swap will really use.
+ * The position is the pool's only liquidity, so whenever the price is out of its
+ * [lower, upper) range v4 reports active liquidity as 0, yet the next swap back
+ * toward the range crosses that edge at zero cost and trades against the whole
+ * position. Both edges hit this:
+ *   - At launch the price sits EXACTLY on the upper tick, so the first buy would
+ *     quote nothing.
+ *   - After a buy exhausts the range, the price parks on the lower edge and the
+ *     tick reads one below it, so every sell back would quote nothing.
+ * This returns what the swap will really use; the quote functions cap each
+ * direction at the range edge it cannot cross.
  *
- * @param {{ activeLiquidity: bigint, placementLiquidity: bigint, tick: number, tickUpper: number }} s
+ * @param {{ activeLiquidity: bigint, placementLiquidity: bigint }} s
  */
-export function tradableLiquidity({ activeLiquidity, placementLiquidity, tick, tickUpper }) {
-  if (activeLiquidity > 0n) return activeLiquidity;
-  return tick >= tickUpper ? placementLiquidity : 0n;
+export function tradableLiquidity({ activeLiquidity, placementLiquidity }) {
+  return activeLiquidity > 0n ? activeLiquidity : placementLiquidity;
 }
 
 // ---------------------------------------------------------------------------
@@ -208,6 +212,8 @@ export function soldFraction(sqrtNowX96, tickLower, tickUpper) {
 export function quoteBuy({ sqrtPriceX96, liquidity, lpFee, ethIn, sqrtLowerX96 }) {
   const empty = { tokensOut: 0n, sqrtPriceAfter: sqrtPriceX96, priceImpact: 0, exceedsRange: false };
   if (!ethIn || ethIn <= 0n || !liquidity || !sqrtPriceX96) return empty;
+  // Already at (or past) the floor: the whole supply is sold, nothing is left to buy.
+  if (sqrtLowerX96 && sqrtPriceX96 <= sqrtLowerX96) return { ...empty, exceedsRange: true };
 
   const amountLessFee = mulDiv(ethIn, MAX_SWAP_FEE - BigInt(lpFee), MAX_SWAP_FEE);
   if (amountLessFee === 0n) return empty;
@@ -252,6 +258,8 @@ export function quoteBuy({ sqrtPriceX96, liquidity, lpFee, ethIn, sqrtLowerX96 }
 export function quoteSell({ sqrtPriceX96, liquidity, lpFee, tokensIn, sqrtUpperX96 }) {
   const empty = { ethOut: 0n, sqrtPriceAfter: sqrtPriceX96, priceImpact: 0, exceedsRange: false };
   if (!tokensIn || tokensIn <= 0n || !liquidity || !sqrtPriceX96) return empty;
+  // At (or past) the launch price there is no ETH in the pool to sell into.
+  if (sqrtUpperX96 && sqrtPriceX96 >= sqrtUpperX96) return { ...empty, exceedsRange: true };
 
   const amountLessFee = mulDiv(tokensIn, MAX_SWAP_FEE - BigInt(lpFee), MAX_SWAP_FEE);
   if (amountLessFee === 0n) return empty;
@@ -335,7 +343,7 @@ export function deriveMarketState({ slot0Word, liquidityWord, placement, wholeSu
     tickUpper,
     launchSqrtX96,
     sqrtLowerX96,
-    liquidity: tradableLiquidity({ activeLiquidity, placementLiquidity, tick, tickUpper }),
+    liquidity: tradableLiquidity({ activeLiquidity, placementLiquidity }),
     priceWei: priceWeiPerToken(sqrtPriceX96),
     fdvWei: fdvWei(sqrtPriceX96, wholeSupply),
     launchFdvWei: fdvWei(launchSqrtX96, wholeSupply),

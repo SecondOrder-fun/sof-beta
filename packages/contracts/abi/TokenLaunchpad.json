@@ -143,6 +143,11 @@
             "name": "placementId",
             "type": "bytes32",
             "internalType": "bytes32"
+          },
+          {
+            "name": "placer",
+            "type": "address",
+            "internalType": "address"
           }
         ]
       }
@@ -379,6 +384,25 @@
         "name": "",
         "type": "address",
         "internalType": "contract ILiquidityPlacer"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "placerOf",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
