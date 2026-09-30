@@ -24,6 +24,13 @@
 #     that branch only.
 #     Source: https://vercel.com/docs/projects/environment-variables#preview-environment-variables
 #
+#   Build gate (stacked PRs): Vercel preview builds run only when the head
+#     commit message contains [preview] (packages/frontend/scripts/
+#     vercel-ignore-build.sh). This workflow applies the same marker and pairs
+#     ONLY those PRs — in a stack, that is the top PR at submission, plus any
+#     commit tagged for a test build. Lower PRs may still get a Railway env if
+#     they touch the backend; it stays unpaired, which is expected.
+#
 #   This workflow: wait for Railway's auto-created `<repo>-pr-<N>` env to
 #     exist, its backend service to have a SUCCESS deployment, and a service
 #     domain to be provisioned. Then push branch-scoped Vercel env vars
@@ -97,8 +104,25 @@ jobs:
       # PR opened / synchronize / reopened: pair Vercel preview to Railway PR env
       # ─────────────────────────────────────────────────────────────────
 
-      - name: Wait for Railway PR env to exist
+      - name: Check the [preview] build marker
         if: github.event.action != 'closed'
+        id: gate
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Mirrors vercel-ignore-build.sh: no marker on the head commit means
+          # Vercel skipped the preview build, so there is nothing to pair.
+          msg=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA" --jq .commit.message)
+          if printf '%s' "$msg" | grep -qF '[preview]'; then
+            echo "Head commit carries [preview] -> pairing."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Head commit has no [preview] marker; Vercel skipped the build, so no pairing."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Wait for Railway PR env to exist
+        if: github.event.action != 'closed' && steps.gate.outputs.skip != 'true'
         id: railway-env
         run: |
           # Railway auto-creates the PR env on PR open. We capture its id so
@@ -136,7 +160,7 @@ jobs:
           echo "skip=false" >> "$GITHUB_OUTPUT"
 
       - name: Sync env vars from production → PR env
-        if: github.event.action != 'closed' && steps.railway-env.outputs.skip != 'true'
+        if: github.event.action != 'closed' && steps.gate.outputs.skip != 'true' && steps.railway-env.outputs.skip != 'true'
         env:
           ENV_ID: ${{ steps.railway-env.outputs.env_id }}
           PROD_ENV_ID: ${{ steps.railway-env.outputs.prod_env_id }}
@@ -214,7 +238,7 @@ jobs:
         id: env-sync
 
       - name: Wait for Railway backend deploy + domain
-        if: github.event.action != 'closed' && steps.railway-env.outputs.skip != 'true'
+        if: github.event.action != 'closed' && steps.gate.outputs.skip != 'true' && steps.railway-env.outputs.skip != 'true'
         id: railway-domain
         env:
           ENV_ID: ${{ steps.railway-env.outputs.env_id }}
@@ -287,7 +311,7 @@ jobs:
           echo "Railway domain: $domain"
 
       - name: Push branch-scoped Vercel env vars
-        if: github.event.action != 'closed' && steps.railway-env.outputs.skip != 'true' && steps.railway-domain.outputs.skip != 'true'
+        if: github.event.action != 'closed' && steps.gate.outputs.skip != 'true' && steps.railway-env.outputs.skip != 'true' && steps.railway-domain.outputs.skip != 'true'
         env:
           DOMAIN: ${{ steps.railway-domain.outputs.domain }}
         run: |
@@ -328,7 +352,7 @@ jobs:
           fi
 
       - name: Redeploy Vercel preview to apply new env vars
-        if: github.event.action != 'closed' && steps.railway-env.outputs.skip != 'true' && steps.railway-domain.outputs.skip != 'true'
+        if: github.event.action != 'closed' && steps.gate.outputs.skip != 'true' && steps.railway-env.outputs.skip != 'true' && steps.railway-domain.outputs.skip != 'true'
         run: |
           # env-var changes do not apply to in-flight builds, so we trigger
           # a redeploy of the latest preview deployment for this branch.
@@ -347,7 +371,7 @@ jobs:
             --token "$VERCEL_TOKEN" --scope "$VERCEL_TEAM_ID"
 
       - name: Comment paired URLs on PR
-        if: github.event.action != 'closed' && steps.railway-env.outputs.skip != 'true' && steps.railway-domain.outputs.skip != 'true'
+        if: github.event.action != 'closed' && steps.gate.outputs.skip != 'true' && steps.railway-env.outputs.skip != 'true' && steps.railway-domain.outputs.skip != 'true'
         env:
           DOMAIN: ${{ steps.railway-domain.outputs.domain }}
         run: |
