@@ -119,17 +119,50 @@ const KEY_ORDER = [
   "LaunchRouter",
 ];
 
+// Contracts whose deploy block the backend needs, recorded under `deployBlocks`.
+// TokenLaunchpad: launchTradeListener reads the launchpad's whole RouterUpdated
+// history from it, so a router retired long ago is still recognised (and its
+// swaps attributed to the trader, not stored with the router as the trader).
+const DEPLOY_BLOCK_KEYS = ["TokenLaunchpad"];
+
+/**
+ * Block numbers of the contracts in DEPLOY_BLOCK_KEYS, from the broadcast's receipts.
+ * @param {object} bcast       run-latest.json
+ * @param {object} contracts   key -> address, as extracted
+ * @returns {Record<string, number>}
+ */
+export function deployBlocksFrom(bcast, contracts) {
+  const blockByAddress = new Map();
+  for (const r of bcast.receipts || []) {
+    if (r.contractAddress && r.blockNumber != null) {
+      blockByAddress.set(r.contractAddress.toLowerCase(), Number(BigInt(r.blockNumber)));
+    }
+  }
+  const out = {};
+  for (const key of DEPLOY_BLOCK_KEYS) {
+    const addr = contracts[key];
+    const block = addr ? blockByAddress.get(addr.toLowerCase()) : undefined;
+    if (block !== undefined) out[key] = block;
+  }
+  return out;
+}
+
 function outPathFor(repoRoot, network) {
   return path.join(repoRoot, `packages/contracts/deployments/${network}.json`);
 }
 
-/** The `contracts` map already on disk, or `{}` if the file is absent or unreadable. */
-function readExistingContracts(filePath) {
+/** The deployment file already on disk, or `{}` if it is absent or unreadable. */
+function readExisting(filePath) {
   try {
-    return JSON.parse(fs.readFileSync(filePath, "utf8")).contracts || {};
+    return JSON.parse(fs.readFileSync(filePath, "utf8"));
   } catch {
     return {};
   }
+}
+
+/** The `contracts` map already on disk, or `{}` if the file is absent or unreadable. */
+function readExistingContracts(filePath) {
+  return readExisting(filePath).contracts || {};
 }
 
 function parseArgs(argv) {
@@ -218,11 +251,28 @@ function main() {
     console.warn(`  WARN: ${k} not in KEY_ORDER (consider adding for stable diffs)`);
   }
 
+  // Deploy blocks: from this broadcast's receipts; a contract this broadcast did not
+  // deploy keeps the block already recorded, as long as its address is unchanged.
+  const existing = readExisting(outPathFor(repoRoot, network));
+  const deployBlocks = {};
+  for (const key of DEPLOY_BLOCK_KEYS) {
+    const prev = existing.deployBlocks?.[key];
+    const sameAddress = existing.contracts?.[key]?.toLowerCase() === ordered[key]?.toLowerCase();
+    if (prev !== undefined && sameAddress) deployBlocks[key] = prev;
+  }
+  Object.assign(deployBlocks, deployBlocksFrom(bcast, ordered));
+  for (const key of DEPLOY_BLOCK_KEYS) {
+    if (ordered[key] && deployBlocks[key] === undefined) {
+      console.warn(`  WARN: no deploy block for ${key} (set LAUNCHPAD_DEPLOY_BLOCK on the backend)`);
+    }
+  }
+
   const json = {
     network: cfg.label,
     chainId: cfg.chainId,
     deployedAt: new Date().toISOString(),
     contracts: ordered,
+    ...(Object.keys(deployBlocks).length ? { deployBlocks } : {}),
   };
 
   const outPath = outPathFor(repoRoot, network);
@@ -234,4 +284,4 @@ function main() {
   );
 }
 
-main();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

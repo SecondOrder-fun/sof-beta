@@ -17,7 +17,7 @@ import { startAccountCreatedListener } from "../src/listeners/accountCreatedList
 import { startTokenLaunchedListener } from "../src/listeners/tokenLaunchedListener.js";
 import { startLaunchTradeListener } from "../src/listeners/launchTradeListener.js";
 import { startWithRetry } from "../src/lib/startWithRetry.js";
-import { getDeployment } from "@sof/contracts/deployments";
+import { getDeployment, getDeployBlock } from "@sof/contracts/deployments";
 import { infoFiPositionService } from "../src/services/infoFiPositionService.js";
 import { historicalOddsService } from "../shared/historicalOddsService.js";
 import { RaffleABI as raffleAbi, SOFBondingCurveABI as sofBondingCurveAbi, InfoFiMarketFactoryABI as infoFiMarketFactoryAbi, SimpleFPMMABI as simpleFpmmAbi } from '@sof/contracts';
@@ -619,14 +619,28 @@ async function startListeners() {
         // deploy step 22 skipped has none, and then there are no pools to watch.
         const poolManager = deployment.PoolManager;
         if (poolManager && poolManager !== "0x0000000000000000000000000000000000000000") {
-          // Optional: where the trusted-router history starts. Without it the
-          // listener reads RouterUpdated from the lookback window (or the
-          // stored cursor, if older).
+          // Where the trusted-router history starts: LAUNCHPAD_DEPLOY_BLOCK if
+          // set, else the deploy block the deployment file records. Without
+          // either the listener reads RouterUpdated only from the lookback
+          // window (or the stored cursor, if older), and a router retired
+          // before that is not recognised — its swaps would store the router
+          // as the trader — so that case warns.
           const rawDeployBlock = (process.env.LAUNCHPAD_DEPLOY_BLOCK || "").trim();
           if (rawDeployBlock && !/^\d+$/.test(rawDeployBlock)) {
             app.log.warn(`LAUNCHPAD_DEPLOY_BLOCK is not a block number (${rawDeployBlock}) — ignored`);
           }
-          const deployBlock = /^\d+$/.test(rawDeployBlock) ? BigInt(rawDeployBlock) : undefined;
+          const recordedBlock = getDeployBlock("TokenLaunchpad", NETWORK.toLowerCase());
+          const deployBlock = /^\d+$/.test(rawDeployBlock)
+            ? BigInt(rawDeployBlock)
+            : recordedBlock !== undefined
+              ? BigInt(recordedBlock)
+              : undefined;
+          if (deployBlock === undefined) {
+            app.log.warn(
+              "⚠️  TokenLaunchpad deploy block unknown (no LAUNCHPAD_DEPLOY_BLOCK, none in deployments) — " +
+                "a launch router retired before the lookback window will not be recognised",
+            );
+          }
           unwatchLaunchTrades = startWithRetry({
             label: "LaunchTradeListener",
             start: () =>

@@ -85,6 +85,7 @@ const BuyPanel = ({ token, symbol, market, className }) => {
           lpFee: market.buyFee,
           ethIn: amountWei,
           sqrtLowerX96: market.sqrtLowerX96,
+          sqrtUpperX96: market.launchSqrtX96,
         })
       : quoteSell({
           sqrtPriceX96: market.sqrtPriceX96,
@@ -92,6 +93,7 @@ const BuyPanel = ({ token, symbol, market, className }) => {
           lpFee: market.sellFee,
           tokensIn: amountWei,
           sqrtUpperX96: market.launchSqrtX96,
+          sqrtLowerX96: market.sqrtLowerX96,
         });
   }, [market, amountWei, isBuy]);
 

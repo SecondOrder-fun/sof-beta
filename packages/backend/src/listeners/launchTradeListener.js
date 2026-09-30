@@ -35,11 +35,15 @@
  *    the same transaction names the account (buildTradeRow.attributeTrader),
  *    trusted only for a sender that has been a launch router: every
  *    TokenLaunchpad `RouterUpdated` (previous and current), read from the
- *    launchpad's deploy block when known (`deployBlock`) — else from the
- *    earlier of the lookback window and the stored cursor — plus the current
- *    router(). The history is kept current by reading RouterUpdated up to the
- *    newest swap before each batch is attributed, so a restart or a router
- *    swap never turns a router into a stored trader. That costs one receipt
+ *    launchpad's deploy block when known (`deployBlock`: LAUNCHPAD_DEPLOY_BLOCK,
+ *    else the block the deployment file records) — else from the earlier of
+ *    the lookback window and the stored cursor — plus the current router().
+ *    The history is kept current by reading RouterUpdated up to the newest
+ *    swap before each batch is attributed, so a restart or a router swap never
+ *    turns a router into a stored trader — provided the deploy block is known.
+ *    Without it, a router retired before the history's start is not trusted,
+ *    and swaps still routed through it would store the router as the trader
+ *    (server.js warns at startup in that case). That costs one receipt
  *    fetch per router transaction; blocks and receipts are fetched
  *    FETCH_CONCURRENCY at a time.
  *

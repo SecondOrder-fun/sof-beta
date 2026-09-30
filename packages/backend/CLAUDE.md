@@ -99,8 +99,10 @@ PoolManager's `Swap` event. Rules it depends on:
   sender has been a launch router **and** emitted the event. The trusted set is built
   from chain history, not memory, so it survives a restart: every
   `TokenLaunchpad.RouterUpdated` (previous and current) from the launchpad's deploy block
-  (`LAUNCHPAD_DEPLOY_BLOCK`, optional) — else from the earlier of the lookback window and
-  the stored cursor — plus the current `router()`, and the history is read up to the
+  (`LAUNCHPAD_DEPLOY_BLOCK`, else `deployBlocks.TokenLaunchpad` in the deployments file,
+  which `scripts/extract-deployment-addresses.js` records from the broadcast receipts) —
+  else from the earlier of the lookback window and the stored cursor, which misses a
+  router retired before it, so startup warns — plus the current `router()`, and the history is read up to the
   newest swap before each batch is attributed. Each Swap pairs with the router event
   that follows it in log order (a batched buy-then-sell attributes both), and a Bought
   only names a BUY, a Sold only a SELL.

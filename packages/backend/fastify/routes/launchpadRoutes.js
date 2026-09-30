@@ -159,8 +159,9 @@ export default async function launchpadRoutes(fastify) {
    * GET /api/launchpad/tokens/:address/trades — trade history, newest first.
    *
    * Empty until launchTradeListener indexes pool swaps. An empty array is the
-   * honest answer for a token with no trades, so this does not distinguish the
-   * two cases — the token's own 404 above does.
+   * honest answer for a token with no trades. A hidden token 404s here as on
+   * every other launchpad route: its page still renders from the chain, so its
+   * trades (with trader addresses) must not.
    */
   fastify.get("/tokens/:address/trades", async (request, reply) => {
     const { address } = request.params;
@@ -176,6 +177,10 @@ export default async function launchpadRoutes(fastify) {
     const offset = clampInt(request.query?.offset, 0, Number.MAX_SAFE_INTEGER);
 
     try {
+      const launch = await tokenLaunchesDb.getTokenLaunch(address);
+      if (launch?.is_hidden) {
+        return reply.code(404).send({ error: "token not found" });
+      }
       const rows = await tokenLaunchesDb.listLaunchTrades(address, {
         limit,
         offset,

@@ -207,9 +207,15 @@ export function soldFraction(sqrtNowX96, tickLower, tickUpper) {
  *                                  pass market.buyFee, which includes any protocol fee
  * @param {bigint} p.ethIn          wei
  * @param {bigint} [p.sqrtLowerX96] position floor; a buy past it is capped
+ * @param {bigint} [p.sqrtUpperX96] launch price; a price above it is quoted from it
  * @returns {{ tokensOut: bigint, sqrtPriceAfter: bigint, priceImpact: number, exceedsRange: boolean }}
  */
-export function quoteBuy({ sqrtPriceX96, liquidity, lpFee, ethIn, sqrtLowerX96 }) {
+export function quoteBuy({ sqrtPriceX96: rawSqrtPriceX96, liquidity, lpFee, ethIn, sqrtLowerX96, sqrtUpperX96 }) {
+  // Above the range there is no liquidity, so a buy crosses down to the launch price
+  // for free and fills from there. Anyone can push the price up there with a
+  // zero-amount swap; quoting from the pushed price would promise far more than the
+  // fill, and the minimum-out built from it would revert every trade.
+  const sqrtPriceX96 = sqrtUpperX96 && rawSqrtPriceX96 > sqrtUpperX96 ? sqrtUpperX96 : rawSqrtPriceX96;
   const empty = { tokensOut: 0n, sqrtPriceAfter: sqrtPriceX96, priceImpact: 0, exceedsRange: false };
   if (!ethIn || ethIn <= 0n || !liquidity || !sqrtPriceX96) return empty;
   // Already at (or past) the floor: the whole supply is sold, nothing is left to buy.
@@ -253,9 +259,12 @@ export function quoteBuy({ sqrtPriceX96, liquidity, lpFee, ethIn, sqrtLowerX96 }
  * @param {number} p.lpFee          the swap fee — pass market.sellFee
  * @param {bigint} p.tokensIn
  * @param {bigint} [p.sqrtUpperX96] launch price; there is no liquidity to sell into above it
+ * @param {bigint} [p.sqrtLowerX96] position floor; a price below it is quoted from it
  * @returns {{ ethOut: bigint, sqrtPriceAfter: bigint, priceImpact: number, exceedsRange: boolean }}
  */
-export function quoteSell({ sqrtPriceX96, liquidity, lpFee, tokensIn, sqrtUpperX96 }) {
+export function quoteSell({ sqrtPriceX96: rawSqrtPriceX96, liquidity, lpFee, tokensIn, sqrtUpperX96, sqrtLowerX96 }) {
+  // The mirror of quoteBuy: below the floor a sell crosses up to it for free.
+  const sqrtPriceX96 = sqrtLowerX96 && rawSqrtPriceX96 < sqrtLowerX96 ? sqrtLowerX96 : rawSqrtPriceX96;
   const empty = { ethOut: 0n, sqrtPriceAfter: sqrtPriceX96, priceImpact: 0, exceedsRange: false };
   if (!tokensIn || tokensIn <= 0n || !liquidity || !sqrtPriceX96) return empty;
   // At (or past) the launch price there is no ETH in the pool to sell into.
@@ -319,8 +328,8 @@ export function swapFeeFor(protocolFee, lpFee, zeroForOne) {
 
 export function deriveMarketState({ slot0Word, liquidityWord, placement, wholeSupply }) {
   if (!placement || !slot0Word) return null;
-  const { sqrtPriceX96, tick, lpFee, protocolFee } = decodeSlot0(slot0Word);
-  if (sqrtPriceX96 === 0n) return null;
+  const { sqrtPriceX96: poolSqrtPriceX96, tick, lpFee, protocolFee } = decodeSlot0(slot0Word);
+  if (poolSqrtPriceX96 === 0n) return null;
 
   const tickLower = Number(placement.tickLower);
   const tickUpper = Number(placement.tickUpper);
@@ -330,6 +339,13 @@ export function deriveMarketState({ slot0Word, liquidityWord, placement, wholeSu
   // The pool was initialised AT tickUpper, so that IS the launch price — exact.
   const launchSqrtX96 = sqrtPriceX96AtTick(tickUpper);
   const sqrtLowerX96 = sqrtPriceX96AtTick(tickLower);
+
+  // The price the position actually trades at. Outside [floor, launch] the pool has
+  // no liquidity, and anyone can move its price there for free with a zero-amount
+  // swap; the next trade crosses back to the edge at no cost. So the edge, not the
+  // pushed pool price, is the token's price — for display and for quotes alike.
+  const sqrtPriceX96 =
+    poolSqrtPriceX96 > launchSqrtX96 ? launchSqrtX96 : poolSqrtPriceX96 < sqrtLowerX96 ? sqrtLowerX96 : poolSqrtPriceX96;
 
   return {
     sqrtPriceX96,
