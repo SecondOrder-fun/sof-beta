@@ -501,3 +501,69 @@ describe("startContractEventPolling", () => {
     await unwatch();
   });
 });
+
+describe("startContractEventPolling — indexed-arg filter", () => {
+  let client;
+  let blockCursor;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    client = {
+      getBlockNumber: vi.fn().mockResolvedValue(100n),
+      getContractEvents: vi.fn().mockResolvedValue([]),
+    };
+    // Resume from 50 so the first tick has blocks 51..100 to scan.
+    blockCursor = { get: vi.fn().mockResolvedValue(50n), set: vi.fn().mockResolvedValue(undefined) };
+  });
+
+  afterEach(() => {
+    __resetSharedHeads();
+    vi.useRealTimers();
+  });
+
+  const start = (args) =>
+    startContractEventPolling({
+      client,
+      address: "0xPM",
+      abi: testAbi,
+      eventName: "TestEvent",
+      pollingIntervalMs: 1_000,
+      blockCursor,
+      args,
+      onLogs: () => {},
+    });
+
+  it("passes a static filter through to getContractEvents", async () => {
+    const unwatch = await start({ id: ["0xpool"] });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(client.getContractEvents).toHaveBeenCalledWith(expect.objectContaining({ args: { id: ["0xpool"] } }));
+    await unwatch();
+  });
+
+  // The filter must include pools created INSIDE the range about to be queried,
+  // so the function is told that range.
+  it("calls a filter function with the chunk's block range", async () => {
+    const args = vi.fn().mockResolvedValue({ id: ["0xpool"] });
+    const unwatch = await start(args);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(args).toHaveBeenCalledWith({ fromBlock: 51n, toBlock: 100n });
+    await unwatch();
+  });
+
+  // The v4 PoolManager is a singleton: an unfiltered Swap query is every swap on
+  // the chain. "Nothing to watch" must mean no query at all, never an unfiltered one.
+  it("never queries unfiltered when the filter function returns null", async () => {
+    const unwatch = await start(vi.fn().mockResolvedValue(null));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(client.getContractEvents).not.toHaveBeenCalled();
+    await unwatch();
+  });
+
+  it("still advances the cursor over a range it had nothing to watch in", async () => {
+    const unwatch = await start(vi.fn().mockResolvedValue(null));
+    await vi.advanceTimersByTimeAsync(0);
+    await unwatch();
+    const persisted = blockCursor.set.mock.calls.map((c) => c[0]);
+    expect(persisted).toContain(100n);
+  });
+});

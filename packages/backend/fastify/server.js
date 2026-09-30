@@ -15,6 +15,7 @@ import { startSponsorHatListener } from "../src/listeners/sponsorHatListener.js"
 import { startRolloverEventListener } from "../src/listeners/rolloverEventListener.js";
 import { startAccountCreatedListener } from "../src/listeners/accountCreatedListener.js";
 import { startTokenLaunchedListener } from "../src/listeners/tokenLaunchedListener.js";
+import { startLaunchTradeListener } from "../src/listeners/launchTradeListener.js";
 import { getDeployment } from "@sof/contracts/deployments";
 import { infoFiPositionService } from "../src/services/infoFiPositionService.js";
 import { historicalOddsService } from "../shared/historicalOddsService.js";
@@ -192,6 +193,7 @@ await mountRoute("/api/rollover", () => import("./routes/rolloverRoutes.js"));
 await mountRoute("/sse", () => import("./routes/sseRoutes.js"));
 await mountRoute("/api/curve", () => import("./routes/curveRoutes.js"));
 await mountRoute("/api/launchpad", () => import("./routes/launchpadRoutes.js"));
+await mountRoute("/api/activity", () => import("./routes/activityRoutes.js"));
 
 // Build the Blockscout client up-front so multiple routes (the proxy
 // itself + /api/token/sof/transactions/:user) can share one instance
@@ -258,6 +260,7 @@ let unwatchMarketCreated;
 let unwatchRollover;
 let unwatchAccountCreated;
 let unwatchTokenLaunched;
+let unwatchLaunchTrades;
 const positionUpdateListeners = new Map(); // Map of seasonId -> unwatch function
 const tradeListeners = new Map(); // Map of fpmmAddress -> unwatch function
 let stopSharedHead; // halts the shared chain-head tracker on shutdown
@@ -603,6 +606,24 @@ async function startListeners() {
           app.log,
         );
         app.log.info("✅ TokenLaunchedListener started");
+
+        // Trades on launch pools. Needs the v4 PoolManager too; a chain where
+        // deploy step 22 skipped has none, and then there are no pools to watch.
+        const poolManager = getDeployment(NETWORK.toLowerCase()).PoolManager;
+        if (poolManager && poolManager !== "0x0000000000000000000000000000000000000000") {
+          try {
+            unwatchLaunchTrades = await startLaunchTradeListener({
+              poolManager,
+              launchpad: launchpadAddress,
+              logger: app.log,
+            });
+            app.log.info("✅ LaunchTradeListener started");
+          } catch (error) {
+            app.log.error(`❌ Failed to start LaunchTradeListener: ${error.message}`);
+          }
+        } else {
+          app.log.info("ℹ️  No PoolManager in deployments — LaunchTrade listener skipped");
+        }
       } else {
         app.log.info(
           "ℹ️  TokenLaunchpad not in deployments — TokenLaunched listener skipped",
@@ -804,6 +825,8 @@ async function shutdown(signal) {
     stops.push(safeStep("AccountCreated listener", unwatchAccountCreated));
   if (unwatchTokenLaunched)
     stops.push(safeStep("TokenLaunched listener", unwatchTokenLaunched));
+  if (unwatchLaunchTrades)
+    stops.push(safeStep("LaunchTrade listener", unwatchLaunchTrades));
 
   for (const [seasonId, unwatch] of positionUpdateListeners.entries()) {
     stops.push(

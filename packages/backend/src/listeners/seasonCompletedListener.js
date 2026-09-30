@@ -221,9 +221,26 @@ async function processSeasonCompletedLog(
       const totalParticipants = details?.[2];
       const totalTickets = details?.[3];
       const totalPrizePool = details?.[4];
+
+      // Grand-prize winner, for the ticker and the ended raffle card. A read
+      // failure must not block the status write, so it degrades to null.
+      let winnerAddress = null;
+      try {
+        const winners = await publicClient.readContract({
+          address: raffleAddress,
+          abi: RaffleABI,
+          functionName: 'getWinners',
+          args: [BigInt(seasonIdNum)],
+        });
+        winnerAddress = winners?.[0] ? String(winners[0]).toLowerCase() : null;
+      } catch (winnerErr) {
+        logger.warn(`[SEASON_COMPLETED_LISTENER] getWinners failed for season ${seasonIdNum}: ${winnerErr.message}`);
+      }
+
       await db.updateSeasonStatus(seasonIdNum, {
         status: 5, // Completed
         is_active: false,
+        winner_address: winnerAddress,
         total_participants: totalParticipants != null ? totalParticipants.toString() : '0',
         total_tickets: totalTickets != null ? totalTickets.toString() : '0',
         total_prize_pool: totalPrizePool != null ? totalPrizePool.toString() : '0',

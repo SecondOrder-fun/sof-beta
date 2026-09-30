@@ -202,6 +202,24 @@ export async function listLaunchTrades(
   return data || [];
 }
 
+
+/**
+ * Every launch pool the index knows about: pool id -> token and symbol. The
+ * trade listener's starting map; it adds pools it discovers on-chain itself.
+ * @returns {Promise<{ pool_id: string, token_address: string, symbol: string|null }[]>}
+ */
+export async function listPoolIndex() {
+  if (!hasSupabase) return [];
+  const { data, error } = await supabase
+    .from(LAUNCHES)
+    .select("pool_id, token_address, symbol")
+    .not("pool_id", "is", null);
+  if (error) {
+    throw new Error(`tokenLaunchesDb.listPoolIndex: ${error.message}`);
+  }
+  return data || [];
+}
+
 export const tokenLaunchesDb = {
   insertTokenLaunch,
   getTokenLaunch,
@@ -210,4 +228,5 @@ export const tokenLaunchesDb = {
   countTokenLaunches,
   insertLaunchTrades,
   listLaunchTrades,
+  listPoolIndex,
 };

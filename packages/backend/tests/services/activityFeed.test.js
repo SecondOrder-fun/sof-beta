@@ -1,0 +1,157 @@
+// @vitest-environment node
+import { describe, it, expect } from "vitest";
+import {
+  buildChart,
+  downsample,
+  raffleState,
+  pickRaffleForToken,
+  buildTokenActivity,
+  buildRaffleActivity,
+  CLOSING_WINDOW_SEC,
+} from "../../src/services/activityFeed.js";
+
+const NOW = 1_700_000_000;
+const at = (sec) => new Date(sec * 1000).toISOString();
+const launch = { launchedAt: at(NOW - 5 * 86400), startPriceWei: "1000000000" };
+
+describe("buildChart", () => {
+  it("enters the range at the price in force when it opened — the last earlier trade", () => {
+    const c = buildChart({
+      trades: [{ price_wei: "3000", block_time: at(NOW - 100) }],
+      seed: { price_wei: "2000", block_time: at(NOW - 7200) },
+      launch, rangeSec: 3600, nowSec: NOW,
+    });
+    expect(c.points[0]).toEqual({ t: NOW - 3600, priceWei: "2000" });
+    expect(c.points.at(-1)).toEqual({ t: NOW - 100, priceWei: "3000" });
+  });
+
+  // A quiet hour must still draw a line, not an empty chart.
+  it("draws the entry point even when nothing traded in range", () => {
+    const c = buildChart({ trades: [], seed: { price_wei: "2000", block_time: at(NOW - 7200) }, launch, rangeSec: 3600, nowSec: NOW });
+    expect(c.points).toEqual([{ t: NOW - 3600, priceWei: "2000" }]);
+  });
+
+  it("starts 'all' at the launch price and time", () => {
+    const c = buildChart({ trades: [], seed: null, launch, rangeSec: null, nowSec: NOW });
+    expect(c.points[0]).toEqual({ t: NOW - 5 * 86400, priceWei: "1000000000" });
+    expect(c.launch.priceWei).toBe("1000000000");
+  });
+
+  it("never starts before launch, even for a range longer than the token has existed", () => {
+    const young = { launchedAt: at(NOW - 600), startPriceWei: "5" };
+    const c = buildChart({ trades: [], seed: null, launch: young, rangeSec: 86400, nowSec: NOW });
+    expect(c.points[0]).toEqual({ t: NOW - 600, priceWei: "5" });
+  });
+});
+
+describe("downsample", () => {
+  const pts = Array.from({ length: 1000 }, (_, i) => ({ t: i, priceWei: String(i) }));
+
+  it("caps the point count and keeps the first and last", () => {
+    const d = downsample(pts, 50);
+    expect(d.length).toBeLessThanOrEqual(50);
+    expect(d[0]).toEqual(pts[0]);
+    expect(d.at(-1)).toEqual(pts.at(-1));
+  });
+
+  it("keeps only prices that actually traded — no averaging", () => {
+    const originals = new Set(pts.map((p) => p.priceWei));
+    for (const p of downsample(pts, 50)) expect(originals.has(p.priceWei)).toBe(true);
+  });
+
+  it("leaves short series alone", () => {
+    expect(downsample(pts.slice(0, 10), 50)).toHaveLength(10);
+  });
+});
+
+describe("raffleState", () => {
+  it("maps every SeasonStatus", () => {
+    expect([0, 1, 2, 3, 4, 5, 6].map((status) => raffleState({ status }))).toEqual([
+      "upcoming", "live", "drawing", "drawing", "drawing", "ended", "cancelled",
+    ]);
+  });
+});
+
+describe("pickRaffleForToken", () => {
+  const season = (season_id, status) => ({ season_id, status });
+
+  it("leads with a live season over newer ones in other states", () => {
+    expect(pickRaffleForToken([season(9, 5), season(7, 1), season(8, 0)]).seasonId).toBe(7);
+  });
+
+  it("prefers drawing, then upcoming, then the latest result", () => {
+    expect(pickRaffleForToken([season(3, 5), season(4, 3)]).state).toBe("drawing");
+    expect(pickRaffleForToken([season(3, 5), season(4, 0)]).state).toBe("upcoming");
+    expect(pickRaffleForToken([season(3, 5), season(4, 5)]).seasonId).toBe(4);
+  });
+
+  it("returns null for a token with no seasons", () => {
+    expect(pickRaffleForToken([])).toBeNull();
+  });
+});
+
+describe("buildTokenActivity", () => {
+  it("merges trades and launches newest first, labelled with symbols", () => {
+    const items = buildTokenActivity({
+      trades: [
+        { side: "BUY", block_time: at(NOW - 10), trader: "0xa", token_address: "0xt", eth_amount: "1", price_wei: "5", tx_hash: "0x1" },
+        { side: "SELL", block_time: at(NOW - 30), trader: "0xb", token_address: "0xt", eth_amount: "2", price_wei: "4", tx_hash: "0x2" },
+      ],
+      launches: [{ launched_at: at(NOW - 20), creator_address: "0xc", token_address: "0xu", symbol: "NEW", implied_fdv_wei: "9", tx_hash: "0x3" }],
+      symbols: { "0xt": "POND" },
+    });
+    expect(items.map((i) => i.kind)).toEqual(["buy", "launch", "sell"]);
+    expect(items[0].symbol).toBe("POND");
+    expect(items[1].symbol).toBe("NEW");
+  });
+
+  it("respects the limit", () => {
+    const trades = Array.from({ length: 30 }, (_, i) => ({ side: "BUY", block_time: at(NOW - i), token_address: "0xt" }));
+    expect(buildTokenActivity({ trades, launches: [], symbols: {}, limit: 5 })).toHaveLength(5);
+  });
+});
+
+describe("buildRaffleActivity", () => {
+  const live = { season_id: 3, name: "S3", status: 1, start_time: NOW - 3600, end_time: NOW + 86400, quote_token_address: "0xt", total_participants: "12" };
+
+  it("labels entries with their season and its token symbol", () => {
+    const items = buildRaffleActivity({
+      entries: [{ season_id: 3, user_address: "0xa", ticket_amount: "40", block_timestamp: at(NOW - 5), tx_hash: "0x1" }],
+      seasons: [live], symbols: { "0xt": "POND" }, nowSec: NOW,
+    });
+    const entry = items.find((i) => i.kind === "entry");
+    expect(entry).toMatchObject({ who: "0xa", tickets: "40", seasonId: 3, symbol: "POND" });
+  });
+
+  it("announces a live season as opened", () => {
+    const items = buildRaffleActivity({ entries: [], seasons: [live], symbols: {}, nowSec: NOW });
+    expect(items.map((i) => i.kind)).toContain("opened");
+  });
+
+  it("flags a season as closing only inside the closing window", () => {
+    const soon = { ...live, season_id: 4, end_time: NOW + CLOSING_WINDOW_SEC - 60 };
+    const later = { ...live, season_id: 5, end_time: NOW + CLOSING_WINDOW_SEC + 60 };
+    const items = buildRaffleActivity({ entries: [], seasons: [soon, later], symbols: {}, nowSec: NOW });
+    const closing = items.filter((i) => i.kind === "closing").map((i) => i.seasonId);
+    expect(closing).toEqual([4]);
+  });
+
+  it("reports a completed season's winner", () => {
+    const done = { season_id: 2, status: 5, winner_address: "0xw", total_prize_pool: "1000", updated_at: at(NOW - 60), quote_token_address: "0xt" };
+    const items = buildRaffleActivity({ entries: [], seasons: [done], symbols: { "0xt": "POND" }, nowSec: NOW });
+    expect(items[0]).toMatchObject({ kind: "won", who: "0xw", prizePool: "1000", symbol: "POND" });
+  });
+
+  it("does not report a completed season with no recorded winner", () => {
+    const done = { season_id: 2, status: 5, winner_address: null, updated_at: at(NOW - 60) };
+    expect(buildRaffleActivity({ entries: [], seasons: [done], symbols: {}, nowSec: NOW })).toEqual([]);
+  });
+
+  it("drops entries for seasons it knows nothing about", () => {
+    const items = buildRaffleActivity({
+      entries: [{ season_id: 99, user_address: "0xa", ticket_amount: "1", block_timestamp: at(NOW) }],
+      seasons: [], symbols: {}, nowSec: NOW,
+    });
+    expect(items).toEqual([]);
+  });
+});

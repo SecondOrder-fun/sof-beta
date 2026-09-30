@@ -31,6 +31,14 @@ function getPollBackoffMs(failures) {
  * @property {(logs: any[]) => Promise<void> | void} onLogs
  * @property {(error: unknown) => void} [onError]
  * @property {{ get: () => Promise<bigint|null>, set: (block: bigint) => Promise<void>, flush?: () => Promise<void> }} [blockCursor]
+ * @property {object | ((range: { fromBlock: bigint, toBlock: bigint }) => Promise<object|null> | object | null)} [args]
+ *   Indexed-argument filter passed to getContractEvents. A function is
+ *   called per chunk WITH that chunk's block range, for filters that grow —
+ *   e.g. launch pools, where the filter must include pools created inside the
+ *   very range about to be queried, or a new pool's first swaps are skipped.
+ *   Returning null means "nothing to watch yet": the chunk is treated as empty
+ *   rather than queried UNFILTERED — for a singleton like the v4 PoolManager,
+ *   an unfiltered query is every swap on the chain.
  */
 
 /**
@@ -54,6 +62,7 @@ export async function startContractEventPolling(params) {
     onLogs,
     onError,
     blockCursor,
+    args,
   } = params;
 
   if (!client) {
@@ -161,13 +170,21 @@ export async function startContractEventPolling(params) {
         const chunkSize = remaining > maxBlockRange ? maxBlockRange : remaining;
         const chunkToBlock = fromBlock + chunkSize;
 
-        const logs = await client.getContractEvents({
-          address,
-          abi,
-          eventName,
-          fromBlock,
-          toBlock: chunkToBlock,
-        });
+        const filter =
+          typeof args === "function" ? await args({ fromBlock, toBlock: chunkToBlock }) : args;
+        // A filter function that returns null has nothing to watch: skip the
+        // query (never fall back to an unfiltered one) and still advance.
+        const logs =
+          typeof args === "function" && filter == null
+            ? []
+            : await client.getContractEvents({
+                address,
+                abi,
+                eventName,
+                ...(filter ? { args: filter } : {}),
+                fromBlock,
+                toBlock: chunkToBlock,
+              });
 
         if (logs.length > 0) {
           await onLogs(logs);
@@ -336,6 +353,7 @@ export async function getContractEventsInChunks(params) {
     toBlock,
     maxBlockRange = 2_000n,
     maxRetries = 5,
+    args,
   } = params;
 
   if (fromBlock > toBlock) return [];
@@ -357,6 +375,7 @@ export async function getContractEventsInChunks(params) {
           address,
           abi,
           eventName,
+          ...(args ? { args } : {}),
           fromBlock: currentFrom,
           toBlock: currentTo,
         });

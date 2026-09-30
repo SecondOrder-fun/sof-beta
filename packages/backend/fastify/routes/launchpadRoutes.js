@@ -11,6 +11,13 @@
  */
 
 import { tokenLaunchesDb } from "../../shared/services/tokenLaunchesDb.js";
+import { launchpadActivityDb } from "../../shared/services/launchpadActivityDb.js";
+import {
+  CHART_RANGES,
+  buildChart,
+  pickRaffleForToken,
+  summarizeSeason,
+} from "../../src/services/activityFeed.js";
 
 const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 
@@ -67,6 +74,8 @@ function toTradeResponse(row) {
     blockTime: row.block_time,
   };
 }
+
+const MAX_BADGE_TOKENS = 100;
 
 export default async function launchpadRoutes(fastify) {
   /**
@@ -151,6 +160,107 @@ export default async function launchpadRoutes(fastify) {
     } catch (err) {
       request.log.error({ err, address }, "launchpad trades lookup failed");
       return reply.code(500).send({ error: "failed to load trades" });
+    }
+  });
+
+  /**
+   * GET /api/launchpad/tokens/:address/chart?range=1h|6h|24h|all
+   *
+   * Price points for the chart, oldest first. The first point is the price in
+   * force when the range opens (the last earlier trade, or the launch price),
+   * so a quiet range still draws a line. Capped at 300 points.
+   */
+  fastify.get("/tokens/:address/chart", async (request, reply) => {
+    const { address } = request.params;
+    if (!ADDRESS_RE.test(address || "")) {
+      return reply.code(400).send({ error: "invalid token address" });
+    }
+    const range = request.query?.range ?? "24h";
+    if (!(range in CHART_RANGES)) {
+      return reply.code(400).send({ error: `range must be one of ${Object.keys(CHART_RANGES).join(", ")}` });
+    }
+
+    try {
+      const launch = await tokenLaunchesDb.getTokenLaunch(address);
+      if (!launch || launch.is_hidden) {
+        return reply.code(404).send({ error: "token not found" });
+      }
+      const nowSec = Math.floor(Date.now() / 1000);
+      const rangeSec = CHART_RANGES[range];
+      const sinceIso = rangeSec == null ? null : new Date((nowSec - rangeSec) * 1000).toISOString();
+
+      const [trades, seed] = await Promise.all([
+        launchpadActivityDb.listTradesSince(address, sinceIso),
+        launchpadActivityDb.lastTradeBefore(address, sinceIso),
+      ]);
+
+      const chart = buildChart({
+        trades,
+        seed,
+        launch: { launchedAt: launch.launched_at, startPriceWei: launch.start_price_wei },
+        rangeSec,
+        nowSec,
+      });
+      return { range, tradeCount: trades.length, ...chart };
+    } catch (err) {
+      request.log.error({ err, address }, "launchpad chart failed");
+      return reply.code(500).send({ error: "failed to load chart" });
+    }
+  });
+
+  /**
+   * GET /api/launchpad/tokens/:address/seasons
+   *
+   * Every raffle season priced in this token, newest first, plus the one the
+   * raffle card should lead with (live > drawing > upcoming > latest result).
+   */
+  fastify.get("/tokens/:address/seasons", async (request, reply) => {
+    const { address } = request.params;
+    if (!ADDRESS_RE.test(address || "")) {
+      return reply.code(400).send({ error: "invalid token address" });
+    }
+    try {
+      const seasons = await launchpadActivityDb.listSeasonsForToken(address);
+      return { seasons: seasons.map(summarizeSeason), featured: pickRaffleForToken(seasons) };
+    } catch (err) {
+      request.log.error({ err, address }, "launchpad seasons failed");
+      return reply.code(500).send({ error: "failed to load seasons" });
+    }
+  });
+
+  /**
+   * GET /api/launchpad/raffles?tokens=0x..,0x..
+   *
+   * The raffle badge for a page of token cards, in one request: token -> the
+   * season its badge shows. Tokens with no season are omitted.
+   */
+  fastify.get("/raffles", async (request, reply) => {
+    const tokens = String(request.query?.tokens ?? "")
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (tokens.some((t) => !ADDRESS_RE.test(t))) {
+      return reply.code(400).send({ error: "invalid token address" });
+    }
+    if (tokens.length > MAX_BADGE_TOKENS) {
+      return reply.code(400).send({ error: `at most ${MAX_BADGE_TOKENS} tokens per request` });
+    }
+    if (!tokens.length) return { raffles: {} };
+
+    try {
+      const seasons = await launchpadActivityDb.listSeasonsForTokens(tokens);
+      const byToken = new Map();
+      for (const s of seasons) {
+        const key = s.quote_token_address;
+        if (!byToken.has(key)) byToken.set(key, []);
+        byToken.get(key).push(s);
+      }
+      const raffles = {};
+      for (const [token, list] of byToken) raffles[token] = pickRaffleForToken(list);
+      return { raffles };
+    } catch (err) {
+      request.log.error({ err }, "launchpad raffles failed");
+      return reply.code(500).send({ error: "failed to load raffles" });
     }
   });
 }

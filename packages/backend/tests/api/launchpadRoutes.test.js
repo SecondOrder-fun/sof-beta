@@ -8,6 +8,20 @@ const countTokenLaunches = vi.fn(async () => 0);
 const getTokenLaunch = vi.fn(async () => null);
 const listLaunchTrades = vi.fn(async () => []);
 
+const listTradesSince = vi.fn(async () => []);
+const lastTradeBefore = vi.fn(async () => null);
+const listSeasonsForToken = vi.fn(async () => []);
+const listSeasonsForTokens = vi.fn(async () => []);
+
+vi.mock("../../shared/services/launchpadActivityDb.js", () => ({
+  launchpadActivityDb: {
+    listTradesSince: (...a) => listTradesSince(...a),
+    lastTradeBefore: (...a) => lastTradeBefore(...a),
+    listSeasonsForToken: (...a) => listSeasonsForToken(...a),
+    listSeasonsForTokens: (...a) => listSeasonsForTokens(...a),
+  },
+}));
+
 vi.mock("../../shared/services/tokenLaunchesDb.js", () => ({
   tokenLaunchesDb: {
     listTokenLaunches: (...a) => listTokenLaunches(...a),
@@ -246,5 +260,86 @@ describe("GET /api/launchpad/tokens/:address/trades", () => {
     });
     expect(res.statusCode).toBe(400);
     expect(listLaunchTrades).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /api/launchpad/tokens/:address/chart", () => {
+  it("returns points that start at the launch for the 'all' range", async () => {
+    getTokenLaunch.mockResolvedValueOnce(row());
+    listTradesSince.mockResolvedValueOnce([{ price_wei: "2000000000", block_time: "2026-09-29T01:00:00.000Z" }]);
+
+    const res = await app.inject({ method: "GET", url: `/api/launchpad/tokens/${TOKEN}/chart?range=all` });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.points[0].priceWei).toBe("1000000000"); // the launch price
+    expect(body.points.at(-1).priceWei).toBe("2000000000");
+    expect(listTradesSince).toHaveBeenCalledWith(TOKEN, null);
+  });
+
+  it("queries only the requested window", async () => {
+    getTokenLaunch.mockResolvedValueOnce(row());
+    await app.inject({ method: "GET", url: `/api/launchpad/tokens/${TOKEN}/chart?range=1h` });
+    const since = new Date(listTradesSince.mock.calls[0][1]).getTime();
+    expect(Date.now() - since).toBeGreaterThanOrEqual(3600_000 - 5_000);
+    expect(Date.now() - since).toBeLessThanOrEqual(3600_000 + 5_000);
+  });
+
+  it("rejects an unknown range", async () => {
+    const res = await app.inject({ method: "GET", url: `/api/launchpad/tokens/${TOKEN}/chart?range=7y` });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("404s a token that is not indexed", async () => {
+    getTokenLaunch.mockResolvedValueOnce(null);
+    const res = await app.inject({ method: "GET", url: `/api/launchpad/tokens/${TOKEN}/chart` });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("GET /api/launchpad/tokens/:address/seasons", () => {
+  it("lists the token's seasons and features the live one", async () => {
+    listSeasonsForToken.mockResolvedValueOnce([
+      { season_id: 4, status: 5, quote_token_address: TOKEN },
+      { season_id: 3, status: 1, quote_token_address: TOKEN },
+    ]);
+    const res = await app.inject({ method: "GET", url: `/api/launchpad/tokens/${TOKEN}/seasons` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().seasons).toHaveLength(2);
+    expect(res.json().featured).toMatchObject({ seasonId: 3, state: "live" });
+  });
+
+  it("features nothing for a token with no raffle", async () => {
+    const res = await app.inject({ method: "GET", url: `/api/launchpad/tokens/${TOKEN}/seasons` });
+    expect(res.json()).toEqual({ seasons: [], featured: null });
+  });
+});
+
+describe("GET /api/launchpad/raffles", () => {
+  const OTHER = "0x3333333333333333333333333333333333333333";
+
+  it("returns one badge per token, in a single query", async () => {
+    listSeasonsForTokens.mockResolvedValueOnce([
+      { season_id: 5, status: 1, quote_token_address: TOKEN },
+      { season_id: 4, status: 5, quote_token_address: TOKEN },
+      { season_id: 2, status: 0, quote_token_address: OTHER },
+    ]);
+    const res = await app.inject({ method: "GET", url: `/api/launchpad/raffles?tokens=${TOKEN},${OTHER}` });
+    expect(res.statusCode).toBe(200);
+    expect(listSeasonsForTokens).toHaveBeenCalledTimes(1);
+    expect(res.json().raffles[TOKEN]).toMatchObject({ seasonId: 5, state: "live" });
+    expect(res.json().raffles[OTHER]).toMatchObject({ state: "upcoming" });
+  });
+
+  it("answers an empty list without touching the database", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/launchpad/raffles" });
+    expect(res.json()).toEqual({ raffles: {} });
+    expect(listSeasonsForTokens).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed addresses and oversized requests", async () => {
+    expect((await app.inject({ method: "GET", url: "/api/launchpad/raffles?tokens=nope" })).statusCode).toBe(400);
+    const many = Array.from({ length: 101 }, () => TOKEN).join(",");
+    expect((await app.inject({ method: "GET", url: `/api/launchpad/raffles?tokens=${many}` })).statusCode).toBe(400);
   });
 });

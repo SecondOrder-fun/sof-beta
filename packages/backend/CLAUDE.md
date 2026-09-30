@@ -49,6 +49,28 @@ The listener is skipped, at info level, when `TokenLaunchpad` is absent from the
 deployment JSON. That is a normal state: the raffle stack deploys independently of the
 launchpad, and deploy step 22 skips on a chain with no Uniswap v4.
 
+`launchTradeListener` indexes trades on launch pools into `launch_trades` from the v4
+PoolManager's `Swap` event. Three rules it depends on:
+
+- **Always filter by pool id at the RPC.** The PoolManager is a singleton, so an
+  unfiltered `Swap` query is every v4 swap on the chain. `contractEventPolling` takes an
+  `args` filter; a filter function returning `null` means "nothing to watch" and skips
+  the query — it never falls back to unfiltered (tested).
+- **Discover pools per block range.** The filter function receives the range about to be
+  queried and reads that range's `TokenLaunched` events first, so a new token's first
+  swaps are never skipped because the launch indexer lagged a tick.
+- **`amount0 < 0` is a BUY, and `sender` is the router.** Pinned against a real swap by
+  `contracts/test/UniV4LaunchRouter.t.sol:test_swapEventSignConvention_forTheIndexer`
+  (IPoolManager's own comment reads as the opposite sign). The real trader comes from
+  the router's `Bought`/`Sold` event in the same receipt, trusted only when emitted by
+  the swap's sender.
+
+Seasons link to launch tokens through `season_contracts.quote_token_address`, and record
+their grand-prize `winner_address` (migration 024). The launchpad's live surfaces read:
+`/api/launchpad/tokens/:address/chart`, `/tokens/:address/seasons`, `/raffles?tokens=`
+(badges for a page of cards), and `/api/activity` (the ticker's tokens and raffles rows).
+Shaping for all of them is pure, in `src/services/activityFeed.js`.
+
 ### Error Handling
 - Return structured JSON: `reply.code(400).send({ error: "message" })`
 - Use Fastify logger (`fastify.log.error()`, `request.log.info()`)

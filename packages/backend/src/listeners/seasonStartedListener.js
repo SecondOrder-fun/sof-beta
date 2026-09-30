@@ -79,6 +79,8 @@ async function processSeasonStartedLog(
       end_time: config.endTime != null ? Number(config.endTime) : null,
       winner_count: config.winnerCount != null ? Number(config.winnerCount) : null,
       grand_prize_bps: config.grandPrizeBps != null ? Number(config.grandPrizeBps) : null,
+      // The token this season is priced in — links the raffle to its launchpad token.
+      quote_token_address: config.quoteToken?.toLowerCase() ?? null,
       // On-chain status (SeasonStatus enum: 1 = Active)
       status: statusFromChain != null ? Number(statusFromChain) : 1,
       total_participants: totalParticipants != null ? totalParticipants.toString() : '0',

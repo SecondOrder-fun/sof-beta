@@ -31,6 +31,7 @@ import _LaunchToken from './LaunchToken.json' with { type: 'json' };
 import _UniV4LiquidityPlacer from './UniV4LiquidityPlacer.json' with { type: 'json' };
 import _PoolManager from './PoolManager.json' with { type: 'json' };
 import _ILaunchRouter from './ILaunchRouter.json' with { type: 'json' };
+import _UniV4LaunchRouter from './UniV4LaunchRouter.json' with { type: 'json' };
 
 // Helper: extract abi array from Foundry JSON or return as-is
 const e = (json) => json.abi || json;
@@ -65,3 +66,4 @@ export const LaunchTokenABI = e(_LaunchToken);
 export const UniV4LiquidityPlacerABI = e(_UniV4LiquidityPlacer);
 export const PoolManagerABI = e(_PoolManager);
 export const ILaunchRouterABI = e(_ILaunchRouter);
+export const UniV4LaunchRouterABI = e(_UniV4LaunchRouter);
