@@ -62,8 +62,9 @@ CREATE POLICY token_launches_read ON token_launches FOR SELECT USING (true);
 
 -- launch_trades is fed by launchTradeListener from PoolManager Swap events.
 --
--- Amounts are v4 balance deltas from the POOL's perspective, normalised here to
--- the trader's: `side` is BUY when ETH went in and tokens came out. ETH is
+-- The Swap event's amounts are the swapper's balance deltas (negative = paid
+-- in; pinned by test_swapEventSignConvention_forTheIndexer), stored here
+-- unsigned with a `side`: BUY when ETH went in and tokens came out. ETH is
 -- always currency0 and the launch token always currency1 (ETH is address(0),
 -- numerically below every token address), so the orientation is fixed and does
 -- not need storing per row.

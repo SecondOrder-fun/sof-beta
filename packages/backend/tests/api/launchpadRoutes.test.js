@@ -219,6 +219,18 @@ describe("GET /api/launchpad/tokens/:address/trades", () => {
     expect(res.json().trades).toEqual([]);
   });
 
+  // The token page renders from the chain even when the API hides a token, so
+  // the trade list (trader addresses included) must be hidden here too.
+  it("404s a hidden token's trades", async () => {
+    getTokenLaunch.mockResolvedValueOnce(row({ is_hidden: true }));
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/launchpad/tokens/${TOKEN}/trades`,
+    });
+    expect(res.statusCode).toBe(404);
+    expect(listLaunchTrades).not.toHaveBeenCalled();
+  });
+
   it("maps trade rows to the API shape", async () => {
     listLaunchTrades.mockResolvedValueOnce([
       {
