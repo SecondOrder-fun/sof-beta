@@ -75,7 +75,13 @@ Modular numbered scripts in `script/deploy/`:
   deploys the anyone-can-mint MockERC20 placeholder, which it refuses to do on any other
   chain. Replaced `01_DeploySOFToken`. `02_DeployRaffle` allowlists it as a quote token.
 - `01-13` — one contract each, in dependency order
-- `14_ConfigureRoles` — all role grants and wiring
+- `14_ConfigureRoles` — role grants and wiring between contracts
+- `24_GrantBackendWallet` — runs right after 14: grants `BACKEND_WALLET_ADDRESS` (the backend
+  wallet) `PAYMASTER_ROLE` on InfoFiMarketFactory, which gates `onPositionUpdate`. Required off
+  local (DeployAll checks before broadcasting anything); a no-op when the role is already held.
+  Standalone `run()` (factory from `INFOFI_FACTORY_ADDRESS` or the deployments file) is what
+  `scripts/grant-backend-wallet.sh --network <net>` calls for existing deploys and key
+  rotations; `--check` is read-only and is run by `deploy-env.sh`.
 - `20_DeployPoolManager` — local only; a real Uniswap v4 PoolManager on Anvil, so the launch
   path works end to end without forking. Elsewhere the v4 singleton already exists and comes
   from `HelperConfig.getPoolManager()` (`POOL_MANAGER_ADDRESS`, else

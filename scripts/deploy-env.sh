@@ -55,9 +55,18 @@ RAILWAY_EXIT=0
 "$SCRIPT_DIR/sync-env-railway.sh" "${PASSTHROUGH_ARGS[@]}" || RAILWAY_EXIT=$?
 echo ""
 
+# ── On-chain: backend wallet role ───────────────────────────────────
+# The backend wallet synced above must hold PAYMASTER_ROLE on InfoFiMarketFactory,
+# or its position updates revert. Read-only check; a new or rotated wallet is
+# granted with scripts/grant-backend-wallet.sh.
+echo "━━━ On-chain: backend wallet role ━━━"
+ROLE_EXIT=0
+"$SCRIPT_DIR/grant-backend-wallet.sh" --network "$NETWORK" --check || ROLE_EXIT=$?
+echo ""
+
 # ── Summary ─────────────────────────────────────────────────────────
 echo "╔══════════════════════════════════════════════════════╗"
-if [ "$VERCEL_EXIT" -eq 0 ] && [ "$RAILWAY_EXIT" -eq 0 ]; then
+if [ "$VERCEL_EXIT" -eq 0 ] && [ "$RAILWAY_EXIT" -eq 0 ] && [ "$ROLE_EXIT" -eq 0 ]; then
   echo "║  All syncs completed successfully                   ║"
 else
   echo "║  Some syncs failed — check output above             ║"
@@ -69,4 +78,4 @@ if [ -n "$DRY_RUN" ]; then
   echo "This was a DRY RUN. To apply changes, run without --dry-run."
 fi
 
-exit $(( VERCEL_EXIT + RAILWAY_EXIT ))
+exit $(( VERCEL_EXIT + RAILWAY_EXIT + ROLE_EXIT ))
