@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import TokenDetail from "@/routes/TokenDetail";
@@ -18,6 +18,17 @@ vi.mock("@/components/launchpad/BuyPanel", () => ({ default: () => <div>buy-pane
 vi.mock("@/components/launchpad/LaunchTrades", () => ({ default: () => <div>trades</div> }));
 vi.mock("@/components/launchpad/PriceChart", () => ({ default: () => <div>price-chart</div> }));
 vi.mock("@/components/launchpad/RaffleCard", () => ({ default: () => <div>raffle-card</div> }));
+// The card decides for itself whether to show (only for the fee recipient). The
+// stub numbers each mount, so a test can see whether it was remounted.
+vi.mock("@/components/launchpad/CreatorFeesCard", async () => {
+  const { useState } = await import("react");
+  let mounts = 0;
+  const Card = ({ token, symbol }) => {
+    const [mount] = useState(() => ++mounts);
+    return <div data-testid="creator-fees" data-mount={mount}>{`creator-fees:${token}:${symbol}`}</div>;
+  };
+  return { default: Card };
+});
 vi.mock("react-i18next", async (importOriginal) => ({
   ...(await importOriginal()),
   useTranslation: () => ({ t: (key) => key }),
@@ -65,6 +76,37 @@ describe("TokenDetail", () => {
     expect(screen.getByText("raffle-card")).toBeInTheDocument();
     expect(screen.getByText("detail.soldLabel")).toBeInTheDocument();
     expect(screen.getByText("trades")).toBeInTheDocument();
+  });
+
+  it("hands the creator fees card this launch, beside the buy panel", () => {
+    setup();
+    expect(screen.getByText(`creator-fees:${TOKEN}:POND`)).toBeInTheDocument();
+  });
+
+  // The route stays mounted across /tokens/:address changes; the card's claimed /
+  // handed-on state belongs to one token, so it must start fresh on another.
+  it("remounts the creator fees card when the page moves to another token", () => {
+    const OTHER = "0x3333333333333333333333333333333333333333";
+    useTokenLaunch.mockImplementation((address) => ({
+      data: { ...launch, token: address, symbol: address === OTHER ? "LAMP" : "POND" },
+      isLoading: false,
+      isAvailable: true,
+    }));
+    useTokenSeasons.mockReturnValue({ data: { seasons: [], featured: null } });
+    useLaunchMarkets.mockReturnValue({ markets: {} });
+    usePlatform.mockReturnValue({ isMobile: false, isMobileBrowser: false });
+    render(
+      <MemoryRouter initialEntries={[`/tokens/${TOKEN}`]}>
+        <Link to={`/tokens/${OTHER}`}>next</Link>
+        <Routes>
+          <Route path="/tokens/:address" element={<TokenDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    const first = screen.getByTestId("creator-fees").dataset.mount;
+    fireEvent.click(screen.getByText("next"));
+    expect(screen.getByText(`creator-fees:${OTHER}:LAMP`)).toBeInTheDocument();
+    expect(screen.getByTestId("creator-fees").dataset.mount).not.toBe(first);
   });
 
   it("puts the buy panel in the side column on desktop", () => {

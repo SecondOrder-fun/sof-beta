@@ -177,7 +177,10 @@ export function useSmartTransactions() {
    *   Only needed when the target contract specifically checks an EOA signature
    *   *and* the EOA's SMA cannot satisfy that check (i.e. role grants on the SMA
    *   are infeasible). Default `false` — admin writes route through Path A now
-   *   that 14_ConfigureRoles grants admin roles to admin SMAs.
+   *   that 14_ConfigureRoles grants admin roles to admin SMAs. Its one product
+   *   caller is a creator-fee claim or transfer whose fee recipient is the EOA
+   *   itself (lib/creatorFees.claimSender): the placer keys credits by
+   *   msg.sender, so a batch sent from the SMA would find nothing to claim.
    */
   const executeBatch = useCallback(async (calls, options = {}) => {
     const { sofAmount: _sofAmount, bypassSponsorship, ...sendOptions } = options;
@@ -196,11 +199,12 @@ export function useSmartTransactions() {
     // per-call sendTransaction guard at the bottom of this branch.
     //
     // `bypassSponsorship` opts a call out of Path A entirely. Reserved for
-    // edge cases where the contract specifically checks an EOA signature and
-    // the EOA's SMA cannot hold the matching role (e.g. one-off ownership
-    // proofs or migrations from contracts whose role admins can't be reached).
-    // Admin writes no longer use this — 14_ConfigureRoles grants admin roles
-    // to admin SMAs, so they route through Path A like every other user.
+    // edge cases where the contract specifically checks an EOA signature (or
+    // msg.sender) and the EOA's SMA cannot stand in for it (e.g. one-off ownership
+    // proofs, migrations from contracts whose role admins can't be reached, or
+    // creator fees credited to the EOA itself). Admin writes no longer use
+    // this — 14_ConfigureRoles grants admin roles to admin SMAs, so they route
+    // through Path A like every other user.
     if (!bypassSponsorship && walletType === 'desktop-eoa' && !isCoinbaseWallet) {
       // Hard requirements for Path A. Loud failure beats silent EOA fallback.
       if (!walletClient) throw new Error('Wallet client not ready');

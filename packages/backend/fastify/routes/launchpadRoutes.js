@@ -4,7 +4,9 @@
  * Mounted at /api/launchpad. Serves what the launch indexer stored, so the
  * frontend stops doing its own multicall fan-out:
  *
- *   /tokens, /tokens/:address        launches (tokenLaunchedListener)
+ *   /tokens, /tokens/:address        launches (tokenLaunchedListener);
+ *                                    /tokens?creator=0x… is one creator's
+ *                                    (the profile's creator fees)
  *   /tokens/:address/trades, /chart  pool trades (launchTradeListener)
  *   /tokens/:address/seasons,        raffle seasons priced in a token
  *   /raffles?tokens=                 (season_contracts; a live season's prize
@@ -106,17 +108,26 @@ export default async function launchpadRoutes(fastify) {
    * GET /api/launchpad/tokens — the discovery feed, newest first.
    *
    * Query: limit, offset, creator.
+   * `creator` (an address, any case; 400 if malformed) narrows the feed and its
+   * total to the launches that address created — the frontend's creator-fees list
+   * (useCreatorLaunches). It matches the launch's creator, not its current fee
+   * recipient: fees handed on with setFeeRecipient are not indexed. Hidden
+   * tokens stay out, as in the unfiltered feed.
    * Sorting beyond newest-first waits on the trade indexer; there is nothing to
    * sort by until volume is recorded.
    */
   fastify.get("/tokens", async (request, reply) => {
     const limit = clampInt(request.query?.limit, DEFAULT_LIMIT, MAX_LIMIT);
     const offset = clampInt(request.query?.offset, 0, Number.MAX_SAFE_INTEGER);
-    const creator = request.query?.creator;
+    const rawCreator = request.query?.creator;
 
-    if (creator && !ADDRESS_RE.test(creator)) {
+    // A repeated ?creator= arrives as an array; only one address is accepted.
+    if (rawCreator && (typeof rawCreator !== "string" || !ADDRESS_RE.test(rawCreator))) {
       return reply.code(400).send({ error: "invalid creator address" });
     }
+    // Stored lowercased (tokenLaunchesDb); lowercased here too, so the filter
+    // never depends on the DB layer remembering to.
+    const creator = rawCreator ? rawCreator.toLowerCase() : undefined;
 
     try {
       const [rows, total] = await Promise.all([

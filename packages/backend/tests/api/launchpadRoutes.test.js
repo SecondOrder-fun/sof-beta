@@ -147,6 +147,30 @@ describe("GET /api/launchpad/tokens", () => {
     expect(countTokenLaunches).toHaveBeenCalledWith(expect.objectContaining({ creator: CREATOR }));
   });
 
+  it("matches a checksummed creator by lowercasing it, for the list and the total", async () => {
+    const mixed = "0xAbCdEf0000000000000000000000000000000001";
+    await app.inject({ method: "GET", url: `/api/launchpad/tokens?creator=${mixed}&limit=100` });
+    expect(listTokenLaunches).toHaveBeenCalledWith(
+      expect.objectContaining({ creator: mixed.toLowerCase(), limit: 100 }),
+    );
+    expect(countTokenLaunches).toHaveBeenCalledWith(expect.objectContaining({ creator: mixed.toLowerCase() }));
+  });
+
+  it("does not ask for hidden tokens when filtering by creator", async () => {
+    await app.inject({ method: "GET", url: `/api/launchpad/tokens?creator=${CREATOR}` });
+    expect(listTokenLaunches.mock.calls[0][0].includeHidden).toBeFalsy();
+    expect(countTokenLaunches.mock.calls[0][0].includeHidden).toBeFalsy();
+  });
+
+  it("rejects a repeated creator rather than picking one", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/launchpad/tokens?creator=${CREATOR}&creator=${TOKEN}`,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(listTokenLaunches).not.toHaveBeenCalled();
+  });
+
   it("rejects a malformed creator address instead of querying with it", async () => {
     const res = await app.inject({
       method: "GET",
