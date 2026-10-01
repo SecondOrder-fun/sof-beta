@@ -40,3 +40,16 @@ export function getDeploymentMeta(network) {
   if (!deployment) throw new Error(`Unknown network: ${net}`);
   return deployment;
 }
+
+/**
+ * The block a contract was deployed in, where the deployment file records it
+ * (`deployBlocks`, written by scripts/extract-deployment-addresses.js from the
+ * broadcast receipts). Undefined when it is not recorded.
+ * @param {string} name     e.g. 'TokenLaunchpad'
+ * @param {string} [network]
+ * @returns {number | undefined}
+ */
+export function getDeployBlock(name, network) {
+  const block = getDeploymentMeta(network).deployBlocks?.[name];
+  return Number.isSafeInteger(block) && block >= 0 ? block : undefined;
+}

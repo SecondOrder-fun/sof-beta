@@ -31,7 +31,49 @@ function getPollBackoffMs(failures) {
  * @property {(logs: any[]) => Promise<void> | void} onLogs
  * @property {(error: unknown) => void} [onError]
  * @property {{ get: () => Promise<bigint|null>, set: (block: bigint) => Promise<void>, flush?: () => Promise<void> }} [blockCursor]
+ * @property {bigint} [resumeNoLaterThan]
+ *   Start at this block if it is earlier than where the cursor (or head) would
+ *   start. For a boot scan that failed partway: the poller re-covers the
+ *   failed range instead of starting past it.
+ * @property {EventFilter | EventFilter[] | ((range: { fromBlock: bigint, toBlock: bigint }) => Promise<EventFilter|EventFilter[]|null> | EventFilter | EventFilter[] | null)} [args]
+ *   Indexed-argument filter passed to getContractEvents. An ARRAY of filters
+ *   is one query per filter over the same range, run in parallel and merged in
+ *   log order — for an
+ *   OR-list too long for one getLogs (e.g. hundreds of pool ids). A function
+ *   is called per chunk WITH that chunk's block range, for filters that grow —
+ *   e.g. launch pools, where the filter must include pools created inside the
+ *   very range about to be queried, or a new pool's first swaps are skipped.
+ *   Returning null or an empty array means "nothing to watch yet": the chunk
+ *   is treated as empty rather than queried UNFILTERED — for a singleton like
+ *   the v4 PoolManager, an unfiltered query is every swap on the chain.
  */
+
+/** @typedef {Record<string, unknown>} EventFilter */
+
+/** A filter that means "watch nothing" (as opposed to `undefined`, "no filter"). */
+function isEmptyFilter(filter) {
+  return filter === null || (Array.isArray(filter) && filter.length === 0);
+}
+
+/** Ascending (blockNumber, logIndex) — the order a single getLogs returns. */
+function byLogOrder(a, b) {
+  const bn = BigInt(a.blockNumber ?? 0) - BigInt(b.blockNumber ?? 0);
+  if (bn !== 0n) return bn < 0n ? -1 : 1;
+  return Number(a.logIndex ?? 0) - Number(b.logIndex ?? 0);
+}
+
+/**
+ * One block range, queried once per filter when given several — all in
+ * parallel, merged back into chain (blockNumber, logIndex) order. Any query
+ * failing fails the whole range.
+ * @param {(filter: EventFilter | undefined) => Promise<any[]>} query
+ * @param {EventFilter | EventFilter[] | undefined} filter  never an empty filter
+ */
+async function queryEachFilter(query, filter) {
+  if (!Array.isArray(filter)) return query(filter);
+  const logs = (await Promise.all(filter.map((f) => query(f)))).flat();
+  return filter.length > 1 ? logs.sort(byLogOrder) : logs;
+}
 
 /**
  * Returns an async stop function. Awaiting it ensures the cursor's
@@ -54,6 +96,8 @@ export async function startContractEventPolling(params) {
     onLogs,
     onError,
     blockCursor,
+    args,
+    resumeNoLaterThan,
   } = params;
 
   if (!client) {
@@ -124,6 +168,9 @@ export async function startContractEventPolling(params) {
     const currentBlock = await getCurrentBlock();
     lastProcessedBlock = currentBlock + 1n;
   }
+  if (typeof resumeNoLaterThan === "bigint" && resumeNoLaterThan < lastProcessedBlock) {
+    lastProcessedBlock = resumeNoLaterThan;
+  }
 
   const tick = async () => {
     if (stopped) return;
@@ -161,14 +208,30 @@ export async function startContractEventPolling(params) {
         const chunkSize = remaining > maxBlockRange ? maxBlockRange : remaining;
         const chunkToBlock = fromBlock + chunkSize;
 
-        const logs = await client.getContractEvents({
-          address,
-          abi,
-          eventName,
-          fromBlock,
-          toBlock: chunkToBlock,
-        });
+        let filter =
+          typeof args === "function" ? await args({ fromBlock, toBlock: chunkToBlock }) : args;
+        // A function returning undefined means the same as null here.
+        if (typeof args === "function" && filter === undefined) filter = null;
+        // An empty filter has nothing to watch: skip the query (never fall
+        // back to an unfiltered one) and still advance.
+        const logs = isEmptyFilter(filter)
+          ? []
+          : await queryEachFilter(
+              (f) =>
+                client.getContractEvents({
+                  address,
+                  abi,
+                  eventName,
+                  ...(f ? { args: f } : {}),
+                  fromBlock,
+                  toBlock: chunkToBlock,
+                }),
+              filter,
+            );
 
+        // A throw here (or from the filter function, or a query) fails the
+        // whole tick before the cursor below moves, so the range is retried
+        // on the next tick — onLogs must throw on anything it could not store.
         if (logs.length > 0) {
           await onLogs(logs);
         }
@@ -336,9 +399,11 @@ export async function getContractEventsInChunks(params) {
     toBlock,
     maxBlockRange = 2_000n,
     maxRetries = 5,
+    args,
   } = params;
 
-  if (fromBlock > toBlock) return [];
+  // An empty filter list watches nothing — never an unfiltered query.
+  if (fromBlock > toBlock || isEmptyFilter(args)) return [];
 
   /** @type {any[]} */
   const allLogs = [];
@@ -349,28 +414,31 @@ export async function getContractEventsInChunks(params) {
     const chunkSize = remaining > maxBlockRange ? maxBlockRange : remaining;
     const currentTo = currentFrom + chunkSize;
 
-    let attempt = 0;
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      try {
-        const logs = await client.getContractEvents({
-          address,
-          abi,
-          eventName,
-          fromBlock: currentFrom,
-          toBlock: currentTo,
-        });
-        allLogs.push(...logs);
-        break;
-      } catch (error) {
-        attempt += 1;
-        if (!isTransientRpcError(error) || attempt > maxRetries) {
-          throw error;
-        }
+    const queryWithRetry = async (filter) => {
+      let attempt = 0;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        try {
+          return await client.getContractEvents({
+            address,
+            abi,
+            eventName,
+            ...(filter ? { args: filter } : {}),
+            fromBlock: currentFrom,
+            toBlock: currentTo,
+          });
+        } catch (error) {
+          attempt += 1;
+          if (!isTransientRpcError(error) || attempt > maxRetries) {
+            throw error;
+          }
 
-        await sleep(getBackoffMs(attempt));
+          await sleep(getBackoffMs(attempt));
+        }
       }
-    }
+    };
+
+    allLogs.push(...(await queryEachFilter(queryWithRetry, args)));
 
     currentFrom = currentTo + 1n;
   }

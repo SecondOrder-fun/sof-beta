@@ -26,6 +26,11 @@ const TRADE_COLUMNS =
 
 const lc = (v) => (v == null ? v : String(v).toLowerCase());
 
+/** Rows per listPoolIndex page; PostgREST's default max-rows is 1,000. */
+export const POOL_INDEX_PAGE = 1_000;
+/** Trades per insertLaunchTrades request. */
+export const INSERT_BATCH = 500;
+
 /**
  * Insert a launch, ignoring one that is already indexed.
  *
@@ -55,7 +60,11 @@ export async function insertTokenLaunch(launch) {
     // A concurrent insert of the same token is the check-then-insert race, and
     // it means the row exists — which is the outcome we wanted.
     if (error.code === "23505") return false;
-    throw new Error(`tokenLaunchesDb.insertTokenLaunch: ${error.message}`);
+    // Keep the SQLSTATE: the caller tells a row that can never be stored
+    // (constraint / data errors) from a failure worth retrying by it.
+    throw Object.assign(new Error(`tokenLaunchesDb.insertTokenLaunch: ${error.message}`), {
+      code: error.code,
+    });
   }
   return true;
 }
@@ -129,17 +138,20 @@ export async function listTokenLaunches({
 
 /**
  * How many launches are indexed. Separate from the list so a page of 24 does
- * not have to fetch every row to show a total.
+ * not have to fetch every row to show a total. Takes the same filters as
+ * listTokenLaunches, so the total matches the list it pages.
  * @param {object} [options]
+ * @param {string} [options.creator] — count one creator's launches
  * @param {boolean} [options.includeHidden=false]
  */
-export async function countTokenLaunches({ includeHidden = false } = {}) {
+export async function countTokenLaunches({ creator, includeHidden = false } = {}) {
   if (!hasSupabase) return 0;
   let query = supabase.from(LAUNCHES).select("token_address", {
     count: "exact",
     head: true,
   });
   if (!includeHidden) query = query.eq("is_hidden", false);
+  if (creator) query = query.eq("creator_address", lc(creator));
   const { count, error } = await query;
   if (error) {
     throw new Error(`tokenLaunchesDb.countTokenLaunches: ${error.message}`);
@@ -154,11 +166,19 @@ export async function countTokenLaunches({ includeHidden = false } = {}) {
  * same reason insertTokenLaunch tolerates a repeat. Uses ignoreDuplicates
  * rather than a merge: a swap log never changes.
  *
+ * Returns the keys of the rows THIS call inserted — ON CONFLICT DO NOTHING
+ * ... RETURNING yields only those — so a caller broadcasting live trades can
+ * skip the duplicates a restart or a retried range re-sends. Sent in batches
+ * of INSERT_BATCH, which also keeps each RETURNING set under PostgREST's
+ * row cap.
+ *
  * @param {object[]} trades
- * @returns {Promise<number>} rows sent (not necessarily inserted)
+ * @param {{ batchSize?: number }} [opts]
+ * @returns {Promise<{ tx_hash: string, log_index: number }[]>} inserted keys,
+ *   tx_hash lowercase
  */
-export async function insertLaunchTrades(trades) {
-  if (!hasSupabase || !trades?.length) return 0;
+export async function insertLaunchTrades(trades, { batchSize = INSERT_BATCH } = {}) {
+  if (!hasSupabase || !trades?.length) return [];
 
   const rows = trades.map((t) => ({
     ...t,
@@ -168,14 +188,18 @@ export async function insertLaunchTrades(trades) {
     trader: lc(t.trader),
   }));
 
-  const { error } = await supabase
-    .from(TRADES)
-    .upsert(rows, { onConflict: "tx_hash,log_index", ignoreDuplicates: true });
-
-  if (error) {
-    throw new Error(`tokenLaunchesDb.insertLaunchTrades: ${error.message}`);
+  const inserted = [];
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const { data, error } = await supabase
+      .from(TRADES)
+      .upsert(rows.slice(i, i + batchSize), { onConflict: "tx_hash,log_index", ignoreDuplicates: true })
+      .select("tx_hash, log_index");
+    if (error) {
+      throw new Error(`tokenLaunchesDb.insertLaunchTrades: ${error.message}`);
+    }
+    inserted.push(...(data || []));
   }
-  return rows.length;
+  return inserted;
 }
 
 /**
@@ -195,11 +219,42 @@ export async function listLaunchTrades(
     .select(TRADE_COLUMNS)
     .eq("token_address", lc(tokenAddress))
     .order("block_number", { ascending: false })
+    .order("log_index", { ascending: false })
     .range(offset, offset + limit - 1);
   if (error) {
     throw new Error(`tokenLaunchesDb.listLaunchTrades: ${error.message}`);
   }
   return data || [];
+}
+
+
+/**
+ * Every launch pool the index knows about: pool id -> token and symbol. The
+ * trade listener's starting map; it adds pools it discovers on-chain itself.
+ *
+ * Paged by token_address keyset until exhausted: PostgREST caps a response
+ * (1,000 rows by default), and a truncated map would leave pools unwatched.
+ *
+ * @param {{ pageSize?: number }} [opts]
+ * @returns {Promise<{ pool_id: string, token_address: string, symbol: string|null }[]>}
+ */
+export async function listPoolIndex({ pageSize = POOL_INDEX_PAGE } = {}) {
+  if (!hasSupabase) return [];
+  const all = [];
+  for (;;) {
+    let q = supabase
+      .from(LAUNCHES)
+      .select("pool_id, token_address, symbol")
+      .not("pool_id", "is", null);
+    const last = all.at(-1);
+    if (last) q = q.gt("token_address", last.token_address);
+    const { data, error } = await q.order("token_address", { ascending: true }).limit(pageSize);
+    if (error) {
+      throw new Error(`tokenLaunchesDb.listPoolIndex: ${error.message}`);
+    }
+    all.push(...(data || []));
+    if (!data || data.length < pageSize) return all;
+  }
 }
 
 export const tokenLaunchesDb = {
@@ -210,4 +265,5 @@ export const tokenLaunchesDb = {
   countTokenLaunches,
   insertLaunchTrades,
   listLaunchTrades,
+  listPoolIndex,
 };

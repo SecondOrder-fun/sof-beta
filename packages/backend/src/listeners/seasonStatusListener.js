@@ -44,7 +44,7 @@ const STATUS = {
 // Per-event log processors
 // ---------------------------------------------------------------------------
 
-async function processSeasonCreated(log, raffleAddress, raffleAbi, logger, sseService) {
+export async function processSeasonCreated(log, raffleAddress, raffleAbi, logger, sseService) {
   const { seasonId, name, startTime, endTime, raffleToken, bondingCurve } = log.args;
   const seasonIdNum = Number(seasonId);
 
@@ -56,6 +56,7 @@ async function processSeasonCreated(log, raffleAddress, raffleAbi, logger, sseSe
     let totalPrizePool = '0';
     let winnerCount = null;
     let grandPrizeBps = null;
+    let quoteToken = null;
 
     try {
       const { RaffleABI } = await import('@sof/contracts');
@@ -73,6 +74,7 @@ async function processSeasonCreated(log, raffleAddress, raffleAbi, logger, sseSe
       if (details?.[4] != null) totalPrizePool = details[4].toString();
       winnerCount = cfg.winnerCount != null ? Number(cfg.winnerCount) : null;
       grandPrizeBps = cfg.grandPrizeBps != null ? Number(cfg.grandPrizeBps) : null;
+      quoteToken = cfg.quoteToken ? String(cfg.quoteToken).toLowerCase() : null;
     } catch (readErr) {
       logger.warn(`[SEASON_STATUS_LISTENER] getSeasonDetails failed for SeasonCreated ${seasonIdNum}: ${readErr.message}`);
     }
@@ -96,8 +98,12 @@ async function processSeasonCreated(log, raffleAddress, raffleAbi, logger, sseSe
       name: name ?? null,
       start_time: startTime != null ? Number(startTime) : null,
       end_time: endTime != null ? Number(endTime) : null,
-      winner_count: winnerCount,
-      grand_prize_bps: grandPrizeBps,
+      // Config fields only when the read produced them: on a replay, a failed
+      // read must not write null over values already stored. This also fills
+      // quote_token_address on rows written before migration 024.
+      ...(winnerCount != null ? { winner_count: winnerCount } : {}),
+      ...(grandPrizeBps != null ? { grand_prize_bps: grandPrizeBps } : {}),
+      ...(quoteToken ? { quote_token_address: quoteToken } : {}),
       status: finalStatus,
       total_participants: totalParticipants,
       total_tickets: totalTickets,

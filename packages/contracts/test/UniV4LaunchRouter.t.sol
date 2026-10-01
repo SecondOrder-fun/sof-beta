@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import {Test} from "forge-std/Test.sol";
+import {Test, Vm} from "forge-std/Test.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
@@ -231,6 +231,37 @@ contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
         vm.prank(buyer);
         (bool ok,) = address(router).call{value: 1 ether}("");
         assertFalse(ok, "no receive(): ETH only enters through buy()");
+    }
+
+    // ------------------------------------------------------------------
+    // What the trade indexer assumes about PoolManager's Swap event
+    // ------------------------------------------------------------------
+
+    /// The backend classifies every launch trade from the PoolManager's Swap event:
+    /// amount0 < 0 means BUY. IPoolManager's own doc comment calls amount0 "the delta of
+    /// the currency0 balance of the pool", which reads as the OPPOSITE sign. This pins
+    /// what the event actually carries on a real swap, so the indexer rests on
+    /// behaviour rather than on a comment.
+    function test_swapEventSignConvention_forTheIndexer() public {
+        vm.recordLogs();
+        uint256 before = buyer.balance;
+        uint256 tokensOut = _buy(0.1 ether, 0);
+        uint256 ethSpent = before - buyer.balance;
+
+        bytes32 swapSig = keccak256("Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)");
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bool found;
+        for (uint256 i; i < logs.length; i++) {
+            if (logs[i].emitter != address(manager) || logs[i].topics[0] != swapSig) continue;
+            (int128 amount0, int128 amount1,,,,) = abi.decode(logs[i].data, (int128, int128, uint160, uint128, int24, uint24));
+            assertLt(amount0, 0, "a BUY emits NEGATIVE amount0 (ETH the caller paid in)");
+            assertGt(amount1, 0, "and POSITIVE amount1 (tokens the caller received)");
+            assertEq(uint256(uint128(-amount0)), ethSpent, "|amount0| is the ETH spent");
+            assertEq(uint256(uint128(amount1)), tokensOut, "amount1 is the tokens out");
+            assertEq(address(uint160(uint256(logs[i].topics[2]))), address(router), "sender is the router, not the trader");
+            found = true;
+        }
+        assertTrue(found, "PoolManager emitted a Swap");
     }
 
     // ------------------------------------------------------------------

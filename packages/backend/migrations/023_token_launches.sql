@@ -82,8 +82,9 @@ CREATE POLICY token_launches_read ON token_launches FOR SELECT USING (true);
 
 -- launch_trades is fed by launchTradeListener from PoolManager Swap events.
 --
--- Amounts are v4 balance deltas from the POOL's perspective, normalised here to
--- the trader's: `side` is BUY when ETH went in and tokens came out. ETH is
+-- The Swap event's amounts are the swapper's balance deltas (negative = paid
+-- in; pinned by test_swapEventSignConvention_forTheIndexer), stored here
+-- unsigned with a `side`: BUY when ETH went in and tokens came out. ETH is
 -- always currency0 and the launch token always currency1 (ETH is address(0),
 -- numerically below every token address), so the orientation is fixed and does
 -- not need storing per row.
@@ -97,7 +98,8 @@ CREATE TABLE IF NOT EXISTS launch_trades (
   log_index INTEGER NOT NULL,
   token_address TEXT NOT NULL REFERENCES token_launches (token_address) ON DELETE CASCADE,
   pool_id TEXT NOT NULL,
-  trader TEXT,                            -- the Swap's `sender`: usually a router, not the EOA
+  trader TEXT,                            -- the account, from the launch router's Bought/Sold event;
+                                          -- the Swap's `sender` (e.g. the router) only if that is impossible
   side TEXT NOT NULL CHECK (side IN ('BUY', 'SELL')),
   eth_amount TEXT NOT NULL,               -- wei, unsigned
   token_amount TEXT NOT NULL,             -- raw units, unsigned

@@ -82,6 +82,9 @@ const CONTRACTS_TO_EXPORT = [
   // Clients trade through the INTERFACE, never an implementation's ABI: the active router
   // is read from TokenLaunchpad.router(), so swapping implementations needs no client change.
   { source: 'ILaunchRouter.sol/ILaunchRouter.json', name: 'ILaunchRouter' },
+  // Backend only: the trade indexer decodes this router's Bought/Sold events to credit a
+  // swap to the real trader instead of the router contract that called the PoolManager.
+  { source: 'UniV4LaunchRouter.sol/UniV4LaunchRouter.json', name: 'UniV4LaunchRouter' },
 ];
 
 async function exportAbis() {

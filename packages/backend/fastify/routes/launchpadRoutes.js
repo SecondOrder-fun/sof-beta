@@ -1,8 +1,18 @@
 /**
  * launchpadRoutes — the read side of the launch indexer.
  *
- * Mounted at /api/launchpad. Serves what tokenLaunchedListener indexed, so the
- * frontend's discovery feed stops doing its own multicall fan-out.
+ * Mounted at /api/launchpad. Serves what the launch indexer stored, so the
+ * frontend stops doing its own multicall fan-out:
+ *
+ *   /tokens, /tokens/:address        launches (tokenLaunchedListener)
+ *   /tokens/:address/trades, /chart  pool trades (launchTradeListener)
+ *   /tokens/:address/seasons,        raffle seasons priced in a token
+ *   /raffles?tokens=                 (season_contracts; a live season's prize
+ *                                    pool from its curve's curve_state)
+ *
+ * Shaping for the chart, seasons and raffles lives in
+ * src/services/activityFeed.js. A hidden token 404s on the token, chart and
+ * seasons routes and is omitted from /tokens and /raffles.
  *
  * Rows are returned in the shape the frontend already uses on-chain (camelCase,
  * bigints as strings) rather than raw snake_case columns. That is deliberate:
@@ -11,6 +21,15 @@
  */
 
 import { tokenLaunchesDb } from "../../shared/services/tokenLaunchesDb.js";
+import { launchpadActivityDb } from "../../shared/services/launchpadActivityDb.js";
+import {
+  CHART_RANGES,
+  buildChart,
+  liveSeasonCurves,
+  pickRaffleForToken,
+  summarizeSeason,
+  withLivePrizePools,
+} from "../../src/services/activityFeed.js";
 
 const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 
@@ -68,6 +87,20 @@ function toTradeResponse(row) {
   };
 }
 
+const MAX_BADGE_TOKENS = 100;
+
+/**
+ * Seasons with each live one's prize pool read from its curve's current
+ * reserves (activityFeed.withLivePrizePools) — one curve_state query for the
+ * whole list, none when no season is live.
+ * @param {object[]} seasons
+ */
+async function withLiveNumbers(seasons) {
+  const curves = liveSeasonCurves(seasons);
+  if (!curves.length) return seasons;
+  return withLivePrizePools(seasons, await launchpadActivityDb.curveReserves(curves));
+}
+
 export default async function launchpadRoutes(fastify) {
   /**
    * GET /api/launchpad/tokens — the discovery feed, newest first.
@@ -88,7 +121,7 @@ export default async function launchpadRoutes(fastify) {
     try {
       const [rows, total] = await Promise.all([
         tokenLaunchesDb.listTokenLaunches({ limit, offset, creator }),
-        tokenLaunchesDb.countTokenLaunches(),
+        tokenLaunchesDb.countTokenLaunches({ creator }),
       ]);
       return { launches: rows.map(toLaunchResponse), total, limit, offset };
     } catch (err) {
@@ -126,8 +159,9 @@ export default async function launchpadRoutes(fastify) {
    * GET /api/launchpad/tokens/:address/trades — trade history, newest first.
    *
    * Empty until launchTradeListener indexes pool swaps. An empty array is the
-   * honest answer for a token with no trades, so this does not distinguish the
-   * two cases — the token's own 404 above does.
+   * honest answer for a token with no trades. A hidden token 404s here as on
+   * every other launchpad route: its page still renders from the chain, so its
+   * trades (with trader addresses) must not.
    */
   fastify.get("/tokens/:address/trades", async (request, reply) => {
     const { address } = request.params;
@@ -143,6 +177,10 @@ export default async function launchpadRoutes(fastify) {
     const offset = clampInt(request.query?.offset, 0, Number.MAX_SAFE_INTEGER);
 
     try {
+      const launch = await tokenLaunchesDb.getTokenLaunch(address);
+      if (launch?.is_hidden) {
+        return reply.code(404).send({ error: "token not found" });
+      }
       const rows = await tokenLaunchesDb.listLaunchTrades(address, {
         limit,
         offset,
@@ -151,6 +189,129 @@ export default async function launchpadRoutes(fastify) {
     } catch (err) {
       request.log.error({ err, address }, "launchpad trades lookup failed");
       return reply.code(500).send({ error: "failed to load trades" });
+    }
+  });
+
+  /**
+   * GET /api/launchpad/tokens/:address/chart?range=1h|6h|24h|all
+   *
+   * Price points for the chart, oldest first. The first point is the price in
+   * force when the range opens (the last earlier trade, or the launch price),
+   * so a quiet range still draws a line. Built from every trade in range up to
+   * 50,000 (launchpadActivityDb.CHART_TRADE_CAP); past it the oldest are
+   * dropped, `truncated` is true, and
+   * the line enters at the newest trade left out rather than the launch
+   * price. Capped at 300 points.
+   */
+  fastify.get("/tokens/:address/chart", async (request, reply) => {
+    const { address } = request.params;
+    if (!ADDRESS_RE.test(address || "")) {
+      return reply.code(400).send({ error: "invalid token address" });
+    }
+    const range = request.query?.range ?? "24h";
+    // Own keys only: `in` would accept inherited ones (toString, __proto__…).
+    if (typeof range !== "string" || !Object.hasOwn(CHART_RANGES, range)) {
+      return reply.code(400).send({ error: `range must be one of ${Object.keys(CHART_RANGES).join(", ")}` });
+    }
+
+    try {
+      const launch = await tokenLaunchesDb.getTokenLaunch(address);
+      if (!launch || launch.is_hidden) {
+        return reply.code(404).send({ error: "token not found" });
+      }
+      const nowSec = Math.floor(Date.now() / 1000);
+      const rangeSec = CHART_RANGES[range];
+      const sinceIso = rangeSec == null ? null : new Date((nowSec - rangeSec) * 1000).toISOString();
+
+      const { trades, truncated, before } = await launchpadActivityDb.listTradesSince(address, sinceIso);
+      // The seed is the price in force where the line enters. A truncated
+      // range enters at `before` (the newest trade the cap left out), so the
+      // last trade before the range is only read for a complete one.
+      const seed = truncated ? before : await launchpadActivityDb.lastTradeBefore(address, sinceIso);
+
+      const chart = buildChart({
+        trades,
+        seed,
+        truncated,
+        launch: { launchedAt: launch.launched_at, startPriceWei: launch.start_price_wei },
+        rangeSec,
+        nowSec,
+      });
+      return { range, tradeCount: trades.length, truncated, ...chart };
+    } catch (err) {
+      request.log.error({ err, address }, "launchpad chart failed");
+      return reply.code(500).send({ error: "failed to load chart" });
+    }
+  });
+
+  /**
+   * GET /api/launchpad/tokens/:address/seasons
+   *
+   * Every raffle season priced in this token, newest first, plus the one the
+   * raffle card should lead with (live > drawing > upcoming > latest result).
+   * A live season's prizePool is its curve's current reserves; participants
+   * are as season_contracts last recorded them. 404 for a hidden token, like
+   * the token and chart routes.
+   */
+  fastify.get("/tokens/:address/seasons", async (request, reply) => {
+    const { address } = request.params;
+    if (!ADDRESS_RE.test(address || "")) {
+      return reply.code(400).send({ error: "invalid token address" });
+    }
+    try {
+      const [hidden, seasons] = await Promise.all([
+        launchpadActivityDb.hiddenTokens([address]),
+        launchpadActivityDb.listSeasonsForToken(address),
+      ]);
+      if (hidden.size) {
+        return reply.code(404).send({ error: "token not found" });
+      }
+      const current = await withLiveNumbers(seasons);
+      return { seasons: current.map(summarizeSeason), featured: pickRaffleForToken(current) };
+    } catch (err) {
+      request.log.error({ err, address }, "launchpad seasons failed");
+      return reply.code(500).send({ error: "failed to load seasons" });
+    }
+  });
+
+  /**
+   * GET /api/launchpad/raffles?tokens=0x..,0x..
+   *
+   * The raffle badge for a page of token cards, in one request: token -> the
+   * season its badge shows (prize pool live, as in /tokens/:address/seasons).
+   * Tokens with no season, and hidden tokens, are omitted.
+   */
+  fastify.get("/raffles", async (request, reply) => {
+    const tokens = String(request.query?.tokens ?? "")
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (tokens.some((t) => !ADDRESS_RE.test(t))) {
+      return reply.code(400).send({ error: "invalid token address" });
+    }
+    if (tokens.length > MAX_BADGE_TOKENS) {
+      return reply.code(400).send({ error: `at most ${MAX_BADGE_TOKENS} tokens per request` });
+    }
+    if (!tokens.length) return { raffles: {} };
+
+    try {
+      const [hidden, seasons] = await Promise.all([
+        launchpadActivityDb.hiddenTokens(tokens),
+        launchpadActivityDb.listSeasonsForTokens(tokens),
+      ]);
+      const visible = seasons.filter((s) => !hidden.has(String(s.quote_token_address).toLowerCase()));
+      const byToken = new Map();
+      for (const s of await withLiveNumbers(visible)) {
+        const key = s.quote_token_address;
+        if (!byToken.has(key)) byToken.set(key, []);
+        byToken.get(key).push(s);
+      }
+      const raffles = {};
+      for (const [token, list] of byToken) raffles[token] = pickRaffleForToken(list);
+      return { raffles };
+    } catch (err) {
+      request.log.error({ err }, "launchpad raffles failed");
+      return reply.code(500).send({ error: "failed to load raffles" });
     }
   });
 }
