@@ -359,6 +359,13 @@ describe("deriveMarketState", () => {
     expect(m.launchSqrtX96).toBe(FIX.launchSqrt);
   });
 
+  it("carries the pool's actual launch price, consistent with the launch FDV", () => {
+    const m = deriveMarketState({ slot0Word: FIX.slot0Word, liquidityWord: "0x0", placement, wholeSupply: WHOLE_SUPPLY });
+    // Untraded: the pool sits exactly at its launch price.
+    expect(m.launchPriceWei).toBe(m.priceWei);
+    expect(m.launchPriceWei * WHOLE_SUPPLY).toBe(m.launchFdvWei);
+  });
+
   it("puts sellout at about 100x the launch valuation — the placer's 46,000-tick range", () => {
     const m = deriveMarketState({ slot0Word: FIX.slot0Word, liquidityWord: "0x0", placement, wholeSupply: WHOLE_SUPPLY });
     const ratio = Number(m.selloutFdvWei) / Number(m.launchFdvWei);

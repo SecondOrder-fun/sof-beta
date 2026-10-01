@@ -14,6 +14,7 @@ import { useUsernameContext } from "@/context/UsernameContext";
 import { ContractAddressValidator } from "@/components/dev/ContractAddressValidator";
 import { usePlatform } from "@/hooks/usePlatform";
 import MobileHeader from "@/components/mobile/MobileHeader";
+import ActivityTicker from "@/components/layout/ActivityTicker";
 import BottomNav from "@/components/mobile/BottomNav";
 import { useSafeArea } from "@/hooks/useSafeArea";
 
@@ -34,6 +35,7 @@ const App = () => {
         }}
       >
         <MobileHeader />
+        <ActivityTicker compact />
         <FirstConnectBanner />
         <SignInRetryBanner />
         <SweepBanner />
@@ -47,10 +49,12 @@ const App = () => {
     );
   }
 
-  // Desktop layout
+  // Desktop layout — also what a mobile browser gets, so the ticker goes
+  // compact there.
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Header />
+      <ActivityTicker compact={isMobileBrowser} />
       <FirstConnectBanner />
       <SignInRetryBanner />
       <SweepBanner />

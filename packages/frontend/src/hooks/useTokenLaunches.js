@@ -3,14 +3,15 @@
 // The discovery feed, read straight from the chain.
 //
 // This deliberately does NOT go through the backend, unlike `useAllSeasons`. The
-// backend indexes launches (GET /api/launchpad/tokens) but has no trade history
-// or metadata yet, so it would add a dependency without adding data — and a feed
-// that depended on it would go blank wherever the backend lags a fresh deploy.
-// The launchpad stores every launch in an array, so newest-first paging is two
-// multicalls and no infrastructure.
+// backend indexes launches (GET /api/launchpad/tokens) but not metadata yet, so
+// it would add a dependency without adding data — and a feed that depended on
+// it would go blank wherever the backend lags a fresh deploy. The launchpad
+// stores every launch in an array, so newest-first paging is two multicalls and
+// no infrastructure. (Trade history, which the chain cannot answer, is read from
+// the backend: see useLaunchActivity.)
 //
-// Once trade volume and metadata are indexed, the backend becomes the primary
-// and this the fallback: neither can be read from `getLaunch`.
+// Once metadata is indexed and the feed sorts by volume, the backend becomes the
+// primary and this the fallback.
 
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { usePublicClient } from 'wagmi';

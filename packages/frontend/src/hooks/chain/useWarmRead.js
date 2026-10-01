@@ -22,10 +22,12 @@ export function useWarmRead({
   refetchInterval,
   staleTime = WARM_DEFAULT_STALE,
   enabled = true,
+  placeholderData,
 }) {
   return useQuery({
     queryKey: ['warm', path, serializeParamsForKey(params)],
     enabled,
+    placeholderData,
     staleTime,
     refetchInterval,
     retry: 1,

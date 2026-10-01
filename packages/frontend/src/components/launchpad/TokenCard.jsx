@@ -1,5 +1,13 @@
 // src/components/launchpad/TokenCard.jsx
-// One launched token in the discovery grid.
+// One launched token in the discovery grid, with its raffle badge when a
+// season is priced in it. The live raffle strip's "X left" follows the clock
+// (useNow) rather than freezing at first render; the clock runs inside
+// RaffleTimeLeft, so a card with no countdown on it keeps no timer.
+//
+// The strip's prize is the pool from the one batched badge request (the backend
+// reads a live season's from its curve), not a curve read per card. A pool of
+// zero — nothing sold yet, or not known — shows the season alone rather than
+// "0 POND".
 
 import PropTypes from "prop-types";
 import { Link } from "react-router-dom";
@@ -10,10 +18,38 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import TokenArt from "@/components/launchpad/TokenArt";
+import RaffleBadge from "@/components/launchpad/RaffleBadge";
+import { useNow } from "@/hooks/useNow";
 import { shortAddress } from "@/lib/format";
-import { formatAge, formatFdvEth, formatMultiple, formatPercent } from "@/lib/launchFormat";
+import {
+  formatAge,
+  formatFdvEth,
+  formatMultiple,
+  formatPercent,
+  formatSupply,
+  formatTimeLeft,
+} from "@/lib/launchFormat";
 
-const TokenCard = ({ launch, market }) => {
+const RaffleTimeLeft = ({ endTime }) => {
+  const { t } = useTranslation("launchpad");
+  const nowMs = useNow();
+  return (
+    <span className="shrink-0 text-muted-foreground">
+      {t("card.raffleLeft", { time: formatTimeLeft(endTime, t, nowMs) })}
+    </span>
+  );
+};
+
+RaffleTimeLeft.propTypes = { endTime: PropTypes.number.isRequired };
+
+/** The live strip's label: the season, with its pool when there is one to name. */
+const raffleStripLabel = (raffle, symbol, t) => {
+  const season = raffle.name || t("raffle.season", { id: raffle.seasonId });
+  const pool = BigInt(raffle.prizePool ?? 0);
+  return pool > 0n ? t("card.raffleStrip", { season, prize: formatSupply(pool), symbol }) : season;
+};
+
+const TokenCard = ({ launch, market, raffle }) => {
   const { t } = useTranslation("launchpad");
 
   return (
@@ -33,6 +69,7 @@ const TokenCard = ({ launch, market }) => {
           <Badge variant="secondary" className="absolute left-3 top-3">
             {formatAge(launch.launchedAt)}
           </Badge>
+          <RaffleBadge raffle={raffle} className="absolute right-3 top-3" />
         </div>
 
         <CardContent className="p-4 space-y-3">
@@ -67,6 +104,15 @@ const TokenCard = ({ launch, market }) => {
               <Skeleton className="h-2 w-full" />
             </div>
           )}
+
+          {raffle?.state === "live" ? (
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-pastel-rose px-3 py-2 text-xs">
+              <span className="font-semibold text-raffle truncate">
+                {raffleStripLabel(raffle, launch.symbol, t)}
+              </span>
+              {raffle.endTime ? <RaffleTimeLeft endTime={raffle.endTime} /> : null}
+            </div>
+          ) : null}
         </CardContent>
       </Card>
     </Link>
@@ -85,6 +131,8 @@ TokenCard.propTypes = {
     multiple: PropTypes.number,
     soldFraction: PropTypes.number,
   }),
+  /** Featured season summary from /api/launchpad/raffles; omitted when none. */
+  raffle: PropTypes.object,
 };
 
 export default TokenCard;

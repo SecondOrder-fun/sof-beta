@@ -57,10 +57,11 @@ export function formatTimestamp(timestamp) {
 /**
  * Calculate countdown parts from a target timestamp
  * @param {number} targetTimestamp - Unix timestamp in seconds
+ * @param {number} [nowMs=Date.now()] - the clock to count from, in milliseconds
  * @returns {{ days: number, hours: number, minutes: number, seconds: number, isEnded: boolean }}
  */
-export function getCountdownParts(targetTimestamp) {
-  const now = Math.floor(Date.now() / 1000);
+export function getCountdownParts(targetTimestamp, nowMs = Date.now()) {
+  const now = Math.floor(nowMs / 1000);
   const diff = Number(targetTimestamp) - now;
 
   if (diff <= 0) {
@@ -76,32 +77,29 @@ export function getCountdownParts(targetTimestamp) {
 }
 
 /**
- * Get a simple text representation of time until a timestamp
- * @param {number|Date|string} timestamp - Target time
- * @returns {string} Human-readable time remaining
+ * Time until a timestamp as its two largest units — the numbers behind a short
+ * label such as "2d 4h". Numbers only, so the caller names the units in the
+ * reader's language (launchFormat.formatTimeLeft). The split is
+ * getCountdownParts' (the CountdownTimer's own); a second unit that is zero is
+ * dropped, and a time that has passed is zero minutes.
+ * @param {number|Date|string} timestamp - Target time: unix seconds or ms, a Date, or a date string
+ * @param {number} [nowMs=Date.now()] - the clock to count from, in milliseconds
+ * @returns {{ unit: "days" | "hours" | "minutes", value: number }[]} one or two units
  */
-export function timeUntil(timestamp) {
-  const now = Date.now();
-  let endTime;
-
+export function timeUntil(timestamp, nowMs = Date.now()) {
+  let endMs;
   if (typeof timestamp === "number") {
     // If timestamp is in seconds (< year 2100 in ms), convert to ms
-    endTime = timestamp < 4102444800 ? timestamp * 1000 : timestamp;
+    endMs = timestamp < 4102444800 ? timestamp * 1000 : timestamp;
   } else {
-    endTime = new Date(timestamp).getTime();
+    endMs = new Date(timestamp).getTime();
   }
 
-  const diff = endTime - now;
-
-  if (diff <= 0) return "Ended";
-
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-  const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-
-  if (days > 0) return `${days}d ${hours}h`;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  return `${minutes}m`;
+  const { days, hours, minutes } = getCountdownParts(Math.floor(endMs / 1000), nowMs);
+  const pair = (first, second) => (second.value ? [first, second] : [first]);
+  if (days > 0) return pair({ unit: "days", value: days }, { unit: "hours", value: hours });
+  if (hours > 0) return pair({ unit: "hours", value: hours }, { unit: "minutes", value: minutes });
+  return [{ unit: "minutes", value: minutes }];
 }
 
 export function classNames(...classes) {

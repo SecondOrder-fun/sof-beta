@@ -6,7 +6,12 @@ import {
   formatAge,
   formatMultiple,
   formatPercent,
+  formatTimeLeft,
+  formatTokenAmount,
+  formatEthAmount,
+  tokensToEthWei,
 } from "@/lib/launchFormat";
+import { getCountdownParts, timeUntil } from "@/lib/utils";
 
 describe("formatFdvEth", () => {
   it("renders the deployed bounds as the valuations they are", () => {
@@ -86,5 +91,137 @@ describe("formatPercent", () => {
   });
   it("renders unusable input as a dash", () => {
     expect(formatPercent(undefined)).toBe("—");
+  });
+});
+
+describe("formatTimeLeft", () => {
+  const NOW_MS = 1_700_000_000_000;
+  const at = (sec) => NOW_MS / 1000 + sec;
+  // The English launchpad strings, so the assertions read as the reader sees them.
+  const EN = { "time.days": "{{count}}d", "time.hours": "{{count}}h", "time.minutes": "{{count}}m", "time.pair": "{{first}} {{second}}" };
+  const en = (key, opts = {}) => EN[key].replace(/\{\{(\w+)\}\}/g, (_, k) => String(opts[k]));
+
+  it("shows the two largest units", () => {
+    expect(formatTimeLeft(at(2 * 86400 + 4 * 3600 + 11 * 60), en, NOW_MS)).toBe("2d 4h");
+    expect(formatTimeLeft(at(2 * 3600 + 10 * 60), en, NOW_MS)).toBe("2h 10m");
+    expect(formatTimeLeft(at(9 * 60 + 30), en, NOW_MS)).toBe("9m");
+  });
+
+  it("drops a zero second unit", () => {
+    expect(formatTimeLeft(at(3 * 86400), en, NOW_MS)).toBe("3d");
+    expect(formatTimeLeft(at(2 * 3600), en, NOW_MS)).toBe("2h");
+  });
+
+  it("floors at 0m once the time has passed, and dashes a missing time", () => {
+    expect(formatTimeLeft(at(-60), en, NOW_MS)).toBe("0m");
+    expect(formatTimeLeft(null, en, NOW_MS)).toBe("—");
+  });
+
+  it("splits time exactly as the CountdownTimer does", () => {
+    const target = at(2 * 86400 + 4 * 3600 + 11 * 60);
+    const { days, hours } = getCountdownParts(target, NOW_MS);
+    expect(formatTimeLeft(target, en, NOW_MS)).toBe(`${days}d ${hours}h`);
+  });
+
+  it("names every unit through the translator, never a hardcoded English letter", () => {
+    const echo = (key, opts) => `${key}${JSON.stringify(opts)}`;
+    expect(formatTimeLeft(at(2 * 3600 + 10 * 60), echo, NOW_MS)).toBe(
+      'time.pair{"first":"time.hours{\\"count\\":2}","second":"time.minutes{\\"count\\":10}"}',
+    );
+    const ja = { "time.days": "{{count}}日", "time.hours": "{{count}}時間", "time.minutes": "{{count}}分", "time.pair": "{{first}}{{second}}" };
+    const tJa = (key, opts = {}) => ja[key].replace(/\{\{(\w+)\}\}/g, (_, k) => String(opts[k]));
+    expect(formatTimeLeft(at(86400 + 3 * 3600), tJa, NOW_MS)).toBe("1日3時間");
+  });
+});
+
+describe("timeUntil", () => {
+  const NOW_MS = 1_700_000_000_000;
+
+  it("returns the two largest units as numbers, from the clock it is given", () => {
+    expect(timeUntil(NOW_MS / 1000 + 2 * 86400 + 4 * 3600, NOW_MS)).toEqual([
+      { unit: "days", value: 2 },
+      { unit: "hours", value: 4 },
+    ]);
+    expect(timeUntil(NOW_MS / 1000 + 9 * 60, NOW_MS)).toEqual([{ unit: "minutes", value: 9 }]);
+    expect(timeUntil(NOW_MS / 1000 - 5, NOW_MS)).toEqual([{ unit: "minutes", value: 0 }]);
+  });
+
+  it("accepts milliseconds and dates as well as seconds", () => {
+    const target = NOW_MS + 3 * 3600 * 1000;
+    expect(timeUntil(target, NOW_MS)).toEqual([{ unit: "hours", value: 3 }]);
+    expect(timeUntil(new Date(target), NOW_MS)).toEqual([{ unit: "hours", value: 3 }]);
+  });
+});
+
+describe("tokensToEthWei", () => {
+  it("prices whole tokens at a pool price", () => {
+    // 10 tokens at 47 gwei each.
+    expect(tokensToEthWei(10, 47n * 10n ** 9n)).toBe(470n * 10n ** 9n);
+    expect(tokensToEthWei(0.5, 10n ** 18n)).toBe(5n * 10n ** 17n);
+  });
+
+  it("is null without a price or a usable amount", () => {
+    expect(tokensToEthWei(10, null)).toBeNull();
+    expect(tokensToEthWei(Number.NaN, 1n)).toBeNull();
+    expect(tokensToEthWei(-1, 1n)).toBeNull();
+  });
+});
+
+describe("formatEthAmount", () => {
+  const ETH = 10n ** 18n;
+
+  it("keeps two decimals from 0.01 ETH up", () => {
+    expect(formatEthAmount(4n * ETH / 10n)).toBe("0.4");
+    expect(formatEthAmount(1_250n * ETH)).toBe("1,250");
+    expect(formatEthAmount(1_234_567n * ETH / 1000n)).toBe("1,234.56");
+    expect(formatEthAmount(ETH / 100n)).toBe("0.01");
+  });
+
+  it("keeps three significant digits below 0.01 ETH instead of rounding to 0", () => {
+    expect(formatEthAmount(4n * ETH / 1000n)).toBe("0.004");
+    expect(formatEthAmount(47_200_000_000_000n)).toBe("0.0000472");
+    expect(formatEthAmount(9_996_000_000_000_000n)).toBe("0.00999");
+    expect(formatEthAmount(1n)).toBe("0.000000000000000001");
+    expect(formatFdvEth(4n * ETH / 1000n, 2)).toBe("0");
+  });
+
+  it("renders zero as 0, accepts a wei string and dashes a missing amount", () => {
+    expect(formatEthAmount(0n)).toBe("0");
+    expect(formatEthAmount("4000000000000000")).toBe("0.004");
+    expect(formatEthAmount(null)).toBe("—");
+  });
+});
+
+describe("getCountdownParts with an explicit clock", () => {
+  it("counts from the clock it is given", () => {
+    const nowMs = 1_700_000_000_000;
+    expect(getCountdownParts(nowMs / 1000 + 3661, nowMs)).toEqual({ days: 0, hours: 1, minutes: 1, seconds: 1, isEnded: false });
+    expect(getCountdownParts(nowMs / 1000 - 1, nowMs).isEnded).toBe(true);
+  });
+
+  it("still defaults to the wall clock for existing callers", () => {
+    const target = Math.floor(Date.now() / 1000) + 2 * 86400 + 30;
+    expect(getCountdownParts(target)).toMatchObject({ days: 2, hours: 0, isEnded: false });
+  });
+});
+
+describe("formatTokenAmount", () => {
+  const TOKEN = 10n ** 18n;
+
+  it("keeps the fraction formatSupply would truncate", () => {
+    expect(formatTokenAmount(TOKEN / 2n)).toBe("0.5");
+    expect(formatSupply(TOKEN / 2n)).toBe("0");
+  });
+
+  it("groups thousands and caps the decimals, dropping trailing zeros", () => {
+    expect(formatTokenAmount(12_000n * TOKEN)).toBe("12,000");
+    expect(formatTokenAmount(1_234_567_891_234_567_891_234n)).toBe("1,234.5678");
+    expect(formatTokenAmount(1_234_567_891_234_567_891_234n, 2)).toBe("1,234.56");
+    expect(formatTokenAmount(TOKEN + TOKEN / 10n)).toBe("1.1");
+  });
+
+  it("accepts a wei string and dashes a missing amount", () => {
+    expect(formatTokenAmount(String(3n * TOKEN))).toBe("3");
+    expect(formatTokenAmount(null)).toBe("—");
   });
 });

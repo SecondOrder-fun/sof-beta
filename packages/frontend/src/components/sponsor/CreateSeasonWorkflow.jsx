@@ -34,7 +34,7 @@ import { getContractAddresses, RAFFLE_ABI } from "@/config/contracts";
  * Inner component.
  * Manages the sponsor panel ↔ creation workflow toggle.
  */
-function WorkflowInner() {
+function WorkflowInner({ initialQuoteToken }) {
   const { t } = useTranslation("raffle");
   const { address, isConnected } = useAccount();
   const navigate = useNavigate();
@@ -205,6 +205,7 @@ function WorkflowInner() {
               createSeason={createSeason}
               chainTimeQuery={chainTimeQuery}
               activeSection={formSection}
+              initialQuoteToken={initialQuoteToken}
             />
           </CardContent>
         </Card>
@@ -282,11 +283,20 @@ FormStepNav.propTypes = {
   onBackToSponsor: PropTypes.func,
 };
 
+WorkflowInner.propTypes = {
+  initialQuoteToken: PropTypes.string,
+};
+
 /**
  * Public component.
+ * @param {{ initialQuoteToken?: string }} props  a quote token to preselect
  */
-export function CreateSeasonWorkflow() {
-  return <WorkflowInner />;
+export function CreateSeasonWorkflow({ initialQuoteToken }) {
+  return <WorkflowInner initialQuoteToken={initialQuoteToken} />;
 }
+
+CreateSeasonWorkflow.propTypes = {
+  initialQuoteToken: PropTypes.string,
+};
 
 export default CreateSeasonWorkflow;

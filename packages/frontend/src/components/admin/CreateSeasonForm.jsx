@@ -20,6 +20,9 @@ import { MetaMaskCircuitBreakerAlert } from "@/components/common/MetaMaskCircuit
 import TransactionModal from "@/components/admin/TransactionModal";
 import BondingCurveEditor from "@/components/admin/BondingCurveEditor";
 import GatingConfig from "@/components/admin/GatingConfig";
+import QuoteTokenPicker from "@/components/admin/QuoteTokenPicker";
+import { useQuoteTokenChoice } from "@/hooks/useQuoteTokenChoice";
+import { QUOTE_TOKEN_BLOCK_MESSAGE } from "@/lib/quoteTokenMessages";
 
 // Helper: format epoch seconds to a local "YYYY-MM-DDTHH:mm" string for <input type="datetime-local">
 const fmtLocalDatetime = (sec) => {
@@ -39,12 +42,19 @@ const fmtLocalDatetime = (sec) => {
 const DEFAULT_START_OFFSET_SECONDS = 5 * 60; // 5 minutes from now
 const DEFAULT_DURATION_SECONDS = 7 * 24 * 60 * 60; // 1 week
 
-const CreateSeasonForm = ({ createSeason, chainTimeQuery, activeSection = "all" }) => {
+const CreateSeasonForm = ({ createSeason, chainTimeQuery, activeSection = "all", initialQuoteToken }) => {
   const { t } = useTranslation("raffle");
   const [name, setName] = useState("");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
-  const [sofDecimals, setSofDecimals] = useState(18);
+
+  // "Priced in": the season's quote token. Its decimals scale the curve's step
+  // prices and its symbol labels them; a launch token's pool price gives them
+  // an ETH equivalent.
+  const quote = useQuoteTokenChoice({ initialToken: initialQuoteToken });
+  const quoteDecimals = quote.selected?.decimals ?? 18;
+  const quoteSymbol = quote.selected?.symbol || "—";
+  const quotePriceWei = quote.selected?.kind === "launch" ? quote.selected.priceWei : null;
   const [grandPct, setGrandPct] = useState("65");
   const [treasuryAddress, setTreasuryAddress] = useState("");
   const [formError, setFormError] = useState("");
@@ -107,28 +117,6 @@ const CreateSeasonForm = ({ createSeason, chainTimeQuery, activeSection = "all" 
     if (!manualStartSecUi) return false;
     return manualStartSecUi - nowSecUi <= AUTO_START_BUFFER_SECONDS;
   }, [manualStartSecUi, nowSecUi]);
-
-  // Load SOF decimals
-  useEffect(() => {
-    let cancelled = false;
-    async function loadDecimals() {
-      try {
-        if (!addresses.QUOTE_TOKEN || !publicClient) return;
-        const dec = await publicClient.readContract({
-          address: addresses.QUOTE_TOKEN,
-          abi: ERC20Abi,
-          functionName: "decimals",
-        });
-        if (!cancelled && typeof dec === "number") setSofDecimals(dec);
-      } catch (_) {
-        // ignore; default 18
-      }
-    }
-    loadDecimals();
-    return () => {
-      cancelled = true;
-    };
-  }, [addresses.QUOTE_TOKEN, publicClient]);
 
   // Set initial start time if not set (Now + 5 minutes)
   useEffect(() => {
@@ -485,6 +473,12 @@ const CreateSeasonForm = ({ createSeason, chainTimeQuery, activeSection = "all" 
       setFormError(t("tierValidation", { max: 10 }));
       return;
     }
+    // A pasted quote token must pass the contract's own check first, so the
+    // transaction never reverts with QuoteTokenNotAllowed.
+    if (quote.blocked) {
+      setFormError(t(QUOTE_TOKEN_BLOCK_MESSAGE[quote.status]));
+      return;
+    }
 
     const config = {
       name,
@@ -500,6 +494,8 @@ const CreateSeasonForm = ({ createSeason, chainTimeQuery, activeSection = "all" 
       isCompleted: false,
       gated,
       maxParticipants: 0,
+      // Always set here: submission is blocked until a quote token is chosen.
+      quoteToken: quote.quoteToken,
     };
 
     // Validate bond steps from curve editor
@@ -546,7 +542,15 @@ const CreateSeasonForm = ({ createSeason, chainTimeQuery, activeSection = "all" 
     }
 
     // Store data and show confirmation dialog instead of submitting immediately
-    setPendingSubmitData({ config, bondSteps, buyFeeBps, sellFeeBps, tierConfigs, sponsoredPrizes });
+    setPendingSubmitData({
+      config,
+      bondSteps,
+      buyFeeBps,
+      sellFeeBps,
+      tierConfigs,
+      sponsoredPrizes,
+      quoteSymbol: quote.selected?.symbol || "",
+    });
     setShowConfirmation(true);
   };
 
@@ -606,6 +610,9 @@ const CreateSeasonForm = ({ createSeason, chainTimeQuery, activeSection = "all" 
               </p>
             )}
           </div>
+
+          {/* Priced in: the season's quote token */}
+          <QuoteTokenPicker choice={quote} />
 
           {/* Season Timing */}
           <div className="space-y-2">
@@ -756,7 +763,9 @@ const CreateSeasonForm = ({ createSeason, chainTimeQuery, activeSection = "all" 
       {(activeSection === "all" || activeSection === "curve") && (
         <BondingCurveEditor
           onChange={handleCurveChange}
-          sofDecimals={sofDecimals}
+          sofDecimals={quoteDecimals}
+          symbol={quoteSymbol}
+          priceWei={quotePriceWei}
         />
       )}
 
@@ -896,7 +905,7 @@ const CreateSeasonForm = ({ createSeason, chainTimeQuery, activeSection = "all" 
             type="submit"
             size="lg"
             className="w-full"
-            disabled={createSeason?.isPending || startTooSoonUi || !name || name.trim().length === 0 || !treasuryAddress || !isAddress(treasuryAddress.trim()) || !curveData.isValid || totalWinnerCount === 0 || totalWinnerCount > 10}
+            disabled={createSeason?.isPending || startTooSoonUi || !name || name.trim().length === 0 || !treasuryAddress || !isAddress(treasuryAddress.trim()) || !curveData.isValid || totalWinnerCount === 0 || totalWinnerCount > 10 || quote.blocked}
           >
             {createSeason?.isPending ? t("creatingBtn") : t("createSeasonBtn")}
           </Button>
@@ -933,6 +942,16 @@ const CreateSeasonForm = ({ createSeason, chainTimeQuery, activeSection = "all" 
                 <span className="text-muted-foreground">{t("confirmSeasonName")}</span>
                 <span className="font-medium">{pendingSubmitData.config.name}</span>
               </div>
+              {pendingSubmitData.config.quoteToken ? (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">{t("quoteToken.confirmLabel")}</span>
+                  <span className="font-medium font-mono">
+                    {pendingSubmitData.quoteSymbol
+                      ? t("quoteToken.symbol", { symbol: pendingSubmitData.quoteSymbol })
+                      : truncateAddress(pendingSubmitData.config.quoteToken)}
+                  </span>
+                </div>
+              ) : null}
               <div className="flex justify-between">
                 <span className="text-muted-foreground">{t("confirmStartTime")}</span>
                 <span className="font-medium">{formatConfirmationTime(pendingSubmitData.config.startTime)}</span>
@@ -1015,6 +1034,8 @@ CreateSeasonForm.propTypes = {
   createSeason: PropTypes.object.isRequired,
   chainTimeQuery: PropTypes.object.isRequired,
   activeSection: PropTypes.oneOf(["all", "details", "prizes", "curve", "sponsored"]),
+  /** A quote token to preselect (from /create-season?quoteToken=); checked like a pasted one. */
+  initialQuoteToken: PropTypes.string,
 };
 
 export default CreateSeasonForm;

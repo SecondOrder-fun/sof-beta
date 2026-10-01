@@ -3,6 +3,7 @@
 
 import { useState, useCallback } from "react";
 import PropTypes from "prop-types";
+import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +19,9 @@ const StepCard = ({
   onRemove,
   canRemove,
   validationError,
+  symbol,
 }) => {
+  const { t } = useTranslation("raffle");
   const ticketsInStep = step.rangeTo - prevRangeTo;
 
   // Allow empty fields while editing; commit on blur
@@ -108,7 +111,7 @@ const StepCard = ({
         </div>
 
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Price (SOF)</label>
+          <label className="text-xs text-muted-foreground">{t("curveEditor.stepPrice", { symbol })}</label>
           <Input
             type="number"
             min={0.01}
@@ -150,6 +153,7 @@ StepCard.propTypes = {
   onRemove: PropTypes.func.isRequired,
   canRemove: PropTypes.bool.isRequired,
   validationError: PropTypes.string,
+  symbol: PropTypes.string.isRequired,
 };
 
 // Insert between button component
@@ -192,7 +196,9 @@ const AdvancedView = ({
   removeStep,
   insertStepBetween,
   validationErrors,
+  symbol,
 }) => {
+  const { t } = useTranslation("raffle");
   // Draft state for max tickets input (same pattern as StepCard)
   const [draftMaxTickets, setDraftMaxTickets] = useState(null);
 
@@ -267,6 +273,7 @@ const AdvancedView = ({
               onRemove={removeStep}
               canRemove={steps.length > 1}
               validationError={stepErrors[index]}
+              symbol={symbol}
             />
             {/* Insert between button (not after last step) */}
             {index < steps.length - 1 && (
@@ -299,7 +306,13 @@ const AdvancedView = ({
         <div className="flex justify-between">
           <span className="text-muted-foreground">Price Range:</span>
           <span className="font-mono">
-            {steps.length > 0 ? `${steps[0].price.toFixed(2)} → ${steps[steps.length - 1].price.toFixed(2)} SOF` : "—"}
+            {steps.length > 0
+              ? t("curveEditor.priceRange", {
+                  from: steps[0].price.toFixed(2),
+                  to: steps[steps.length - 1].price.toFixed(2),
+                  symbol,
+                })
+              : "—"}
           </span>
         </div>
         <div className="flex justify-between">
@@ -328,6 +341,8 @@ AdvancedView.propTypes = {
   removeStep: PropTypes.func.isRequired,
   insertStepBetween: PropTypes.func.isRequired,
   validationErrors: PropTypes.arrayOf(PropTypes.string).isRequired,
+  /** The season's quote token symbol, which ticket prices are in. */
+  symbol: PropTypes.string.isRequired,
 };
 
 export default AdvancedView;

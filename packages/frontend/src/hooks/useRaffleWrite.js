@@ -150,8 +150,10 @@ export function useRaffleWrite() {
   const createSeason = useContractWriteWithFeedback({
     contractConfig: ({ config, bondSteps, buyFeeBps, sellFeeBps, tierConfigs }) => {
       if (!hasAddress) throw new Error('Raffle contract address not configured');
-      // Every season names its quote token (Raffle reverts on zero). Until the forms get
-      // a token picker, a season with none is priced in the platform default.
+      // Every season names its quote token (Raffle reverts on zero). The forms pass the
+      // one chosen in their "Priced in" picker, already checked against
+      // Raffle.isAllowedQuoteToken's rule; only when none is chosen is a season priced
+      // in the platform default.
       const quoteToken = config.quoteToken || contracts.QUOTE_TOKEN;
       if (!quoteToken) throw new Error('No quote token for this season, and no platform default is configured');
       const fullConfig = { maxParticipants: 0, ...config, quoteToken };

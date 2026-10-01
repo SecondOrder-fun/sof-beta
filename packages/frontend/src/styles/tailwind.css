@@ -67,7 +67,11 @@
     --gradient-dusty: 0 25% 74%;
 
     --pastel-rose: 346 66% 91%; /* Pastel Rose #f9d6de */
+    --pastel-rose-foreground: 300 100% 4%; /* Black #130013 — text on Pastel Rose */
     --fabric-red: 351 70% 60%; /* Fabric Red #e25167 */
+    /* Raffle accent (launchpad raffle badge, ticker row). Pastel Rose is too
+       light to read on white, so the light theme uses Cochineal. */
+    --raffle: 343 66% 47%;
 
     --radius: 0.5rem;
   }
@@ -132,7 +136,9 @@
     --gradient-dusty: 0 25% 74%;
 
     --pastel-rose: 346 66% 91%; /* Pastel Rose #f9d6de — same across themes */
+    --pastel-rose-foreground: 300 100% 4%; /* Black #130013 — same across themes */
     --fabric-red: 351 70% 60%; /* Fabric Red #e25167 — same across themes */
+    --raffle: 346 66% 91%; /* Pastel Rose */
 
     --radius: 0.5rem;
   }

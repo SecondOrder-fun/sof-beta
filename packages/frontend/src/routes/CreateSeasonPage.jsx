@@ -1,5 +1,8 @@
 // src/routes/CreateSeasonPage.jsx
 // Route for /create-season — renders mobile or desktop flow based on platform.
+// `?quoteToken=0x…` preselects the season's quote token (the token pages link
+// here with theirs); the forms check it like a pasted address.
+import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { usePlatform } from "@/hooks/usePlatform";
 import { CreateSeasonWorkflow } from "@/components/sponsor/CreateSeasonWorkflow";
@@ -8,9 +11,11 @@ import MobileCreateSeason from "@/components/mobile/MobileCreateSeason";
 const CreateSeasonPage = () => {
   const { t } = useTranslation("raffle");
   const { isMobile, isMobileBrowser } = usePlatform();
+  const [searchParams] = useSearchParams();
+  const initialQuoteToken = searchParams.get("quoteToken") || undefined;
 
   if (isMobile || isMobileBrowser) {
-    return <MobileCreateSeason />;
+    return <MobileCreateSeason initialQuoteToken={initialQuoteToken} />;
   }
 
   return (
@@ -21,7 +26,7 @@ const CreateSeasonPage = () => {
           {t("createSeasonPageDesc")}
         </p>
       </div>
-      <CreateSeasonWorkflow />
+      <CreateSeasonWorkflow initialQuoteToken={initialQuoteToken} />
     </div>
   );
 };

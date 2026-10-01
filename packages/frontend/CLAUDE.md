@@ -43,10 +43,38 @@ npm run lint         # ESLint (zero warnings enforced)
 ## Launchpad routes
 
 `/launch`, `/tokens` and `/tokens/:address` read the `TokenLaunchpad` on-chain.
-The backend indexes launches (`/api/launchpad/tokens`) but not yet trade history or
-metadata, so routing the feed through it would add a dependency without adding
-data. Only the trade feed on the token page uses the backend. Once volume and
-metadata are indexed, the backend becomes primary and on-chain the fallback.
+The backend indexes launches (`/api/launchpad/tokens`) but not yet metadata, so
+routing the feed through it would add a dependency without adding data.
+
+What only indexed history can answer comes from the backend as warm reads with no
+on-chain fallback — the trade feed (`LaunchTrades`, a `useWarmRead` of its own) and,
+through `src/hooks/useLaunchActivity.js`, the price chart (`/tokens/:address/chart`), the raffle card
+(`/tokens/:address/seasons`), the raffle badges on a page of cards (one
+`/raffles?tokens=` request), and the site-wide activity ticker (`/api/activity`).
+Each renders nothing (ticker, badge) or an honest empty state (chart, card) when
+the backend has no data. A failed read is not "no data": the raffle card says it
+is unavailable rather than offering to open a season, and a failed refetch keeps
+the last data on screen. The season summary is written only at start, status
+changes and completion, so a live raffle card reads its pool and tickets from the
+curve state (`useCurveState`) and its players from `useLiveParticipantCount`; a
+winner is shown with the grand prize (`grandPrize`, or `grandPrizeBps` of the
+pool — `lib/prizeMath.js`), never the whole pool.
+
+**The activity ticker is site-wide** (`components/layout/ActivityTicker.jsx`,
+under both headers in `App.jsx`), not launchpad-only: the raffles row is the whole
+platform's activity. Its motion rules are accessibility requirements, tested:
+hover/focus pauses a row, the pause button stops both, `prefers-reduced-motion`
+stops it, and the loop's duplicate copy is `aria-hidden` and out of the tab order.
+A sparse row repeats its items inside each copy until a copy spans the row; every
+repeat is hidden the same way, so assistive tech meets each item once.
+An InfoFi markets row slots in as a third `TickerRow`.
+
+**The raffle accent is a token, not a colour.** The raffle Badge variants
+(`raffleLive` / `raffleSoon` / `raffleEnded`) and the ticker's raffle row use
+`pastel-rose`, `pastel-rose-foreground` and `raffle` from `tailwind.css`. `raffle`
+is Pastel Rose in dark and Cochineal in light, because Pastel Rose text does not
+read on white. Prize pools show in the token with an ETH equivalent from the pool
+price, never USD, so there is no oracle.
 
 **The launch form takes a valuation, not a per-token price** (`src/lib/launchFormat.js`,
 `src/hooks/useTokenLaunchpad.js`). Every launch mints the same 1e9 supply, so the
@@ -74,9 +102,11 @@ edges must use the exact `TickMath` port, not a float, or a capped quote promise
 more than the whole supply.
 
 **The launchpad UI is composed only from existing primitives** (see the UI Gym):
-Tabs for buy/sell and sort, Card, Avatar for token art, Badge, Progress for supply
-sold, ButtonGroup, Input, ContentBox, Table, Sheet, SlippageSettings. New visual
-elements are confirmed with the product owner and designed on the canvas first.
+Tabs for buy/sell, sort and chart range, Card, Avatar for token art, Badge,
+Progress for supply sold, ButtonGroup, Input, ContentBox, Table, Sheet,
+SlippageSettings, MiniCurveChart for a raffle's ticket ladder, CountdownTimer. New
+visual elements are confirmed with the product owner and designed on the canvas
+first — the raffle Badge variants, the price chart and the ticker were.
 
 **Trades go through whichever router the launchpad advertises.** `useLaunchTrade`
 reads `TokenLaunchpad.router()` and `lib/launchTrade.js` encodes against the
@@ -86,6 +116,31 @@ reads `TokenLaunchpad.router()` and `lib/launchTrade.js` encodes against the
 trading off (the panel keeps quoting and says trading is off). Minimum-out is the
 quote less the slippage setting; `UniV4LaunchRouter.t.sol` pins the router to the
 same amounts the quote math is pinned to, so the quote shown is the trade made.
+
+## Season quote token ("Priced in")
+
+Both create-season forms (`components/admin/CreateSeasonForm.jsx`,
+`components/mobile/MobileCreateSeason.jsx`) choose the token a season is priced
+in with `QuoteTokenPicker`, over `useQuoteTokenChoice`. It cannot change after
+creation: tickets, the prize pool and the season's InfoFi markets all use it.
+The picker is Select (groups: the connected account's own launches — creator
+matched case-insensitively against the EOA and the smart account — then tokens
+approved by the platform, at least `QUOTE_TOKEN` as "Platform default", then the
+newest other launches), TokenArt, an Input for pasting any address, and the
+outline Badge.
+
+**Eligibility is asked of the Raffle itself:** `Raffle.isAllowedQuoteToken(token)`
+plus the 18-decimals rule `createSeason` enforces (`hooks/useQuoteTokenInfo.js`, one
+multicall with the token's name, symbol and decimals; the deployment's
+`TokenLaunchpad.isLaunchToken` only labels an allowed token as a launch token). A
+pasted token, or one preselected by `/create-season?quoteToken=0x…` (the token
+page's raffle card links there), goes through that check and blocks submission
+until it passes — so `QuoteTokenNotAllowed` and `QuoteTokenDecimals` never fire. A
+failed read blocks too; it is not read as "not allowed". The curve's prices take the chosen
+token's decimals and symbol, and a launch token's pool price
+(`useLaunchMarkets`) adds an "≈ X ETH" line. Submission is blocked until a token is chosen, so the forms
+always send `config.quoteToken` (`useRaffleWrite`'s `QUOTE_TOKEN` fallback serves
+other callers).
 
 ## ABI Imports
 

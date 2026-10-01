@@ -33,6 +33,15 @@ const badgeVariants = cva(
           "bg-warning/15 text-warning hover:bg-warning/15 border-warning/30",
         statusDanger:
           "bg-[#2b0008] border-[#f04455] text-[#fecaca] hover:bg-[#3b000d]",
+        // Raffle states on launchpad tokens (approved launchpad design). Pastel
+        // Rose is light where Cochineal is mid-tone, so the badge separates from
+        // the buy button by lightness, not just hue.
+        raffleLive:
+          "gap-1.5 border-pastel-rose bg-pastel-rose text-pastel-rose-foreground hover:bg-pastel-rose",
+        raffleSoon:
+          "gap-1.5 border-pastel-rose bg-transparent text-raffle",
+        raffleEnded:
+          "gap-1.5 border-border bg-transparent text-muted-foreground",
       },
     },
     defaultVariants: {
@@ -67,6 +76,9 @@ Badge.propTypes = {
     "statusUpcoming",
     "statusSettling",
     "statusDanger",
+    "raffleLive",
+    "raffleSoon",
+    "raffleEnded",
   ]),
 };
 

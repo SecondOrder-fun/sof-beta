@@ -361,6 +361,9 @@ export function deriveMarketState({ slot0Word, liquidityWord, placement, wholeSu
     sqrtLowerX96,
     liquidity: tradableLiquidity({ activeLiquidity, placementLiquidity }),
     priceWei: priceWeiPerToken(sqrtPriceX96),
+    // The price the pool actually opened at — the creator's requested start
+    // price rounded to a tick. Anything measuring "since launch" uses this.
+    launchPriceWei: priceWeiPerToken(launchSqrtX96),
     fdvWei: fdvWei(sqrtPriceX96, wholeSupply),
     launchFdvWei: fdvWei(launchSqrtX96, wholeSupply),
     // What the whole supply is worth once the last token has sold — the far

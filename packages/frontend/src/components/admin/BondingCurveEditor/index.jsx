@@ -12,7 +12,7 @@ import SimpleView from "./SimpleView";
 import AdvancedView from "./AdvancedView";
 import GraphView from "./GraphView";
 
-const BondingCurveEditor = ({ onChange, sofDecimals = 18 }) => {
+const BondingCurveEditor = ({ onChange, sofDecimals = 18, symbol, priceWei }) => {
   const editor = useCurveEditor(null, sofDecimals);
 
   // Notify parent of changes
@@ -72,6 +72,8 @@ const BondingCurveEditor = ({ onChange, sofDecimals = 18 }) => {
             setBasePrice={editor.setBasePrice}
             setPriceDelta={editor.setPriceDelta}
             resetToLinear={editor.resetToLinear}
+            symbol={symbol}
+            priceWei={priceWei}
           />
         </TabsContent>
 
@@ -85,6 +87,7 @@ const BondingCurveEditor = ({ onChange, sofDecimals = 18 }) => {
             removeStep={editor.removeStep}
             insertStepBetween={editor.insertStepBetween}
             validationErrors={editor.validationErrors}
+            symbol={symbol}
           />
         </TabsContent>
 
@@ -98,6 +101,7 @@ const BondingCurveEditor = ({ onChange, sofDecimals = 18 }) => {
             removeStep={editor.removeStep}
             updateStepPosition={editor.updateStepPosition}
             insertStepBetween={editor.insertStepBetween}
+            symbol={symbol}
           />
         </TabsContent>
       </Tabs>
@@ -107,7 +111,12 @@ const BondingCurveEditor = ({ onChange, sofDecimals = 18 }) => {
 
 BondingCurveEditor.propTypes = {
   onChange: PropTypes.func,
+  /** Decimals of the season's quote token, which step prices are scaled by. */
   sofDecimals: PropTypes.number,
+  /** The quote token's symbol, shown on every price. */
+  symbol: PropTypes.string.isRequired,
+  /** The quote token's pool price (wei of ETH per whole token), for an ETH equivalent. */
+  priceWei: PropTypes.any,
 };
 
 export default BondingCurveEditor;
