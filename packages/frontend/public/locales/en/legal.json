@@ -62,7 +62,7 @@
       {
         "heading": "Third-Party Services and Networks",
         "body": [
-          "The platform depends on third-party infrastructure and services that are outside our control, including the Base blockchain and its underlying networks, Chainlink VRF, RPC providers, wallet providers, the Farcaster network and identity services, and other external tools and integrations.",
+          "The platform depends on third-party infrastructure and services that are outside our control, including the Base blockchain and its underlying networks, Chainlink VRF, RPC providers, wallet providers, and other external tools and integrations.",
           "We do not control and are not responsible for the performance, availability, security, accuracy, or conduct of any third-party service or network. Outages, failures, downtime, changes, or vulnerabilities in these services may affect or interrupt the platform.",
           "Any links or references to third-party resources are provided for convenience only and do not imply endorsement or responsibility on our part."
         ]
@@ -119,7 +119,7 @@
       {
         "heading": "4. Accounts and Wallets",
         "body": [
-          "The Service is non-custodial. We do not hold, custody, control, or have access to your wallet, private keys, seed phrases, or any assets associated with your wallet. You interact with the Service through a self-custodial wallet that you control, including via wallet connection, Sign-In-With-Farcaster, or a supported smart account (account abstraction) flow.",
+          "The Service is non-custodial. We do not hold, custody, control, or have access to your wallet, private keys, seed phrases, or any assets associated with your wallet. You interact with the Service through a self-custodial wallet that you control, including via wallet connection or a supported smart account (account abstraction) flow.",
           "You are solely and entirely responsible for the security of your wallet, private keys, seed phrases, credentials, and devices, and for all activity that occurs through your wallet. We cannot recover, reset, freeze, or reverse access to your wallet or its contents.",
           "We do not act as a broker, financial institution, exchange, custodian, or fiduciary, and no such relationship is created by your use of the Service. You alone are responsible for evaluating and authorizing every transaction you submit through the Service."
         ]
@@ -155,7 +155,7 @@
       {
         "heading": "8. Third-Party Services",
         "body": [
-          "The Service integrates with and depends on third-party services and infrastructure that we do not control, including blockchain networks (Base), wallet providers and connectors, RPC providers, Chainlink VRF, Farcaster and identity providers such as Neynar, and hosting and data providers.",
+          "The Service integrates with and depends on third-party services and infrastructure that we do not control, including blockchain networks (Base), wallet providers and connectors, RPC providers, Chainlink VRF, and hosting and data providers.",
           "We do not endorse and are not responsible for the availability, accuracy, security, conduct, terms, or privacy practices of any third-party service. Your use of any third-party service is at your own risk and may be governed by that party's own terms. We are not liable for any loss or damage arising from your interaction with, or the failure of, any third-party service."
         ]
       },
@@ -218,7 +218,7 @@
         "body": [
           "Because SecondOrder.fun is a non-custodial blockchain application, most of what we \"collect\" is either public on-chain data or limited technical data needed to run the app. Specifically:",
           "- Public wallet address and on-chain activity. When you connect a wallet, we see your public wallet address (including your smart account address) and the on-chain transactions you make through the Service, such as buying or selling raffle ticket-tokens, claiming consolation amounts, and trading in InfoFi markets. This information is public by nature of the blockchain.",
-          "- Optional Farcaster identity. If you choose to sign in with Farcaster or link a Farcaster account, we receive your Farcaster ID (FID) and associated public profile data (such as username and avatar) through a third-party Farcaster data provider. This is optional and only happens if you initiate it.",
+          "- Optional username. If you choose to set a username, we store it with your wallet address and show it publicly alongside your activity, for example on the leaderboard. This is optional and only happens if you set one.",
           "- Basic usage analytics. We collect aggregate, largely pseudonymous usage data, such as which pages and features are used, to understand how the app performs and where it breaks.",
           "- Device and log data. Our hosting and backend infrastructure automatically logs technical data such as IP address, browser type, device and operating system information, request timestamps, and error logs. This is standard for operating a web service and is used for security, debugging, and reliability.",
           "- Local-storage UI preferences. We store small amounts of data in your browser's local storage to remember interface preferences and session state. This stays on your device.",
@@ -241,7 +241,7 @@
           "We use the information described above to:",
           "- Provide and operate the Service, including reading on-chain state to display raffle seasons, positions, probabilities, and market data.",
           "- Power core game mechanics, such as detecting when a player crosses the position threshold that triggers automatic creation of an InfoFi prediction market.",
-          "- Display optional Farcaster identity (username, avatar) alongside wallet activity when you have linked it.",
+          "- Display your optional username alongside wallet activity when you have set one.",
           "- Monitor, debug, secure, and improve the Service, and diagnose errors and abuse.",
           "- Understand aggregate usage so we can prioritize features and fixes during the alpha.",
           "We do not sell your personal information, and we do not use it for third-party advertising."
@@ -261,7 +261,6 @@
           "We rely on reputable third-party providers to run the Service. They process limited data on our behalf or as independent operators, and each has its own privacy policy:",
           "- Frontend and backend hosting providers, which serve the website and run our application servers and may log technical request data.",
           "- A managed database and caching provider, which stores application data such as market state and cached on-chain data.",
-          "- A Farcaster data provider, used to retrieve Farcaster profile and identity data when you sign in with or link Farcaster.",
           "- RPC node providers, which relay reads and transactions to and from the blockchain and may observe associated request metadata such as IP address and wallet address.",
           "- Analytics tooling, used to measure aggregate usage of the app.",
           "We name these generically and may change providers as the project evolves. We aim to work with providers that maintain reasonable security and privacy practices, but their handling of data is governed by their own policies."
@@ -286,7 +285,7 @@
         "body": [
           "You retain meaningful control because the Service is non-custodial and largely pseudonymous:",
           "- You choose whether to connect a wallet and which wallet to use, and you can disconnect at any time.",
-          "- You choose whether to link a Farcaster identity, and you can decline or unlink it.",
+          "- You choose whether to set a username.",
           "- You can clear your browser's local storage and cookies to remove locally stored preferences.",
           "Depending on where you live, you may have rights to access, correct, or delete certain personal data we hold, or to object to or restrict certain processing. To make a request, contact us using the details below. Please understand two practical limits: we may be unable to identify you from a pseudonymous wallet address alone, and we cannot alter or delete data that lives permanently on the public blockchain."
         ]
@@ -364,7 +363,7 @@
       },
       {
         "question": "Which wallets are supported?",
-        "answer": "It depends on where you're using the app. On a desktop browser, you connect a wallet through RainbowKit (MetaMask, Rabby, and other standard wallets). In the Farcaster MiniApp, you sign in with Sign-In-With-Farcaster (SIWF). In the Base App, you use Coinbase Wallet. In the wallet-based contexts you can optionally link your Farcaster identity for a richer experience."
+        "answer": "You connect a wallet through RainbowKit: MetaMask, Rabby, Coinbase Wallet (including Coinbase Smart Wallet), and other standard wallets. In the Base App, you use Coinbase Wallet. After connecting, you sign a one-time login message; it proves you own the address and does not move funds or cost gas."
       },
       {
         "question": "What is a smart account (SMA)?",
@@ -401,12 +400,8 @@
           "- Choose your wallet from the RainbowKit list (for example MetaMask, Rabby, or Coinbase Wallet).",
           "- Approve the connection request in your wallet, then sign the login message. This signature proves you own the address; it does not move any funds or cost gas.",
           "- Make sure your wallet is set to the Base Sepolia testnet. The app will prompt you to switch networks if you are on the wrong one.",
-          "Farcaster MiniApp:",
-          "- Open SecondOrder.fun from inside a Farcaster client such as Warpcast. The app runs as a native MiniApp.",
-          "- You are signed in automatically using Sign-In-With-Farcaster (SIWF), so there is no separate connect step in most cases.",
           "Base App:",
           "- Open SecondOrder.fun inside the Base App and connect with Coinbase Wallet.",
-          "- You can optionally link your Farcaster identity for a richer profile, but it is not required to play.",
           "Behind the scenes the app uses a smart account (also called your SMA) so that multi-step actions can be batched into a single confirmation. You do not need to set anything up for this; it just makes transactions smoother."
         ]
       },
@@ -477,14 +472,12 @@
         ]
       },
       {
-        "heading": "Using the Farcaster mini-app",
+        "heading": "Playing on your phone",
         "body": [
-          "SecondOrder.fun runs as a native MiniApp inside Farcaster, so you can play without leaving your feed.",
-          "- Open the app from a cast or the MiniApp directory in a Farcaster client such as Warpcast.",
-          "- You are signed in automatically with Sign-In-With-Farcaster, which links your Farcaster identity (your FID) to your session. There is usually no separate wallet-connect step.",
-          "- From inside the MiniApp you can browse the active season, buy tickets, track your position and win probability, and use InfoFi markets, just like on the desktop site.",
-          "- Your on-chain actions still happen through your wallet and use test funds on Base Sepolia, so the same gas and testnet notes apply.",
-          "The MiniApp is the most social way to play. Because seasons and markets are tied to real players, sharing and discussing them in Farcaster is part of the experience."
+          "SecondOrder.fun runs in your phone's browser. On phones and tablets it switches to a mobile layout with a bottom navigation bar.",
+          "- Connect from the sign-in sheet with a mobile wallet, or open the site in your wallet app's built-in browser, such as the Base App.",
+          "- From the mobile layout you can browse the active season, buy tickets, track your position and win probability, and use InfoFi markets, just like on the desktop site.",
+          "- Your on-chain actions still happen through your wallet and use test funds on Base Sepolia, so the same gas and testnet notes apply."
         ]
       }
     ]
