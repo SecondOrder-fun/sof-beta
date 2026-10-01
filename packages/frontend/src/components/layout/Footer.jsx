@@ -33,8 +33,10 @@ const Footer = () => {
   return (
     <footer className="border-t bg-background text-foreground mt-12">
       <div className="container mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-          <div>
+        {/* Mobile: the social / copyright block spans the row, and Platform,
+            Resources and Legal sit side by side beneath it. md+: four columns. */}
+        <div className="grid grid-cols-3 md:grid-cols-4 gap-x-4 gap-y-8 md:gap-8">
+          <div className="col-span-3 md:col-span-1">
             <div className="flex items-center gap-6 mb-3">
               <a
                 href="mailto:secondorder.fun@patrion.xyz"
