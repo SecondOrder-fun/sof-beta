@@ -56,7 +56,7 @@ const setup = ({ data = launch, mobile = false, path = `/tokens/${TOKEN}`, featu
   useTokenLaunch.mockReturnValue({ data, isLoading: false, isAvailable: true });
   useTokenSeasons.mockReturnValue({ data: { seasons: featured ? [featured] : [], featured } });
   useLaunchMarkets.mockReturnValue({ markets: data ? { [TOKEN]: market } : {} });
-  usePlatform.mockReturnValue({ isMobile: mobile, isMobileBrowser: false });
+  usePlatform.mockReturnValue({ isMobile: mobile });
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
@@ -94,7 +94,7 @@ describe("TokenDetail", () => {
     }));
     useTokenSeasons.mockReturnValue({ data: { seasons: [], featured: null } });
     useLaunchMarkets.mockReturnValue({ markets: {} });
-    usePlatform.mockReturnValue({ isMobile: false, isMobileBrowser: false });
+    usePlatform.mockReturnValue({ isMobile: false });
     render(
       <MemoryRouter initialEntries={[`/tokens/${TOKEN}`]}>
         <Link to={`/tokens/${OTHER}`}>next</Link>

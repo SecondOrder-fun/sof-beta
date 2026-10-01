@@ -13,6 +13,8 @@
   "platform": "Platform",
   "portfolio": "Portfolio",
   "leaderboard": "Leaderboard",
+  "tokens": "Token",
+  "launchToken": "Lancia un token",
   "resources": "Resources",
   "documentation": "Documentation",
   "api": "API",

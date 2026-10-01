@@ -54,6 +54,7 @@ packages/frontend/
 │   │   ├── mint/                   # AllowlistMintCard, GiftClaimCard
 │   │   ├── gating/                 # SignatureGateModal, PasswordGateModal
 │   │   ├── landing/                # OpenAppButton
+│   │   ├── mobile/                 # Mobile layout (phones, touch tablets): MobileHeader, BottomNav, SystemMenu, per-route views
 │   │   └── shells/                 # WebShell, MiniAppShell
 │   ├── context/                    # React contexts (auth, SSE, theme, wallet)
 │   ├── features/                   # Feature modules

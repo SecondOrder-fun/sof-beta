@@ -23,7 +23,7 @@ vi.mock("@/components/mobile/MobileCreateSeason", () => ({
 const POND = "0x1111111111111111111111111111111111111111";
 
 const renderAt = (url, platform = {}) => {
-  usePlatform.mockReturnValue({ isMobile: false, isMobileBrowser: false, ...platform });
+  usePlatform.mockReturnValue({ isMobile: false, ...platform });
   return render(
     <MemoryRouter initialEntries={[url]}>
       <CreateSeasonPage />
@@ -38,7 +38,7 @@ describe("CreateSeasonPage ?quoteToken=", () => {
   });
 
   it("hands the token to the mobile flow", () => {
-    renderAt(`/create-season?quoteToken=${POND}`, { isMobileBrowser: true });
+    renderAt(`/create-season?quoteToken=${POND}`, { isMobile: true });
     expect(screen.getByTestId("mobile")).toHaveTextContent(POND);
   });
 

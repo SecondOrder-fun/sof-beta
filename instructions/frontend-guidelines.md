@@ -199,6 +199,38 @@ Mobile-first approach. Use Tailwind responsive prefixes (`md:`, `lg:`).
 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 ```
 
+### Mobile layout
+
+Phones and touch tablets get a separate app shell, not a squeezed desktop.
+`usePlatform().isMobile` is the single switch: the media query
+`(max-width: 768px), (pointer: coarse) and (max-width: 1024px)`, read
+synchronously so the first render already has the right layout. It does not
+depend on Farcaster or the Base App — the `platform` / `isFarcaster` /
+`isBaseApp` fields never decide layout. Do not call `matchMedia` or add a
+second breakpoint hook for layout decisions; use `isMobile`.
+
+- **Shell** (`App.jsx` mobile branch): `MobileHeader` (its avatar opens
+  `SystemMenu`), the compact `ActivityTicker`, a scrolling `<main>`, the fixed
+  `BottomNav`, and `MobileLoginSheet` in place of the desktop `LoginModal`
+  (both open via `useLoginModal().openLoginModal`).
+- **Navigation**: `BottomNav` has five tabs — Raffles, Markets, Tokens
+  (`/tokens`, `/tokens/*`, `/launch`), Portfolio, Leaderboard. Every other page
+  is linked from `SystemMenu`: Launch a token, Create raffle, Admin (admins
+  only, same `useAllowlist` check as the desktop header), Docs, Guides, FAQ and
+  the legal pages. New top-level pages go in one of the two.
+- **Per-route views**: routes with a mobile variant branch on `isMobile` and
+  render a component from `components/mobile/` that lays out its own gutters
+  (raffles, markets, leaderboard, portfolio, create season; Home renders its
+  welcome full-bleed). They are listed in `FULL_BLEED_MOBILE_ROUTES` in
+  `App.jsx`. Every other route renders its desktop page inside the mobile
+  shell's `px-4` gutter, so those pages must not assume the desktop
+  `container mx-auto px-4 py-8` (`ContentPage` and `UserProfile` drop their
+  own side padding on mobile for this reason).
+- **Fixed bars** above the `BottomNav` position themselves with
+  `bottom-[var(--bottom-nav-height,6rem)]`; `BottomNav` publishes its measured
+  height (safe area included) in that variable, and the shell's `<main>` pads
+  by it too. Don't hardcode the nav height.
+
 ## On-Chain Transactions (Critical)
 
 ALL on-chain operations MUST use the ERC-5792 batched transaction flow via `useSmartTransactions.executeBatch`. Never use raw `writeContractAsync` for user-facing transactions. See `instructions/project-requirements.md` for the three-tier fallback details.

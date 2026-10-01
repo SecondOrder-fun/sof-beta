@@ -13,6 +13,8 @@
   "platform": "Platform",
   "portfolio": "Portfolio",
   "leaderboard": "Leaderboard",
+  "tokens": "Tokens",
+  "launchToken": "Lanzar un token",
   "resources": "Resources",
   "documentation": "Documentation",
   "api": "API",
