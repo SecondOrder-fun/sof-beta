@@ -113,6 +113,16 @@ const Footer = () => {
               </li>
               <li>
                 <NavLink
+                  to="/tokens"
+                  className={({ isActive }) =>
+                    isActive ? colEntryActiveCls : colEntryCls
+                  }
+                >
+                  {t("tokens")}
+                </NavLink>
+              </li>
+              <li>
+                <NavLink
                   to="/portfolio"
                   className={({ isActive }) =>
                     isActive ? colEntryActiveCls : colEntryCls
