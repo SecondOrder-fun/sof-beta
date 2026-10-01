@@ -90,7 +90,7 @@ export const AccessLevelSelector = ({
               take effect immediately.
             </p>
             <p>
-              Access is checked against backend API and user&apos;s wallet/FID.
+              Access is checked against backend API and user&apos;s wallet.
             </p>
           </div>
         </div>

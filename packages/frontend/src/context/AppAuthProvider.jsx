@@ -1,23 +1,17 @@
 /**
  * AppAuthProvider — global JWT lifecycle.
  *
- * Two auto-fire paths run on connect when no valid cached JWT exists:
- *  - desktop-EOA / Coinbase Smart Wallet → SIWE
- *      (signMessage prompt → POST /api/auth/verify method:"wallet")
- *  - Farcaster MiniApp → Quick Auth (zero prompt, fix for #148)
- *      (sdk.quickAuth.getToken → POST /api/auth/verify
- *       method:"farcaster-quick-auth")
+ * Wallet sign-in (SIWE) is the only method. It auto-fires on connect for
+ * desktop EOAs and Coinbase Smart Wallet when no valid cached JWT exists:
+ *   signMessage prompt → POST /api/auth/verify method:"wallet"
  * The backend's /verify response populates user.sma + user.isAdmin via
  * ensureSmartAccount + ensureAdminFlag.
  *
- * Replaces AdminAuthContext (deleted) and the JWT half of FarcasterProvider
- * (kept for auth-kit profile state only).
+ * Replaces AdminAuthContext (deleted).
  *
  * Storage:
  *  - desktop-eoa, coinbase-smart → localStorage (sof:auth_jwt + sof:auth_user)
- *  - farcaster-miniapp           → in-memory only (Quick Auth tokens are
- *                                  short-lived; the MiniApp re-Quick-Auths
- *                                  on each open)
+ *  - any other wallet type       → in-memory only
  *
  * See spec: docs/superpowers/specs/2026-05-07-universal-siwe-design.md
  */
@@ -40,6 +34,8 @@ import i18n from "@/i18n/config";
 
 const STORAGE_JWT_KEY = "sof:auth_jwt";
 const STORAGE_USER_KEY = "sof:auth_user";
+// Keys of retired auth paths (AdminAuthContext, Farcaster sign-in), cleared on
+// mount. The Farcaster ones can go one release after the Farcaster removal.
 const LEGACY_KEYS = ["sof:admin_jwt", "sof:farcaster_jwt", "sof:farcaster_user"];
 const SIGN_IN_MESSAGE_PREFIX = "Sign in to SecondOrder.fun\nNonce: ";
 
@@ -141,10 +137,9 @@ export function AppAuthProvider({ children }) {
   const inflightRef = useRef(false);
 
   const persist = useCallback((token, userObj) => {
-    // Only persist for the explicitly-allowed wallet types. Spec §5.3:
-    // farcaster-miniapp → in-memory only; unknown types → in-memory (safer
-    // default than implicitly persisting for whatever new wallet type
-    // classifyWalletType doesn't recognize yet).
+    // Only persist for the explicitly-allowed wallet types. Unknown types →
+    // in-memory (safer default than implicitly persisting for whatever new
+    // wallet type classifyWalletType doesn't recognize yet).
     if (!PERSIST_WALLET_TYPES.has(walletType)) return;
     try {
       localStorage.setItem(STORAGE_JWT_KEY, token);
@@ -157,9 +152,10 @@ export function AppAuthProvider({ children }) {
     try { localStorage.removeItem(STORAGE_USER_KEY); } catch { /* noop */ }
   }, []);
 
-  const signIn = useCallback(async (opts = { method: "wallet" }) => {
+  // Wallet sign-in: fetch nonce, sign, verify.
+  const signIn = useCallback(async () => {
     if (inflightRef.current) return;
-    if (!addressLc && opts.method !== "farcaster") {
+    if (!addressLc) {
       setError(i18n.t("auth:errors.walletNotConnected", "Wallet not connected"));
       setStatus("error");
       return;
@@ -167,66 +163,43 @@ export function AppAuthProvider({ children }) {
 
     inflightRef.current = true;
     setError(null);
-    // Quick Auth never invokes the wallet — go straight to "verifying" so
-    // any UI keyed on status="signing" (which means "wallet prompt open")
-    // doesn't flash for MiniApp users.
-    setStatus(opts.method === "farcaster-quick-auth" ? "verifying" : "signing");
+    setStatus("signing");
 
     try {
-      let body;
-      if (opts.method === "farcaster") {
-        const { message, signature, nonce } = opts;
-        body = JSON.stringify({ method: "farcaster", message, signature, nonce });
-      } else if (opts.method === "farcaster-quick-auth") {
-        // Zero-prompt MiniApp sign-in. Pull a JWT from the Farcaster Quick
-        // Auth Server via the SDK (the Farcaster client signs on the user's
-        // behalf — no wallet prompt) and hand it + the wagmi-connected
-        // address to the backend. The backend extracts FID from the JWT and
-        // trusts the supplied address as the user's EOA/SMA.
-        const { sdk } = await import("@farcaster/miniapp-sdk");
-        const { token } = await sdk.quickAuth.getToken();
-        body = JSON.stringify({
-          method: "farcaster-quick-auth",
-          quickAuthToken: token,
-          address: addressLc,
-        });
-      } else {
-        // Wallet path — fetch nonce, sign, verify.
-        const nonceRes = await fetch(`${API_BASE}/auth/nonce`);
-        if (!nonceRes.ok) {
-          const data = await nonceRes.json().catch(() => ({}));
-          throw new Error(data.error || "Failed to fetch nonce");
-        }
-        const { nonce } = await nonceRes.json();
-
-        const message = `${SIGN_IN_MESSAGE_PREFIX}${nonce}`;
-        let signature;
-        try {
-          signature = await signMessage(config, { message });
-        } catch (err) {
-          if (
-            err?.name === "UserRejectedRequestError" ||
-            String(err?.message || "").includes("User rejected")
-          ) {
-            setStatus("rejected");
-            setError(i18n.t("auth:errors.userRejected", "User rejected sign-in"));
-            return;
-          }
-          throw err;
-        }
-
-        setStatus("verifying");
-        body = JSON.stringify({
-          method: "wallet",
-          address: addressLc,
-          signature,
-          nonce,
-          // Routes backend SMA resolution: smart-wallet types
-          // (coinbase-smart, farcaster-miniapp) keep sma=eoa so the
-          // airdrop lands in the wallet the user actually trades from.
-          walletType,
-        });
+      const nonceRes = await fetch(`${API_BASE}/auth/nonce`);
+      if (!nonceRes.ok) {
+        const data = await nonceRes.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to fetch nonce");
       }
+      const { nonce } = await nonceRes.json();
+
+      const message = `${SIGN_IN_MESSAGE_PREFIX}${nonce}`;
+      let signature;
+      try {
+        signature = await signMessage(config, { message });
+      } catch (err) {
+        if (
+          err?.name === "UserRejectedRequestError" ||
+          String(err?.message || "").includes("User rejected")
+        ) {
+          setStatus("rejected");
+          setError(i18n.t("auth:errors.userRejected", "User rejected sign-in"));
+          return;
+        }
+        throw err;
+      }
+
+      setStatus("verifying");
+      const body = JSON.stringify({
+        method: "wallet",
+        address: addressLc,
+        signature,
+        nonce,
+        // Routes backend SMA resolution: smart-wallet types (coinbase-smart)
+        // keep sma=eoa so the airdrop lands in the wallet the user actually
+        // trades from.
+        walletType,
+      });
 
       const verifyRes = await fetch(`${API_BASE}/auth/verify`, {
         method: "POST",
@@ -312,21 +285,7 @@ export function AppAuthProvider({ children }) {
     if (jwt) return;
     if (status === "signing" || status === "verifying") return;
     if (status === "rejected" || status === "error") return; // don't loop
-    void signIn({ method: "wallet" });
-  }, [isFullyConnected, addressLc, walletType, jwt, status, signIn]);
-
-  // Effect: zero-prompt MiniApp auth for Farcaster MiniApp users. The wallet
-  // auto-fire above intentionally excludes farcaster-miniapp (it can't sign
-  // SIWE through the Farcaster connector). Instead, when we're inside the
-  // MiniApp we ask the Farcaster client for a Quick Auth JWT and authenticate
-  // via /verify method:"farcaster-quick-auth". No prompt is shown to the user.
-  useEffect(() => {
-    if (!isFullyConnected || !addressLc) return;
-    if (walletType !== "farcaster-miniapp") return;
-    if (jwt) return;
-    if (status === "signing" || status === "verifying") return;
-    if (status === "rejected" || status === "error") return; // don't loop
-    void signIn({ method: "farcaster-quick-auth" });
+    void signIn();
   }, [isFullyConnected, addressLc, walletType, jwt, status, signIn]);
 
   const value = useMemo(

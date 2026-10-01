@@ -1,72 +1,42 @@
 /**
  * User Profile Hook
- * Provides user profile data from Farcaster SDK or fallback sources
- * Returns profile image, display name, username, and FID
+ * Profile of the connected wallet: the app username (UsernameContext) as the
+ * display name, falling back to the ENS name; the ENS avatar as the picture.
  */
 
-import { useFarcasterSDK } from "./useFarcasterSDK";
 import { useAccount, useEnsAvatar, useEnsName } from "wagmi";
 import { normalize } from "viem/ens";
+import { useUsernameContext } from "@/context/UsernameContext";
 
 export const useUserProfile = () => {
-  const { context, isInFarcasterClient } = useFarcasterSDK();
   const { address, isConnected } = useAccount();
+  const { username } = useUsernameContext();
 
-  // ENS data as fallback
   const { data: ensName } = useEnsName({
     address,
-    enabled: isConnected && !isInFarcasterClient,
+    enabled: isConnected,
   });
 
   const { data: ensAvatar } = useEnsAvatar({
     name: ensName ? normalize(ensName) : undefined,
-    enabled: !!ensName && !isInFarcasterClient,
+    enabled: !!ensName,
   });
 
-  // Farcaster profile (priority)
-  if (isInFarcasterClient && context?.user) {
-    return {
-      pfpUrl: context.user.pfpUrl,
-      displayName: context.user.displayName,
-      username: context.user.username,
-      fid: context.user.fid,
-      address: context.user.verifiedAddresses?.[0] || address,
-      source: "farcaster",
-    };
-  }
-
-  // ENS profile (fallback)
-  if (isConnected && (ensName || ensAvatar)) {
-    return {
-      pfpUrl: ensAvatar || null,
-      displayName: ensName || null,
-      username: ensName || null,
-      fid: null,
-      address,
-      source: "ens",
-    };
-  }
-
-  // Connected wallet (no profile data)
-  if (isConnected) {
+  if (!isConnected) {
     return {
       pfpUrl: null,
       displayName: null,
       username: null,
-      fid: null,
-      address,
-      source: "wallet",
+      address: null,
     };
   }
 
-  // Not connected
+  const name = username || ensName || null;
   return {
-    pfpUrl: null,
-    displayName: null,
-    username: null,
-    fid: null,
-    address: null,
-    source: null,
+    pfpUrl: ensAvatar || null,
+    displayName: name,
+    username: name,
+    address,
   };
 };
 

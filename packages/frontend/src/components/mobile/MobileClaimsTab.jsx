@@ -5,7 +5,7 @@ import ClaimCenter from "@/components/infofi/ClaimCenter";
 
 /**
  * MobileClaimsTab — raffle prize + InfoFi market claim interface for the
- * Farcaster / mobile Portfolio UI. Thin wrapper that delegates to ClaimCenter.
+ * mobile Portfolio UI. Thin wrapper that delegates to ClaimCenter.
  *
  * @param {Object} props
  * @param {string} [props.address] - Connected wallet address

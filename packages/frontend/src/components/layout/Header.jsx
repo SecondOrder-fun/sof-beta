@@ -150,7 +150,7 @@ const Header = () => {
               }}
             />
           ) : isBackendAuthenticated && backendUser ? (
-            // Edge state: authed (e.g. via legacy SIWF JWT or stale auth) but no
+            // Edge state: authed (e.g. via a stale JWT) but no
             // wallet connected. Give the user a way to sign out OR reconnect a
             // wallet — the Connect Wallet flow re-attaches them to a SettingsMenu.
             <>

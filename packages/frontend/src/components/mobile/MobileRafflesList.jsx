@@ -1,6 +1,6 @@
 /**
  * Mobile Raffles List
- * Carousel-based seasons display for Farcaster and mobile
+ * Carousel-based seasons display for the mobile layout
  * Uses adaptive card height to fill space between header and footer
  */
 
@@ -19,7 +19,7 @@ import SeasonCard from "@/components/mobile/SeasonCard";
 import { useCurveState } from "@/hooks/useCurveState";
 import MobileCardSkeleton from "@/components/common/skeletons/MobileCardSkeleton";
 
-const MobileActiveSeasonCard = ({ season, onBuy, onSell, isVerified, isGated, onVerify, isConnected, onConnect, isFarcaster }) => {
+const MobileActiveSeasonCard = ({ season, onBuy, onSell, isVerified, isGated, onVerify, isConnected, onConnect }) => {
   const navigate = useNavigate();
   const bondingCurveAddress = season?.config?.bondingCurve;
   const { curveSupply, curveStep, allBondSteps } = useCurveState(
@@ -46,7 +46,6 @@ const MobileActiveSeasonCard = ({ season, onBuy, onSell, isVerified, isGated, on
       onVerify={onVerify}
       isConnected={isConnected}
       onConnect={onConnect}
-      isFarcaster={isFarcaster}
     />
   );
 };
@@ -60,7 +59,6 @@ MobileActiveSeasonCard.propTypes = {
   onVerify: PropTypes.func,
   isConnected: PropTypes.bool,
   onConnect: PropTypes.func,
-  isFarcaster: PropTypes.bool,
 };
 
 const TAB_KEYS = ["upcoming", "active", "settling", "complete"];
@@ -78,7 +76,6 @@ export const MobileRafflesList = ({
   onVerify,
   isConnected,
   onConnect,
-  isFarcaster,
   showMineOnly,
   onToggleMine,
 }) => {
@@ -279,7 +276,6 @@ export const MobileRafflesList = ({
                           onVerify={onVerify}
                           isConnected={isConnected}
                           onConnect={onConnect}
-                          isFarcaster={isFarcaster}
                         />
                       )}
                     />
@@ -312,7 +308,6 @@ MobileRafflesList.propTypes = {
   onVerify: PropTypes.func,
   isConnected: PropTypes.bool,
   onConnect: PropTypes.func,
-  isFarcaster: PropTypes.bool,
   showMineOnly: PropTypes.bool,
   onToggleMine: PropTypes.func,
 };

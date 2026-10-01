@@ -36,16 +36,6 @@ describe("AddTokenToMetamaskButton walletType gating (Issue #118)", () => {
     expect(screen.getByRole("button", { name: /Add SOF to MetaMask/i })).toBeInTheDocument();
   });
 
-  it("returns null for walletType=farcaster-miniapp", () => {
-    vi.spyOn(raffleAccountHook, "useRaffleAccount").mockReturnValue({
-      walletType: "farcaster-miniapp",
-    });
-
-    const { container } = render(<AddTokenToMetamaskButton {...COMMON_PROPS} />);
-    expect(container.firstChild).toBeNull();
-    expect(screen.queryByRole("button")).toBeNull();
-  });
-
   it("returns null for walletType=coinbase-smart (Base App)", () => {
     vi.spyOn(raffleAccountHook, "useRaffleAccount").mockReturnValue({
       walletType: "coinbase-smart",

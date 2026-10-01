@@ -49,10 +49,8 @@ beforeEach(() => {
         ok: true,
         json: () => Promise.resolve({
           entries: [{
-            fid: 1001,
             username: "alice",
             wallet_address: "0xaaaa000000000000000000000000000000000001",
-            pfpUrl: null,
           }],
           count: 1,
         }),
@@ -67,17 +65,17 @@ afterEach(() => {
 });
 
 describe("AccessGroupsPanel Add Member via UserPicker", () => {
-  it("selecting a picker row POSTs to /access/groups/assign with fid and groupSlug", async () => {
+  it("selecting a picker row POSTs to /access/groups/assign with the wallet and groupSlug", async () => {
     renderWithClient(<AccessGroupsPanel getAuthHeaders={() => ({})} />);
     fireEvent.click(await screen.findByText("Beta"));
-    const input = await screen.findByPlaceholderText(/@username, FID, or 0x/);
+    const input = await screen.findByPlaceholderText(/@username or 0x/);
     fireEvent.change(input, { target: { value: "alice" } });
     const row = await screen.findByText("@alice");
     fireEvent.mouseDown(row.closest("[role='option']"));
     await waitFor(() => expect(assignSpy).toHaveBeenCalledTimes(1));
     const [, callOpts] = assignSpy.mock.calls[0];
     expect(JSON.parse(callOpts.body)).toEqual({
-      fid: 1001,
+      wallet: "0xaaaa000000000000000000000000000000000001",
       groupSlug: "beta",
     });
   });
@@ -106,10 +104,8 @@ describe("AccessGroupsPanel Add Member via UserPicker", () => {
           ok: true,
           json: () => Promise.resolve({
             entries: [{
-              fid: 1001,
               username: "alice",
               wallet_address: "0xaaaa000000000000000000000000000000000001",
-              pfpUrl: null,
             }],
             count: 1,
           }),
@@ -120,7 +116,7 @@ describe("AccessGroupsPanel Add Member via UserPicker", () => {
 
     renderWithClient(<AccessGroupsPanel getAuthHeaders={() => ({})} />);
     fireEvent.click(await screen.findByText("Beta"));
-    const input = await screen.findByPlaceholderText(/@username, FID, or 0x/);
+    const input = await screen.findByPlaceholderText(/@username or 0x/);
     fireEvent.change(input, { target: { value: "alice" } });
     const row = await screen.findByText("@alice");
     fireEvent.mouseDown(row.closest("[role='option']"));

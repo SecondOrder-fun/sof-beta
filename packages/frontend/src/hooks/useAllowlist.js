@@ -4,18 +4,18 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { useAppIdentity } from "@/hooks/useAppIdentity";
+import { useAccount } from "wagmi";
 import { ACCESS_LEVELS } from "@/config/accessLevels";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL + "/access";
 
 /**
- * Check user access by FID (priority) or wallet
- * @param {object} params - { fid?, wallet? }
+ * Check user access by wallet
+ * @param {object} params - { wallet? }
  * @returns {Promise<{isAllowlisted: boolean, accessLevel: number, levelName: string, groups: string[], entry: object|null}>}
  */
-async function checkUserAccess({ fid, wallet }) {
-  if (!fid && !wallet) {
+async function checkUserAccess({ wallet }) {
+  if (!wallet) {
     return {
       isAllowlisted: false,
       accessLevel: ACCESS_LEVELS.PUBLIC,
@@ -26,8 +26,7 @@ async function checkUserAccess({ fid, wallet }) {
   }
 
   const params = new URLSearchParams();
-  if (fid) params.append("fid", String(fid));
-  if (wallet) params.append("wallet", wallet);
+  params.append("wallet", wallet);
 
   const res = await fetch(`${API_BASE}/check?${params.toString()}`);
   if (!res.ok) {
@@ -56,13 +55,13 @@ async function checkUserAccess({ fid, wallet }) {
  * }}
  */
 export function useAllowlist() {
-  const identity = useAppIdentity();
+  const { address } = useAccount();
+  const wallet = address ?? null;
 
   const query = useQuery({
-    queryKey: ["allowlist-check", identity.fid, identity.walletAddress],
-    queryFn: () =>
-      checkUserAccess({ fid: identity.fid, wallet: identity.walletAddress }),
-    enabled: !!identity.fid || !!identity.walletAddress,
+    queryKey: ["allowlist-check", wallet],
+    queryFn: () => checkUserAccess({ wallet }),
+    enabled: !!wallet,
     staleTime: 60000, // Cache for 1 minute
     refetchOnWindowFocus: false,
   });

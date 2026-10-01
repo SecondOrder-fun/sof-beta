@@ -8,18 +8,14 @@ import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 
 /**
  * Wallet types where the MetaMask-specific `wallet_watchAsset` RPC
- * doesn't apply: the connected wallet is a smart account (Farcaster
- * MiniApp custody / Coinbase Smart Wallet), not an injected MetaMask
- * EOA. Showing the button in these contexts is misleading — the click
+ * doesn't apply: the connected wallet is a smart account (Coinbase Smart
+ * Wallet), not an injected MetaMask EOA. Showing the button in these contexts is misleading — the click
  * would either no-op or surface a "MetaMask not installed" error.
  *
  * Pattern mirrors PR #112's walletType-gated surface suppression.
  * See Issue #118.
  */
-const NON_METAMASK_WALLET_TYPES = new Set([
-  "farcaster-miniapp",
-  "coinbase-smart",
-]);
+const NON_METAMASK_WALLET_TYPES = new Set(["coinbase-smart"]);
 
 const AddTokenToMetamaskButton = ({
   address,

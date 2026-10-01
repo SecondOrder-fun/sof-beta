@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 /**
  * Button component with pointer-event-driven pressed state.
  * Uses data-pressed attribute instead of CSS :active to prevent
- * sticky active states on mobile/Farcaster touch UIs.
+ * sticky active states on mobile touch UIs.
  */
 const Button = React.forwardRef(({ className, variant, size, asChild = false, ...props }, ref) => {
   const resolvedVariant =
@@ -45,7 +45,6 @@ const Button = React.forwardRef(({ className, variant, size, asChild = false, ..
         resolvedVariant === 'ghost' && 'border border-primary text-muted bg-primary/80 hover:bg-primary/70 data-[pressed]:bg-primary/60 dark:text-fabric-red dark:bg-pastel-rose',
         resolvedVariant === 'link' && 'bg-transparent text-muted-foreground underline underline-offset-4 hover:text-primary hover:bg-transparent',
         // External brand variants — colors are fixed third-party brand values
-        resolvedVariant === 'farcaster' && 'bg-[#7c3aed] text-white hover:bg-[#6d28d9] hover:scale-105 transition-transform',
         resolvedVariant === 'base' && 'bg-[#0052ff] text-white hover:bg-[#003ecb] hover:scale-105 transition-transform',
         (size === 'default' || !size) && 'h-10 py-2 px-4',
         size === 'sm' && 'h-9 px-3 rounded-md',
@@ -77,7 +76,6 @@ Button.propTypes = {
     'link',
     'destructive',
     'danger',
-    'farcaster',
     'base',
   ]),
   size: PropTypes.oneOf(['default', 'sm', 'lg', 'icon']),

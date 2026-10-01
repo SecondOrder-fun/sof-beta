@@ -61,11 +61,6 @@ describe("App shell", () => {
       expect(screen.queryByTestId("bottom-nav")).not.toBeInTheDocument();
     });
 
-    it("ignores the Farcaster / Base App platform flags", () => {
-      renderApp({ isFarcaster: true, isBaseApp: true });
-      expect(screen.getByTestId("desktop-header")).toBeInTheDocument();
-      expect(screen.queryByTestId("mobile-header")).not.toBeInTheDocument();
-    });
   });
 
   describe("mobile layout", () => {

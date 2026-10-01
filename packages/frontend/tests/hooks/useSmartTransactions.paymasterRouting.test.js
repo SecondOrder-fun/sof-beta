@@ -17,10 +17,6 @@ vi.mock("@/config/contracts", () => ({
 }));
 vi.mock("@/lib/wagmi", () => ({ getStoredNetworkKey: () => "TESTNET", getChainConfig: () => ({ chain: { id: 84532 }, transport: {} }) }));
 vi.mock("@/lib/wagmiConfig", () => ({ config: {}, initialNetworkKey: "TESTNET" }));
-vi.mock("@/context/farcasterContext", async () => {
-  const { createContext } = await import("react");
-  return { default: createContext({ backendJwt: "mock-jwt" }) };
-});
 
 import { fetchPaymasterSession } from "@/hooks/useSmartTransactions";
 

@@ -9,17 +9,12 @@ vi.mock("wagmi", () => {
     createConfig: vi.fn(() => ({ mocked: true })),
     useAccount: vi.fn(() => ({ isConnected: false })),
     useChainId: vi.fn(() => 84532),
-    useConnect: vi.fn(() => ({ connect: vi.fn(), connectors: [] })),
     useSwitchChain: vi.fn(() => ({ switchChain: vi.fn() })),
   };
 });
 
 vi.mock("wagmi/connectors", () => ({
   injected: vi.fn(() => ({ id: "injected" })),
-}));
-
-vi.mock("@farcaster/miniapp-wagmi-connector", () => ({
-  farcasterMiniApp: vi.fn(() => ({ id: "farcaster-miniapp" })),
 }));
 
 vi.mock("@/lib/wagmi", () => ({
@@ -46,7 +41,6 @@ describe("WagmiConfigProvider EnsureActiveChain", () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    wagmi.useConnect.mockReturnValue({ connect: vi.fn(), connectors: [] });
     wagmi.useSwitchChain.mockReturnValue({ switchChain: vi.fn() });
   });
 

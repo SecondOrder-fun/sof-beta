@@ -25,10 +25,8 @@ beforeEach(() => {
         ok: true,
         json: () => Promise.resolve({
           entries: [{
-            fid: 1001,
             username: "alice",
             wallet_address: "0xaaaa000000000000000000000000000000000001",
-            pfpUrl: null,
           }],
           count: 1,
         }),
@@ -43,7 +41,6 @@ beforeEach(() => {
           levelName: "allowlist",
           groups: [],
           entry: {
-            fid: 1001,
             username: "alice",
             wallet_address: "0xaaaa000000000000000000000000000000000001",
           },
@@ -61,13 +58,13 @@ afterEach(() => {
 describe("UserAccessPanel via UserPicker", () => {
   it("selecting a picker row triggers /access/check and renders the user detail card", async () => {
     renderWithClient(<UserAccessPanel getAuthHeaders={() => ({})} />);
-    const input = screen.getByPlaceholderText(/@username, FID, or 0x/);
+    const input = screen.getByPlaceholderText(/@username or 0x/);
     fireEvent.change(input, { target: { value: "alice" } });
     const row = await screen.findByText("@alice");
     fireEvent.mouseDown(row.closest("[role='option']"));
     await waitFor(() =>
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining("/access/check?fid=1001"),
+        expect.stringContaining("/access/check?wallet=0xaaaa000000000000000000000000000000000001"),
         expect.any(Object),
       ),
     );
@@ -81,10 +78,8 @@ describe("UserAccessPanel via UserPicker", () => {
           ok: true,
           json: () => Promise.resolve({
             entries: [{
-              fid: 1001,
               username: "alice",
               wallet_address: "0xaaaa000000000000000000000000000000000001",
-              pfpUrl: null,
             }],
             count: 1,
           }),
@@ -98,7 +93,7 @@ describe("UserAccessPanel via UserPicker", () => {
             accessLevel: 2,
             levelName: "allowlist",
             groups: [],
-            entry: { fid: 1001, wallet_address: "0xaaaa000000000000000000000000000000000001" },
+            entry: { wallet_address: "0xaaaa000000000000000000000000000000000001" },
             matchedVia: "sma_pair",
             matchedAddress: "0xbbbb000000000000000000000000000000000002",
           }),
@@ -108,7 +103,7 @@ describe("UserAccessPanel via UserPicker", () => {
     });
 
     renderWithClient(<UserAccessPanel getAuthHeaders={() => ({})} />);
-    const input = screen.getByPlaceholderText(/@username, FID, or 0x/);
+    const input = screen.getByPlaceholderText(/@username or 0x/);
     fireEvent.change(input, { target: { value: "alice" } });
     const row = await screen.findByText("@alice");
     fireEvent.mouseDown(row.closest("[role='option']"));

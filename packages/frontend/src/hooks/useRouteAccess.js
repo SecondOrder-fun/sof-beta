@@ -4,24 +4,17 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { useAppIdentity } from "@/hooks/useAppIdentity";
+import { useAccount } from "wagmi";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL + "/access";
 
 /**
  * Check route access for user
- * @param {object} params - { fid?, wallet?, route, resourceType?, resourceId? }
+ * @param {object} params - { wallet?, route, resourceType?, resourceId? }
  * @returns {Promise<object>}
  */
-async function checkRouteAccess({
-  fid,
-  wallet,
-  route,
-  resourceType,
-  resourceId,
-}) {
+async function checkRouteAccess({ wallet, route, resourceType, resourceId }) {
   const params = new URLSearchParams();
-  if (fid) params.append("fid", String(fid));
   if (wallet) params.append("wallet", wallet);
   params.append("route", route);
   if (resourceType) params.append("resourceType", resourceType);
@@ -78,7 +71,8 @@ async function checkRouteAccess({
  * }}
  */
 export function useRouteAccess(route, options = {}) {
-  const identity = useAppIdentity();
+  const { address } = useAccount();
+  const wallet = address ?? null;
   const { resourceType, resourceId, enabled = true } = options;
 
   const query = useQuery({
@@ -87,13 +81,11 @@ export function useRouteAccess(route, options = {}) {
       route,
       resourceType,
       resourceId,
-      identity.fid,
-      identity.walletAddress,
+      wallet,
     ],
     queryFn: () =>
       checkRouteAccess({
-        fid: identity.fid,
-        wallet: identity.walletAddress,
+        wallet,
         route,
         resourceType,
         resourceId,

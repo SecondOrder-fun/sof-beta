@@ -7,7 +7,7 @@ import { AppAuthContext } from "@/context/AppAuthProvider";
  * Returns: { jwt, user, status, error, signIn, signOut, getAuthHeaders }.
  * Throws if used outside <AppAuthProvider>.
  *
- * Replaces the deleted useAdminAuth and the JWT half of useFarcaster.
+ * Replaces the deleted useAdminAuth.
  */
 export function useAppAuth() {
   const ctx = useContext(AppAuthContext);

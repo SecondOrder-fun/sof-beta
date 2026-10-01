@@ -58,24 +58,6 @@ describe("useRaffleAccount", () => {
     expect(result.current.sma).toBe("0xCBW");
   });
 
-  it("returns farcaster-miniapp for farcasterMiniApp connector", async () => {
-    wagmi.useAccount.mockReturnValue({
-      address: "0xFC",
-      connector: { id: "farcasterMiniApp", name: "Farcaster" },
-      isConnected: true,
-    });
-    wagmi.useReadContract.mockReturnValue({ data: undefined, isPending: false, isError: false });
-
-    const { result } = renderHook(() => useRaffleAccount(), {
-      wrapper: ({ children }) => <RaffleAccountProvider>{children}</RaffleAccountProvider>,
-    });
-    await waitFor(() => expect(result.current.isReady).toBe(true));
-
-    expect(result.current.walletType).toBe("farcaster-miniapp");
-    expect(result.current.eoa).toBe("0xFC");
-    expect(result.current.sma).toBe("0xFC");
-  });
-
   it("returns isReady false while SMA query is pending", () => {
     wagmi.useAccount.mockReturnValue({
       address: "0xEOA",

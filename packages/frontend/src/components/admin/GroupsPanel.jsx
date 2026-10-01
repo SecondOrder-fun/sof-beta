@@ -293,25 +293,22 @@ CreateGroupForm.propTypes = {
 };
 
 /**
- * Parse identifier input — detects wallet address (0x...) vs FID (number)
+ * Parse identifier input — a wallet address (0x...)
  * @param {string} input
- * @returns {{ fid?: number, wallet?: string } | null}
+ * @returns {{ wallet: string } | null}
  */
 function parseIdentifier(input) {
   const trimmed = input.trim();
-  if (!trimmed) return null;
   if (/^0x[a-fA-F0-9]{40}$/.test(trimmed)) {
     return { wallet: trimmed };
-  }
-  const fid = parseInt(trimmed, 10);
-  if (!isNaN(fid) && fid > 0) {
-    return { fid };
   }
   return null;
 }
 
 function GroupMembersDialog({ group, onClose }) {
-  const { members, isLoading } = useGroupMembers(group.slug);
+  const { members: allMembers, isLoading } = useGroupMembers(group.slug);
+  // Access is wallet-only: members without a wallet are not listed.
+  const members = allMembers.filter((m) => m.wallet_address);
   const { getAuthHeaders } = useAppAuth();
   const { addUserToGroup } = useAddUserToGroup({ getAuthHeaders });
   const { removeUserFromGroup } = useRemoveUserFromGroup({ getAuthHeaders });
@@ -323,7 +320,7 @@ function GroupMembersDialog({ group, onClose }) {
     if (!id) {
       toast({
         title: "Error",
-        description: "Enter a valid FID (number) or wallet address (0x...)",
+        description: "Enter a valid wallet address (0x...)",
         variant: "destructive",
       });
       return;
@@ -349,11 +346,8 @@ function GroupMembersDialog({ group, onClose }) {
 
   const handleRemoveMember = (member) => {
     if (confirm("Remove this user from the group?")) {
-      const id = member.fid
-        ? { fid: member.fid }
-        : { wallet: member.wallet_address };
       removeUserFromGroup(
-        { ...id, groupSlug: group.slug },
+        { wallet: member.wallet_address, groupSlug: group.slug },
         {
           onSuccess: () => {
             toast({ title: "Success", description: "User removed from group" });
@@ -381,7 +375,7 @@ function GroupMembersDialog({ group, onClose }) {
       <div className="space-y-4 py-4">
         <div className="flex gap-2">
           <Input
-            placeholder="FID or wallet address (0x...)"
+            placeholder="Wallet address (0x...)"
             value={newMemberInput}
             onChange={(e) => setNewMemberInput(e.target.value)}
           />
@@ -401,7 +395,6 @@ function GroupMembersDialog({ group, onClose }) {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>FID</TableHead>
                 <TableHead>Wallet</TableHead>
                 <TableHead>Granted At</TableHead>
                 <TableHead>Granted By</TableHead>
@@ -410,14 +403,9 @@ function GroupMembersDialog({ group, onClose }) {
             </TableHeader>
             <TableBody>
               {members.map((member) => (
-                <TableRow key={member.fid || member.wallet_address}>
-                  <TableCell className="font-mono">
-                    {member.fid || "-"}
-                  </TableCell>
+                <TableRow key={member.wallet_address}>
                   <TableCell className="font-mono text-sm">
-                    {member.wallet_address
-                      ? `${member.wallet_address.slice(0, 6)}...${member.wallet_address.slice(-4)}`
-                      : "-"}
+                    {`${member.wallet_address.slice(0, 6)}...${member.wallet_address.slice(-4)}`}
                   </TableCell>
                   <TableCell className="text-sm">
                     {new Date(member.granted_at).toLocaleDateString()}

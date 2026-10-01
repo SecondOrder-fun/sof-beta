@@ -21,7 +21,7 @@
 // Who sends the batch matters (msg.sender is the claimant). useSmartTransactions
 // sends from the smart account (`sma`) on every tier — the counterfactual SMA on
 // a desktop EOA (Path A), the connected address itself on Coinbase Smart Wallet
-// and Farcaster (where eoa === sma) — and from the EOA only with
+// (where eoa === sma) — and from the EOA only with
 // `bypassSponsorship`. `claimSender` picks between them.
 
 import { encodeFunctionData, isAddress } from 'viem';
@@ -69,8 +69,8 @@ export function claimSender(account, { eoa, sma } = {}) {
 /**
  * Whether a claim is known to be gas-free: sent from the smart account on a
  * desktop wallet (executeBatch's Path A, paid by SOFPaymaster) to the placer
- * SOFPaymaster sponsors. Coinbase Smart Wallet and Farcaster batches go through
- * other paymasters, optionally, so nothing is promised there.
+ * SOFPaymaster sponsors. Coinbase Smart Wallet batches go through other
+ * paymasters, optionally, so nothing is promised there.
  * @param {{ mode: string } | null} sender
  * @param {string | undefined} walletType  from useRaffleAccount
  * @param {PlacerFees | undefined} placerFees

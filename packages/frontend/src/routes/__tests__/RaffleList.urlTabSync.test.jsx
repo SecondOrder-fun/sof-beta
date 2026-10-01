@@ -53,7 +53,7 @@ vi.mock('@/hooks/useLoginModal', () => ({
   useLoginModal: () => ({ openLoginModal: vi.fn() }),
 }));
 vi.mock('@/hooks/usePlatform', () => ({
-  usePlatform: () => ({ isMobile: false, isFarcaster: false }),
+  usePlatform: () => ({ isMobile: false }),
 }));
 vi.mock('wagmi', () => ({
   useAccount: () => ({ address: '0xuser', isConnected: true, chainId: 84532 }),

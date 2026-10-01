@@ -108,10 +108,8 @@ export default function AccessGroupsPanel({ getAuthHeaders }) {
 
   // Add member
   const addMemberMutation = useMutation({
-    mutationFn: async ({ fid, wallet, groupSlug }) => {
-      const body = { groupSlug };
-      if (fid) body.fid = fid;
-      if (wallet) body.wallet = wallet;
+    mutationFn: async ({ wallet, groupSlug }) => {
+      const body = { groupSlug, wallet };
       const res = await fetch(`${API_BASE}/groups/assign`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
@@ -132,10 +130,8 @@ export default function AccessGroupsPanel({ getAuthHeaders }) {
 
   // Remove member
   const removeMemberMutation = useMutation({
-    mutationFn: async ({ fid, wallet, groupSlug }) => {
-      const body = { groupSlug };
-      if (fid) body.fid = fid;
-      if (wallet) body.wallet = wallet;
+    mutationFn: async ({ wallet, groupSlug }) => {
+      const body = { groupSlug, wallet };
       const res = await fetch(`${API_BASE}/groups/remove`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
@@ -169,7 +165,8 @@ export default function AccessGroupsPanel({ getAuthHeaders }) {
   };
 
   const groups = groupsQuery.data?.groups || [];
-  const members = membersQuery.data?.members || [];
+  // Access is wallet-only: members without a wallet are not listed.
+  const members = (membersQuery.data?.members || []).filter((m) => m.wallet_address);
 
   return (
     <Card>
@@ -336,10 +333,10 @@ export default function AccessGroupsPanel({ getAuthHeaders }) {
                     {/* Add Member */}
                     <UserPicker
                       ref={addPickerRef}
-                      placeholder="@username, FID, or 0x…"
+                      placeholder="@username or 0x…"
                       onSelect={(r) =>
                         addMemberMutation.mutate({
-                          ...(r.fid ? { fid: r.fid } : { wallet: r.wallet }),
+                          wallet: r.wallet,
                           groupSlug: group.slug,
                         })
                       }
@@ -364,7 +361,6 @@ export default function AccessGroupsPanel({ getAuthHeaders }) {
                         <Table>
                           <TableHeader>
                             <TableRow>
-                              <TableHead>FID</TableHead>
                               <TableHead>Wallet</TableHead>
                               <TableHead>Username</TableHead>
                               <TableHead>Added</TableHead>
@@ -373,14 +369,9 @@ export default function AccessGroupsPanel({ getAuthHeaders }) {
                           </TableHeader>
                           <TableBody>
                             {members.map((member) => (
-                              <TableRow key={member.fid || member.wallet_address}>
+                              <TableRow key={member.wallet_address}>
                                 <TableCell className="font-mono text-sm">
-                                  {member.fid || "—"}
-                                </TableCell>
-                                <TableCell className="font-mono text-sm">
-                                  {member.wallet_address
-                                    ? `${member.wallet_address.slice(0, 6)}...${member.wallet_address.slice(-4)}`
-                                    : "—"}
+                                  {`${member.wallet_address.slice(0, 6)}...${member.wallet_address.slice(-4)}`}
                                 </TableCell>
                                 <TableCell className="text-sm">
                                   {member.username ? `@${member.username}` : "—"}
@@ -395,19 +386,13 @@ export default function AccessGroupsPanel({ getAuthHeaders }) {
                                     variant="ghost"
                                     size="sm"
                                     onClick={() => {
-                                      const label = member.fid
-                                        ? `FID ${member.fid}`
-                                        : member.wallet_address;
                                       if (
                                         confirm(
-                                          `Remove ${label} from ${group.name}?`,
+                                          `Remove ${member.wallet_address} from ${group.name}?`,
                                         )
                                       ) {
-                                        const id = member.fid
-                                          ? { fid: member.fid }
-                                          : { wallet: member.wallet_address };
                                         removeMemberMutation.mutate({
-                                          ...id,
+                                          wallet: member.wallet_address,
                                           groupSlug: group.slug,
                                         });
                                       }

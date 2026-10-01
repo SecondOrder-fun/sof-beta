@@ -56,14 +56,6 @@ vi.mock("@/hooks/useRouteAccess", () => ({
   }),
 }));
 
-vi.mock("@/hooks/useFarcaster", () => ({
-  useFarcaster: () => ({
-    isBackendAuthenticated: false,
-    backendUser: null,
-    logout: vi.fn(),
-  }),
-}));
-
 vi.mock("@/hooks/useAppAuth", () => ({
   useAppAuth: () => ({
     user: null,

@@ -1,6 +1,6 @@
 /**
  * Vercel API handler for market embed HTML
- * Returns HTML with fc:miniapp meta tags for Farcaster sharing
+ * Returns HTML with Open Graph / Twitter Card meta tags for link previews
  */
 
 export default function handler(req, res) {
@@ -14,24 +14,9 @@ export default function handler(req, res) {
   const origin = getOrigin(req);
   const marketName = `Market ${marketId}`;
 
-  const miniappJson = {
-    version: "1",
-    imageUrl: `${origin}/og/market/${marketId}`,
-    button: {
-      title: `View ${marketName}`,
-      action: {
-        type: "launch_frame",
-        url: `${origin}/markets/${marketId}`,
-        splashImageUrl: `${origin}/og/market/${marketId}`,
-        splashBackgroundColor: "#1a1a2e",
-      },
-    },
-  };
-
   const html = buildEmbedHtml({
     title: `${marketName} | SecondOrder.fun`,
     description: `Trade predictions on ${marketName} - InfoFi markets on SecondOrder.fun`,
-    miniappJson,
     ogImageUrl: `${origin}/og/market/${marketId}`,
     canonicalUrl: `${origin}/markets/${marketId}`,
   });
@@ -63,15 +48,7 @@ function escapeHtml(str) {
     .replace(/'/g, "&#039;");
 }
 
-function buildEmbedHtml({
-  title,
-  description,
-  miniappJson,
-  ogImageUrl,
-  canonicalUrl,
-}) {
-  const miniappJsonStr = JSON.stringify(miniappJson);
-
+function buildEmbedHtml({ title, description, ogImageUrl, canonicalUrl }) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -92,10 +69,6 @@ function buildEmbedHtml({
   <meta name="twitter:title" content="${escapeHtml(title)}" />
   <meta name="twitter:description" content="${escapeHtml(description)}" />
   <meta name="twitter:image" content="${escapeHtml(ogImageUrl)}" />
-  
-  <!-- Farcaster Mini App -->
-  <meta name="fc:miniapp" content='${miniappJsonStr}' />
-  <meta name="fc:frame" content='${miniappJsonStr}' />
   
   <link rel="canonical" href="${escapeHtml(canonicalUrl)}" />
 </head>

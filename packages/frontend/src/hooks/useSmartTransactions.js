@@ -128,11 +128,9 @@ export function useSmartTransactions() {
   const publicClient = usePublicClient();
   const { data: walletClient } = useWalletClient();
   const { walletType } = useRaffleAccount();
-  // JWT from AppAuthProvider — covers SIWE-on-connect (desktop EOA / Coinbase
-  // Smart Wallet) and Farcaster MiniApp SIWF (via
-  // AppAuthProvider.signIn({ method: 'farcaster' })).
-  // Legacy storage keys (sof:farcaster_jwt, sof:admin_jwt) are cleared on
-  // AppAuthProvider mount, so localStorage fallbacks here are dead code.
+  // JWT from AppAuthProvider — SIWE-on-connect (desktop EOA / Coinbase Smart
+  // Wallet). Legacy storage keys are cleared on AppAuthProvider mount, so
+  // localStorage fallbacks here are dead code.
   const { jwt: backendJwt } = useAppAuth();
   const sessionCacheRef = useRef({ token: null, expiresAt: 0 });
   const apiBase = import.meta.env.VITE_API_BASE_URL || '';
@@ -336,7 +334,7 @@ export function useSmartTransactions() {
     }
 
     // Race the wallet prompt against a 30s timeout so wallets that never
-    // resolve (e.g. Farcaster miniapp) don't hang the UI forever.
+    // resolve don't hang the UI forever.
     const BATCH_TIMEOUT_MS = 30_000;
     const sendResult = await Promise.race([
       sendCallsAsync({

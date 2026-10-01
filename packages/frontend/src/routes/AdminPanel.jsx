@@ -32,7 +32,6 @@ import CreateSeasonForm from "@/components/admin/CreateSeasonForm";
 import SeasonList from "@/components/admin/SeasonList";
 import useFundDistributor from "@/hooks/useFundDistributor";
 import { BackendWalletManager } from "@/features/admin/components/BackendWalletManager";
-import NotificationPanel from "@/components/admin/NotificationPanel";
 import AllowlistPanel from "@/components/admin/AllowlistPanel";
 import AccessManagementPanel from "@/components/admin/AccessManagementPanel";
 import LocalizationAdmin from "@/routes/LocalizationAdmin";
@@ -163,11 +162,10 @@ function AdminPanelInner() {
       </div>
 
       <Tabs defaultValue="create" className="w-full">
-        <TabsList className="grid w-full grid-cols-8">
+        <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="create">Create Season</TabsTrigger>
           <TabsTrigger value="raffles">Manage Raffles</TabsTrigger>
           <TabsTrigger value="backend">Services</TabsTrigger>
-          <TabsTrigger value="notifications">Notifications</TabsTrigger>
           <TabsTrigger value="allowlist">Allowlist</TabsTrigger>
           <TabsTrigger value="access">Access</TabsTrigger>
           <TabsTrigger value="nft">NFT</TabsTrigger>
@@ -228,10 +226,6 @@ function AdminPanelInner() {
 
         <TabsContent value="backend" className="space-y-4">
           <BackendWalletManager />
-        </TabsContent>
-
-        <TabsContent value="notifications" className="space-y-4">
-          <NotificationPanel />
         </TabsContent>
 
         <TabsContent value="allowlist" className="space-y-4">

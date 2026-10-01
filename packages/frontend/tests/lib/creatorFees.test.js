@@ -108,9 +108,8 @@ describe("isSponsoredClaim", () => {
   });
 
   // Those batches go through other paymasters, optionally.
-  it("promises nothing on Coinbase Smart Wallet or Farcaster", () => {
+  it("promises nothing on Coinbase Smart Wallet", () => {
     expect(isSponsoredClaim(smart, "coinbase-smart", current)).toBe(false);
-    expect(isSponsoredClaim(smart, "farcaster-miniapp", current)).toBe(false);
   });
 
   it("is never gas-free from the EOA", () => {

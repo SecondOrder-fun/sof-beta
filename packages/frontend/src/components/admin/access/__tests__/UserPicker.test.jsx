@@ -42,10 +42,12 @@ describe("UserPicker", () => {
   });
 
   const SAMPLE_ENTRIES = [
-    { fid: 1001, username: "alice", wallet_address: "0xaaaa000000000000000000000000000000000001", pfpUrl: null },
-    { fid: 1002, username: "bob", wallet_address: "0xbbbb000000000000000000000000000000000002", pfpUrl: null },
-    { fid: 1003, username: "alicebob", wallet_address: "0xcccc000000000000000000000000000000000003", pfpUrl: null },
-    { fid: 9999, username: null, wallet_address: "0xdead000000000000000000000000000000000004", pfpUrl: null },
+    { username: "alice", wallet_address: "0xaaaa000000000000000000000000000000000001" },
+    { username: "bob", wallet_address: "0xbbbb000000000000000000000000000000000002" },
+    { username: "alicebob", wallet_address: "0xcccc000000000000000000000000000000000003" },
+    { username: null, wallet_address: "0xdead000000000000000000000000000000000004" },
+    // Legacy entry with no wallet: not selectable now that access is wallet-only.
+    { username: "nowallet", wallet_address: null },
   ];
 
   function mockFetchWith(entries) {
@@ -66,13 +68,12 @@ describe("UserPicker", () => {
     expect(screen.queryByText("@bob")).not.toBeInTheDocument();
   });
 
-  it("filters by FID prefix", async () => {
+  it("leaves out entries without a wallet", async () => {
     mockFetchWith(SAMPLE_ENTRIES);
     renderWithClient(<UserPicker onSelect={vi.fn()} />);
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "100" } });
-    await waitFor(() => expect(screen.getByText(/FID:1001/)).toBeInTheDocument());
-    expect(screen.getByText(/FID:1002/)).toBeInTheDocument();
-    expect(screen.queryByText(/FID:9999/)).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "nowallet" } });
+    expect(await screen.findByText(/No users found/i)).toBeInTheDocument();
+    expect(screen.queryByText("@nowallet")).not.toBeInTheDocument();
   });
 
   it("filters by wallet substring (case-insensitive)", async () => {
@@ -102,26 +103,19 @@ describe("UserPicker", () => {
     fireEvent.mouseDown(row.closest("[role='option']"));
     expect(onSelect).toHaveBeenCalledWith({
       source: "freeText",
-      fid: null,
       wallet,
     });
   });
 
-  it("offers 'Use FID N' free-text row when no matches but input is a valid FID", async () => {
+  it("does not offer a free-text row for a number (wallets only)", async () => {
     mockFetchWith(SAMPLE_ENTRIES);
-    const onSelect = vi.fn();
-    renderWithClient(<UserPicker onSelect={onSelect} />);
+    renderWithClient(<UserPicker onSelect={vi.fn()} />);
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "55555" } });
-    const row = await screen.findByText(/Use FID 55555/);
-    fireEvent.mouseDown(row.closest("[role='option']"));
-    expect(onSelect).toHaveBeenCalledWith({
-      source: "freeText",
-      fid: 55555,
-      wallet: null,
-    });
+    expect(await screen.findByText(/No users found/i)).toBeInTheDocument();
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
   });
 
-  it("shows 'No users found' when no matches and input is neither valid FID nor wallet", async () => {
+  it("shows 'No users found' when no matches and input is not a wallet", async () => {
     mockFetchWith(SAMPLE_ENTRIES);
     renderWithClient(<UserPicker onSelect={vi.fn()} />);
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "zzz" } });

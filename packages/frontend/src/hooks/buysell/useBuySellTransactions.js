@@ -5,7 +5,6 @@
  * which routes by wallet type:
  *   - desktop-EOA  → Path A: counterfactual SMA + EntryPoint v0.8 UserOp + paymaster
  *   - Coinbase     → wallet_sendCalls + CDP paymaster
- *   - Farcaster    → wallet_sendCalls + paymaster capability
  *
  * Exposes wagmi-mutation-shaped state so callers can wrap each mutation with
  * useTransactionStatus and feed TransactionModal. Pre-flight validation lives
