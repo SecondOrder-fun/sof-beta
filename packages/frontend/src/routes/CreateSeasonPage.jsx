@@ -10,11 +10,11 @@ import MobileCreateSeason from "@/components/mobile/MobileCreateSeason";
 
 const CreateSeasonPage = () => {
   const { t } = useTranslation("raffle");
-  const { isMobile, isMobileBrowser } = usePlatform();
+  const { isMobile } = usePlatform();
   const [searchParams] = useSearchParams();
   const initialQuoteToken = searchParams.get("quoteToken") || undefined;
 
-  if (isMobile || isMobileBrowser) {
+  if (isMobile) {
     return <MobileCreateSeason initialQuoteToken={initialQuoteToken} />;
   }
 

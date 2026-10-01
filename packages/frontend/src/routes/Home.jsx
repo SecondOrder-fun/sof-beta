@@ -1,8 +1,12 @@
 // src/routes/Home.jsx
-// Platform-aware Home page:
-// - Farcaster/Base App: Landing-style content (COMING SOON, Add App, social links)
-// - Web: Welcome blurb with navigation CTAs
+// Home page:
+// - Mobile layout (phones, touch tablets): the welcome blurb, full-bleed in the
+//   mobile shell
+// - Desktop inside the Farcaster Mini App / a Base App browser: landing-style
+//   content (Add App, launch buttons, social links) — goes away with Farcaster
+// - Desktop browser: the welcome blurb with navigation CTAs
 
+import PropTypes from "prop-types";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 
@@ -82,7 +86,7 @@ const FarcasterHome = () => {
 // ---------------------------------------------------------------------------
 // Web view
 // ---------------------------------------------------------------------------
-const WebHome = () => {
+const WebHome = ({ compact = false }) => {
   const { t } = useTranslation("common");
   // Use useNavigate + onClick instead of <Button asChild><Link>: this
   // codebase's Button asChild renders a <span> wrapping the <Link>,
@@ -91,10 +95,14 @@ const WebHome = () => {
   const navigate = useNavigate();
 
   return (
-    <div className="relative -mt-8">
+    // -mt-8 cancels the desktop <main>'s py-8 so the background meets the
+    // header; the mobile shell has no top padding to cancel.
+    <div className={compact ? "relative" : "relative -mt-8"}>
       <MeltyLines />
 
-      <div className="relative z-10 flex items-start justify-center min-h-[45vh] p-8">
+      <div
+        className={`relative z-10 flex items-start justify-center min-h-[45vh] ${compact ? "px-4 py-6" : "p-8"}`}
+      >
         {/*
           Translucent cement panel (--gradient-taupe at ~25% alpha) so the
           MeltyLines particles dim behind the welcome content but stay
@@ -103,7 +111,7 @@ const WebHome = () => {
           fully hiding the animation.
         */}
         <div
-          className="w-full max-w-4xl mx-auto px-8 py-12 rounded-lg text-center bg-[hsl(var(--gradient-taupe)/0.25)] border border-border/40 backdrop-blur-sm"
+          className={`w-full max-w-4xl mx-auto ${compact ? "px-5 py-8" : "px-8 py-12"} rounded-lg text-center bg-[hsl(var(--gradient-taupe)/0.25)] border border-border/40 backdrop-blur-sm`}
         >
           <h1 className="text-2xl font-semibold mb-4">{t("home.welcome")}</h1>
           <p className="text-muted-foreground leading-relaxed mb-8">
@@ -126,11 +134,19 @@ const WebHome = () => {
   );
 };
 
+WebHome.propTypes = {
+  compact: PropTypes.bool,
+};
+
 // ---------------------------------------------------------------------------
-// Main Home component – delegates to platform-specific view
+// Main Home component – delegates to the layout's view
 // ---------------------------------------------------------------------------
 const Home = () => {
-  const { isFarcaster, isBaseApp } = usePlatform();
+  const { isMobile, isFarcaster, isBaseApp } = usePlatform();
+
+  if (isMobile) {
+    return <WebHome compact />;
+  }
 
   if (isFarcaster || isBaseApp) {
     return <FarcasterHome />;

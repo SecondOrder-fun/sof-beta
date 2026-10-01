@@ -2,15 +2,19 @@
 // Generic renderer for a document in the `legal` i18n namespace. Selects the
 // sub-object by docKey and renders either prose sections[] or FAQ faqItems[].
 // `placeholder` shows the non-binding PlaceholderBanner (legal docs only).
+// In the mobile layout the shell already provides the side gutter, so the
+// title and body drop their own horizontal padding.
 import PropTypes from "prop-types";
 import { useTranslation } from "react-i18next";
 import PageTitle from "@/components/layout/PageTitle";
 import PlaceholderBanner from "@/components/content/PlaceholderBanner";
 import ContentSections from "@/components/content/ContentSections";
 import FaqList from "@/components/content/FaqList";
+import { usePlatform } from "@/hooks/usePlatform";
 
 const ContentPage = ({ docKey, placeholder = false }) => {
   const { t } = useTranslation("legal");
+  const { isMobile } = usePlatform();
 
   const sections = t(`${docKey}.sections`, { returnObjects: true });
   const faqItems = t(`${docKey}.faqItems`, { returnObjects: true });
@@ -20,8 +24,11 @@ const ContentPage = ({ docKey, placeholder = false }) => {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <PageTitle title={t(`${docKey}.pageTitle`)} />
-      <div className="px-6 pb-12">
+      <PageTitle
+        title={t(`${docKey}.pageTitle`)}
+        className={isMobile ? "px-0 pt-2" : undefined}
+      />
+      <div className={isMobile ? "pb-6" : "px-6 pb-12"}>
         {placeholder && <PlaceholderBanner />}
         {intro && (
           <p className="mb-8 leading-relaxed text-muted-foreground">{intro}</p>

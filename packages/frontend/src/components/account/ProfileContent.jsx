@@ -89,7 +89,7 @@ const ProfileContent = ({ address, isOwnProfile }) => {
           {address && (
             <p className="text-sm text-muted-foreground mt-1">
               {t("account:address")}:{" "}
-              <span className="font-mono">{address}</span>
+              <span className="font-mono break-all">{address}</span>
             </p>
           )}
         </div>

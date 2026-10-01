@@ -24,6 +24,8 @@ vi.mock("react-i18next", () => ({
   }),
 }));
 
+vi.mock("@/hooks/usePlatform", () => ({ usePlatform: () => ({ isMobile: false }) }));
+
 import ContentPage from "@/components/content/ContentPage";
 
 describe("ContentPage", () => {

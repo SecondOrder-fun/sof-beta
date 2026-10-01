@@ -1,38 +1,7 @@
 // src/hooks/useIsMobile.js
+// The layout breakpoint lives in usePlatform (`isMobile`); this module only
+// keeps the Base App device check, which goes away with Farcaster.
 import { useState, useEffect } from "react";
-
-/**
- * Hook to detect if the user is on a mobile device
- * Uses media query for responsive detection
- */
-const useIsMobile = (breakpoint = 768) => {
-  const [isMobile, setIsMobile] = useState(false);
-
-  useEffect(() => {
-    // Check if window is available (SSR safety)
-    if (typeof window === "undefined") return;
-
-    const mediaQuery = window.matchMedia(`(max-width: ${breakpoint}px)`);
-
-    // Set initial value
-    setIsMobile(mediaQuery.matches);
-
-    // Handler for media query changes
-    const handleChange = (event) => {
-      setIsMobile(event.matches);
-    };
-
-    // Add listener
-    mediaQuery.addEventListener("change", handleChange);
-
-    // Cleanup
-    return () => {
-      mediaQuery.removeEventListener("change", handleChange);
-    };
-  }, [breakpoint]);
-
-  return isMobile;
-};
 
 /**
  * Hook to detect if the device supports Base App
@@ -78,5 +47,3 @@ export const useSupportsBaseApp = () => {
 
   return supportsBaseApp;
 };
-
-export default useIsMobile;

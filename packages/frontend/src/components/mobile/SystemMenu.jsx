@@ -1,21 +1,54 @@
 // src/components/mobile/SystemMenu.jsx
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { useAccount, useDisconnect, useConnect } from "wagmi";
-import { Globe, Wallet, LogOut, User, ChevronDown, X, Sun, Moon, Monitor } from "lucide-react";
+import { useAccount, useDisconnect } from "wagmi";
+import {
+  Globe,
+  Wallet,
+  LogOut,
+  User,
+  ChevronDown,
+  X,
+  Sun,
+  Moon,
+  Monitor,
+  Rocket,
+  Crown,
+  Shield,
+  BookOpen,
+  GraduationCap,
+  CircleHelp,
+  FileText,
+  Lock,
+  TriangleAlert,
+  ExternalLink,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useTheme } from "@/context/ThemeContext";
+import { useLoginModal } from "@/hooks/useLoginModal";
+import { useAllowlist } from "@/hooks/useAllowlist";
+import { ACCESS_LEVELS } from "@/config/accessLevels";
 import PropTypes from "prop-types";
 
+const DOCS_URL = "https://secondorder-fun.gitbook.io/secondorder.fun/";
+
+const menuLinkClass =
+  "flex items-center gap-3 rounded-md px-2 py-2.5 text-sm text-foreground transition-colors hover:bg-primary/10";
+
 /**
- * SystemMenu - Pull-down menu from header with account and language settings
+ * SystemMenu - Pull-down menu from the mobile header: account, the pages that
+ * have no BottomNav tab (platform, resources, legal), theme and language.
  */
 const SystemMenu = ({ isOpen, onClose, profile }) => {
   const { t, i18n } = useTranslation(["account", "common", "navigation"]);
   const { isConnected, address } = useAccount();
   const { disconnect } = useDisconnect();
-  const { connect, connectors } = useConnect();
+  const { openLoginModal } = useLoginModal();
+  // Same admin check as the desktop Header's Admin link.
+  const { accessLevel } = useAllowlist();
+  const isAdmin = accessLevel >= ACCESS_LEVELS.ADMIN;
   const { theme, setTheme } = useTheme();
   const [selectedLanguage, setSelectedLanguage] = useState(i18n.language);
   const [isLanguagePickerOpen, setIsLanguagePickerOpen] = useState(false);
@@ -27,24 +60,45 @@ const SystemMenu = ({ isOpen, onClose, profile }) => {
     { value: "system", icon: Monitor, label: t("account:themeSystem", "System") },
   ];
 
-  // Connect wallet using the best available connector (Farcaster first, then injected)
-  const handleConnect = useCallback(() => {
-    const farcasterConnector = connectors.find((c) => {
-      const id = typeof c?.id === "string" ? c.id.toLowerCase() : "";
-      const name = typeof c?.name === "string" ? c.name.toLowerCase() : "";
-      return id.includes("farcaster") || name.includes("farcaster");
-    });
+  // Same entry point as the desktop header's "Log in": the mobile layout
+  // renders MobileLoginSheet, which lists the wallet connectors.
+  const handleConnect = () => {
+    onClose();
+    openLoginModal();
+  };
 
-    if (farcasterConnector) {
-      connect({ connector: farcasterConnector });
-    } else {
-      // Fallback to first available connector (injected)
-      const fallback = connectors[0];
-      if (fallback) {
-        connect({ connector: fallback });
-      }
-    }
-  }, [connect, connectors]);
+  // Pages without a BottomNav tab, grouped like the desktop footer.
+  const linkSections = [
+    {
+      id: "platform",
+      title: t("navigation:platform"),
+      links: [
+        { to: "/launch", icon: Rocket, label: t("navigation:launchToken") },
+        { to: "/create-season", icon: Crown, label: t("navigation:createRaffle") },
+        ...(isAdmin
+          ? [{ to: "/admin", icon: Shield, label: t("navigation:admin") }]
+          : []),
+      ],
+    },
+    {
+      id: "resources",
+      title: t("navigation:resources"),
+      links: [
+        { href: DOCS_URL, icon: BookOpen, label: t("navigation:documentation") },
+        { to: "/guides", icon: GraduationCap, label: t("navigation:guides") },
+        { to: "/faq", icon: CircleHelp, label: t("navigation:faq") },
+      ],
+    },
+    {
+      id: "legal",
+      title: t("navigation:legal"),
+      links: [
+        { to: "/terms", icon: FileText, label: t("navigation:termsOfService") },
+        { to: "/privacy", icon: Lock, label: t("navigation:privacyPolicy") },
+        { to: "/disclaimer", icon: TriangleAlert, label: t("navigation:disclaimer") },
+      ],
+    },
+  ];
 
   // Update selected language when i18n language changes
   useEffect(() => {
@@ -155,6 +209,43 @@ const SystemMenu = ({ isOpen, onClose, profile }) => {
                   </Button>
                 )}
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Pages without a BottomNav tab */}
+          <Card>
+            <CardContent className="p-4 space-y-4">
+              {linkSections.map((section) => (
+                <nav key={section.id} aria-label={section.title}>
+                  <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1 px-2">
+                    {section.title}
+                  </h3>
+                  <ul>
+                    {section.links.map(({ to, href, icon: Icon, label }) => (
+                      <li key={to || href}>
+                        {href ? (
+                          <a
+                            href={href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={onClose}
+                            className={menuLinkClass}
+                          >
+                            <Icon className="w-4 h-4 text-primary" />
+                            <span className="flex-1">{label}</span>
+                            <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
+                          </a>
+                        ) : (
+                          <Link to={to} onClick={onClose} className={menuLinkClass}>
+                            <Icon className="w-4 h-4 text-primary" />
+                            <span>{label}</span>
+                          </Link>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </nav>
+              ))}
             </CardContent>
           </Card>
 

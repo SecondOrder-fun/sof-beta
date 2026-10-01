@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import PageTitle from "@/components/layout/PageTitle";
 import ProfileContent from "@/components/account/ProfileContent";
 import { useRaffleAccount } from "@/hooks/useRaffleAccount";
+import { usePlatform } from "@/hooks/usePlatform";
 import { getContractAddresses } from "@/config/contracts";
 import { getStoredNetworkKey } from "@/lib/wagmi";
 
@@ -18,6 +19,12 @@ const UserProfile = () => {
   const publicClient = usePublicClient();
   const netKey = getStoredNetworkKey();
   const contracts = getContractAddresses(netKey);
+  // The mobile shell already provides the side gutter; the desktop page adds
+  // its own container padding on top of <main>'s.
+  const { isMobile } = usePlatform();
+  const pageClass = isMobile ? "" : "container mx-auto p-4";
+  const titleClass = isMobile ? "px-0 pt-2" : undefined;
+  const bodyClass = isMobile ? "" : "px-6";
 
   // SMA-bound read per spec §4.3 — gameplay state lives at the SMA.
   //
@@ -97,9 +104,9 @@ const UserProfile = () => {
   // Loading state — code probe still resolving
   if (addressParam && codeProbe.isPending) {
     return (
-      <div className="container mx-auto p-4">
-        <PageTitle title={t("userProfile")} />
-        <div className="px-6">
+      <div className={pageClass}>
+        <PageTitle title={t("userProfile")} className={titleClass} />
+        <div className={bodyClass}>
           <Card>
             <CardContent className="pt-6">
               <p className="text-center text-muted-foreground">
@@ -115,9 +122,9 @@ const UserProfile = () => {
   // No address available — prompt to connect
   if (!resolvedAddress) {
     return (
-      <div className="container mx-auto p-4">
-        <PageTitle title={t("userProfile")} />
-        <div className="px-6">
+      <div className={pageClass}>
+        <PageTitle title={t("userProfile")} className={titleClass} />
+        <div className={bodyClass}>
           <Card>
             <CardContent className="pt-6">
               <p className="text-center text-muted-foreground">
@@ -131,7 +138,7 @@ const UserProfile = () => {
   }
 
   return (
-    <div className="container mx-auto p-4">
+    <div className={pageClass}>
       <ProfileContent address={resolvedAddress} isOwnProfile={isOwnProfile} />
     </div>
   );

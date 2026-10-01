@@ -28,6 +28,12 @@ Never use raw `writeContractAsync` for user-facing transactions.
 - Backend `verifySignInMessage` must use the domain from the signed SIWE message. Use `SIWF_ALLOWED_DOMAINS` env var with wildcard support for preview deployments.
 - Keep `@farcaster/auth-kit` up to date. Old versions may fail silently with the current relay.
 
+### Mobile layout
+Phones and touch tablets get the mobile shell (`App.jsx`: MobileHeader, BottomNav,
+MobileLoginSheet, `components/mobile/*`); the switch is `usePlatform().isMobile`, a
+media query that does not depend on Farcaster. Details, nav and padding rules:
+`instructions/frontend-guidelines.md` → Mobile layout.
+
 ### Button Touch States
 Never use CSS `:active` on buttons (gets stuck on mobile/Farcaster). Use `data-[pressed]:` with pointer events instead.
 
@@ -62,7 +68,7 @@ winner is shown with the grand prize (`grandPrize`, or `grandPrizeBps` of the
 pool — `lib/prizeMath.js`), never the whole pool.
 
 **The activity ticker is site-wide** (`components/layout/ActivityTicker.jsx`,
-under both headers in `App.jsx`), not launchpad-only: the raffles row is the whole
+under both headers in `App.jsx`, compact in the mobile layout), not launchpad-only: the raffles row is the whole
 platform's activity. Its motion rules are accessibility requirements, tested:
 hover/focus pauses a row, the pause button stops both, `prefers-reduced-motion`
 stops it, and the loop's duplicate copy is `aria-hidden` and out of the tab order.

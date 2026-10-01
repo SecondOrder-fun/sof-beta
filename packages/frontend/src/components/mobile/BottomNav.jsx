@@ -1,13 +1,19 @@
 /* global __APP_VERSION__, __GIT_HASH__ */
 /**
  * Bottom Navigation
- * Fixed 4-tab navigation footer for mobile interfaces
+ * Fixed 5-tab navigation footer for the mobile layout. Routes without a tab
+ * (launch, create season, docs, legal, admin) live in the SystemMenu.
+ *
+ * It publishes its rendered height (safe-area padding included) as the CSS
+ * variable --bottom-nav-height, so the shell's <main> and fixed bars (e.g. the
+ * token page's buy button) sit above it instead of guessing.
  */
 
+import { useLayoutEffect, useRef } from "react";
 import PropTypes from "prop-types";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Ticket, TrendingUp, Wallet, Trophy } from "lucide-react";
+import { Ticket, TrendingUp, Coins, Wallet, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSafeArea } from "@/hooks/useSafeArea";
 
@@ -16,6 +22,23 @@ export const BottomNav = ({ className = "" }) => {
   const location = useLocation();
   const safeArea = useSafeArea();
   const { t } = useTranslation(["navigation"]);
+  const navRef = useRef(null);
+
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    const root = document.documentElement;
+    if (!nav) return undefined;
+    const publish = () =>
+      root.style.setProperty("--bottom-nav-height", `${nav.offsetHeight}px`);
+    publish();
+    const observer =
+      typeof ResizeObserver === "function" ? new ResizeObserver(publish) : null;
+    observer?.observe(nav);
+    return () => {
+      observer?.disconnect();
+      root.style.removeProperty("--bottom-nav-height");
+    };
+  }, []);
 
   const tabs = [
     {
@@ -29,6 +52,12 @@ export const BottomNav = ({ className = "" }) => {
       label: t("navigation:markets"),
       icon: TrendingUp,
       path: "/markets",
+    },
+    {
+      id: "tokens",
+      label: t("navigation:tokens"),
+      icon: Coins,
+      path: "/tokens",
     },
     {
       id: "portfolio",
@@ -46,14 +75,21 @@ export const BottomNav = ({ className = "" }) => {
 
   const getActiveTab = () => {
     const path = location.pathname;
-    if (path.startsWith("/raffles") || path.startsWith("/raffle/"))
+    if (
+      path.startsWith("/raffles") ||
+      path.startsWith("/raffle/") ||
+      path.startsWith("/create-season")
+    )
       return "raffles";
     if (path.startsWith("/markets") || path.startsWith("/market/"))
       return "infofi";
+    if (path === "/tokens" || path.startsWith("/tokens/") || path === "/launch")
+      return "tokens";
     if (path.startsWith("/portfolio")) return "portfolio";
     if (path.startsWith("/leaderboard") || path.startsWith("/users"))
       return "ranking";
-    return "raffles";
+    // Home and the menu-only pages (docs, legal, admin) have no tab.
+    return null;
   };
 
   const activeTab = getActiveTab();
@@ -66,6 +102,7 @@ export const BottomNav = ({ className = "" }) => {
 
   return (
     <nav
+      ref={navRef}
       className={`fixed bottom-0 left-0 right-0 bg-background border-t border-border/20 ${className}`}
       style={{
         paddingBottom: `max(${safeArea.bottom}px, 8px)`,
@@ -83,6 +120,7 @@ export const BottomNav = ({ className = "" }) => {
                 key={tab.id}
                 variant={isActive ? "default" : "outline"}
                 onClick={() => navigate(tab.path)}
+                aria-current={isActive ? "page" : undefined}
                 className={`flex flex-col items-center justify-center gap-1 h-auto py-2 px-1 rounded-lg ${isActive ? "shadow-lg shadow-primary/30" : "opacity-60"}`}
               >
                 <Icon className="w-5 h-5" />

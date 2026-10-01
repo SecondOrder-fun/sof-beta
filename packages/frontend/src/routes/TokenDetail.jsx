@@ -49,8 +49,7 @@ Fact.propTypes = {
 const TokenDetail = () => {
   const { t } = useTranslation("launchpad");
   const { address } = useParams();
-  const { isMobile, isMobileBrowser } = usePlatform();
-  const compact = isMobile || isMobileBrowser;
+  const { isMobile: compact } = usePlatform();
   const valid = typeof address === "string" && isAddress(address);
 
   const { data: launch, isLoading, isAvailable } = useTokenLaunch(valid ? address : undefined);
@@ -192,7 +191,8 @@ const TokenDetail = () => {
 
       {compact ? (
         <>
-          <div className="fixed inset-x-0 bottom-16 z-30 border-t bg-background p-3">
+          {/* Sits on top of the BottomNav, which publishes its height. */}
+          <div className="fixed inset-x-0 bottom-[var(--bottom-nav-height,6rem)] z-30 border-t bg-background p-3">
             <Button type="button" size="lg" className="w-full" onClick={() => setSheetOpen(true)}>
               {t("detail.buyCta", { symbol: launch.symbol })}
             </Button>

@@ -3,13 +3,13 @@ import { useAccount } from "wagmi";
 import { useTranslation } from "react-i18next";
 import { Card, CardContent } from "@/components/ui/card";
 import PageTitle from "@/components/layout/PageTitle";
-import useIsMobile from "@/hooks/useIsMobile";
+import { usePlatform } from "@/hooks/usePlatform";
 import MobilePortfolio from "@/components/mobile/MobilePortfolio";
 import ProfileContent from "@/components/account/ProfileContent";
 import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 
 const AccountPage = () => {
-  const isMobile = useIsMobile();
+  const { isMobile } = usePlatform();
 
   if (isMobile) {
     return <MobilePortfolio />;
