@@ -4,7 +4,6 @@
  */
 
 import { db, hasSupabase } from "./supabaseClient.js";
-import { resolveFidToWallet } from "./fidResolverService.js";
 import { getDefaultAccessLevel } from "./accessService.js";
 import {
   getAllowlistCount,
@@ -79,36 +78,28 @@ export async function isAllowlistWindowOpen() {
 }
 
 /**
- * Add a user to the allowlist by FID or wallet
- * @param {number|object} identifier - FID number (backward compat) or { fid?, wallet? }
- * @param {string} source - How they were added: 'webhook', 'manual', 'import'
+ * Add a wallet to the allowlist
+ * @param {object} identifier - { wallet }
+ * @param {string} source - How they were added: 'manual', 'import'
  * @param {boolean} bypassTimeGate - Skip time gate check (for manual adds)
  * @returns {Promise<{success: boolean, entry?: object, error?: string}>}
  */
 export async function addToAllowlist(
   identifier,
-  source = "webhook",
+  source = "manual",
   bypassTimeGate = false
 ) {
   if (!hasSupabase) {
     return { success: false, error: "Database not configured" };
   }
 
-  // Backward compat: accept plain FID number
-  const { fid, wallet } =
-    typeof identifier === "object"
-      ? identifier
-      : { fid: identifier, wallet: undefined };
-
-  if (!fid && !wallet) {
-    return { success: false, error: "Either fid or wallet is required" };
+  const wallet = identifier?.wallet;
+  if (!wallet) {
+    return { success: false, error: "wallet is required" };
   }
 
-  if (fid && typeof fid !== "number") {
-    return { success: false, error: "Invalid FID" };
-  }
-
-  const label = fid ? `FID ${fid}` : `wallet ${wallet}`;
+  const walletLc = wallet.toLowerCase();
+  const label = `wallet ${walletLc}`;
 
   try {
     // Check time gate unless bypassed
@@ -125,24 +116,12 @@ export async function addToAllowlist(
       }
     }
 
-    // Check if already exists — by FID or wallet
-    let existing = null;
-    if (fid) {
-      const { data } = await db.client
-        .from("allowlist_entries")
-        .select("id, fid, wallet_address, is_active")
-        .eq("fid", fid)
-        .single();
-      existing = data;
-    }
-    if (!existing && wallet) {
-      const { data } = await db.client
-        .from("allowlist_entries")
-        .select("id, fid, wallet_address, is_active")
-        .eq("wallet_address", wallet.toLowerCase())
-        .single();
-      existing = data;
-    }
+    // Check if already exists
+    const { data: existing } = await db.client
+      .from("allowlist_entries")
+      .select("id, wallet_address, is_active")
+      .eq("wallet_address", walletLc)
+      .single();
 
     if (existing) {
       // If exists but inactive, reactivate
@@ -173,25 +152,6 @@ export async function addToAllowlist(
       return { success: true, entry: existing, alreadyExists: true };
     }
 
-    // Resolve FID to wallet address (only if we have a FID)
-    let walletData = { address: wallet ? wallet.toLowerCase() : null };
-    if (fid) {
-      try {
-        walletData = await resolveFidToWallet(fid);
-        console.log(
-          `[Allowlist] Resolved FID ${fid} to wallet: ${
-            walletData.address || "none"
-          }`
-        );
-      } catch (resolveError) {
-        console.warn(
-          `[Allowlist] Failed to resolve FID ${fid}:`,
-          resolveError.message
-        );
-        // Continue without wallet - can be resolved later
-      }
-    }
-
     // Get default access level
     const defaultLevel = await getDefaultAccessLevel();
 
@@ -199,18 +159,12 @@ export async function addToAllowlist(
     const { data: entry, error: insertError } = await db.client
       .from("allowlist_entries")
       .insert({
-        fid: fid || null,
-        wallet_address: walletData.address || (wallet ? wallet.toLowerCase() : null),
-        username: walletData.username || null,
-        display_name: walletData.displayName || null,
+        wallet_address: walletLc,
         source,
         is_active: true,
         access_level: defaultLevel,
         added_at: new Date().toISOString(),
-        wallet_resolved_at: (walletData.address || wallet)
-          ? new Date().toISOString()
-          : null,
-        metadata: walletData.pfpUrl ? { pfpUrl: walletData.pfpUrl } : {},
+        metadata: {},
       })
       .select()
       .single();
@@ -219,15 +173,10 @@ export async function addToAllowlist(
       return { success: false, error: insertError.message };
     }
 
-    // New active row — bust total/active (and withWallet/pendingWallet,
-    // which depend on whether wallet_address was resolved).
+    // New active row — bust the total/active/withWallet counts.
     await invalidateAllowlistCount();
 
-    console.log(
-      `[Allowlist] Added ${label} (wallet: ${
-        walletData.address || wallet || "pending"
-      })`
-    );
+    console.log(`[Allowlist] Added ${label}`);
     return { success: true, entry };
   } catch (error) {
     console.error(`[Allowlist] Error adding ${label}:`, error);
@@ -236,8 +185,8 @@ export async function addToAllowlist(
 }
 
 /**
- * Remove a user from the allowlist (soft delete)
- * @param {number|object} identifier - FID number (backward compat) or { fid?, wallet? }
+ * Remove a wallet from the allowlist (soft delete)
+ * @param {object} identifier - { wallet }
  * @returns {Promise<{success: boolean, error?: string}>}
  */
 export async function removeFromAllowlist(identifier) {
@@ -245,32 +194,21 @@ export async function removeFromAllowlist(identifier) {
     return { success: false, error: "Database not configured" };
   }
 
-  const { fid, wallet } =
-    typeof identifier === "object"
-      ? identifier
-      : { fid: identifier, wallet: undefined };
-
-  if (!fid && !wallet) {
-    return { success: false, error: "Either fid or wallet is required" };
+  const wallet = identifier?.wallet;
+  if (!wallet) {
+    return { success: false, error: "wallet is required" };
   }
 
-  const label = fid ? `FID ${fid}` : `wallet ${wallet}`;
+  const label = `wallet ${wallet.toLowerCase()}`;
 
   try {
-    let query = db.client
+    const { error } = await db.client
       .from("allowlist_entries")
       .update({
         is_active: false,
         updated_at: new Date().toISOString(),
-      });
-
-    if (fid) {
-      query = query.eq("fid", fid);
-    } else {
-      query = query.eq("wallet_address", wallet.toLowerCase());
-    }
-
-    const { error } = await query;
+      })
+      .eq("wallet_address", wallet.toLowerCase());
 
     if (error) {
       return { success: false, error: error.message };
@@ -320,38 +258,6 @@ export async function isWalletAllowlisted(walletAddress) {
 }
 
 /**
- * Check if a FID is in the allowlist
- * @param {number} fid - Farcaster ID
- * @returns {Promise<{isAllowlisted: boolean, entry?: object}>}
- */
-export async function isFidAllowlisted(fid) {
-  if (!hasSupabase || !fid) {
-    return { isAllowlisted: false };
-  }
-
-  try {
-    const { data, error } = await db.client
-      .from("allowlist_entries")
-      // select * — the full entry row is returned to the API
-      // (/api/allowlist/check-fid → useAllowlist exposes `entry`); columns
-      // the frontend may read vary, so we don't narrow this single-row read.
-      .select("*")
-      .eq("fid", fid)
-      .eq("is_active", true)
-      .single();
-
-    if (error || !data) {
-      return { isAllowlisted: false };
-    }
-
-    return { isAllowlisted: true, entry: data };
-  } catch (error) {
-    console.error("[Allowlist] Error checking FID:", error);
-    return { isAllowlisted: false };
-  }
-}
-
-/**
  * Get all allowlist entries
  * @param {object} options - Query options
  * @param {boolean} options.activeOnly - Only return active entries
@@ -396,18 +302,17 @@ export async function getAllowlistEntries({
  */
 export async function getAllowlistStats() {
   if (!hasSupabase) {
-    return { total: 0, active: 0, withWallet: 0, pendingResolution: 0 };
+    return { total: 0, active: 0, withWallet: 0 };
   }
 
   try {
-    // All four counts are served read-through from Redis (see
+    // All three counts are served read-through from Redis (see
     // allowlistCounter.js); mutations bust the namespace so these stay
     // fresh without a COUNT(*) per stats call.
-    const [total, active, withWallet, pendingResolution] = await Promise.all([
+    const [total, active, withWallet] = await Promise.all([
       getAllowlistCount("total"),
       getAllowlistCount("active"),
       getAllowlistCount("active:withWallet"),
-      getAllowlistCount("active:pendingWallet"),
     ]);
 
     // Get window status
@@ -417,13 +322,12 @@ export async function getAllowlistStats() {
       total: total || 0,
       active: active || 0,
       withWallet: withWallet || 0,
-      pendingResolution: pendingResolution || 0,
       windowOpen: windowStatus.isOpen,
       windowConfig: windowStatus.config,
     };
   } catch (error) {
     console.error("[Allowlist] Error fetching stats:", error);
-    return { total: 0, active: 0, withWallet: 0, pendingResolution: 0 };
+    return { total: 0, active: 0, withWallet: 0 };
   }
 }
 
@@ -476,81 +380,12 @@ export async function updateAllowlistConfig({
   }
 }
 
-/**
- * Retry wallet resolution for entries without wallets
- * @returns {Promise<{resolved: number, failed: number}>}
- */
-export async function retryPendingWalletResolutions() {
-  if (!hasSupabase) {
-    return { resolved: 0, failed: 0 };
-  }
-
-  try {
-    // Get entries without wallet addresses
-    const { data: pending } = await db.client
-      .from("allowlist_entries")
-      .select("id, fid")
-      .eq("is_active", true)
-      .is("wallet_address", null)
-      .limit(50);
-
-    if (!pending || pending.length === 0) {
-      return { resolved: 0, failed: 0 };
-    }
-
-    let resolved = 0;
-    let failed = 0;
-
-    for (const entry of pending) {
-      try {
-        const walletData = await resolveFidToWallet(entry.fid);
-
-        if (walletData.address) {
-          await db.client
-            .from("allowlist_entries")
-            .update({
-              wallet_address: walletData.address,
-              username: walletData.username,
-              display_name: walletData.displayName,
-              wallet_resolved_at: new Date().toISOString(),
-              metadata: walletData.pfpUrl ? { pfpUrl: walletData.pfpUrl } : {},
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", entry.id);
-
-          resolved++;
-        } else {
-          failed++;
-        }
-      } catch (error) {
-        failed++;
-      }
-    }
-
-    // Resolving a wallet moves a row from pendingWallet→withWallet, so the
-    // wallet-dependent counts change whenever we resolved at least one.
-    if (resolved > 0) {
-      await invalidateAllowlistCount();
-    }
-
-    console.log(
-      `[Allowlist] Retry resolution: ${resolved} resolved, ${failed} failed`
-    );
-    return { resolved, failed };
-  } catch (error) {
-    console.error("[Allowlist] Error retrying resolutions:", error);
-    return { resolved: 0, failed: 0 };
-  }
-}
-
 export default {
   isAllowlistWindowOpen,
   addToAllowlist,
   removeFromAllowlist,
   isWalletAllowlisted,
-  isFidAllowlisted,
   getAllowlistEntries,
   getAllowlistStats,
   updateAllowlistConfig,
-  retryPendingWalletResolutions,
 };

@@ -542,13 +542,12 @@ ALTER TABLE hybrid_pricing_cache ENABLE ROW LEVEL SECURITY;
 
 ### Enhanced Creator Workflow with InfoFi Integration
 
-1. **Authentication**: Farcaster Auth Kit integration with InfoFi market permissions
+1. **Authentication**: Wallet sign-in (signed nonce message → JWT) with InfoFi market permissions
 2. **Enhanced Raffle Setup**: Multi-step form with InfoFi market configuration options
    - Basic raffle information with automatic InfoFi market prediction
-   - Cast lookup and validation with sentiment analysis integration
    - Time settings coordinated with InfoFi settlement windows
    - Prize pool configuration with InfoFi market correlation analysis
-3. **Integrated Publishing**: Frame generation with embedded InfoFi market links for viral sharing
+3. **Integrated Publishing**: Share links with embedded InfoFi market links for viral sharing
 4. **Multi-Layer Management**: Real-time monitoring of both raffle participation AND InfoFi market activity
 
 ### Enhanced Participant Workflow with Cross-Layer Strategies
@@ -564,13 +563,6 @@ ALTER TABLE hybrid_pricing_cache ENABLE ROW LEVEL SECURITY;
    - One-click hedge execution coordinating both raffle and InfoFi positions
    - Advanced strategy interfaces with profit estimation and risk assessment
    - Performance tracking and strategy optimization recommendations
-
-### Enhanced Frame Integration with InfoFi Features
-
-1. **Multi-Layer Embedding**: Frames display both raffle status AND InfoFi market opportunities
-2. **Interactive Strategy Selection**: Direct strategy execution within Farcaster feeds
-3. **Real-Time Updates**: Live arbitrage opportunity notifications via frame updates
-4. **Viral Growth Enhancement**: InfoFi market predictions increase frame engagement and sharing
 
 ## Functional Requirements Enhanced with InfoFi Integration
 

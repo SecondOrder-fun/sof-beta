@@ -17,19 +17,12 @@ const mocks = vi.hoisted(() => ({
   redis: { get: vi.fn(), del: vi.fn(), set: vi.fn() },
 }));
 
-vi.mock("@farcaster/quick-auth", () => ({ createClient: () => ({}) }));
-vi.mock("../../shared/fidResolverService.js", () => ({
-  resolveFidVerifiedAddresses: vi.fn(),
-  resolveFidToWallet: vi.fn(),
-}));
-vi.mock("../../shared/allowlistService.js", () => ({ addToAllowlist: vi.fn() }));
 vi.mock("../../shared/accessService.js", () => ({
   getUserAccess: vi.fn(async () => ({ level: 1, entry: { id: "e1" } })),
   ACCESS_LEVEL_NAMES: { 1: "user" },
 }));
-vi.mock("../../shared/accessCache.js", () => ({ invalidateUserAccessCache: vi.fn() }));
 vi.mock("../../shared/usernameService.js", () => ({
-  usernameService: { syncFarcasterUsername: vi.fn() },
+  usernameService: { getUsernameByAddress: vi.fn(async () => null) },
 }));
 vi.mock("../../shared/services/smartAccountService.js", () => ({
   ensureSmartAccount: vi.fn(async () => ({ sma: WALLET })),
@@ -47,9 +40,6 @@ vi.mock("../../shared/auth.js", () => ({
 }));
 vi.mock("../../shared/redisClient.js", () => ({
   redisClient: { getClient: () => mocks.redis },
-}));
-vi.mock("../../shared/farcasterLinkService.js", () => ({
-  getLinkedFidForWallet: vi.fn(async () => null),
 }));
 
 let app;
@@ -104,6 +94,33 @@ describe("POST /verify — wallet signature", () => {
     const res = await signIn();
     expect(res.statusCode).toBe(401);
     expect(res.json().error).toBe("Signature verification failed");
+  });
+
+  it("returns the wallet user shape the frontend stores", async () => {
+    mocks.verifyMessage.mockResolvedValue(true);
+
+    const res = await signIn();
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().user).toEqual({
+      address: WALLET,
+      username: null,
+      accessLevel: 1,
+      role: "user",
+      sma: WALLET,
+      isAdmin: false,
+    });
+  });
+
+  it("rejects any method other than wallet", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/verify",
+      payload: { method: "email", nonce: NONCE, signature: "0xsig" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe("method must be one of: wallet");
+    expect(mocks.verifyMessage).not.toHaveBeenCalled();
   });
 
   it("does not verify without a live nonce", async () => {

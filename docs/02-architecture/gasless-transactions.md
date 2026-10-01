@@ -5,7 +5,7 @@ All user-facing on-chain transactions are gasless, sponsored by the platform via
 ## Problem
 
 All user-facing transactions showed gas fees because:
-1. The JWT that gates paymaster access was only read from `FarcasterContext`. Wallet-based SIWE auth produces a JWT that `useSmartTransactions` ignored.
+1. The JWT that gates paymaster access was only read from one sign-in path's context, so a JWT from the other sign-in path was ignored by `useSmartTransactions`.
 2. On local Anvil, there was no paymaster. The Pimlico proxy returned 503 when `PAYMASTER_RPC_URL` was unset.
 
 ## Architecture
@@ -22,10 +22,8 @@ The frontend hook `useSmartTransactions` provides `executeBatch()` which attempt
 
 Batch capability is detected dynamically from the connected wallet's advertised capabilities (`useCapabilities` from wagmi). Non-batch wallets (plain MetaMask EOA) fall back to tiers 2/3 automatically.
 
-The JWT for paymaster session gating is read from:
-1. Farcaster context (`backendJwt`) — MiniApp users
-2. `localStorage('sof:farcaster_jwt')` — Farcaster browser users
-3. `localStorage('sof:admin_jwt')` — admin/wallet users
+The JWT for paymaster session gating is the wallet sign-in JWT from
+`useAppAuth()` (`AppAuthProvider`).
 
 ### Backend: Paymaster Proxy
 

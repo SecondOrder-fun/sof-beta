@@ -29,24 +29,12 @@ vi.mock("../../shared/accessService.js", () => ({
 
 vi.mock("../../shared/allowlistService.js", () => ({
   isAllowlistWindowOpen: vi.fn(async () => ({ isOpen: true, config: null })),
-  addToAllowlist: vi.fn(async () => ({ success: true, entry: { fid: 1 } })),
+  addToAllowlist: vi.fn(async () => ({ success: true, entry: { id: 1 } })),
   removeFromAllowlist: vi.fn(async () => ({ success: true })),
   isWalletAllowlisted: vi.fn(async () => ({ isAllowlisted: false })),
-  isFidAllowlisted: vi.fn(async () => ({ isAllowlisted: false })),
   getAllowlistEntries: vi.fn(async () => ({ entries: [], count: 0 })),
   getAllowlistStats: vi.fn(async () => ({ total: 0, active: 0 })),
   updateAllowlistConfig: vi.fn(async () => ({ success: true, config: {} })),
-  retryPendingWalletResolutions: vi.fn(async () => ({
-    resolved: 0,
-    failed: 0,
-  })),
-}));
-
-vi.mock("../../shared/fidResolverService.js", () => ({
-  resolveFidToWallet: vi.fn(async () => ({
-    address: "0x0000000000000000000000000000000000000000",
-  })),
-  bulkResolveFidsToWallets: vi.fn(async () => new Map()),
 }));
 
 vi.mock("../../shared/supabaseClient.js", () => ({
@@ -96,13 +84,10 @@ describe("allowlistRoutes admin guard", () => {
       level: 2,
       levelName: "allowlist",
       groups: [],
-      entry: { fid: 1 },
+      entry: { id: 1 },
     });
 
-    currentUser = {
-      fid: 1,
-      wallet_address: "0x1111111111111111111111111111111111111111",
-    };
+    currentUser = { wallet_address: "0x1111111111111111111111111111111111111111" };
 
     const res = await app.inject({ method: "GET", url: "/stats" });
     expect(res.statusCode).toBe(403);
@@ -114,13 +99,10 @@ describe("allowlistRoutes admin guard", () => {
       level: 4,
       levelName: "admin",
       groups: [],
-      entry: { fid: 1 },
+      entry: { id: 1 },
     });
 
-    currentUser = {
-      fid: 1,
-      wallet_address: "0x1111111111111111111111111111111111111111",
-    };
+    currentUser = { wallet_address: "0x1111111111111111111111111111111111111111" };
 
     const res = await app.inject({ method: "GET", url: "/stats" });
     expect(res.statusCode).toBe(200);
@@ -132,13 +114,10 @@ describe("allowlistRoutes admin guard", () => {
       level: 4,
       levelName: "admin",
       groups: [],
-      entry: { fid: 1 },
+      entry: { id: 1 },
     });
 
-    currentUser = {
-      fid: 1,
-      wallet_address: "0x1111111111111111111111111111111111111111",
-    };
+    currentUser = { wallet_address: "0x1111111111111111111111111111111111111111" };
 
     const res = await app.inject({
       method: "POST",
@@ -149,19 +128,16 @@ describe("allowlistRoutes admin guard", () => {
     expect(res.statusCode).toBe(200);
   });
 
-  it("POST /add rejects payload with neither fid nor wallet", async () => {
+  it("POST /add rejects payload without a wallet", async () => {
     const { getUserAccess } = await import("../../shared/accessService.js");
     getUserAccess.mockResolvedValueOnce({
       level: 4,
       levelName: "admin",
       groups: [],
-      entry: { fid: 1 },
+      entry: { id: 1 },
     });
 
-    currentUser = {
-      fid: 1,
-      wallet_address: "0x1111111111111111111111111111111111111111",
-    };
+    currentUser = { wallet_address: "0x1111111111111111111111111111111111111111" };
 
     const res = await app.inject({
       method: "POST",

@@ -37,8 +37,6 @@ const FILTERS = {
   active: (q) => q.eq("is_active", true),
   "active:withWallet": (q) =>
     q.eq("is_active", true).not("wallet_address", "is", null),
-  "active:pendingWallet": (q) =>
-    q.eq("is_active", true).is("wallet_address", null),
 };
 
 /**

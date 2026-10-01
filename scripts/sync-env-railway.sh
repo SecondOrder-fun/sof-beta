@@ -2,7 +2,7 @@
 # sync-env-railway.sh — Push backend env vars to Railway.
 #
 # Usage:
-#   scripts/sync-env-railway.sh --network testnet [--dry-run]
+#   scripts/sync-env-railway.sh --network testnet [--dry-run] [--prune]
 #
 # Reads:
 #   - .env.platform (root) for RAILWAY_PROJECT_ID, RAILWAY_SERVICE_ID, and
@@ -19,19 +19,73 @@
 #     skipDeploys=true (avoids the per-var-redeploy storm that triggers
 #     Railway's deploy rate limit; user triggers a single redeploy after)
 #   - Logs every action with diff output (values redacted)
+#   - After the push, lists service variables that are NOT in the env
+#     files (excluding the Railway-managed ones in PRUNE_KEEP_* below).
+#     --prune deletes them (variableDelete, one call per variable);
+#     with --dry-run they are printed as "would delete". Without --prune
+#     they are only listed.
 #   - --dry-run shows what would change without touching anything
-#   - Exits non-zero if the push failed
+#   - Exits non-zero if the push (or a prune delete) failed
 
 set -euo pipefail
+
+# ── Prune keep-list ──────────────────────────────────────────────────
+# Variables --prune never deletes, even though they are absent from the env
+# files: Railway injects them itself (RAILWAY_* system variables, PORT) or
+# they are wired in as references to a Railway database/Redis plugin rather
+# than pushed from an env file. Add a name here before pruning if a variable
+# is managed in the Railway dashboard on purpose.
+PRUNE_KEEP_PREFIXES=(RAILWAY_)
+PRUNE_KEEP_VARS=(
+  PORT
+  DATABASE_URL DATABASE_PRIVATE_URL DATABASE_PUBLIC_URL
+  REDIS_URL REDIS_PRIVATE_URL REDIS_PUBLIC_URL
+)
+
+# is_prune_kept KEY — true when KEY is on the keep-list.
+is_prune_kept() {
+  local key=$1 item
+  for item in "${PRUNE_KEEP_PREFIXES[@]}"; do
+    [[ "$key" == "$item"* ]] && return 0
+  done
+  for item in "${PRUNE_KEEP_VARS[@]}"; do
+    [[ "$key" == "$item" ]] && return 0
+  done
+  return 1
+}
+
+# compute_prune_list CURRENT DESIRED — both newline-separated variable names.
+# Prints (sorted, one per line) the CURRENT names that are not in DESIRED and
+# not on the keep-list.
+compute_prune_list() {
+  local current=$1 desired=$2 key
+  local -A wanted=()
+  while IFS= read -r key; do
+    [ -n "$key" ] && wanted["$key"]=1
+  done <<< "$desired"
+  while IFS= read -r key; do
+    [ -z "$key" ] && continue
+    [ -n "${wanted[$key]+x}" ] && continue
+    is_prune_kept "$key" && continue
+    printf '%s\n' "$key"
+  done <<< "$current" | sort
+}
+
+# Sourced (e.g. to test the functions above): stop before doing any work.
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+  return 0
+fi
 
 # ── Parse arguments ──────────────────────────────────────────────────
 NETWORK=""
 DRY_RUN=false
+PRUNE=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --network) NETWORK="$2"; shift 2 ;;
     --dry-run) DRY_RUN=true; shift ;;
+    --prune) PRUNE=true; shift ;;
     # Vercel-only flag forwarded by deploy-env.sh — silently accept and
     # ignore so the orchestrator can pass it to both children.
     --vercel-target) shift 2 ;;
@@ -40,7 +94,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "$NETWORK" ]; then
-  echo "Usage: scripts/sync-env-railway.sh --network <testnet|mainnet> [--dry-run]"
+  echo "Usage: scripts/sync-env-railway.sh --network <testnet|mainnet> [--dry-run] [--prune]"
   exit 1
 fi
 
@@ -144,7 +198,7 @@ TARGET_NAMES=$(echo "$TARGET_ENVS" | awk -F'\t' '{print $2}' | paste -sd, -)
 echo "OK (project: $PROJECT_NAME, envs: $TARGET_NAMES)"
 
 # ── Collect env vars to push ────────────────────────────────────────
-declare -A ENV_VARS
+declare -A ENV_VARS=()
 
 # Load .env.shared
 SHARED_FILE="$ROOT_DIR/.env.shared"
@@ -171,6 +225,13 @@ while IFS='=' read -r key value; do
   ENV_VARS["$key"]="$value"
 done < "$PKG_ENV_FILE"
 
+if [ "$PRUNE" = true ] && [ "${#ENV_VARS[@]}" -eq 0 ]; then
+  # An empty desired set would prune every non-managed variable.
+  echo "[railway] ERROR: --prune with no variables loaded from the env files — refusing"
+  exit 1
+fi
+DESIRED_KEYS=$(printf '%s\n' "${!ENV_VARS[@]}")
+
 # ── Sync each target environment ───────────────────────────────────
 # Loop over production + every PR-* env discovered above. Per env we run
 # the same fetch → diff → push sequence we used to run only against
@@ -182,6 +243,7 @@ PUSH_FAILED=false
 GLOBAL_ADDED=0
 GLOBAL_CHANGED=0
 GLOBAL_UNCHANGED=0
+GLOBAL_PRUNED=0
 
 while IFS=$'\t' read -r ENV_ID ENV_NAME; do
   [ -z "$ENV_ID" ] && continue
@@ -278,11 +340,51 @@ while IFS=$'\t' read -r ENV_ID ENV_NAME; do
     fi
   fi
 
+  # ── Variables not in the env files (prune) ────────────────────────
+  # Skipped (with a warning) when the fetch above failed, so a failed
+  # fetch is not mistaken for a service with nothing to prune.
+  if echo "$CURRENT_VARS" | jq -e '.data.variables' > /dev/null 2>&1; then
+    PRUNE_LIST=$(compute_prune_list "$(printf '%s\n' "${!CURRENT_VALUES[@]}")" "$DESIRED_KEYS")
+    if [ -n "$PRUNE_LIST" ]; then
+      echo ""
+      echo "[railway] ── Not in env files ($ENV_NAME) ──"
+      while IFS= read -r key; do
+        if [ "$PRUNE" != true ]; then
+          echo "  $key: not in env files (re-run with --prune to delete)"
+        elif [ "$DRY_RUN" = true ]; then
+          echo "  $key: would delete"
+        else
+          DELETE_PAYLOAD=$(jq -n \
+            --arg query 'mutation($input:VariableDeleteInput!){variableDelete(input:$input)}' \
+            --arg pid "$RAILWAY_PROJECT_ID" \
+            --arg eid "$ENV_ID" \
+            --arg sid "$RAILWAY_SERVICE_ID" \
+            --arg name "$key" \
+            '{query: $query, variables: {input: {projectId: $pid, environmentId: $eid, serviceId: $sid, name: $name}}}')
+          DELETE_RESULT=$(curl -s -X POST https://backboard.railway.com/graphql/v2 \
+            -H "$RAILWAY_AUTH_HEADER" \
+            -H "Content-Type: application/json" \
+            -d "$DELETE_PAYLOAD")
+          if echo "$DELETE_RESULT" | jq -e '.errors' > /dev/null 2>&1; then
+            echo "  $key: DELETE FAILED"
+            echo "$DELETE_RESULT" | jq -r '.errors[].message' | sed 's/^/    /'
+            PUSH_FAILED=true
+          else
+            echo "  $key: deleted"
+            : $((GLOBAL_PRUNED++))
+          fi
+        fi
+      done <<< "$PRUNE_LIST"
+    fi
+  else
+    echo "[railway] WARN: could not read current variables for $ENV_NAME — prune check skipped"
+  fi
+
   unset CURRENT_VALUES
 done <<< "$TARGET_ENVS"
 
 echo ""
-echo "[railway] Aggregate: $GLOBAL_ADDED added, $GLOBAL_CHANGED changed, $GLOBAL_UNCHANGED unchanged across $(echo "$TARGET_ENVS" | wc -l | tr -d ' ') env(s)"
+echo "[railway] Aggregate: $GLOBAL_ADDED added, $GLOBAL_CHANGED changed, $GLOBAL_UNCHANGED unchanged, $GLOBAL_PRUNED pruned across $(echo "$TARGET_ENVS" | wc -l | tr -d ' ') env(s)"
 
 if [ "$DRY_RUN" = true ]; then
   echo ""

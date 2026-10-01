@@ -136,7 +136,7 @@ describe("schema: POST /api/access/set-access-level", () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it("rejects payload with neither fid nor wallet", async () => {
+  it("rejects payload without a wallet", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/access/set-access-level",
@@ -170,15 +170,6 @@ describe("schema: POST /api/access/set-access-level", () => {
     });
     expect(res.statusCode).toBe(200);
   });
-
-  it("accepts a valid fid+level payload", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/access/set-access-level",
-      payload: { fid: 12345, accessLevel: 4 },
-    });
-    expect(res.statusCode).toBe(200);
-  });
 });
 
 // ── allowlist /add /remove ───────────────────────────────────────────────
@@ -196,15 +187,6 @@ describe("schema: POST /api/allowlist/add", () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it("rejects fid <= 0", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/allowlist/add",
-      payload: { fid: 0 },
-    });
-    expect(res.statusCode).toBe(400);
-  });
-
   it("rejects malformed wallet", async () => {
     const res = await app.inject({
       method: "POST",
@@ -212,15 +194,6 @@ describe("schema: POST /api/allowlist/add", () => {
       payload: { wallet: "0xnotenough" },
     });
     expect(res.statusCode).toBe(400);
-  });
-
-  it("accepts valid fid", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/allowlist/add",
-      payload: { fid: 42 },
-    });
-    expect(res.statusCode).toBe(200);
   });
 
   it("accepts valid wallet", async () => {
@@ -247,11 +220,11 @@ describe("schema: POST /api/allowlist/remove", () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it("accepts valid fid", async () => {
+  it("accepts valid wallet", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/allowlist/remove",
-      payload: { fid: 42 },
+      payload: { wallet: VALID_ADDR },
     });
     expect(res.statusCode).toBe(200);
   });
@@ -344,7 +317,7 @@ describe("schema: GET /api/airdrop/status", () => {
   });
 });
 
-// ── adminRoutes /create-market and /send-notification ────────────────────
+// ── adminRoutes /create-market ───────────────────────────────────────────
 async function buildAdminApp() {
   const mod = await import("../../fastify/routes/adminRoutes.js");
   const app = fastify({ logger: false });
@@ -392,50 +365,6 @@ describe("schema: POST /api/admin/create-market", () => {
       method: "POST",
       url: "/api/admin/create-market",
       payload: { seasonId: 0, playerAddress: VALID_ADDR },
-    });
-    expect(res.statusCode).toBe(400);
-  });
-});
-
-describe("schema: POST /api/admin/send-notification", () => {
-  let app;
-  beforeAll(async () => { app = await buildAdminApp(); });
-  afterAll(async () => { await app.close(); });
-
-  it("rejects missing title", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/admin/send-notification",
-      payload: { body: "hi" },
-    });
-    expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.payload).message).toMatch(/title/);
-  });
-
-  it("rejects missing body", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/admin/send-notification",
-      payload: { title: "hi" },
-    });
-    expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.payload).message).toMatch(/body/);
-  });
-
-  it("rejects empty title (minLength: 1)", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/admin/send-notification",
-      payload: { title: "", body: "x" },
-    });
-    expect(res.statusCode).toBe(400);
-  });
-
-  it("rejects fid <= 0", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/admin/send-notification",
-      payload: { title: "x", body: "y", fid: 0 },
     });
     expect(res.statusCode).toBe(400);
   });

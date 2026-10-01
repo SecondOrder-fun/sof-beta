@@ -34,6 +34,9 @@ while [[ $# -gt 0 ]]; do
     --network) NETWORK="$2"; shift 2 ;;
     --dry-run) DRY_RUN=true; shift ;;
     --vercel-target) VERCEL_TARGETS_RAW="$2"; shift 2 ;;
+    # Railway-only flag forwarded by deploy-env.sh — silently accept and
+    # ignore so the orchestrator can pass it to both children.
+    --prune) shift ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
   esac
 done

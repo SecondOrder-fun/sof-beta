@@ -17,7 +17,7 @@ fastify.get("/admin-only", { preHandler: [requireAdmin] }, handler);
 ```
 
 ### Allowlist Service
-Absorbed from the former `sof-allowlist` repo. Lives in `shared/allowlistService.js`. Manages FID-based and wallet-based access control with granular access groups.
+Absorbed from the former `sof-allowlist` repo. Lives in `shared/allowlistService.js`. Manages wallet-keyed access control (allowlist entries, access levels) with granular access groups (`shared/groupService.js`). Sign-in is wallet-only (`POST /api/auth/verify` method `wallet`), so every entry is keyed by wallet address.
 
 ### ABI Imports
 Always import from `@sof/contracts`:
@@ -165,8 +165,8 @@ Shaping for all of them is pure, in `src/services/activityFeed.js`. Rules they s
 
 ### Backend Relay Functions
 For gasless relay transactions (e.g., airdrop attestations), follow the four-layer verification pattern:
-1. Authenticate caller (JWT or MiniApp context)
-2. Validate inputs (address format, FID existence)
+1. Authenticate caller (JWT)
+2. Validate inputs (address format)
 3. Sign with backend wallet (`BACKEND_WALLET_PRIVATE_KEY`)
 4. Return signature for on-chain submission
 

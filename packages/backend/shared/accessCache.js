@@ -1,22 +1,20 @@
 // Read-through Redis cache for accessService.getUserAccess.
 //
 // Hot-path optimization: every protected admin route used to do one
-// `allowlist_entries` lookup per request via getUserAccess (often two
-// queries — fid lookup, then wallet fallback). Caching the result for
-// 5 minutes (see ACCESS_CACHE_TTL_SECONDS) eliminates the bulk of those
-// roundtrips at near-zero risk: mutations explicitly invalidate, and
-// any Redis hiccup silently falls through to the DB.
+// `allowlist_entries` lookup per request via getUserAccess. Caching the
+// result for 5 minutes (see ACCESS_CACHE_TTL_SECONDS) eliminates the bulk
+// of those roundtrips at near-zero risk: mutations explicitly invalidate,
+// and any Redis hiccup silently falls through to the DB.
 //
 // This module is a thin, access-specific wrapper around the generic
-// read-through helper in redisCache.js. It owns the FID-vs-wallet key
-// derivation, the wallet-by-fid resolution, and the SMA-pair
-// invalidation surface; the Redis mechanics (try-cache, write-through,
-// best-effort invalidation, never-throw) live in redisCache.js.
+// read-through helper in redisCache.js. It owns the wallet key derivation
+// and the SMA-pair invalidation surface; the Redis mechanics (try-cache,
+// write-through, best-effort invalidation, never-throw) live in
+// redisCache.js.
 
 import { getUserAccess } from "./accessService.js";
 import { cacheRead, cacheInvalidate } from "./redisCache.js";
 import { resolveAddressPair } from "./services/addressPairResolver.js";
-import { supabase, hasSupabase } from "./supabaseClient.js";
 
 // 5-minute TTL. Mutations explicitly invalidate via invalidateUserAccessCache
 // from every admin endpoint that touches allowlist_entries or
@@ -26,16 +24,11 @@ export const ACCESS_CACHE_TTL_SECONDS = 300;
 const KEY_PREFIX = "access:";
 
 /**
- * Derive the Redis key for a {fid, wallet} pair. Mirrors the priority
- * order in getUserAccess: fid wins because it's stable across wallet
- * rotations (a Farcaster user can change their primary verified address).
+ * Derive the Redis key for a {wallet} identifier.
  *
- * @returns {string|null} The cache key, or null if neither identifier present.
+ * @returns {string|null} The cache key, or null if no wallet is present.
  */
-export function buildAccessCacheKey({ fid, wallet }) {
-  if (fid !== undefined && fid !== null && fid !== "") {
-    return `${KEY_PREFIX}fid:${fid}`;
-  }
+export function buildAccessCacheKey({ wallet } = {}) {
   if (typeof wallet === "string" && wallet.length > 0) {
     return `${KEY_PREFIX}wallet:${wallet.toLowerCase()}`;
   }
@@ -50,7 +43,7 @@ export function buildAccessCacheKey({ fid, wallet }) {
  * underlying helper and never block the request — we always fall through
  * to the DB.
  *
- * @param {{fid?: number|string, wallet?: string}} identifier
+ * @param {{wallet?: string}} identifier
  * @param {{warn: Function, error: Function}} [logger=console]
  */
 export async function getCachedUserAccess(identifier, logger = console) {
@@ -68,105 +61,40 @@ export async function getCachedUserAccess(identifier, logger = console) {
 }
 
 /**
- * Look up the wallet associated with an FID via the allowlist_entries
- * table. Used by invalidateUserAccessCache to derive the wallet keys
- * that need busting for FID-only invalidations (Farcaster webhooks,
- * FID-only allowlist mutations). No `is_active` filter — we want the
- * row even after a soft-delete mutation, because that's exactly the
- * mutation that triggered the invalidation.
- *
- * Best-effort: returns null on any error (Supabase unconfigured, query
- * failure, no matching row). Callers fall back to the existing
- * FID-only behaviour — at worst the wallet-keyed entry stays stale for
- * the ACCESS_CACHE_TTL_SECONDS window.
- *
- * @param {number|string} fid
- * @param {{warn: Function}} [logger=console]
- * @returns {Promise<string|null>} lowercased wallet address, or null
- */
-async function resolveWalletByFid(fid, logger = console) {
-  if (!hasSupabase) return null;
-  try {
-    const { data, error } = await supabase
-      .from("allowlist_entries")
-      .select("wallet_address")
-      .eq("fid", fid)
-      .limit(1)
-      .maybeSingle();
-    if (error) {
-      logger.warn?.(
-        { err: error, fid },
-        "[accessCache] wallet-by-fid lookup failed",
-      );
-      return null;
-    }
-    const w = data?.wallet_address;
-    return typeof w === "string" && w.length > 0 ? w.toLowerCase() : null;
-  } catch (err) {
-    logger.warn?.({ err, fid }, "[accessCache] wallet-by-fid threw");
-    return null;
-  }
-}
-
-/**
- * Invalidate the cache entry for a {fid, wallet} pair. Call this from
+ * Invalidate the cache entry for a {wallet} identifier. Call this from
  * route handlers after any mutation that flips access (allowlist add,
  * access-level update, removal). The ACCESS_CACHE_TTL_SECONDS window is
  * the safety net — explicit invalidation makes admin changes reflect
  * immediately instead of after the TTL elapses.
  *
- * Wallet keys (including SMA-paired counterparts) are busted whenever
- * a wallet can be derived, even when the caller only supplied a FID:
- * Farcaster webhooks and FID-only allowlist mutations would otherwise
- * leave `access:wallet:0xEOA` / `access:wallet:0xSMA` entries holding
- * the pre-mutation verdict for up to one TTL window. See Issue #109.
+ * The wallet's SMA-paired counterpart (EOA <-> SMA, via smart_accounts) is
+ * busted too, so an admin change to either address takes effect for both.
  *
- * @param {{fid?: number|string, wallet?: string}} identifier
+ * @param {{wallet?: string}} identifier
  * @param {{warn: Function}} [logger=console]
  */
 export async function invalidateUserAccessCache(identifier, logger = console) {
-  const keys = [];
-
-  const hasFid =
-    identifier.fid !== undefined &&
-    identifier.fid !== null &&
-    identifier.fid !== "";
-  const suppliedWallet =
-    typeof identifier.wallet === "string" && identifier.wallet.length > 0
+  const wallet =
+    typeof identifier?.wallet === "string" && identifier.wallet.length > 0
       ? identifier.wallet.toLowerCase()
       : null;
 
-  if (hasFid) {
-    keys.push(`${KEY_PREFIX}fid:${identifier.fid}`);
-  }
+  if (!wallet) return;
 
-  // Derive a wallet to bust against. The caller-supplied wallet wins;
-  // when only a FID is present, look up the wallet from allowlist_entries
-  // so we can run the existing pair-busting against the same address an
-  // admin route would have used to populate the wallet-keyed entry.
-  let walletForBust = suppliedWallet;
-  if (!walletForBust && hasFid) {
-    walletForBust = await resolveWalletByFid(identifier.fid, logger);
-  }
+  const keys = [`${KEY_PREFIX}wallet:${wallet}`];
 
-  if (walletForBust) {
-    keys.push(`${KEY_PREFIX}wallet:${walletForBust}`);
-
-    // Symmetric busting: if this wallet has a paired counterpart in
-    // smart_accounts, invalidate its key too. Resolution is best-effort —
-    // a failure here doesn't block invalidating the primary key.
-    const pair = await resolveAddressPair(walletForBust, logger);
-    if (pair) {
-      const alt = walletForBust === pair.eoa ? pair.sma : pair.eoa;
-      if (alt && alt !== walletForBust) {
-        keys.push(`${KEY_PREFIX}wallet:${alt}`);
-      }
+  // Symmetric busting: if this wallet has a paired counterpart in
+  // smart_accounts, invalidate its key too. Resolution is best-effort —
+  // a failure here doesn't block invalidating the primary key.
+  const pair = await resolveAddressPair(wallet, logger);
+  if (pair) {
+    const alt = wallet === pair.eoa ? pair.sma : pair.eoa;
+    if (alt && alt !== wallet) {
+      keys.push(`${KEY_PREFIX}wallet:${alt}`);
     }
   }
 
-  if (keys.length === 0) return;
-
-  // Single DEL covering FID + wallet + SMA-pair keys; cacheInvalidate is
+  // Single DEL covering the wallet + SMA-pair keys; cacheInvalidate is
   // best-effort and never throws on a Redis hiccup.
   await cacheInvalidate(keys, logger);
 }

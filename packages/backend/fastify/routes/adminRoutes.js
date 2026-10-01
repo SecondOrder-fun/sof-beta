@@ -3,22 +3,14 @@
 
 import process from "node:process";
 import { parseAbi, formatEther } from "viem";
-import { db, hasSupabase } from "../../shared/supabaseClient.js";
+import { db } from "../../shared/supabaseClient.js";
 import { publicClient } from "../../src/lib/viemClient.js";
 import { getChainByKey } from "../../src/config/chain.js";
 import { RaffleABI as raffleAbi } from '@sof/contracts';
 import { getPaymasterService } from "../../src/services/paymasterService.js";
-import {
-  sendNotificationToUser,
-  sendNotificationToAll,
-  getAllEnabledTokens,
-} from "../../shared/farcasterNotificationService.js";
 import { historicalOddsService } from "../../shared/historicalOddsService.js";
 import { createRequireAdmin } from "../../shared/adminGuard.js";
-import {
-  createMarketBodySchema,
-  sendNotificationBodySchema,
-} from "../../shared/schemas/index.js";
+import { createMarketBodySchema } from "../../shared/schemas/index.js";
 
 const erc20BalanceOfAbi = parseAbi([
   "function balanceOf(address) view returns (uint256)",
@@ -447,136 +439,6 @@ export default async function adminRoutes(fastify) {
       fastify.log.error({ error }, "Failed to fetch paymaster status");
       return reply.code(500).send({
         error: "Failed to fetch paymaster status",
-        details: error.message,
-      });
-    }
-  });
-
-  /**
-   * GET /api/admin/notification-stats
-   * Returns statistics about notification tokens
-   * Shape: { totalTokens, uniqueUsers, byClient: { [appFid]: count } }
-   */
-  fastify.get("/notification-stats", { preHandler: requireAdmin }, async (_request, reply) => {
-    try {
-      if (!hasSupabase) {
-        return reply.code(503).send({
-          error: "Supabase not configured",
-        });
-      }
-
-      const tokens = await getAllEnabledTokens();
-
-      // Calculate stats
-      const uniqueFids = new Set(tokens.map((t) => t.fid));
-
-      return reply.send({
-        totalTokens: tokens.length,
-        uniqueUsers: uniqueFids.size,
-      });
-    } catch (error) {
-      fastify.log.error({ error }, "Failed to fetch notification stats");
-      return reply.code(500).send({
-        error: "Failed to fetch notification stats",
-        details: error.message,
-      });
-    }
-  });
-
-  /**
-   * POST /api/admin/send-notification
-   * Send a notification to a specific user or all users
-   * Body: { fid?: number, title: string, body: string, targetUrl?: string }
-   * If fid is provided, sends to that user only. Otherwise broadcasts to all.
-   */
-  fastify.post(
-    "/send-notification",
-    {
-      preHandler: requireAdmin,
-      // Schema rejects missing title/body, malformed fid, body lengths
-      // outside [1, 2000], targetUrl that isn't a URI.
-      schema: { body: sendNotificationBodySchema },
-    },
-    async (request, reply) => {
-    try {
-      const { fid, title, body, targetUrl } = request.body;
-
-      const notificationTargetUrl = targetUrl || "https://secondorder.fun";
-
-      let result;
-
-      if (fid !== undefined && fid !== null) {
-        fastify.log.info(
-          { fid, title },
-          "[Admin] Sending notification to user"
-        );
-
-        result = await sendNotificationToUser({
-          fid,
-          title,
-          body,
-          targetUrl: notificationTargetUrl,
-        });
-      } else {
-        // Broadcast to all users
-        fastify.log.info(
-          { title },
-          "[Admin] Broadcasting notification to all users"
-        );
-
-        result = await sendNotificationToAll({
-          title,
-          body,
-          targetUrl: notificationTargetUrl,
-        });
-      }
-
-      return reply.send({
-        success: result.state === "success",
-        ...result,
-      });
-    } catch (error) {
-      fastify.log.error({ error }, "Failed to send notification");
-      return reply.code(500).send({
-        error: "Failed to send notification",
-        details: error.message,
-      });
-    }
-  });
-
-  /**
-   * GET /api/admin/notification-tokens
-   * Returns list of all notification tokens (for admin viewing)
-   * Shape: { tokens: [...], count }
-   */
-  fastify.get("/notification-tokens", { preHandler: requireAdmin }, async (request, reply) => {
-    try {
-      if (!hasSupabase) {
-        return reply.code(503).send({
-          error: "Supabase not configured",
-        });
-      }
-
-      const { data, error } = await db.client
-        .from("farcaster_notification_tokens")
-        .select(
-          "id, fid, app_key, notification_url, notifications_enabled, created_at, updated_at"
-        )
-        .order("created_at", { ascending: false })
-        .limit(100);
-
-      if (error) {
-        throw new Error(error.message);
-      }
-
-      return reply.send({
-        tokens: data || [],
-        count: (data || []).length,
-      });
-    } catch (error) {
-      fastify.log.error({ error }, "Failed to fetch notification tokens");
-      return reply.code(500).send({
-        error: "Failed to fetch notification tokens",
         details: error.message,
       });
     }

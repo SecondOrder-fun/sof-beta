@@ -14,12 +14,6 @@ export const addressSchema = {
   pattern: "^0x[a-fA-F0-9]{40}$",
 };
 
-/** Farcaster ID. Positive integer. */
-export const fidSchema = {
-  type: "integer",
-  minimum: 1,
-};
-
 /** 65-byte ECDSA signature in hex (0x + 130 chars). */
 export const signatureSchema = {
   type: "string",
@@ -32,19 +26,14 @@ export const unixSecondsSchema = {
   minimum: 0,
 };
 
-/**
- * `{fid?, wallet?}` shape used by allowlist/access mutations. Requires
- * at least one identifier. The route handlers still resolve the priority
- * (fid wins over wallet) — this only enforces presence at the boundary.
- */
-export const fidOrWalletSchema = {
+/** `{wallet}` body shape used by allowlist mutations (/add, /remove). */
+export const walletBodySchema = {
   type: "object",
   additionalProperties: false,
   properties: {
-    fid: fidSchema,
     wallet: addressSchema,
   },
-  anyOf: [{ required: ["fid"] }, { required: ["wallet"] }],
+  required: ["wallet"],
 };
 
 /** Body shape for POST /api/access/set-access-level. */
@@ -52,42 +41,10 @@ export const setAccessLevelBodySchema = {
   type: "object",
   additionalProperties: false,
   properties: {
-    fid: fidSchema,
     wallet: addressSchema,
     accessLevel: { type: "integer", minimum: 0, maximum: 4 },
   },
-  required: ["accessLevel"],
-  anyOf: [{ required: ["fid"] }, { required: ["wallet"] }],
-};
-
-/**
- * Body shape for POST /api/airdrop/claim. Three discriminated variants by
- * `type`: initial requires fid, basic + daily each require signature.
- */
-export const claimAirdropBodySchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    address: addressSchema,
-    type: { type: "string", enum: ["initial", "basic", "daily"] },
-    fid: fidSchema,
-    signature: signatureSchema,
-  },
-  required: ["address", "type"],
-  oneOf: [
-    {
-      properties: { type: { const: "initial" } },
-      required: ["fid"],
-    },
-    {
-      properties: { type: { const: "basic" } },
-      required: ["signature"],
-    },
-    {
-      properties: { type: { const: "daily" } },
-      required: ["signature"],
-    },
-  ],
+  required: ["wallet", "accessLevel"],
 };
 
 /** Body shape for POST /api/wallet/delegate. */
@@ -154,23 +111,6 @@ export const createMarketBodySchema = {
     playerAddress: addressSchema,
   },
   required: ["seasonId", "playerAddress"],
-};
-
-/**
- * Body shape for POST /api/admin/send-notification. fid is optional —
- * when present, the broadcast targets that single user; when absent, the
- * notification fans out to every subscribed user.
- */
-export const sendNotificationBodySchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    fid: fidSchema,
-    title: { type: "string", minLength: 1, maxLength: 200 },
-    body: { type: "string", minLength: 1, maxLength: 2000 },
-    targetUrl: { type: "string", format: "uri" },
-  },
-  required: ["title", "body"],
 };
 
 /**

@@ -75,6 +75,20 @@ cd packages/contracts && forge test
 
 Always strip whitespace/newlines from env var values before pushing.
 
+The sync only adds and updates; a variable removed from an env file stays on
+Railway until pruned. Each run lists the Railway service variables that are not
+in the env files. `--prune` deletes them (production and every PR environment);
+with `--dry-run` it prints what it would delete. Railway-managed variables
+(`RAILWAY_*`, `PORT`, database/Redis plugin URLs) are never pruned — that list
+is `PRUNE_KEEP_PREFIXES` / `PRUNE_KEEP_VARS` at the top of
+`scripts/sync-env-railway.sh`; add a variable there before pruning if it is set
+in the dashboard on purpose. Vercel ignores `--prune`.
+
+```bash
+./scripts/deploy-env.sh --network testnet --dry-run --prune   # review the deletions
+./scripts/deploy-env.sh --network testnet --prune             # after explicit approval
+```
+
 ## ABI Pipeline
 
 When contracts change:
@@ -130,9 +144,9 @@ SIWE signature (`AppAuthProvider`, `POST /api/auth/verify method:"wallet"`).
 | Base App / Coinbase Smart Wallet | Coinbase Wallet | Connected address is the smart account |
 | Desktop browser | Wallet connect (RainbowKit) | Gameplay routes through the deterministic smart account |
 
-The backend still carries the Farcaster sign-in paths (SIWF, Quick Auth) and
-FID-keyed allowlist/access entries until its own removal PR; the frontend no
-longer calls them.
+The backend verifies the signature with `publicClient.verifyMessage` (EOA,
+ERC-1271 and ERC-6492 smart-wallet signatures) and issues a JWT. Allowlist,
+access-level and access-group entries are keyed by wallet address only.
 
 ## Instruction Files (Living Documents)
 
@@ -213,14 +227,11 @@ node scripts/extract-deployment-addresses.js --network testnet
 
 ## Gotchas
 
-### Sign-in nonces and SIWF domains (backend)
-- SIWE nonces must be alphanumeric (`[a-zA-Z0-9]{8+}`). Use `crypto.randomUUID().replaceAll('-', '')`.
-- Backend-only until the backend Farcaster removal: `verifySignInMessage` (SIWF) must use the domain from the signed SIWE message, not hardcoded. Use `SIWF_ALLOWED_DOMAINS` env var with wildcard support.
+### Sign-in nonces
+- Sign-in nonces must be alphanumeric (`[a-zA-Z0-9]{8+}`). Use `crypto.randomUUID().replaceAll('-', '')`.
 
-### Apex + www origins (CORS / SIWF)
-Browser origins are an exact-string match — `https://secondorder.fun` and `https://www.secondorder.fun` are different origins, and `secondorder.fun` ≠ `www.secondorder.fun` as SIWF message domains either. When pointing a TLD at Vercel, **both** must appear in:
-- `CORS_ORIGINS` on the backend (Railway): `https://secondorder.fun,https://www.secondorder.fun`
-- `SIWF_ALLOWED_DOMAINS` on the backend (backend-only, while SIWF remains there): `secondorder.fun,www.secondorder.fun` (or `secondorder.fun,*.secondorder.fun` — the wildcard prefix `*.` matches subdomains but NOT the apex, per `shared/auth.js`).
+### Apex + www origins (CORS)
+Browser origins are an exact-string match — `https://secondorder.fun` and `https://www.secondorder.fun` are different origins. When pointing a TLD at Vercel, **both** must appear in `CORS_ORIGINS` on the backend (Railway): `https://secondorder.fun,https://www.secondorder.fun`.
 
 Symptom of getting this wrong: console shows `No 'Access-Control-Allow-Origin' header is present` from the `www` (or apex) variant the user happens to land on, and every API call from that origin 404/errs net::ERR_FAILED.
 

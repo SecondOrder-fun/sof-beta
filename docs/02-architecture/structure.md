@@ -12,7 +12,7 @@ SecondOrder.fun is a full-stack Web3 application that transforms cryptocurrency 
 - **Language**: JavaScript with JSDoc (TypeScript-ready) for rapid development with type safety
 - **Styling**: Tailwind CSS with shadcn/ui components optimized for InfoFi market interfaces
 - **Web3**: Wagmi + Viem for Ethereum interactions across raffle and InfoFi contracts
-- **Authentication**: Farcaster Auth Kit + RainbowKit with enhanced permissions for InfoFi trading
+- **Authentication**: RainbowKit wallet connect + wallet sign-in (signed nonce message → JWT)
 - **State Management**: React Query + Context API optimized for real-time InfoFi market data
 - **Real-Time**: Server-Sent Events (SSE) for live pricing updates and arbitrage opportunity detection
 - **Routing**: React Router DOM v7 with InfoFi market deep-linking support
@@ -24,7 +24,7 @@ SecondOrder.fun is a full-stack Web3 application that transforms cryptocurrency 
 - **Language**: JavaScript (ES Modules) with TypeScript support for complex InfoFi calculations
 - **Database**: Supabase (PostgreSQL) with real-time pub/sub enhanced for InfoFi market coordination
 - **Real-time**: Server-Sent Events (SSE) transport for streaming on-chain oracle values and arbitrage alerts
-- **Authentication**: JWT + Farcaster integration with InfoFi market permissions
+- **Authentication**: JWT issued after wallet signature verification (EOA, ERC-1271, ERC-6492)
 - **InfoFi Services**: Oracle streaming of on-chain hybrid price, arbitrage detection, settlement coordination
 
 ### Smart Contracts Enhanced with InfoFi Integration
@@ -347,13 +347,11 @@ src/
 │   ├── DashboardLayout.jsx   # Enhanced dashboard with InfoFi market sidebar
 │   ├── InfoFiLayout.jsx      # NEW: InfoFi market-focused layout
 │   ├── TradingLayout.jsx     # NEW: Full-screen trading interface layout
-│   ├── FrameLayout.jsx       # Enhanced Farcaster Frame with InfoFi integration
 │   └── AuthLayout.jsx        # Enhanced authentication with InfoFi permissions
 │
 ├── lib/
 │   ├── wagmi.js              # Enhanced Wagmi configuration with InfoFi contracts
 │   ├── viem.js               # Enhanced Viem client with multi-contract support
-│   ├── farcaster.js          # Enhanced Farcaster SDK with InfoFi sharing
 │   ├── supabase.js           # Enhanced Supabase client with InfoFi schema
 │   ├── realtime.js           # NEW: SSE client configuration and management
 │   ├── infofi.js             # NEW: InfoFi market utilities and helpers
@@ -373,7 +371,6 @@ src/
 │   ├── DashboardPage.jsx     # Enhanced user dashboard with InfoFi integration
 │   ├── ProfilePage.jsx       # Enhanced user profile with InfoFi statistics
 │   ├── AnalyticsPage.jsx     # NEW: Advanced analytics and performance tracking
-│   ├── FrameRafflePage.jsx   # Enhanced Farcaster Frame with InfoFi integration
 │   └── SandboxPage.jsx       # Enhanced development sandbox with InfoFi testing
 │
 ├── services/
@@ -418,7 +415,6 @@ src/
 │   ├── arbitrage.js         # NEW: Arbitrage detection and profit calculations
 │   ├── crosslayer.js        # NEW: Cross-layer strategy utilities
 │   ├── pricing.js           # NEW: Hybrid pricing calculation utilities
-│   └── farcaster.js          # Enhanced Farcaster utilities with InfoFi sharing
 │
 └── mock-backend/             # Enhanced development mock data with InfoFi
     ├── mockData.js           # Enhanced mock data with InfoFi markets
@@ -563,7 +559,6 @@ backend/
 │   │   ├── index.js         # Enhanced Hono application with InfoFi routes
 │   │   │
 │   │   ├── routes/
-│   │   │   ├── frames.js    # Enhanced Farcaster Frame with InfoFi integration
 │   │   │   ├── public.js    # Enhanced public API with InfoFi market data
 │   │   │   ├── infofi.js    # NEW: InfoFi market public endpoints
 │   │   │   ├── arbitrage.js # NEW: Public arbitrage opportunity feeds
@@ -579,7 +574,6 @@ backend/
 │   │   │   └── logging.js   # Enhanced request logging with InfoFi tracking
 │   │   │
 │   │   ├── services/
-│   │   │   ├── frameService.js # Enhanced frame generation with InfoFi integration
 │   │   │   ├── cacheService.js # Enhanced edge caching with InfoFi optimization
 │   │   │   ├── infoFiService.js # NEW: InfoFi market edge service
 │   │   │   ├── pricingService.js # NEW: Real-time pricing edge service

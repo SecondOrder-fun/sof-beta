@@ -2,8 +2,8 @@
 // @vitest-environment node
 //
 // Focused tests for the SMA-aware wallet fallback added to getUserAccess.
-// Existing accessService tests (general flow, FID priority, groups) live
-// elsewhere and stay untouched.
+// Existing accessService tests (general flow, groups) live elsewhere and
+// stay untouched.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -44,7 +44,6 @@ const NOT_FOUND = { data: null, error: { code: "PGRST116" } };
 const ALLOWLIST_ROW_EOA = {
   data: {
     id: 1,
-    fid: null,
     wallet_address: EOA_LC,
     access_level: 3,
     is_active: true,
@@ -54,7 +53,6 @@ const ALLOWLIST_ROW_EOA = {
 const ALLOWLIST_ROW_SMA = {
   data: {
     id: 2,
-    fid: null,
     wallet_address: SMA_LC,
     access_level: 3,
     is_active: true,
@@ -119,13 +117,11 @@ describe("getUserAccess SMA resolution", () => {
     expect(result.matchedAddress).toBeNull();
   });
 
-  it("does NOT call resolver when fid hits directly", async () => {
-    supabaseMocks.mockFrom
-      .mockReturnValueOnce(makeQuery(ALLOWLIST_ROW_EOA))
-      .mockReturnValueOnce(makeQuery({ data: [], error: null }));
-
-    const result = await getUserAccess({ fid: 1001 });
-    expect(result.matchedVia).toBe("direct");
+  it("no wallet returns public without querying or resolving", async () => {
+    const result = await getUserAccess({});
+    expect(result.level).toBe(0);
+    expect(result.matchedVia).toBeNull();
+    expect(supabaseMocks.mockFrom).not.toHaveBeenCalled();
     expect(resolverMocks.mockResolvePair).not.toHaveBeenCalled();
   });
 });

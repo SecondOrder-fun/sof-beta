@@ -1,152 +1,95 @@
 # Authentication
 
-Unified auth system supporting wallet SIWE and Farcaster SIWF via a single endpoint pair with method-based dispatch.
+Sign-in is wallet-only: the user signs a one-time nonce message with their
+connected wallet, the backend verifies the signature and issues a JWT.
 
-## Problem
+## Flow
 
-The auth system previously had two parallel route sets:
-- `GET /auth/nonce?address=0x...` + `POST /auth/verify` (wallet)
-- `GET /auth/farcaster/nonce` + `POST /auth/farcaster/verify` (Farcaster)
+1. The wallet connects (RainbowKit / wagmi).
+2. `GET /api/auth/nonce` returns `{ nonce }` — alphanumeric
+   (`crypto.randomUUID().replaceAll('-', '')`), stored in Redis at
+   `auth:nonce:{nonce}` with a 5-minute TTL. No parameters, so no address ends
+   up in logs or URLs.
+3. The wallet signs `"Sign in to SecondOrder.fun\nNonce: {nonce}"`.
+4. `POST /api/auth/verify` with
+   `{ "method": "wallet", "address": "0x…", "signature": "0x…", "nonce": "…", "walletType": "desktop-eoa" }`.
+   `"wallet"` is the only accepted `method`.
+5. The backend consumes the nonce (deleted before verification; a missing or
+   expired nonce is a 401), then verifies the signature with
+   `publicClient.verifyMessage`. Unlike viem's standalone `verifyMessage`
+   (ECDSA recovery only), the public-client form also accepts smart-wallet
+   signatures: ERC-1271 for deployed accounts and ERC-6492 for counterfactual
+   ones (e.g. a Coinbase Smart Wallet that has not deployed yet).
+6. It looks up the wallet's access level (`getUserAccess({ wallet })`), its
+   SoF username, resolves and persists the smart account
+   (`ensureSmartAccount`, routed by `walletType`; `coinbase-smart` keeps
+   sma = eoa), sets the admin flag for `ADMIN_EOAS` wallets
+   (`ensureAdminFlag`), and returns the JWT.
 
-Issues:
-1. Wallet address exposed in GET query parameter (server logs, browser history, Referer headers)
-2. Inconsistent nonce storage: by-address for wallet, by-nonce for Farcaster
-3. Duplicated nonce generation, Redis storage, and JWT issuance logic
-4. Adding a new auth method required new route pairs
+The frontend side is `AppAuthProvider` (`packages/frontend/src/context/`): it
+fires the flow automatically on connect for desktop EOAs and Coinbase Smart
+Wallet and persists the JWT in `localStorage` for those wallet types.
 
-## Architecture
-
-### Unified Nonce Endpoint
-
-**`GET /api/auth/nonce`** — no parameters.
-
-- Generates alphanumeric nonce (`crypto.randomUUID().replaceAll('-', '')`)
-- Stores in Redis keyed by nonce value: `auth:nonce:{nonce}` with 5-minute TTL
-- Returns `{ nonce }`
-- One-time use — deleted on consumption during verify
-
-### Unified Verify Endpoint
-
-**`POST /api/auth/verify`** with `method` discriminator in the body.
-
-**Wallet SIWE request:**
-```json
-{ "method": "wallet", "address": "0x...", "signature": "0x...", "nonce": "abc123" }
-```
-
-**Farcaster SIWF request:**
-```json
-{ "method": "farcaster", "message": "...", "signature": "0x...", "nonce": "abc123" }
-```
-
-**Shared verify flow:**
-1. Validate `method` is `"wallet"` or `"farcaster"`
-2. Validate nonce exists in Redis at `auth:nonce:{nonce}`, consume it (delete)
-3. Dispatch to method-specific verification:
-   - **wallet**: validate address format, verify signature via `viem.verifyMessage()` against `"Sign in to SecondOrder.fun\nNonce: {nonce}"`
-   - **farcaster**: verify signature via `@farcaster/auth-client`, extract FID, resolve FID→wallet via Neynar, upsert allowlist, sync username
-4. Look up access level via `getUserAccess()`
-5. Generate JWT via `AuthService.generateToken()`
-6. Return unified response
-
-### Unified Response Shape
+## Response
 
 ```json
 {
-  "token": "jwt...",
+  "token": "jwt…",
   "user": {
-    "address": "0x...",
-    "fid": 12345,
+    "address": "0x…",
     "username": "alice",
-    "displayName": "Alice",
-    "pfpUrl": "https://...",
     "accessLevel": 2,
-    "role": "user"
+    "role": "allowlist",
+    "sma": "0x…",
+    "isAdmin": false
   }
 }
 ```
 
-All fields always present. Farcaster-specific fields (`fid`, `username`, `displayName`, `pfpUrl`) are `null` for wallet-only users. `address` may be `null` if Farcaster FID resolution fails.
-
-### Redis Key Scheme
-
-All auth methods use the same key pattern:
-
-| Key | TTL | Purpose |
-|-----|-----|---------|
-| `auth:nonce:{nonce}` | 5 min | One-time nonce for any auth method |
-
-## Auth Contexts
-
-| Context | Method | Frontend Provider | Notes |
-|---------|--------|-------------------|-------|
-| Farcaster MiniApp | `farcaster` | `FarcasterProvider` | SIWF via Auth Kit, QR code relay |
-| Admin panel | `wallet` | `AdminAuthContext` | SIWE via wagmi `signMessage` |
-| Desktop browser | `wallet` | `AdminAuthContext` | RainbowKit connect + SIWE |
-
-### Wallet SIWE Flow (Admin)
-
-1. User connects wallet (wagmi/RainbowKit)
-2. Frontend calls `GET /api/auth/nonce`
-3. Backend returns nonce, stores in Redis for 5 minutes
-4. Frontend signs message: `"Sign in to SecondOrder.fun\nNonce: {nonce}"`
-5. Frontend calls `POST /api/auth/verify` with `{ method: "wallet", address, signature, nonce }`
-6. Backend verifies signature via `viem.verifyMessage()`
-7. Nonce consumed (deleted from Redis)
-8. Backend returns JWT + user info
-9. Frontend stores JWT in sessionStorage
-
-### Farcaster SIWF Flow (MiniApp)
-
-1. User clicks "Sign in with Farcaster"
-2. Frontend calls `GET /api/auth/nonce`
-3. Backend returns alphanumeric nonce, stores in Redis for 5 minutes
-4. Frontend calls auth-kit's `useSignIn` with nonce callback
-5. Auth-kit creates channel → user scans QR code in Farcaster
-6. Frontend manually polls Farcaster relay until user confirms
-7. Relay returns `{ message, signature }`
-8. Frontend calls `POST /api/auth/verify` with `{ method: "farcaster", message, signature, nonce }`
-9. Backend validates SIWF via `@farcaster/auth-client`, extracts FID
-10. Backend resolves FID → wallet address via Neynar, upserts allowlist
-11. Backend returns JWT + user info (FID, address, username, display name, PFP)
-12. Frontend stores JWT in sessionStorage
+`username` is the SoF username set via `/api/usernames` (`null` if none).
+`sma` is `null` if smart-account resolution failed (auth still succeeds).
 
 ## JWT
 
-Issued by `AuthService.generateToken()` with payload:
-- `id` — allowlist entry ID or wallet address
-- `wallet_address` — lowercase Ethereum address
-- `role` — derived from access level (`user`, `admin`, etc.)
-- `fid` — Farcaster ID (only for Farcaster auth)
+Issued by `AuthService.generateToken()` (`JWT_SECRET`, `JWT_EXPIRES_IN`) with:
 
-Configured via `JWT_SECRET` and `JWT_EXPIRES_IN` env vars.
+- `id` — allowlist entry id, else the wallet address
+- `wallet_address` — lowercase address
+- `role` — access-level name (`public`, `connected`, `allowlist`, `beta`, `admin`)
+- `username`, `sma`, `is_admin` — when set
 
-The global Fastify `preHandler` hook decodes the JWT from `Authorization: Bearer {token}` and populates `request.user`. Public endpoints ignore missing auth; admin endpoints use the `requireAdmin` guard which checks access level via `accessService`.
+The global Fastify `preHandler` decodes `Authorization: Bearer {token}` into
+`request.user`; public endpoints ignore a missing token.
 
-## Access Control
+## Access control
 
-Access levels are managed via the allowlist service:
+Allowlist entries, access levels and access groups are keyed by wallet
+address (`allowlist_entries.wallet_address`,
+`user_access_groups.wallet_address`, both NOT NULL). A wallet's lookup falls
+back to its EOA ↔ smart-account pair (`smart_accounts`) when the address
+itself has no entry.
 
-| Level | Name | Description |
-|-------|------|-------------|
-| 0 | PUBLIC | No allowlist entry |
-| 1 | BASIC | Allowlisted user |
-| 2 | PREMIUM | Premium access |
-| 3 | MODERATOR | Moderation capabilities |
-| 4 | ADMIN | Full admin access |
+| Level | Name |
+|-------|------|
+| 0 | public (no entry) |
+| 1 | connected |
+| 2 | allowlist |
+| 3 | beta |
+| 4 | admin |
 
-The `requireAdmin` preHandler (from `shared/adminGuard.js`) rejects any request where `accessInfo.level < ADMIN`.
+`createRequireAdmin()` (`shared/adminGuard.js`) rejects requests whose
+wallet's level is below 4. Lookups go through a 5-minute Redis cache
+(`shared/accessCache.js`, keys `access:wallet:{address}`) that every access
+mutation invalidates, together with the paired address's key.
 
-## Key Files
+## Key files
 
 | File | Purpose |
 |------|---------|
-| `packages/backend/fastify/routes/authRoutes.js` | Unified nonce + verify endpoints |
-| `packages/backend/shared/auth.js` | JWT generation, verification, SIWF client |
-| `packages/backend/shared/accessService.js` | Access level lookup |
-| `packages/backend/shared/adminGuard.js` | `requireAdmin` preHandler |
-| `packages/backend/shared/allowlistService.js` | Allowlist CRUD + upsert |
-| `packages/backend/shared/fidResolverService.js` | FID → wallet resolution via Neynar |
-| `packages/frontend/src/context/AdminAuthContext.jsx` | Wallet SIWE flow |
-| `packages/frontend/src/context/FarcasterProvider.jsx` | Farcaster SIWF flow |
-| `packages/frontend/src/hooks/useFarcasterSignIn.js` | SIWF relay polling |
+| `packages/backend/fastify/routes/authRoutes.js` | Nonce + verify endpoints |
+| `packages/backend/shared/auth.js` | JWT generation and verification, request auth hook |
+| `packages/backend/shared/accessService.js` | Access level + group lookup |
+| `packages/backend/shared/accessCache.js` | Redis read-through cache for access lookups |
+| `packages/backend/shared/adminGuard.js` | `createRequireAdmin` preHandler |
+| `packages/backend/shared/services/adminEoaService.js` | `ADMIN_EOAS` → `is_admin` |
+| `packages/frontend/src/context/AppAuthProvider.jsx` | Frontend sign-in lifecycle |

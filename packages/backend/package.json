@@ -1,6 +1,6 @@
 {
   "name": "@sof/backend",
-  "version": "0.36.1",
+  "version": "0.37.0",
   "private": true,
   "type": "module",
   "description": "SecondOrder.fun Backend API Server",
@@ -15,9 +15,6 @@
     "scan:historical": "node scripts/scan-historical-events.js"
   },
   "dependencies": {
-    "@farcaster/auth-client": "^0.7.1",
-    "@farcaster/miniapp-node": "^0.1.11",
-    "@farcaster/quick-auth": "^0.0.8",
     "@fastify/cors": "^11.1.0",
     "@fastify/helmet": "^13.0.1",
     "@fastify/rate-limit": "^10.3.0",

@@ -23,22 +23,19 @@ export default async function accessRoutes(fastify) {
   /**
    * GET /check
    * Check if a user is allowlisted and get their access info
-   * Query params: fid (number, optional), wallet (string, optional)
+   * Query params: wallet (string, required)
    */
   fastify.get("/check", async (request, reply) => {
-    const { fid, wallet } = request.query;
+    const { wallet } = request.query;
 
-    if (!fid && !wallet) {
+    if (!wallet) {
       return reply.code(400).send({
-        error: "Either fid or wallet parameter is required",
+        error: "wallet parameter is required",
       });
     }
 
     try {
-      const accessInfo = await getUserAccess({
-        fid: fid ? parseInt(fid, 10) : undefined,
-        wallet,
-      });
+      const accessInfo = await getUserAccess({ wallet });
 
       return {
         isAllowlisted: accessInfo.level >= ACCESS_LEVELS.ALLOWLIST,
@@ -60,10 +57,10 @@ export default async function accessRoutes(fastify) {
   /**
    * GET /check-access
    * Check if user can access a specific route/resource
-   * Query params: fid?, wallet?, route (required), resourceType?, resourceId?
+   * Query params: wallet?, route (required), resourceType?, resourceId?
    */
   fastify.get("/check-access", async (request, reply) => {
-    const { fid, wallet, route, resourceType, resourceId } = request.query;
+    const { wallet, route, resourceType, resourceId } = request.query;
 
     if (!route) {
       return reply.code(400).send({
@@ -73,7 +70,6 @@ export default async function accessRoutes(fastify) {
 
     try {
       const accessCheck = await checkRouteAccess({
-        fid: fid ? parseInt(fid, 10) : undefined,
         wallet,
         route,
         resourceType,
@@ -135,24 +131,21 @@ export default async function accessRoutes(fastify) {
   /**
    * POST /set-access-level
    * Update a user's access level (admin only)
-   * Body: { fid?: number, wallet?: string, accessLevel: number }
+   * Body: { wallet: string, accessLevel: number }
    */
   fastify.post(
     "/set-access-level",
     {
       preHandler: requireAdmin,
       // Schema rejects: missing accessLevel, accessLevel out of [0,4],
-      // missing both fid and wallet, malformed wallet, additional fields.
+      // missing or malformed wallet, additional fields.
       schema: { body: setAccessLevelBodySchema },
     },
     async (request, reply) => {
-      const { fid, wallet, accessLevel } = request.body;
+      const { wallet, accessLevel } = request.body;
 
       try {
-        const result = await setUserAccessLevel(
-          { fid: fid ? Number(fid) : undefined, wallet },
-          accessLevel,
-        );
+        const result = await setUserAccessLevel({ wallet }, accessLevel);
 
         if (!result.success) {
           return reply.code(400).send({
@@ -161,11 +154,8 @@ export default async function accessRoutes(fastify) {
         }
 
         // Bust the access cache so the change reflects on the next admin
-        // request instead of after the 60s TTL expires.
-        await invalidateUserAccessCache(
-          { fid: fid ? Number(fid) : undefined, wallet },
-          fastify.log,
-        );
+        // request instead of after the cache TTL expires.
+        await invalidateUserAccessCache({ wallet }, fastify.log);
 
         return {
           success: true,

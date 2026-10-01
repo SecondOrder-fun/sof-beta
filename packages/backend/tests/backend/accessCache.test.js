@@ -1,7 +1,7 @@
 /**
  * @file accessCache.test.js
  * @description Read-through Redis cache for access lookups. Validates the
- * cache hit/miss paths, write-through behavior, key derivation (fid > wallet),
+ * cache hit/miss paths, write-through behavior, wallet key derivation,
  * Redis-failure fallthrough, and explicit invalidation.
  *
  * accessCache.js now delegates the Redis mechanics to the generic
@@ -30,12 +30,6 @@ const redisMocks = vi.hoisted(() => ({
 
 const resolverMocks = vi.hoisted(() => ({
   mockResolvePair: vi.fn(),
-}));
-
-const supabaseMocks = vi.hoisted(() => ({
-  // Single .maybeSingle() resolver per test — chain builder below.
-  mockMaybeSingle: vi.fn(),
-  hasSupabase: true,
 }));
 
 vi.mock("../../shared/accessService.js", () => ({
@@ -112,29 +106,15 @@ vi.mock("../../shared/services/addressPairResolver.js", () => ({
   resolveAddressPair: (...args) => resolverMocks.mockResolvePair(...args),
 }));
 
-// Stub supabase chain — accessCache calls
-//   supabase.from("allowlist_entries").select(...).eq(...).limit(1).maybeSingle()
-// We only assert behaviour on the final .maybeSingle() return value;
-// the intermediate chain just returns itself.
-vi.mock("../../shared/supabaseClient.js", () => {
-  const chain = {
-    select: () => chain,
-    eq: () => chain,
-    limit: () => chain,
-    maybeSingle: (...args) => supabaseMocks.mockMaybeSingle(...args),
-  };
-  return {
-    hasSupabase: true,
-    supabase: { from: () => chain },
-  };
-});
-
 import {
   getCachedUserAccess,
   invalidateUserAccessCache,
   buildAccessCacheKey,
   ACCESS_CACHE_TTL_SECONDS,
 } from "../../shared/accessCache.js";
+
+const WALLET_LC = "0x1111111111111111111111111111111111111111";
+const WALLET_KEY = `access:wallet:${WALLET_LC}`;
 
 const SAMPLE_ENTRY = {
   level: 4,
@@ -153,8 +133,7 @@ beforeEach(() => {
   redisMocks.mockSet.mockReset();
   redisMocks.mockDel.mockReset();
   redisMocks.mockGetClient.mockReset();
-  supabaseMocks.mockMaybeSingle.mockReset();
-  supabaseMocks.mockMaybeSingle.mockResolvedValue({ data: null, error: null });
+  resolverMocks.mockResolvePair.mockReset();
 
   redisMocks.mockGetClient.mockReturnValue({
     get: (...args) => redisMocks.mockGet(...args),
@@ -164,26 +143,16 @@ beforeEach(() => {
 });
 
 describe("buildAccessCacheKey", () => {
-  it("returns null when neither identifier is present", () => {
+  it("returns null when no wallet is present", () => {
     expect(buildAccessCacheKey({})).toBeNull();
-    expect(buildAccessCacheKey({ fid: undefined, wallet: undefined })).toBeNull();
-    expect(buildAccessCacheKey({ fid: "", wallet: "" })).toBeNull();
+    expect(buildAccessCacheKey({ wallet: undefined })).toBeNull();
+    expect(buildAccessCacheKey({ wallet: "" })).toBeNull();
   });
 
-  it("prefers fid over wallet (stable across wallet rotations)", () => {
-    expect(
-      buildAccessCacheKey({ fid: 12345, wallet: "0xABCDEF" }),
-    ).toBe("access:fid:12345");
-  });
-
-  it("falls back to wallet when fid is absent, lowercases the address", () => {
+  it("keys by wallet, lowercasing the address", () => {
     expect(
       buildAccessCacheKey({ wallet: "0xABCDEF1234567890ABCDEF1234567890ABCDEF12" }),
     ).toBe("access:wallet:0xabcdef1234567890abcdef1234567890abcdef12");
-  });
-
-  it("treats numeric 0 fid as present (uncommon but legal)", () => {
-    expect(buildAccessCacheKey({ fid: 0 })).toBe("access:fid:0");
   });
 });
 
@@ -192,11 +161,11 @@ describe("getCachedUserAccess", () => {
     redisMocks.mockGet.mockResolvedValueOnce(JSON.stringify(SAMPLE_ENTRY));
     const logger = makeLogger();
 
-    const result = await getCachedUserAccess({ fid: 1 }, logger);
+    const result = await getCachedUserAccess({ wallet: WALLET_LC }, logger);
 
     expect(result).toEqual(SAMPLE_ENTRY);
     expect(accessMocks.mockGetUserAccess).not.toHaveBeenCalled();
-    expect(redisMocks.mockGet).toHaveBeenCalledWith("access:fid:1");
+    expect(redisMocks.mockGet).toHaveBeenCalledWith(WALLET_KEY);
   });
 
   it("on miss, calls through to DB and writes through with the configured TTL", async () => {
@@ -205,12 +174,12 @@ describe("getCachedUserAccess", () => {
     redisMocks.mockSet.mockResolvedValueOnce("OK");
     const logger = makeLogger();
 
-    const result = await getCachedUserAccess({ fid: 1 }, logger);
+    const result = await getCachedUserAccess({ wallet: WALLET_LC }, logger);
 
     expect(result).toEqual(SAMPLE_ENTRY);
     expect(accessMocks.mockGetUserAccess).toHaveBeenCalledOnce();
     expect(redisMocks.mockSet).toHaveBeenCalledWith(
-      "access:fid:1",
+      WALLET_KEY,
       JSON.stringify(SAMPLE_ENTRY),
       "EX",
       ACCESS_CACHE_TTL_SECONDS,
@@ -228,7 +197,7 @@ describe("getCachedUserAccess", () => {
     accessMocks.mockGetUserAccess.mockResolvedValueOnce(SAMPLE_ENTRY);
     const logger = makeLogger();
 
-    const result = await getCachedUserAccess({ fid: 1 }, logger);
+    const result = await getCachedUserAccess({ wallet: WALLET_LC }, logger);
 
     expect(result).toEqual(SAMPLE_ENTRY);
     expect(accessMocks.mockGetUserAccess).toHaveBeenCalledOnce();
@@ -240,7 +209,7 @@ describe("getCachedUserAccess", () => {
     accessMocks.mockGetUserAccess.mockResolvedValueOnce(SAMPLE_ENTRY);
     const logger = makeLogger();
 
-    const result = await getCachedUserAccess({ fid: 1 }, logger);
+    const result = await getCachedUserAccess({ wallet: WALLET_LC }, logger);
 
     expect(result).toEqual(SAMPLE_ENTRY);
     expect(accessMocks.mockGetUserAccess).toHaveBeenCalledOnce();
@@ -253,7 +222,7 @@ describe("getCachedUserAccess", () => {
     redisMocks.mockSet.mockRejectedValueOnce(new Error("write failed"));
     const logger = makeLogger();
 
-    const result = await getCachedUserAccess({ fid: 1 }, logger);
+    const result = await getCachedUserAccess({ wallet: WALLET_LC }, logger);
 
     expect(result).toEqual(SAMPLE_ENTRY);
     expect(logger.warn).toHaveBeenCalled();
@@ -265,14 +234,14 @@ describe("getCachedUserAccess", () => {
     redisMocks.mockSet.mockResolvedValueOnce("OK");
     const logger = makeLogger();
 
-    const result = await getCachedUserAccess({ fid: 1 }, logger);
+    const result = await getCachedUserAccess({ wallet: WALLET_LC }, logger);
 
     expect(result).toEqual(SAMPLE_ENTRY);
     expect(accessMocks.mockGetUserAccess).toHaveBeenCalledOnce();
     expect(logger.warn).toHaveBeenCalled();
   });
 
-  it("skips the cache when neither identifier present (calls through directly)", async () => {
+  it("skips the cache when no wallet is present (calls through directly)", async () => {
     accessMocks.mockGetUserAccess.mockResolvedValueOnce(SAMPLE_ENTRY);
 
     const result = await getCachedUserAccess({});
@@ -281,23 +250,9 @@ describe("getCachedUserAccess", () => {
     expect(redisMocks.mockGet).not.toHaveBeenCalled();
     expect(redisMocks.mockSet).not.toHaveBeenCalled();
   });
-
-  it("uses the fid key when both fid and wallet are provided", async () => {
-    redisMocks.mockGet.mockResolvedValueOnce(JSON.stringify(SAMPLE_ENTRY));
-
-    await getCachedUserAccess({ fid: 99, wallet: "0xCAFE" });
-
-    expect(redisMocks.mockGet).toHaveBeenCalledWith("access:fid:99");
-  });
 });
 
 describe("invalidateUserAccessCache", () => {
-  it("issues DEL on the fid key", async () => {
-    redisMocks.mockDel.mockResolvedValueOnce(1);
-    await invalidateUserAccessCache({ fid: 42 });
-    expect(redisMocks.mockDel).toHaveBeenCalledWith("access:fid:42");
-  });
-
   it("issues DEL on the wallet key (lowercased)", async () => {
     redisMocks.mockDel.mockResolvedValueOnce(1);
     await invalidateUserAccessCache({
@@ -308,18 +263,10 @@ describe("invalidateUserAccessCache", () => {
     );
   });
 
-  it("issues DEL on BOTH keys when both identifiers provided", async () => {
-    redisMocks.mockDel.mockResolvedValueOnce(2);
-    await invalidateUserAccessCache({ fid: 42, wallet: "0xABCDEF" });
-    expect(redisMocks.mockDel).toHaveBeenCalledWith(
-      "access:fid:42",
-      "access:wallet:0xabcdef",
-    );
-  });
-
-  it("is a no-op when no identifier present", async () => {
+  it("is a no-op when no wallet is present", async () => {
     await invalidateUserAccessCache({});
     expect(redisMocks.mockDel).not.toHaveBeenCalled();
+    expect(resolverMocks.mockResolvePair).not.toHaveBeenCalled();
   });
 
   it("does not throw when redis is unavailable", async () => {
@@ -329,7 +276,7 @@ describe("invalidateUserAccessCache", () => {
     const logger = makeLogger();
 
     await expect(
-      invalidateUserAccessCache({ fid: 1 }, logger),
+      invalidateUserAccessCache({ wallet: WALLET_LC }, logger),
     ).resolves.not.toThrow();
     expect(logger.warn).toHaveBeenCalled();
   });
@@ -339,7 +286,7 @@ describe("invalidateUserAccessCache", () => {
     const logger = makeLogger();
 
     await expect(
-      invalidateUserAccessCache({ fid: 1 }, logger),
+      invalidateUserAccessCache({ wallet: WALLET_LC }, logger),
     ).resolves.not.toThrow();
     expect(logger.warn).toHaveBeenCalled();
   });
@@ -374,128 +321,10 @@ describe("invalidateUserAccessCache symmetric busting", () => {
     expect(redisMocks.mockDel).toHaveBeenCalledWith(`access:wallet:${EOA_LC}`);
   });
 
-  it("skips pair resolution entirely when only fid is supplied and the FID has no allowlist row", async () => {
-    // Default mock already returns { data: null } — no wallet derivable.
-    await invalidateUserAccessCache({ fid: 12345 }, makeLogger());
-    expect(resolverMocks.mockResolvePair).not.toHaveBeenCalled();
-    expect(redisMocks.mockDel).toHaveBeenCalledWith("access:fid:12345");
-  });
-
   it("does not block invalidation of the queried key when pair resolution returns null", async () => {
     const EOA_LC = "0xaaaa000000000000000000000000000000000004";
     resolverMocks.mockResolvePair.mockResolvedValueOnce(null); // simulates the swallow-and-return-null contract
     await invalidateUserAccessCache({ wallet: EOA_LC }, makeLogger());
     expect(redisMocks.mockDel).toHaveBeenCalledWith(`access:wallet:${EOA_LC}`);
-  });
-});
-
-describe("invalidateUserAccessCache FID-only wallet busting (Issue #109)", () => {
-  beforeEach(() => {
-    resolverMocks.mockResolvePair.mockReset();
-  });
-
-  it("looks up wallet from allowlist_entries and busts the wallet key when only fid supplied", async () => {
-    const FID = 9001;
-    const EOA_LC = "0xaaaa000000000000000000000000000000000010";
-    supabaseMocks.mockMaybeSingle.mockResolvedValueOnce({
-      data: { wallet_address: EOA_LC },
-      error: null,
-    });
-    resolverMocks.mockResolvePair.mockResolvedValueOnce(null);
-
-    await invalidateUserAccessCache({ fid: FID }, makeLogger());
-
-    expect(redisMocks.mockDel).toHaveBeenCalledTimes(1);
-    const args = redisMocks.mockDel.mock.calls[0];
-    expect(args).toContain(`access:fid:${FID}`);
-    expect(args).toContain(`access:wallet:${EOA_LC}`);
-  });
-
-  it("also busts the SMA pair key when the derived wallet has one (the Farcaster MiniApp case)", async () => {
-    const FID = 9002;
-    const EOA_LC = "0xaaaa000000000000000000000000000000000011";
-    const SMA_LC = "0xbbbb000000000000000000000000000000000012";
-    supabaseMocks.mockMaybeSingle.mockResolvedValueOnce({
-      data: { wallet_address: EOA_LC },
-      error: null,
-    });
-    resolverMocks.mockResolvePair.mockResolvedValueOnce({
-      eoa: EOA_LC,
-      sma: SMA_LC,
-    });
-
-    await invalidateUserAccessCache({ fid: FID }, makeLogger());
-
-    expect(redisMocks.mockDel).toHaveBeenCalledTimes(1);
-    const args = redisMocks.mockDel.mock.calls[0];
-    expect(args).toContain(`access:fid:${FID}`);
-    expect(args).toContain(`access:wallet:${EOA_LC}`);
-    expect(args).toContain(`access:wallet:${SMA_LC}`);
-  });
-
-  it("lowercases the wallet returned by the lookup", async () => {
-    const FID = 9003;
-    const EOA_MIXED = "0xAaAa000000000000000000000000000000000013";
-    const EOA_LC = EOA_MIXED.toLowerCase();
-    supabaseMocks.mockMaybeSingle.mockResolvedValueOnce({
-      data: { wallet_address: EOA_MIXED },
-      error: null,
-    });
-    resolverMocks.mockResolvePair.mockResolvedValueOnce(null);
-
-    await invalidateUserAccessCache({ fid: FID }, makeLogger());
-
-    const args = redisMocks.mockDel.mock.calls[0];
-    expect(args).toContain(`access:wallet:${EOA_LC}`);
-    expect(args).not.toContain(`access:wallet:${EOA_MIXED}`);
-  });
-
-  it("falls back to fid-only busting when the FID has no allowlist row (best-effort)", async () => {
-    supabaseMocks.mockMaybeSingle.mockResolvedValueOnce({
-      data: null,
-      error: null,
-    });
-    await invalidateUserAccessCache({ fid: 9004 }, makeLogger());
-
-    expect(resolverMocks.mockResolvePair).not.toHaveBeenCalled();
-    expect(redisMocks.mockDel).toHaveBeenCalledWith("access:fid:9004");
-  });
-
-  it("falls back to fid-only busting when the Supabase lookup errors (does not throw)", async () => {
-    supabaseMocks.mockMaybeSingle.mockResolvedValueOnce({
-      data: null,
-      error: { code: "PGRST500", message: "boom" },
-    });
-    const logger = makeLogger();
-    await expect(
-      invalidateUserAccessCache({ fid: 9005 }, logger),
-    ).resolves.not.toThrow();
-
-    expect(redisMocks.mockDel).toHaveBeenCalledWith("access:fid:9005");
-    expect(logger.warn).toHaveBeenCalled();
-  });
-
-  it("prefers caller-supplied wallet over the FID lookup when both are present", async () => {
-    const FID = 9006;
-    const SUPPLIED_LC = "0xcccc000000000000000000000000000000000020";
-    const DB_WALLET = "0xdddd000000000000000000000000000000000021";
-    // The lookup would return DB_WALLET — but the caller-supplied
-    // wallet must win because that's the address they just mutated.
-    supabaseMocks.mockMaybeSingle.mockResolvedValueOnce({
-      data: { wallet_address: DB_WALLET },
-      error: null,
-    });
-    resolverMocks.mockResolvePair.mockResolvedValueOnce(null);
-
-    await invalidateUserAccessCache(
-      { fid: FID, wallet: SUPPLIED_LC },
-      makeLogger(),
-    );
-
-    const args = redisMocks.mockDel.mock.calls[0];
-    expect(args).toContain(`access:wallet:${SUPPLIED_LC}`);
-    expect(args).not.toContain(`access:wallet:${DB_WALLET}`);
-    // And we shouldn't have hit the DB at all when wallet was supplied.
-    expect(supabaseMocks.mockMaybeSingle).not.toHaveBeenCalled();
   });
 });

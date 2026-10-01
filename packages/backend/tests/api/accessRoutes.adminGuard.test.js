@@ -20,7 +20,7 @@ vi.mock("../../shared/accessService.js", () => ({
   })),
   checkRouteAccess: vi.fn(async () => ({ hasAccess: true })),
   getRouteConfig: vi.fn(async () => null),
-  setUserAccessLevel: vi.fn(async () => ({ success: true, entry: { fid: 1 } })),
+  setUserAccessLevel: vi.fn(async () => ({ success: true, entry: { id: 1 } })),
   getDefaultAccessLevel: vi.fn(async () => 2),
   setDefaultAccessLevel: vi.fn(async () => ({ success: true })),
   ACCESS_LEVELS: {
@@ -82,13 +82,10 @@ describe("accessRoutes admin guard", () => {
       level: 2,
       levelName: "allowlist",
       groups: [],
-      entry: { fid: 1 },
+      entry: { id: 1 },
     });
 
-    currentUser = {
-      fid: 1,
-      wallet_address: "0x1111111111111111111111111111111111111111",
-    };
+    currentUser = { wallet_address: "0x1111111111111111111111111111111111111111" };
 
     const res = await app.inject({
       method: "POST",
@@ -105,13 +102,10 @@ describe("accessRoutes admin guard", () => {
       level: 4,
       levelName: "admin",
       groups: [],
-      entry: { fid: 1 },
+      entry: { id: 1 },
     });
 
-    currentUser = {
-      fid: 1,
-      wallet_address: "0x1111111111111111111111111111111111111111",
-    };
+    currentUser = { wallet_address: "0x1111111111111111111111111111111111111111" };
 
     const res = await app.inject({
       method: "POST",

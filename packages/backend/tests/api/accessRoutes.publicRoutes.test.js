@@ -63,7 +63,7 @@ afterAll(async () => {
 });
 
 describe("accessRoutes public routes", () => {
-  it("GET /check-access allows anonymous checks (no fid/wallet)", async () => {
+  it("GET /check-access allows anonymous checks (no wallet)", async () => {
     const res = await app.inject({
       method: "GET",
       url: "/check-access?route=%2Fraffles",
