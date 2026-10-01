@@ -25,7 +25,9 @@ vi.mock("../../shared/supabaseClient.js", () => ({
   supabase: { from: (table) => query(table) },
 }));
 
-const { listPoolIndex, insertLaunchTrades } = await import("../../shared/services/tokenLaunchesDb.js");
+const { listPoolIndex, insertLaunchTrades, listTokenLaunches, countTokenLaunches } = await import(
+  "../../shared/services/tokenLaunchesDb.js"
+);
 
 beforeEach(() => {
   queries.length = 0;
@@ -96,5 +98,30 @@ describe("insertLaunchTrades", () => {
   it("returns nothing for nothing", async () => {
     expect(await insertLaunchTrades([])).toEqual([]);
     expect(queries).toHaveLength(0);
+  });
+});
+
+// The profile's creator-fees list reads one creator's launches; the rows store
+// creator_address lowercased, and hidden tokens must stay out like everywhere.
+describe("creator filter", () => {
+  const CREATOR = "0xAbCdEf0000000000000000000000000000000001";
+
+  it("lists one creator's visible launches, matching case-insensitively", async () => {
+    await listTokenLaunches({ creator: CREATOR, limit: 100 });
+    expect(queries[0]).toContainEqual(["eq", "creator_address", CREATOR.toLowerCase()]);
+    expect(queries[0]).toContainEqual(["eq", "is_hidden", false]);
+    expect(queries[0]).toContainEqual(["range", 0, 99]);
+  });
+
+  it("counts with the same filters", async () => {
+    result = { count: 3, error: null };
+    expect(await countTokenLaunches({ creator: CREATOR })).toBe(3);
+    expect(queries[0]).toContainEqual(["eq", "creator_address", CREATOR.toLowerCase()]);
+    expect(queries[0]).toContainEqual(["eq", "is_hidden", false]);
+  });
+
+  it("does not filter by creator when none is given", async () => {
+    await listTokenLaunches({});
+    expect(queries[0].some(([m, col]) => m === "eq" && col === "creator_address")).toBe(false);
   });
 });

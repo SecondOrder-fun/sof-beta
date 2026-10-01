@@ -1,10 +1,11 @@
 // src/routes/TokenDetail.jsx
 //
 // One launched token, per the approved launchpad design: identity and raffle
-// badge, the FDV price chart, supply sold, trades, the buy panel and the raffle
-// card. Desktop puts the panel and raffle card in a sticky side column; mobile
-// opens the same panel in the existing Sheet from a bar above the bottom nav,
-// and the raffle card stays in the page.
+// badge, the FDV price chart, supply sold, trades, the buy panel, the creator
+// fees card (only for the launch's fee recipient) and the raffle card. Desktop
+// puts the panel and both cards in a sticky side column; mobile opens the same
+// panel in the existing Sheet from a bar above the bottom nav, and the cards
+// stay in the page.
 
 import { useState } from "react";
 import PropTypes from "prop-types";
@@ -25,6 +26,7 @@ import LaunchTrades from "@/components/launchpad/LaunchTrades";
 import PriceChart from "@/components/launchpad/PriceChart";
 import RaffleBadge from "@/components/launchpad/RaffleBadge";
 import RaffleCard from "@/components/launchpad/RaffleCard";
+import CreatorFeesCard from "@/components/launchpad/CreatorFeesCard";
 import { usePlatform } from "@/hooks/usePlatform";
 import { useTokenLaunch } from "@/hooks/useTokenLaunches";
 import { useLaunchMarkets } from "@/hooks/useLaunchMarkets";
@@ -162,6 +164,7 @@ const TokenDetail = () => {
 
         <aside className="space-y-4 lg:sticky lg:top-4">
           {compact ? null : panel}
+          <CreatorFeesCard token={launch.token} name={launch.name} symbol={launch.symbol} market={market} />
           <RaffleCard token={launch.token} symbol={launch.symbol} market={market} />
           <Card>
             <CardHeader className="pb-2">

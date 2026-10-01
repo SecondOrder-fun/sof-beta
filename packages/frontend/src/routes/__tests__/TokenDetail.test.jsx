@@ -18,6 +18,10 @@ vi.mock("@/components/launchpad/BuyPanel", () => ({ default: () => <div>buy-pane
 vi.mock("@/components/launchpad/LaunchTrades", () => ({ default: () => <div>trades</div> }));
 vi.mock("@/components/launchpad/PriceChart", () => ({ default: () => <div>price-chart</div> }));
 vi.mock("@/components/launchpad/RaffleCard", () => ({ default: () => <div>raffle-card</div> }));
+// The card decides for itself whether to show (only for the fee recipient).
+vi.mock("@/components/launchpad/CreatorFeesCard", () => ({
+  default: ({ token, symbol }) => <div>{`creator-fees:${token}:${symbol}`}</div>,
+}));
 vi.mock("react-i18next", async (importOriginal) => ({
   ...(await importOriginal()),
   useTranslation: () => ({ t: (key) => key }),
@@ -65,6 +69,11 @@ describe("TokenDetail", () => {
     expect(screen.getByText("raffle-card")).toBeInTheDocument();
     expect(screen.getByText("detail.soldLabel")).toBeInTheDocument();
     expect(screen.getByText("trades")).toBeInTheDocument();
+  });
+
+  it("hands the creator fees card this launch, beside the buy panel", () => {
+    setup();
+    expect(screen.getByText(`creator-fees:${TOKEN}:POND`)).toBeInTheDocument();
   });
 
   it("puts the buy panel in the side column on desktop", () => {

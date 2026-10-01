@@ -36,7 +36,12 @@ All pollers share one chain-head source: `startListeners` registers and starts a
 ### Launchpad Indexer
 
 `tokenLaunchedListener` indexes `TokenLaunchpad.TokenLaunched` into `token_launches`
-(migration 023), served at `/api/launchpad/tokens`. Two things are specific to it:
+(migration 023), served at `/api/launchpad/tokens`. `?creator=0x…` (any case — lowercased
+at the route, 400 if malformed or repeated; hidden tokens excluded, total filtered alike)
+lists one creator's launches: the frontend's creator-fees list on the profile. It matches
+the launch's creator, not its current fee recipient — the placer's `FeeRecipientUpdated` is
+not indexed, so a launch whose fees were handed to an account does not list under it.
+Two things are specific to the listener:
 
 - It is the **only** source for a token's name, symbol and metadata URI. The launchpad
   emits them but does not store them (a setter would let a creator swap the name after

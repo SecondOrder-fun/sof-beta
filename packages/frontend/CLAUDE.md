@@ -50,8 +50,9 @@ What only indexed history can answer comes from the backend as warm reads with n
 on-chain fallback — the trade feed (`LaunchTrades`, a `useWarmRead` of its own) and,
 through `src/hooks/useLaunchActivity.js`, the price chart (`/tokens/:address/chart`), the raffle card
 (`/tokens/:address/seasons`), the raffle badges on a page of cards (one
-`/raffles?tokens=` request), and the site-wide activity ticker (`/api/activity`).
-Each renders nothing (ticker, badge) or an honest empty state (chart, card) when
+`/raffles?tokens=` request), the site-wide activity ticker (`/api/activity`), and
+the profile's creator-fees list (`/tokens?creator=`, see Creator fees).
+Each renders nothing (ticker, badge, creator fees) or an honest empty state (chart, card) when
 the backend has no data. A failed read is not "no data": the raffle card says it
 is unavailable rather than offering to open a season, and a failed refetch keeps
 the last data on screen. The season summary is written only at start, status
@@ -104,7 +105,8 @@ more than the whole supply.
 **The launchpad UI is composed only from existing primitives** (see the UI Gym):
 Tabs for buy/sell, sort and chart range, Card, Avatar for token art, Badge,
 Progress for supply sold, ButtonGroup, Input, ContentBox, Table, Sheet,
-SlippageSettings, MiniCurveChart for a raffle's ticket ladder, CountdownTimer. New
+SlippageSettings, MiniCurveChart for a raffle's ticket ladder, CountdownTimer, and
+Dialog and Separator for creator fees. New
 visual elements are confirmed with the product owner and designed on the canvas
 first — the raffle Badge variants, the price chart and the ticker were.
 
@@ -116,6 +118,44 @@ reads `TokenLaunchpad.router()` and `lib/launchTrade.js` encodes against the
 trading off (the panel keeps quoting and says trading is off). Minimum-out is the
 quote less the slippage setting; `UniV4LaunchRouter.t.sol` pins the router to the
 same amounts the quote math is pinned to, so the quote shown is the trade made.
+
+## Creator fees
+
+A launch's LP position belongs to its placer (`TokenLaunchpad.placerOf`), which
+credits 88% of the pool's 1% fee to the launch's fee recipient — ETH from buys,
+the launch token from sells. Two surfaces, from Card, Table, the outline Badge,
+Button, Separator, Dialog and Input: `CreatorFeesCard` on the token page (only for
+the current recipient) and `CreatorFeesSection` on the own profile (desktop
+`ProfileContent`, mobile Creator tab). Reads are `hooks/useCreatorFees.js` (three
+multicalls, one of them `collectFees` **simulated** for what is still in the pool);
+call-building and the earned/summary math are pure in `lib/creatorFees.js`.
+
+- **Earned = credited + the recipient's floored share of a simulated collect.** A
+  claim batch collects first (`collectFees` is permissionless), and a `claimEth` /
+  `claimToken` is only added when the amount it will find is non-zero — they revert
+  `NothingToClaim` on zero, which would fail the whole batch. Uncollected fees
+  count only for the current recipient: they are credited to whoever is recipient
+  at collection, which is also why Transfer collects before `setFeeRecipient`.
+- **ETH is pooled per account per placer** (`claimEth` takes all of it), so the
+  token page's ETH includes other launches' collected ETH (it says so) and the
+  profile shows collected ETH only in the total; its table's ETH column is each
+  pool's uncollected share. Calls are grouped per placer, batches per sender.
+- **The claimant is `msg.sender`, so the batch must come from the credited
+  account.** `executeBatch` sends from the smart account on every tier (desktop
+  EOAs via Path A; Coinbase Smart Wallet and Farcaster, where `eoa === sma`), and
+  in-app launches therefore credit the SMA. Fees credited to a desktop wallet's
+  EOA (a launch made outside the app, or a transfer to the EOA) are claimed with
+  `executeBatch(calls, { bypassSponsorship: true })` — sent by the EOA itself, gas
+  paid, one confirmation per call; the card's caption says so (`claimSender`).
+  "No gas to pay" is shown only where SOFPaymaster is known to pay
+  (`isSponsoredClaim`: a desktop wallet's smart account, the launchpad's current
+  placer); Coinbase / Farcaster batches use other, optional paymasters.
+- **The profile lists launches by creator** (`useCreatorLaunches`,
+  `/api/launchpad/tokens?creator=`, both accounts). A launch whose fees another
+  creator handed to this account does not appear there (no recipient index);
+  its token page's card still shows. A listed launch whose fees were handed on
+  stays while tokens credited before the transfer remain. The section renders
+  nothing with no launches or on a failed read.
 
 ## Season quote token ("Priced in")
 

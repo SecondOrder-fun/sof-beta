@@ -23,6 +23,7 @@ import { useUsername } from "@/hooks/useUsername";
 import { useUsernameContext } from "@/context/UsernameContext";
 import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import RolloverPortfolioCard from "@/components/user/RolloverPortfolioCard";
+import CreatorFeesSection from "@/components/launchpad/CreatorFeesSection";
 
 /**
  * ProfileContent - Shared profile layout used by AccountPage (desktop) and UserProfile.
@@ -129,6 +130,14 @@ const ProfileContent = ({ address, isOwnProfile }) => {
           </div>
         ) : null;
       })()}
+
+      {/* Creator fees from the user's launches (own profile only; renders
+          nothing for an account with no launches) */}
+      {isOwnProfile && (
+        <div className="mb-4">
+          <CreatorFeesSection />
+        </div>
+      )}
 
       {/* Holdings card — 3-tab layout */}
       <div className="mb-4">
