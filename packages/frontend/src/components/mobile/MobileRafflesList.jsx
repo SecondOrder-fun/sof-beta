@@ -209,7 +209,10 @@ export const MobileRafflesList = ({
 
         {/* Status tabs — uses the existing shadcn primitive (already pill-styled
             with sliding indicator). Full-width with equal-share triggers so the
-            row fits any viewport down to ~320px without overflow. */}
+            row fits any viewport down to ~320px without overflow. Labels are
+            11px (10px under 375px wide) with tight side padding, so the longest
+            ("Upcoming", "Complete") stay whole next to their count pills down to
+            360px; below that "Upcoming" truncates rather than wrapping. */}
         <Tabs value={activeTab} onValueChange={onTabChange}>
           <TabsList className="mb-3 flex w-full">
             {TAB_KEYS.map((g) => {
@@ -218,7 +221,7 @@ export const MobileRafflesList = ({
                 <TabsTrigger
                   key={g}
                   value={g}
-                  className="flex-1 min-w-0 flex items-center justify-center gap-1 text-xs px-2 py-1.5"
+                  className="flex-1 min-w-0 flex items-center justify-center gap-0.5 min-[375px]:gap-1 text-[10px] min-[375px]:text-[11px] tracking-tight px-1 min-[375px]:px-1.5 py-1.5"
                 >
                   <span className="truncate">{t(`tabs.${g}`)}</span>
                   <span
