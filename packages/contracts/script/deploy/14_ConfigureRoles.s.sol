@@ -11,6 +11,7 @@ import {InfoFiFPMMV2} from "../../src/infofi/InfoFiFPMMV2.sol";
 import {InfoFiPriceOracle} from "../../src/infofi/InfoFiPriceOracle.sol";
 import {RafflePrizeDistributor} from "../../src/core/RafflePrizeDistributor.sol";
 import {RolloverEscrow} from "../../src/core/RolloverEscrow.sol";
+import {InfoFiMarketFactory} from "../../src/infofi/InfoFiMarketFactory.sol";
 import {SOFSmartAccountFactory} from "../../src/account/SOFSmartAccountFactory.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -117,6 +118,23 @@ contract ConfigureRoles is Script {
             console2.log("IMPORTANT: Treasury must approve InfoFiFactory for SOF spending");
             console2.log("  Run: sof.approve(", vm.toString(addrs.infoFiFactory), ", type(uint256).max)");
             console2.log("  From the treasury wallet:", vm.toString(treasury));
+        }
+
+        // 9a. infoFiFactory.setPaymasterAccount(backend wallet)
+        // The backend wallet (BACKEND_WALLET_ADDRESS, the account the backend's
+        // market-creation service sends from) calls onPositionUpdate, which is
+        // gated on PAYMASTER_ROLE. Without this grant every position update the
+        // backend relays reverts.
+        address backendWallet = vm.envOr("BACKEND_WALLET_ADDRESS", address(0));
+        if (backendWallet != address(0)) {
+            try InfoFiMarketFactory(addrs.infoFiFactory).setPaymasterAccount(backendWallet) {
+                console2.log("Granted PAYMASTER_ROLE on InfoFiFactory to backend wallet", backendWallet);
+            } catch {
+                console2.log("PAYMASTER_ROLE on InfoFiFactory for backend wallet already set or failed");
+            }
+        } else {
+            console2.log("IMPORTANT: BACKEND_WALLET_ADDRESS not set; InfoFiFactory PAYMASTER_ROLE not granted");
+            console2.log("  Run: infoFiFactory.setPaymasterAccount(<backend wallet>) on", vm.toString(addrs.infoFiFactory));
         }
 
         // 9b. Mirror deployer's admin roles onto its predicted SMA so that
