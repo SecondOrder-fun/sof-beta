@@ -15,10 +15,6 @@ export class AuthService {
       role: user.role || "user",
     };
 
-    if (user.fid) {
-      payload.fid = user.fid;
-    }
-
     if (user.username) {
       payload.username = user.username;
     }
@@ -59,49 +55,6 @@ export class AuthService {
 
     return result.user;
   }
-
-  static async authenticateFarcaster(message, signature, nonce) {
-    const { createAppClient, viemConnector } = await import("@farcaster/auth-client");
-
-    const appClient = createAppClient({ ethereum: viemConnector() });
-
-    // Extract domain from the SIWE message (first line: "{domain} wants you to sign in...")
-    const messageDomain = message.split(" ")[0];
-    if (!messageDomain) {
-      throw new Error("Could not extract domain from SIWF message");
-    }
-
-    // Validate domain against allowlist
-    const allowedDomains = (process.env.SIWF_ALLOWED_DOMAINS || process.env.SIWF_DOMAIN || "secondorder.fun")
-      .split(",")
-      .map((d) => d.trim());
-
-    const isDomainAllowed = allowedDomains.some((allowed) => {
-      if (allowed.startsWith("*.")) {
-        // Wildcard: *.vercel.app matches any-subdomain.vercel.app
-        return messageDomain.endsWith(allowed.slice(1));
-      }
-      return messageDomain === allowed;
-    });
-
-    if (!isDomainAllowed) {
-      throw new Error(`SIWF domain not allowed: ${messageDomain}`);
-    }
-
-    const result = await appClient.verifySignInMessage({
-      message,
-      signature,
-      domain: messageDomain,
-      nonce,
-    });
-
-    if (!result.success) {
-      throw new Error("SIWF signature verification failed");
-    }
-
-    return { fid: result.fid };
-  }
-
 }
 
 // Fastify authentication decorator

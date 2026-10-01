@@ -97,10 +97,11 @@ export async function ensureAdminFlag(walletAddress, logger) {
   const currentlyAdmin = await getIsAdminFromDb(wallet);
 
   if (seeded && !currentlyAdmin) {
-    // Flip false → true. Use update on existing row; if no row exists yet
-    // the SIWE flow's allowlist upsert will land first for SIWF, and for
-    // pure wallet auth we leave it for whichever code path materializes
-    // the row (we don't want to insert a dangling allowlist entry here).
+    // Flip false → true. Update the existing row only; if no row exists yet
+    // we leave it for whichever code path materializes the row (we don't
+    // want to insert a dangling allowlist entry here). The returned value
+    // still reflects the ADMIN_EOAS seed, so the admin gets the flag in
+    // their JWT either way.
     const { error } = await supabase
       .from("allowlist_entries")
       .update({ is_admin: true })

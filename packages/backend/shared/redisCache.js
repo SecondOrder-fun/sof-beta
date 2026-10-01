@@ -4,7 +4,7 @@
 // the /api/infofi/markets endpoint handler, DatabaseService's
 // season_contracts reads, infoFiPositionService (getNetPosition +
 // getMarketInfo), raffleTransactionService.getSeasonTransactions, and
-// accessCache.js (which layers its own FID-vs-wallet-vs-SMA-pair key
+// accessCache.js (which layers its own wallet-vs-SMA-pair key
 // logic on top of this generic core).
 //
 // The pattern is: try Redis → fall through to the loader on miss/error,

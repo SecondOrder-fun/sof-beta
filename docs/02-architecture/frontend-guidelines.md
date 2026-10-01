@@ -26,7 +26,6 @@ This document outlines the development standards, patterns, and best practices f
 
 - **Wagmi + Viem** for Ethereum interactions
 - **RainbowKit** for wallet connections
-- **Farcaster Auth Kit** for social authentication
 - **React Query** for blockchain data caching
 
 ## File Structure & Organization

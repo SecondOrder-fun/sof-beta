@@ -164,30 +164,7 @@ describe("ensureSmartAccount", () => {
     });
   });
 
-  describe("smart-wallet walletType (Issue #117 — Farcaster airdrop fix)", () => {
-    it("skips factory call and uses eoa as sma when walletType=farcaster-miniapp", async () => {
-      const db = makeFakeDb({ existing: null });
-      const chain = makeFakeChain(SMA);
-      const airdrop = makeFakeAirdrop();
-
-      const result = await ensureSmartAccount({
-        eoa: EOA,
-        db,
-        chain,
-        airdrop,
-        network: "local",
-        walletType: "farcaster-miniapp",
-      });
-
-      expect(chain.readContract).not.toHaveBeenCalled();
-      expect(db.upsertSmartAccount).toHaveBeenCalledWith({
-        eoa: EOA_LC,
-        sma: EOA_LC, // sma === eoa for smart-wallet types
-      });
-      expect(airdrop.transferToSma).toHaveBeenCalledWith(EOA_LC);
-      expect(result).toEqual({ eoa: EOA_LC, sma: EOA_LC, isNew: true });
-    });
-
+  describe("smart-wallet walletType (Issue #117 — smart-wallet airdrop fix)", () => {
     it("skips factory call and uses eoa as sma when walletType=coinbase-smart", async () => {
       const db = makeFakeDb({ existing: null });
       const chain = makeFakeChain(SMA);
@@ -203,8 +180,12 @@ describe("ensureSmartAccount", () => {
       });
 
       expect(chain.readContract).not.toHaveBeenCalled();
-      expect(result.sma).toBe(EOA_LC);
+      expect(db.upsertSmartAccount).toHaveBeenCalledWith({
+        eoa: EOA_LC,
+        sma: EOA_LC, // sma === eoa for smart-wallet types
+      });
       expect(airdrop.transferToSma).toHaveBeenCalledWith(EOA_LC);
+      expect(result).toEqual({ eoa: EOA_LC, sma: EOA_LC, isNew: true });
     });
 
     it("still derives via factory when walletType=desktop-eoa", async () => {
@@ -227,7 +208,7 @@ describe("ensureSmartAccount", () => {
     });
 
     it("repoints + clears funded_at + re-airdrops when stored sma disagrees with expected (smart-wallet user pre-fix)", async () => {
-      // Pre-fix row: backend derived sma via factory but user is Farcaster.
+      // Pre-fix row: backend derived sma via factory but user is on a smart wallet.
       // The prior airdrop landed at SMA_LC, but the user trades from EOA_LC.
       const db = makeFakeDb({
         existing: {
@@ -245,7 +226,7 @@ describe("ensureSmartAccount", () => {
         chain,
         airdrop,
         network: "local",
-        walletType: "farcaster-miniapp",
+        walletType: "coinbase-smart",
       });
 
       expect(chain.readContract).not.toHaveBeenCalled();
@@ -275,7 +256,7 @@ describe("ensureSmartAccount", () => {
         chain,
         airdrop,
         network: "local",
-        walletType: "farcaster-miniapp",
+        walletType: "coinbase-smart",
       });
 
       expect(chain.readContract).not.toHaveBeenCalled();

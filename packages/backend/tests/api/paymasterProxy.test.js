@@ -18,7 +18,7 @@ vi.mock("../../shared/redisClient.js", () => ({
 }));
 
 vi.mock("../../shared/auth.js", () => ({
-  AuthService: { authenticateRequest: vi.fn().mockResolvedValue({ id: "user1", fid: 13837 }) },
+  AuthService: { authenticateRequest: vi.fn().mockResolvedValue({ id: "user1" }) },
 }));
 
 let app;
@@ -44,7 +44,7 @@ afterAll(async () => {
 beforeEach(() => {
   vi.clearAllMocks();
   // Restore default mock behaviour after clearAllMocks
-  AuthService.authenticateRequest.mockResolvedValue({ id: "user1", fid: 13837 });
+  AuthService.authenticateRequest.mockResolvedValue({ id: "user1" });
   mockRedisClient.set.mockResolvedValue("OK");
 });
 

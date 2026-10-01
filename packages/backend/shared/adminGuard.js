@@ -16,10 +16,7 @@ export function createRequireAdmin() {
     }
 
     const accessInfo = await getCachedUserAccess(
-      {
-        fid: request.user.fid,
-        wallet: request.user.wallet_address || request.user.wallet,
-      },
+      { wallet: request.user.wallet_address || request.user.wallet },
       request.log,
     );
 

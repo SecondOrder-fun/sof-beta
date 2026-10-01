@@ -143,7 +143,6 @@ async function mountRoute(key, importer, opts = {}) {
 // platform.
 
 await mountRoute("/api", () => import("./routes/healthRoutes.js"));
-await mountRoute("/api", () => import("./routes/farcasterWebhookRoutes.js"));
 await mountRoute("/api/usernames", () => import("./routes/usernameRoutes.js"));
 await mountRoute("/api/users", () => import("./routes/userRoutes.js"));
 await mountRoute("/api/infofi", () => import("./routes/infoFiRoutes.js"));

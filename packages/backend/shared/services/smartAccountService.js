@@ -5,7 +5,7 @@
  * For EOAs that need a deployed smart account, the factory's
  * deterministic getAddress(eoa) provides a counterfactual SMA. For wallet
  * types where the connected address is *already* a smart account
- * (Coinbase Smart Wallet, Farcaster MiniApp custody flow), we skip the
+ * (Coinbase Smart Wallet), we skip the
  * factory and treat the EOA itself as the SMA — matches the frontend's
  * useRaffleAccount classification so airdrops land in the wallet the
  * user actually sees.
@@ -36,7 +36,7 @@ import { getDeployment } from "@sof/contracts/deployments";
  * `useRaffleAccount`. Anything not in this set is treated as a plain
  * EOA and routed through the factory.
  */
-const SMART_WALLET_TYPES = new Set(["coinbase-smart", "farcaster-miniapp"]);
+const SMART_WALLET_TYPES = new Set(["coinbase-smart"]);
 
 export function isSmartWalletType(walletType) {
   return SMART_WALLET_TYPES.has(walletType);
@@ -65,7 +65,7 @@ export async function getSmaFromFactory(chain, factoryAddress, eoa) {
  * Resolve and persist a user's SMA, optionally kicking the airdrop relayer.
  *
  * SMA resolution depends on walletType:
- *  - "farcaster-miniapp" / "coinbase-smart": connected address is the
+ *  - "coinbase-smart": connected address is the
  *    smart account → sma === eoa, no factory call.
  *  - anything else (e.g. "desktop-eoa", undefined): sma is the
  *    counterfactual factory.getAddress(eoa).
@@ -75,7 +75,7 @@ export async function getSmaFromFactory(chain, factoryAddress, eoa) {
  *  - existing row, sma matches expected, no funded_at   -> retry airdrop
  *  - existing row, sma DIFFERS from expected           -> repoint sma,
  *      clear funded_at, re-airdrop. Self-heals rows written before
- *      walletType-aware routing existed (Farcaster/Coinbase users whose
+ *      walletType-aware routing existed (smart-wallet users whose
  *      airdrop went to a factory-derived address the frontend never
  *      reads from).
  *  - no row                                           -> derive + insert + airdrop
@@ -86,7 +86,7 @@ export async function getSmaFromFactory(chain, factoryAddress, eoa) {
  * @param {object} args.chain          - viem PublicClient
  * @param {object} args.airdrop        - { transferToSma(sma): Promise<string> }
  * @param {string} [args.network]      - 'local' | 'testnet' | 'mainnet'; falls back to env
- * @param {string} [args.walletType]   - "farcaster-miniapp" | "coinbase-smart" | "desktop-eoa" | undefined
+ * @param {string} [args.walletType]   - "coinbase-smart" | "desktop-eoa" | undefined
  * @returns {Promise<{ eoa: string, sma: string, isNew: boolean }>}
  */
 export async function ensureSmartAccount({

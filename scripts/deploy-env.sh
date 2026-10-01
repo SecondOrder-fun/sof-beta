@@ -2,7 +2,7 @@
 # deploy-env.sh — Orchestrator that syncs env vars to both Vercel and Railway.
 #
 # Usage:
-#   scripts/deploy-env.sh --network testnet [--dry-run]
+#   scripts/deploy-env.sh --network testnet [--dry-run] [--prune]
 #   npm run deploy:env -- --network testnet --dry-run
 #   npm run deploy:env:dry -- --network testnet
 
@@ -24,7 +24,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "$NETWORK" ]; then
-  echo "Usage: scripts/deploy-env.sh --network <testnet|mainnet> [--vercel-target preview,production] [--dry-run]"
+  echo "Usage: scripts/deploy-env.sh --network <testnet|mainnet> [--vercel-target preview,production] [--dry-run] [--prune]"
   echo ""
   echo "Options:"
   echo "  --network         Target network (testnet|mainnet)"
@@ -35,6 +35,11 @@ if [ -z "$NETWORK" ]; then
   echo "                    where on-chain is still testnet but the public URL"
   echo "                    needs the same vars. Vercel-only; Railway ignores."
   echo "  --dry-run         Show what would change without applying"
+  echo "  --prune           Delete Railway service variables that are not in the"
+  echo "                    env files (Railway-managed ones are kept; see the"
+  echo "                    PRUNE_KEEP_* list in sync-env-railway.sh). With"
+  echo "                    --dry-run, prints what would be deleted. Railway-only;"
+  echo "                    Vercel ignores."
   exit 1
 fi
 

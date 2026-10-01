@@ -45,43 +45,27 @@ export const ACCESS_LEVEL_NAMES = {
   4: "admin",
 };
 
+// Columns read from allowlist_entries for an access lookup.
+const ACCESS_ENTRY_COLUMNS =
+  "id, wallet_address, access_level, is_active, username, source, added_at";
+
 /**
- * Get user's access info by FID (priority) or wallet
- * @param {object} params - { fid?, wallet? }
+ * Get user's access info by wallet (direct row first, then its SMA pair)
+ * @param {object} params - { wallet? }
  * @param {object} [log=console] - logger for resolver warnings
  * @returns {Promise<{level: number, levelName: string, groups: string[], entry: object|null, matchedVia: "direct"|"sma_pair"|null, matchedAddress: string|null}>}
  */
-export async function getUserAccess({ fid, wallet }, log = console) {
+export async function getUserAccess({ wallet } = {}, log = console) {
   try {
     let entry = null;
     let matchedVia = null;
     let matchedAddress = null;
 
-    // Priority 1: FID lookup
-    if (fid) {
+    // Priority 1: Direct wallet lookup
+    if (wallet) {
       const { data, error } = await supabase
         .from("allowlist_entries")
-        .select(
-          "id, fid, wallet_address, access_level, is_active, username, display_name, source, added_at",
-        )
-        .eq("fid", fid)
-        .eq("is_active", true)
-        .single();
-      if (!error && data) {
-        entry = data;
-        matchedVia = "direct";
-      } else if (error && error.code !== "PGRST116") {
-        throw error;
-      }
-    }
-
-    // Priority 2: Direct wallet lookup
-    if (!entry && wallet) {
-      const { data, error } = await supabase
-        .from("allowlist_entries")
-        .select(
-          "id, fid, wallet_address, access_level, is_active, username, display_name, source, added_at",
-        )
+        .select(ACCESS_ENTRY_COLUMNS)
         .eq("wallet_address", wallet.toLowerCase())
         .eq("is_active", true)
         .single();
@@ -93,7 +77,7 @@ export async function getUserAccess({ fid, wallet }, log = console) {
       }
     }
 
-    // Priority 3: SMA-paired wallet lookup
+    // Priority 2: SMA-paired wallet lookup
     //
     // When the queried wallet misses but the user has a smart_accounts row,
     // try the paired address. Both directions: EOA↔SMA. If both addresses
@@ -107,9 +91,7 @@ export async function getUserAccess({ fid, wallet }, log = console) {
         if (alt && alt !== lc) {
           const { data, error } = await supabase
             .from("allowlist_entries")
-            .select(
-          "id, fid, wallet_address, access_level, is_active, username, display_name, source, added_at",
-        )
+            .select(ACCESS_ENTRY_COLUMNS)
             .eq("wallet_address", alt)
             .eq("is_active", true)
             .single();
@@ -136,10 +118,7 @@ export async function getUserAccess({ fid, wallet }, log = console) {
       };
     }
 
-    const groups = await getUserGroups({
-      fid: entry.fid,
-      wallet: entry.wallet_address,
-    });
+    const groups = await getUserGroups({ wallet: entry.wallet_address });
 
     return {
       level: entry.access_level ?? ACCESS_LEVELS.ALLOWLIST,
@@ -168,11 +147,10 @@ export async function getUserAccess({ fid, wallet }, log = console) {
 
 /**
  * Check if user can access a route/resource
- * @param {object} params - { fid?, wallet?, route, resourceType?, resourceId? }
+ * @param {object} params - { wallet?, route, resourceType?, resourceId? }
  * @returns {Promise<{hasAccess: boolean, reason: string, userLevel: number, requiredLevel: number, requiredGroups: string[], userGroups: string[], isPublicOverride: boolean, isDisabled: boolean, routeConfig: object|null}>}
  */
 export async function checkRouteAccess({
-  fid,
   wallet,
   route,
   resourceType,
@@ -180,7 +158,7 @@ export async function checkRouteAccess({
 }) {
   try {
     // Get user's access info
-    const userAccess = await getUserAccess({ fid, wallet });
+    const userAccess = await getUserAccess({ wallet });
 
     // Get route configuration
     const routeConfig = await getRouteConfig(route, resourceType, resourceId);
@@ -350,7 +328,7 @@ export async function getRouteConfig(route, resourceType, resourceId) {
 
 /**
  * Set user's access level
- * @param {object|number} identifier - { fid?, wallet? } or FID number (backward compat)
+ * @param {object} identifier - { wallet }
  * @param {number} level - New access level (0-4)
  * @returns {Promise<{success: boolean, entry?: object}>}
  */
@@ -360,25 +338,17 @@ export async function setUserAccessLevel(identifier, level) {
       throw new Error("Invalid access level. Must be 0-4.");
     }
 
-    // Backward compat: accept plain FID number
-    const { fid, wallet } =
-      typeof identifier === "object" ? identifier : { fid: identifier, wallet: undefined };
-
-    if (!fid && !wallet) {
-      throw new Error("Either fid or wallet is required");
+    const wallet = identifier?.wallet;
+    if (!wallet) {
+      throw new Error("wallet is required");
     }
 
-    let query = supabase
+    const { data, error } = await supabase
       .from("allowlist_entries")
-      .update({ access_level: level, updated_at: new Date().toISOString() });
-
-    if (fid) {
-      query = query.eq("fid", fid);
-    } else {
-      query = query.eq("wallet_address", wallet.toLowerCase());
-    }
-
-    const { data, error } = await query.select().single();
+      .update({ access_level: level, updated_at: new Date().toISOString() })
+      .eq("wallet_address", wallet.toLowerCase())
+      .select()
+      .single();
 
     if (error) throw error;
 
@@ -438,29 +408,20 @@ export async function setDefaultAccessLevel(level) {
 
 /**
  * Get user's groups
- * @param {object|number} identifier - { fid?, wallet? } or FID number (backward compat)
+ * @param {object} identifier - { wallet }
  * @returns {Promise<string[]>}
  */
 export async function getUserGroups(identifier) {
   try {
-    const { fid, wallet } =
-      typeof identifier === "object" ? identifier : { fid: identifier, wallet: undefined };
+    const wallet = identifier?.wallet;
+    if (!wallet) return [];
 
-    if (!fid && !wallet) return [];
-
-    let query = supabase
+    const { data, error } = await supabase
       .from("user_access_groups")
       .select("access_groups(slug)")
       .eq("is_active", true)
-      .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`);
-
-    if (fid) {
-      query = query.eq("fid", fid);
-    } else {
-      query = query.eq("wallet_address", wallet.toLowerCase());
-    }
-
-    const { data, error } = await query;
+      .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
+      .eq("wallet_address", wallet.toLowerCase());
 
     if (error) throw error;
 

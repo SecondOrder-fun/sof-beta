@@ -8,20 +8,13 @@ import {
   addToAllowlist,
   removeFromAllowlist,
   isWalletAllowlisted,
-  isFidAllowlisted,
   getAllowlistEntries,
   getAllowlistStats,
   updateAllowlistConfig,
-  retryPendingWalletResolutions,
 } from "../../shared/allowlistService.js";
-import {
-  resolveFidToWallet,
-  bulkResolveFidsToWallets,
-} from "../../shared/fidResolverService.js";
-import { db, hasSupabase } from "../../shared/supabaseClient.js";
 import { createRequireAdmin } from "../../shared/adminGuard.js";
 import { invalidateUserAccessCache } from "../../shared/accessCache.js";
-import { fidOrWalletSchema } from "../../shared/schemas/index.js";
+import { walletBodySchema } from "../../shared/schemas/index.js";
 
 /**
  * Register allowlist routes
@@ -54,35 +47,6 @@ export default async function allowlistRoutes(fastify) {
       });
     } catch (error) {
       fastify.log.error({ error }, "Failed to check allowlist");
-      return reply.code(500).send({ error: "Failed to check allowlist" });
-    }
-  });
-
-  /**
-   * GET /api/allowlist/check-fid
-   * Check if a FID is allowlisted
-   * Query: ?fid=12345
-   */
-  fastify.get("/check-fid", async (request, reply) => {
-    const { fid } = request.query;
-
-    if (!fid) {
-      return reply.code(400).send({ error: "fid query parameter required" });
-    }
-
-    const fidNum = Number(fid);
-    if (!Number.isFinite(fidNum) || fidNum <= 0) {
-      return reply.code(400).send({ error: "fid must be a positive number" });
-    }
-
-    try {
-      const result = await isFidAllowlisted(fidNum);
-      return reply.send({
-        isAllowlisted: result.isAllowlisted,
-        entry: result.entry || null,
-      });
-    } catch (error) {
-      fastify.log.error({ error }, "Failed to check allowlist by FID");
       return reply.code(500).send({ error: "Failed to check allowlist" });
     }
   });
@@ -124,52 +88,19 @@ export default async function allowlistRoutes(fastify) {
   /**
    * GET /api/allowlist/entries
    * Get all allowlist entries (admin)
-   * Query: ?activeOnly=true&limit=100&includeUsernames=true
+   * Query: ?activeOnly=true&limit=100
    */
   fastify.get(
     "/entries",
     { preHandler: requireAdmin },
     async (request, reply) => {
-      const {
-        activeOnly = "true",
-        limit = "100",
-        includeUsernames = "true",
-      } = request.query;
+      const { activeOnly = "true", limit = "100" } = request.query;
 
       try {
         const result = await getAllowlistEntries({
           activeOnly: activeOnly !== "false",
           limit: Math.min(Number(limit) || 100, 500),
         });
-
-        // Fetch Farcaster usernames if requested
-        if (includeUsernames !== "false" && result.entries?.length > 0) {
-          const fids = result.entries
-            .filter((e) => e.fid && e.fid > 0)
-            .map((e) => e.fid);
-
-          if (fids.length > 0) {
-            try {
-              const userInfoMap = await bulkResolveFidsToWallets(fids);
-
-              // Enrich entries with username info
-              result.entries = result.entries.map((entry) => {
-                const userInfo = userInfoMap.get(entry.fid);
-                return {
-                  ...entry,
-                  username: userInfo?.username || null,
-                  displayName: userInfo?.displayName || null,
-                  pfpUrl: userInfo?.pfpUrl || null,
-                };
-              });
-            } catch (userError) {
-              fastify.log.warn(
-                { error: userError.message },
-                "Failed to fetch Farcaster usernames",
-              );
-            }
-          }
-        }
 
         return reply.send(result);
       } catch (error) {
@@ -181,35 +112,29 @@ export default async function allowlistRoutes(fastify) {
 
   /**
    * POST /api/allowlist/add
-   * Manually add a user to the allowlist (admin)
-   * Body: { fid?: number, wallet?: string }
+   * Manually add a wallet to the allowlist (admin)
+   * Body: { wallet: string }
    */
   fastify.post(
     "/add",
     {
       preHandler: requireAdmin,
-      // Schema enforces fid (positive int) or wallet (0x + 40 hex), at
-      // least one required; rejects extras.
-      schema: { body: fidOrWalletSchema },
+      // Schema enforces wallet (0x + 40 hex) and rejects extras.
+      schema: { body: walletBodySchema },
     },
     async (request, reply) => {
-    const { fid, wallet } = request.body;
+    const { wallet } = request.body;
 
     try {
-      const identifier = fid ? Number(fid) : { wallet };
-
-      const result = await addToAllowlist(identifier, "manual", true); // bypass time gate
+      const result = await addToAllowlist({ wallet }, "manual", true); // bypass time gate
 
       if (!result.success) {
         return reply.code(400).send({ error: result.error });
       }
 
       // Bust the access cache so the new allowlist row is visible to the
-      // next admin/check request without waiting for the 60s TTL.
-      await invalidateUserAccessCache(
-        typeof identifier === "object" ? identifier : { fid: identifier },
-        fastify.log,
-      );
+      // next admin/check request without waiting for the cache TTL.
+      await invalidateUserAccessCache({ wallet }, fastify.log);
 
       return reply.send({
         success: true,
@@ -226,33 +151,28 @@ export default async function allowlistRoutes(fastify) {
 
   /**
    * POST /api/allowlist/remove
-   * Remove a user from the allowlist (admin, soft delete)
-   * Body: { fid?: number, wallet?: string }
+   * Remove a wallet from the allowlist (admin, soft delete)
+   * Body: { wallet: string }
    */
   fastify.post(
     "/remove",
     {
       preHandler: requireAdmin,
-      schema: { body: fidOrWalletSchema },
+      schema: { body: walletBodySchema },
     },
     async (request, reply) => {
-      const { fid, wallet } = request.body;
+      const { wallet } = request.body;
 
       try {
-        const identifier = fid ? Number(fid) : { wallet };
-
-        const result = await removeFromAllowlist(identifier);
+        const result = await removeFromAllowlist({ wallet });
 
         if (!result.success) {
           return reply.code(400).send({ error: result.error });
         }
 
         // Bust the access cache so the admin's revocation reflects on the
-        // next admin-guarded request instead of after the 60s TTL.
-        await invalidateUserAccessCache(
-          typeof identifier === "object" ? identifier : { fid: identifier },
-          fastify.log,
-        );
+        // next admin-guarded request instead of after the cache TTL.
+        await invalidateUserAccessCache({ wallet }, fastify.log);
 
         return reply.send({ success: true });
       } catch (error) {
@@ -290,124 +210,6 @@ export default async function allowlistRoutes(fastify) {
       } catch (error) {
         fastify.log.error({ error }, "Failed to update allowlist config");
         return reply.code(500).send({ error: "Failed to update config" });
-      }
-    },
-  );
-
-  /**
-   * POST /api/allowlist/retry-resolutions
-   * Retry wallet resolution for entries without wallets (admin)
-   */
-  fastify.post(
-    "/retry-resolutions",
-    { preHandler: requireAdmin },
-    async (_request, reply) => {
-      try {
-        const result = await retryPendingWalletResolutions();
-        return reply.send(result);
-      } catch (error) {
-        fastify.log.error({ error }, "Failed to retry wallet resolutions");
-        return reply.code(500).send({ error: "Failed to retry resolutions" });
-      }
-    },
-  );
-
-  /**
-   * POST /api/allowlist/resolve-fid
-   * Resolve a FID to wallet address (admin utility)
-   * Body: { fid: number }
-   */
-  fastify.post(
-    "/resolve-fid",
-    { preHandler: requireAdmin },
-    async (request, reply) => {
-      const { fid } = request.body || {};
-
-      if (!fid) {
-        return reply.code(400).send({ error: "fid is required" });
-      }
-
-      const fidNum = Number(fid);
-      if (!Number.isFinite(fidNum) || fidNum <= 0) {
-        return reply.code(400).send({ error: "fid must be a positive number" });
-      }
-
-      try {
-        const result = await resolveFidToWallet(fidNum);
-        return reply.send(result);
-      } catch (error) {
-        fastify.log.error({ error }, "Failed to resolve FID");
-        return reply.code(500).send({ error: "Failed to resolve FID" });
-      }
-    },
-  );
-
-  /**
-   * POST /api/allowlist/import-from-notifications
-   * Import all users from farcaster_notification_tokens to allowlist (admin)
-   * This is a one-time migration helper
-   */
-  fastify.post(
-    "/import-from-notifications",
-    { preHandler: requireAdmin },
-    async (_request, reply) => {
-      if (!hasSupabase) {
-        return reply.code(503).send({ error: "Database not configured" });
-      }
-
-      try {
-        // Get all unique FIDs from notification tokens
-        const { data: tokens, error: fetchError } = await db.client
-          .from("farcaster_notification_tokens")
-          .select("fid")
-          .order("created_at", { ascending: true });
-
-        if (fetchError) {
-          throw new Error(fetchError.message);
-        }
-
-        const uniqueFids = [...new Set(tokens.map((t) => t.fid))];
-
-        let added = 0;
-        let skipped = 0;
-        let failed = 0;
-
-        for (const fid of uniqueFids) {
-          try {
-            const result = await addToAllowlist(fid, "import", true); // bypass time gate
-            if (result.success) {
-              if (result.alreadyExists) {
-                skipped++;
-              } else {
-                added++;
-                // Bust this fid's cached access; new entries flip from
-                // PUBLIC → ALLOWLIST so the next access check should not
-                // see the stale rejection.
-                await invalidateUserAccessCache({ fid }, fastify.log);
-              }
-            } else {
-              failed++;
-            }
-          } catch {
-            failed++;
-          }
-        }
-
-        fastify.log.info(
-          { added, skipped, failed, total: uniqueFids.length },
-          "[Allowlist] Import from notifications complete",
-        );
-
-        return reply.send({
-          success: true,
-          total: uniqueFids.length,
-          added,
-          skipped,
-          failed,
-        });
-      } catch (error) {
-        fastify.log.error({ error }, "Failed to import from notifications");
-        return reply.code(500).send({ error: "Failed to import" });
       }
     },
   );

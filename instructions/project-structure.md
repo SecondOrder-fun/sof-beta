@@ -141,13 +141,12 @@ packages/contracts/
 | Table | Key Columns | Used By |
 |-------|------------|---------|
 | `players` | id, address (varchar 42, unique, lowercase) | supabaseClient.js |
-| `allowlist_entries` | fid, wallet_address, access_level (0-4), source | allowlistService.js, accessService.js |
+| `allowlist_entries` | wallet_address (NOT NULL), username, access_level (0-4), is_admin, source | allowlistService.js, accessService.js |
 | `allowlist_config` | window_start, window_end, is_active, max_entries | allowlistService.js |
 | `access_groups` | slug (unique), name, is_active | accessService.js, groupService.js |
-| `user_access_groups` | fid, group_id, granted_by, expires_at | accessService.js, groupService.js |
+| `user_access_groups` | wallet_address (NOT NULL), group_id, granted_by, expires_at | accessService.js, groupService.js |
 | `route_access_config` | route_pattern, required_level, required_groups, is_public | accessService.js, routeConfigService.js |
 | `access_settings` | key (PK), value (JSONB) | accessService.js |
-| `farcaster_notification_tokens` | fid, app_key, notification_url, notification_token | farcasterNotificationService.js |
 
 Access levels: 0=public, 1=connected, 2=allowlist, 3=beta, 4=admin.
 

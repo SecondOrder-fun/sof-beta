@@ -33,8 +33,7 @@ packages/backend/
 │       ├── gatingRoutes.js
 │       ├── routeConfigRoutes.js
 │       ├── sponsorPrizeRoutes.js
-│       ├── nftDropRoutes.js
-│       └── farcasterWebhookRoutes.js
+│       └── nftDropRoutes.js
 ├── shared/                    # Shared services (imported by routes + listeners)
 │   ├── supabaseClient.js      # Supabase singleton + query helpers
 │   ├── redisClient.js         # Redis singleton
@@ -46,8 +45,6 @@ packages/backend/
 │   ├── routeConfigService.js
 │   ├── groupService.js
 │   ├── usernameService.js
-│   ├── fidResolverService.js
-│   ├── farcasterNotificationService.js
 │   ├── sponsorPrizeService.js
 │   └── utils.js
 ├── src/
@@ -115,18 +112,18 @@ await app.register(exampleRoutes, { prefix: "/api/example" });
 Mutation routes should declare a JSON Schema for `body` (and where applicable `params` / `querystring`). Fastify validates against the schema before the handler runs and rejects malformed payloads with a structured 400. Reusable fragments live in `shared/schemas/index.js`:
 
 ```js
-import { fidOrWalletSchema } from "../../shared/schemas/index.js";
+import { walletBodySchema } from "../../shared/schemas/index.js";
 
 fastify.post(
   "/add",
   {
     preHandler: [requireAdmin],
-    schema: { body: fidOrWalletSchema },
+    schema: { body: walletBodySchema },
   },
   async (request, reply) => {
     // request.body is shape-validated; handlers can drop the
     // hand-rolled `if (!body.foo)` checks the schema covers.
-    const { fid, wallet } = request.body;
+    const { wallet } = request.body;
     ...
   },
 );
@@ -231,7 +228,6 @@ Environment files live in `packages/backend/env/`. Key variables:
 - `NETWORK` — `LOCAL`, `TESTNET`, or `MAINNET`
 - `CORS_ORIGINS` — comma-separated list (supports regex patterns wrapped in `/`)
 - `BACKEND_WALLET_PRIVATE_KEY` — for signing attestations and relay transactions
-- `NEYNAR_API_KEY` — Farcaster webhook verification
 - `PAYMASTER_RPC_URL_TESTNET` — CDP paymaster proxy target
 
 ## Testing
@@ -249,7 +245,6 @@ tests/
 - Mock Supabase client and Redis for unit tests
 - Mock viem `publicClient` for contract read tests
 - Test admin guard enforcement on protected routes
-- Test webhook signature verification
 - Use `describe`/`it` with descriptive test names
 
 ## Migrations
