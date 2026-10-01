@@ -28,6 +28,7 @@ import {DeployPoolManager} from "./20_DeployPoolManager.s.sol";
 import {DeployTokenLaunchpad} from "./21_DeployTokenLaunchpad.s.sol";
 import {DeployLiquidityPlacer} from "./22_DeployLiquidityPlacer.s.sol";
 import {DeployLaunchRouter} from "./23_DeployLaunchRouter.s.sol";
+import {GrantBackendWallet} from "./24_GrantBackendWallet.s.sol";
 import {Raffle} from "../../src/core/Raffle.sol";
 import {RafflePrizeDistributor} from "../../src/core/RafflePrizeDistributor.sol";
 import {RolloverEscrow} from "../../src/core/RolloverEscrow.sol";
@@ -43,6 +44,16 @@ contract DeployAll is Script {
         string memory deploymentPath = helperConfig.getDeploymentFilePath();
 
         DeployedAddresses memory addrs;
+
+        // The backend wallet must get PAYMASTER_ROLE on InfoFiMarketFactory (step 24),
+        // or every position update it relays reverts. Fail here, before anything is
+        // broadcast, rather than leave a deploy the backend can't use.
+        if (!networkConfig.isLocal) {
+            require(
+                vm.envOr("BACKEND_WALLET_ADDRESS", address(0)) != address(0),
+                "DeployAll: BACKEND_WALLET_ADDRESS is required (the backend wallet's address)"
+            );
+        }
 
         // --- 2. VRF: mock on local, config on testnet/mainnet ---
         if (networkConfig.isLocal) {
@@ -94,6 +105,9 @@ contract DeployAll is Script {
 
         console2.log("=== 14: ConfigureRoles ===");
         addrs = new ConfigureRoles().run(addrs);
+
+        console2.log("=== 24: GrantBackendWallet ===");
+        addrs = new GrantBackendWallet().run(addrs);
 
         console2.log("=== 15: SOFPaymaster ===");
         addrs = new DeployPaymaster().run(addrs);

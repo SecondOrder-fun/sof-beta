@@ -98,10 +98,10 @@ After pushing, sanity-check the affected endpoint with a curl probe (`/api/airdr
 
 ## Contract Deploy Checklist
 
-1. Deploy contract(s) to target network
+1. Deploy contract(s) to target network (`BACKEND_WALLET_ADDRESS` must be set: DeployAll grants that wallet `PAYMASTER_ROLE` on InfoFiMarketFactory, and refuses to start without it)
 2. Update deployment addresses in `packages/contracts/deployments/{network}.json`
 3. Export ABIs if contract interfaces changed
-4. Push env vars via `deploy:env` (dry-run first)
+4. Push env vars via `deploy:env` (dry-run first). It ends with an on-chain check that the backend wallet holds `PAYMASTER_ROLE`; if not (an older deploy, or a rotated backend wallet), run `scripts/grant-backend-wallet.sh --network <network>`
 5. Verify contract on block explorer
 
 ## PR Preview Pairing
@@ -172,6 +172,9 @@ PRIVATE_KEY="0xac09..." forge script script/deploy/DeployAll.s.sol:DeployAll \
 #   - Etherscan V1 API was deprecated; use the V2 endpoint with chainid query.
 #   - .env.testnet stores PRIVATE_KEY as bare 64-hex; forge's vm.envUint needs
 #     the 0x prefix, so the wrapper prepends it.
+#   - BACKEND_WALLET_ADDRESS must be set in .env.testnet: step 24 grants the
+#     backend wallet PAYMASTER_ROLE on InfoFiMarketFactory (onPositionUpdate is
+#     gated on it), and DeployAll refuses to start without it.
 cd packages/contracts
 set -a; source env/.env.testnet; set +a
 [[ "$PRIVATE_KEY" != 0x* ]] && export PRIVATE_KEY="0x$PRIVATE_KEY"
@@ -191,6 +194,11 @@ node scripts/extract-deployment-addresses.js --network testnet
 
 # If broadcast lands but verification flakes (or you skip --verify), resume verify only:
 #   forge script ... --broadcast --resume --private-key "$PRIVATE_KEY" --verify ...
+
+# Backend wallet role on an existing deploy, or after rotating the backend wallet
+# (idempotent; reads BACKEND_WALLET_ADDRESS from the backend env if the contracts
+# env doesn't set it). deploy-env.sh runs the read-only --check form every time.
+./scripts/grant-backend-wallet.sh --network testnet
 
 # Deploy env vars (always dry-run first)
 ./scripts/deploy-env.sh --network testnet --dry-run
