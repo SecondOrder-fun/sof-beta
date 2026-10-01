@@ -1,25 +1,33 @@
 {
   "network": "base-sepolia",
   "chainId": 84532,
-  "deployedAt": "2026-05-13T10:25:08.533Z",
+  "deployedAt": "2026-10-01T05:07:14.935Z",
   "contracts": {
-    "Raffle": "0xf65eb1e50bd3587a2e335714a778a1c12a0e73cd",
-    "SeasonFactory": "0xb492715ad4d1fd1badfc44137a79e8dba4c0054f",
+    "QuoteToken": "0xea8c2419cea4fcfeb040eeb886534041e195cb31",
+    "Raffle": "0x6b40a36a5bff19994d837e71ab0a559525b21aff",
+    "SeasonFactory": "0x5316eef2586269b67112fec3f4a4de5de63ec47d",
     "SOFBondingCurve": "0x0000000000000000000000000000000000000000",
-    "InfoFiFactory": "0x1608d85e8da0c05e83de72d0ac9eb8ffcf6a501b",
-    "InfoFiPriceOracle": "0xe68548a9a5bc1c0425196039eec96b6563cac77c",
-    "InfoFiSettlement": "0xabf3c82b722b524288934c61db0bb27702811112",
-    "InfoFiFPMM": "0xc1b794bf084ab499a045ac0c941aeb03a653e127",
-    "ConditionalTokens": "0xa520231e21e8e69b63b598da5c755417de4996e4",
-    "MarketTypeRegistry": "0x24737f7d53bc56bf4924ce9749ed432a7e26c186",
+    "InfoFiFactory": "0x418f8e3297d911f453769bed279e67769fd6b28f",
+    "InfoFiPriceOracle": "0x71279d75890594a1fb9d4e9f4ee64ab67850e743",
+    "InfoFiSettlement": "0x0fc378505cc117e841ff55a5470fa1cf51d3802f",
+    "InfoFiFPMM": "0x3856d2ba14b511f8aa77876ab406a14b49dff47a",
+    "ConditionalTokens": "0xe12c6636f0eb26e24753c38760d6e21a43749d5e",
+    "MarketTypeRegistry": "0x98a0e6cb430d03bf342f6286b1a02120b5ca3807",
     "VRFCoordinator": "0x5C210eF41CD1a72de73bF76eC39637bB0d3d7BEE",
-    "PrizeDistributor": "0x63d3d04cfc6d8f70370c4e85da5436e76a9e16e1",
-    "RaffleOracleAdapter": "0x8d82fcd451d106800cbdc302b74414f38f76e832",
+    "PrizeDistributor": "0xe01369712133ed3534a974d59ed1405110d27fc4",
+    "RaffleOracleAdapter": "0xdb9498486a7b048793c34c537a8570f0f4cbc4ae",
     "SeasonGating": "0x0000000000000000000000000000000000000000",
     "USDC": "0x0000000000000000000000000000000000000000",
-    "SOFSmartAccountFactory": "0xea28a1c9ca06051e4384c62dd20ca5f7c16bce39",
-    "Paymaster": "0x417fc2c5d4b5e40203aaec34ac24c4263c14ec50",
-    "RolloverEscrow": "0xf2bf9595e082a93befc09596fecd8edd98786822",
-    "QuoteToken": "0xa118a7021891401dfe4211cc1bde1d9af8fe2c06"
+    "SOFSmartAccountFactory": "0x846fd3d8335dc57cffe8cb6ae960cf8eb983babd",
+    "Paymaster": "0x7f44a21a03fa1c8203761d51bc3c36f738905fca",
+    "RolloverEscrow": "0x2894d0a965a55d60299806c79b7a19980147442a",
+    "PoolManager": "0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408",
+    "TokenLaunchpad": "0x24c202f41960bd5821261ef3ff9989be796e414c",
+    "LiquidityPlacer": "0x467edbfd87aecc1710a3425c0861e9a6e115db36",
+    "LaunchPoolGate": "0xdde066d8499cb46f0937e3188d7d877513d56000",
+    "LaunchRouter": "0x3d64f9e59a2fa608315307ba5d577a14637254c8"
+  },
+  "deployBlocks": {
+    "TokenLaunchpad": 47531310
   }
 }
