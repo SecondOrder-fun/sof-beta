@@ -27,6 +27,10 @@ describe("deployBlocksFrom", () => {
 
 describe("getDeployBlock", () => {
   it("is undefined where the deployment file records none", () => {
-    expect(getDeployBlock("TokenLaunchpad", "testnet")).toBeUndefined();
+    expect(getDeployBlock("TokenLaunchpad", "mainnet")).toBeUndefined();
+  });
+
+  it("returns the block the extractor recorded for a deployed launchpad", () => {
+    expect(Number.isSafeInteger(getDeployBlock("TokenLaunchpad", "testnet"))).toBe(true);
   });
 });
