@@ -59,6 +59,43 @@ contract HelperConfig is Script {
         }
     }
 
+    /// @notice The Uniswap v4 PoolManager the liquidity placer should target.
+    ///
+    /// @dev Deliberately NOT a hardcoded constant like the VRF coordinators above. The v4
+    ///      singleton's address differs per chain, the launchpad is meant to move chains
+    ///      (Base now, Robinhood Chain next — design.md §1.2), and a wrong address here
+    ///      would not fail loudly: `initialize` would just revert deep inside a launch, or
+    ///      worse, hit some unrelated contract. So it is supplied per deploy and resolved
+    ///      in this order:
+    ///
+    ///        1. `POOL_MANAGER_ADDRESS` in the environment — how a new chain is brought up.
+    ///        2. `.contracts.PoolManager` in deployments/<network>.json — the checked-in
+    ///           record, so a repeat deploy needs no env var.
+    ///
+    ///      Local (Anvil) never reaches here: 20_DeployPoolManager deploys a real
+    ///      PoolManager instead, the same way 00_DeployVRFMock handles VRF.
+    ///
+    /// @return poolManager The resolved address, or `address(0)` if neither source has one.
+    ///         Callers decide whether that is fatal; it is not fatal for a deploy that
+    ///         simply is not wiring the launchpad.
+    function getPoolManager() public view returns (address poolManager) {
+        try vm.envAddress("POOL_MANAGER_ADDRESS") returns (address fromEnv) {
+            if (fromEnv != address(0)) return fromEnv;
+        } catch {
+            // Unset — fall through to the deployments file.
+        }
+
+        try vm.readFile(getDeploymentFilePath()) returns (string memory json) {
+            try vm.parseJsonAddress(json, ".contracts.PoolManager") returns (address fromFile) {
+                return fromFile;
+            } catch {
+                return address(0);
+            }
+        } catch {
+            return address(0);
+        }
+    }
+
     function getDeploymentFilePath() public view returns (string memory) {
         if (block.chainid == 31337) return "deployments/local.json";
         if (block.chainid == 84532) return "deployments/testnet.json";

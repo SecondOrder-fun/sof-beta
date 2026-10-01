@@ -1,0 +1,166 @@
+{
+  "launchTitle": "Launch a token",
+  "launchSubtitle": "Permissionless. Costs gas only — there is no launch fee.",
+  "tokensTitle": "Tokens",
+  "tokensSubtitle": "Every token launched here, newest first.",
+  "form": {
+    "name": "Name",
+    "namePlaceholder": "Second Order",
+    "symbol": "Symbol",
+    "symbolPlaceholder": "SOF",
+    "metadataURI": "Metadata URI",
+    "metadataURIPlaceholder": "ipfs://… (optional)",
+    "metadataURIHelp": "Image, description and links. Emitted for indexers and not stored on-chain, so it cannot be changed after launch.",
+    "valuation": "Starting valuation",
+    "valuationUnit": "ETH",
+    "valuationHelp": "What the whole supply is worth at the starting price. This is the one number that shapes your launch.",
+    "submit": "Launch token",
+    "submitting": "Launching…",
+    "characterCount": "{{count}}/{{max}}"
+  },
+  "summary": {
+    "title": "What this creates",
+    "supply": "Supply",
+    "startPrice": "Starting price",
+    "startPriceUnit": "gwei per token",
+    "valuation": "Starting valuation",
+    "allocation": "Your allocation",
+    "allocationValue": "None",
+    "allocationNote": "The entire supply goes into the pool. You buy at the same price as everyone else, after the pool exists.",
+    "liquidity": "Liquidity",
+    "liquidityValue": "Single-sided, from block one",
+    "liquidityNote": "There is no bonding curve and no graduation. The pool is the market immediately."
+  },
+  "errors": {
+    "nameRequired": "A name is required",
+    "nameTooLong": "Name is too long (max {{max}} characters)",
+    "symbolRequired": "A symbol is required",
+    "symbolTooLong": "Symbol is too long (max {{max}} characters)",
+    "fdvRequired": "Enter a starting valuation",
+    "fdvTooLow": "Minimum is {{min}} ETH. Below that, a single ordinary buy consumes most of the pool.",
+    "fdvTooHigh": "Maximum is {{max}} ETH",
+    "launchFailed": "Launch failed"
+  },
+  "unavailable": {
+    "title": "No launchpad on this network",
+    "body": "The launchpad is not deployed here. Switch networks, or deploy it — see the contracts deploy steps 20-22.",
+    "notReadyTitle": "Launchpad not ready",
+    "notReadyBody": "No liquidity placer is configured, so launches would revert. This chain may not have a Uniswap v4 deployment yet."
+  },
+  "list": {
+    "empty": "No tokens launched yet.",
+    "emptyCta": "Launch the first one",
+    "count_one": "{{count}} token",
+    "count_other": "{{count}} tokens",
+    "showing": "Showing the {{count}} most recent",
+    "loadMore": "Load more",
+    "launchCta": "Launch a token"
+  },
+  "card": {
+    "valuation": "ETH FDV",
+    "multiple": "{{value}}× launch",
+    "sold": "{{value}}% of supply sold",
+    "pricing": "Pricing…"
+  },
+  "detail": {
+    "notFoundTitle": "Not a launchpad token",
+    "notFoundBody": "This address was not launched here. Only tokens from the launchpad appear on these pages.",
+    "backToTokens": "Back to tokens",
+    "fdvLabel": "Fully diluted valuation",
+    "sinceLaunch": "{{multiple}}× since launch at {{launchFdv}} ETH",
+    "pricePerToken": "{{price}} gwei per token",
+    "copyAddress": "Copy contract address",
+    "copied": "Copied",
+    "soldCount": "{{sold}} of {{total}} {{symbol}}",
+    "launchMarker": "Launch · {{fdv}} ETH FDV",
+    "selloutMarker": "Sellout · ~{{fdv}} ETH FDV",
+    "tradesTitle": "Trades",
+    "tradesEmpty": "No trades indexed yet.",
+    "time": "Time",
+    "side": "Side",
+    "eth": "ETH",
+    "fdvAtTrade": "Price",
+    "wallet": "Wallet",
+    "buy": "Buy",
+    "sell": "Sell",
+    "factsTitle": "Token facts",
+    "factSupply": "Supply",
+    "factAllocation": "Creator allocation",
+    "factAllocationValue": "None",
+    "factLiquidity": "Liquidity",
+    "factLiquidityValue": "Whole supply · single-sided",
+    "factControls": "Mint / pause / blocklist",
+    "factControlsValue": "None — ownerless token",
+    "buyCta": "Buy {{symbol}}",
+    "launchedBy": "Launched by",
+    "soldLabel": "of supply sold into the market"
+  },
+  "success": {
+    "title": "Launched",
+    "body": "Your token is live and tradeable.",
+    "viewToken": "View token",
+    "launchAnother": "Launch another"
+  },
+  "hero": {
+    "title": "Launch a token.",
+    "titleSecond": "Run a raffle on it.",
+    "body": "The whole supply goes into a Uniswap v4 pool the moment it launches — no bonding curve, no graduation, no dev allocation.",
+    "cta": "Launch a token"
+  },
+  "stats": {
+    "launched": "Tokens launched",
+    "launchFee": "Launch fee",
+    "launchFeeValue": "None · gas only"
+  },
+  "sort": {
+    "label": "Sort tokens",
+    "new": "New",
+    "climb": "Biggest climb",
+    "fdv": "Top FDV",
+    "sellout": "Near sellout"
+  },
+  "search": {
+    "label": "Search tokens",
+    "placeholder": "Search tokens, tickers, addresses",
+    "noResults": "No tokens match “{{query}}”."
+  },
+  "layout": {
+    "label": "Layout",
+    "grid": "Grid view",
+    "list": "List view"
+  },
+  "table": {
+    "token": "Token",
+    "fdv": "FDV",
+    "multiple": "Since launch",
+    "sold": "Supply sold",
+    "age": "Age"
+  },
+  "trade": {
+    "title": "Trade {{symbol}}",
+    "buy": "Buy",
+    "sell": "Sell",
+    "youPay": "You pay",
+    "youReceive": "You receive (est.)",
+    "balance": "Balance {{value}}",
+    "quickAmounts": "Quick amounts",
+    "price": "Price",
+    "priceValue": "{{price}} gwei / {{symbol}}",
+    "priceImpact": "Price impact",
+    "poolFee": "Pool fee",
+    "minReceived": "Minimum received",
+    "slippage": "Slippage settings",
+    "enterAmount": "Enter an amount",
+    "buyCta": "Buy {{symbol}}",
+    "sellCta": "Sell {{symbol}}",
+    "exceedsBuy": "This buy is larger than the supply left in the pool — you would receive the rest of it.",
+    "exceedsSell": "This sale would push the price back past launch — only part of it can fill.",
+    "connect": "Connect to trade",
+    "insufficient": "Not enough {{unit}}",
+    "pending": "Confirm in your wallet…",
+    "submitted": "Trade submitted.",
+    "failed": "Trade failed",
+    "routerOff": "In-app trading is off",
+    "routerOffBody": "The pool is live and quotes are current, but trading from this page is switched off right now."
+  }
+}

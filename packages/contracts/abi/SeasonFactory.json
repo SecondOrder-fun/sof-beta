@@ -81,6 +81,11 @@
             "internalType": "address"
           },
           {
+            "name": "quoteToken",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
             "name": "raffleToken",
             "type": "address",
             "internalType": "address"

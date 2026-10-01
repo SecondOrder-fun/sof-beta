@@ -123,6 +123,9 @@ const Header = () => {
                 {t("predictionMarkets")}
               </NavLink>
             ) : null}
+            <NavLink to="/tokens" className={navLinkClass}>
+              {t("tokens")}
+            </NavLink>
             <NavLink to="/leaderboard" className={navLinkClass}>
               {t("leaderboard")}
             </NavLink>
@@ -133,9 +136,6 @@ const Header = () => {
             )}
             <NavLink to="/portfolio" className={navLinkClass}>
               {t("portfolio")}
-            </NavLink>
-            <NavLink to="/get-sof" className={navLinkClass}>
-              {t("getSOF")}
             </NavLink>
           </nav>
         </div>

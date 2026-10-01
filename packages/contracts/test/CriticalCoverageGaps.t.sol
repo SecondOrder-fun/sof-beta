@@ -13,8 +13,8 @@ import {RafflePrizeDistributor} from "../src/core/RafflePrizeDistributor.sol";
 // ============================================================================
 
 contract RaffleTestHarness is Raffle {
-    constructor(address sof, address coord, uint64 subId, bytes32 keyHash)
-        Raffle(sof, coord, subId, keyHash) {}
+    constructor(address coord, uint64 subId, bytes32 keyHash)
+        Raffle(coord, subId, keyHash) {}
 
     function testSetVrf(uint256 seasonId, uint256 requestId) external {
         seasonStates[seasonId].status = SeasonStatus.VRFPending;
@@ -125,7 +125,8 @@ contract CriticalCoverageGapsTest is Test {
         sof.mint(player3, 10_000 ether);
 
         address mockCoordinator = address(0xCAFE);
-        raffle = new RaffleTestHarness(address(sof), mockCoordinator, 0, bytes32(0));
+        raffle = new RaffleTestHarness(mockCoordinator, 0, bytes32(0));
+        raffle.setQuoteTokenAllowed(address(sof), true);
 
         factory = new SeasonFactory(address(raffle));
         raffle.setSeasonFactory(address(factory));
@@ -150,13 +151,14 @@ contract CriticalCoverageGapsTest is Test {
         cfg.winnerCount = 2;
         cfg.grandPrizeBps = 6500;
         cfg.treasuryAddress = treasury;
+        cfg.quoteToken = address(sof);
         seasonId = raffle.createSeason(cfg, _steps(), 50, 70);
         (RaffleTypes.SeasonConfig memory out,,,,) = raffle.getSeasonDetails(seasonId);
         curve = SOFBondingCurve(out.bondingCurve);
     }
 
     // ========================================================================
-    // Test 1: SOFBondingCurve.extractSof() Tests
+    // Test 1: SOFBondingCurve.extractReserves() Tests
     // ========================================================================
 
     function test_ExtractSof_Success() public {
@@ -170,7 +172,7 @@ contract CriticalCoverageGapsTest is Test {
         curve.buyTokens(100, 200 ether);
         vm.stopPrank();
 
-        uint256 reservesBefore = curve.getSofReserves();
+        uint256 reservesBefore = curve.getReserves();
         assertGt(reservesBefore, 0, "Should have reserves after buy");
 
         // Lock trading (required before extraction)
@@ -179,9 +181,9 @@ contract CriticalCoverageGapsTest is Test {
         // Extract SOF via raffle contract (which has RAFFLE_MANAGER_ROLE)
         uint256 extractAmount = reservesBefore / 2;
         vm.prank(address(raffle));
-        curve.extractSof(treasury, extractAmount);
+        curve.extractReserves(treasury, extractAmount);
 
-        assertEq(curve.getSofReserves(), reservesBefore - extractAmount, "Reserves should decrease");
+        assertEq(curve.getReserves(), reservesBefore - extractAmount, "Reserves should decrease");
         assertEq(sof.balanceOf(treasury), extractAmount, "Treasury should receive SOF");
     }
 
@@ -199,7 +201,7 @@ contract CriticalCoverageGapsTest is Test {
         // Try to extract without locking trading - should revert
         vm.prank(address(raffle));
         vm.expectRevert(abi.encodeWithSignature("TradingNotLocked()"));
-        curve.extractSof(treasury, 1 ether);
+        curve.extractReserves(treasury, 1 ether);
     }
 
     function test_ExtractSof_RevertsWithInsufficientReserves() public {
@@ -213,7 +215,7 @@ contract CriticalCoverageGapsTest is Test {
         curve.buyTokens(10, 20 ether);
         vm.stopPrank();
 
-        uint256 reserves = curve.getSofReserves();
+        uint256 reserves = curve.getReserves();
         raffle.testLockTrading(seasonId);
 
         // Try to extract more than reserves
@@ -223,7 +225,7 @@ contract CriticalCoverageGapsTest is Test {
             reserves + 1,
             reserves
         ));
-        curve.extractSof(treasury, reserves + 1);
+        curve.extractReserves(treasury, reserves + 1);
     }
 
     function test_ExtractSof_RevertsWithZeroAddress() public {
@@ -240,7 +242,7 @@ contract CriticalCoverageGapsTest is Test {
 
         vm.prank(address(raffle));
         vm.expectRevert(abi.encodeWithSignature("InvalidAddress()"));
-        curve.extractSof(address(0), 1 ether);
+        curve.extractReserves(address(0), 1 ether);
     }
 
     function test_ExtractSof_RevertsWithNonRaffleManagerRole() public {
@@ -258,7 +260,7 @@ contract CriticalCoverageGapsTest is Test {
         // Try to extract as non-admin
         vm.prank(nonAdmin);
         vm.expectRevert();
-        curve.extractSof(treasury, 1 ether);
+        curve.extractReserves(treasury, 1 ether);
     }
 
     function test_ExtractSof_FullReservesExtraction() public {
@@ -271,13 +273,13 @@ contract CriticalCoverageGapsTest is Test {
         curve.buyTokens(100, 200 ether);
         vm.stopPrank();
 
-        uint256 fullReserves = curve.getSofReserves();
+        uint256 fullReserves = curve.getReserves();
         raffle.testLockTrading(seasonId);
 
         vm.prank(address(raffle));
-        curve.extractSof(treasury, fullReserves);
+        curve.extractReserves(treasury, fullReserves);
 
-        assertEq(curve.getSofReserves(), 0, "Reserves should be zero after full extraction");
+        assertEq(curve.getReserves(), 0, "Reserves should be zero after full extraction");
     }
 
     // ========================================================================
@@ -386,6 +388,7 @@ contract CriticalCoverageGapsTest is Test {
         cfg.winnerCount = 2;
         cfg.grandPrizeBps = 6500;
         cfg.treasuryAddress = treasury;
+        cfg.quoteToken = address(sof);
         uint256 seasonId = raffle.createSeason(cfg, _steps(), 50, 70);
         (RaffleTypes.SeasonConfig memory out,,,,) = raffle.getSeasonDetails(seasonId);
         SOFBondingCurve curve = SOFBondingCurve(out.bondingCurve);
@@ -424,6 +427,7 @@ contract CriticalCoverageGapsTest is Test {
         cfg.winnerCount = 5;
         cfg.grandPrizeBps = 6500;
         cfg.treasuryAddress = treasury;
+        cfg.quoteToken = address(sof);
         uint256 seasonId = raffle.createSeason(cfg, _steps(), 50, 70);
         (RaffleTypes.SeasonConfig memory out,,,,) = raffle.getSeasonDetails(seasonId);
         SOFBondingCurve curve = SOFBondingCurve(out.bondingCurve);
@@ -517,6 +521,7 @@ contract CriticalCoverageGapsTest is Test {
         cfg.winnerCount = 1;
         cfg.grandPrizeBps = 6500;
         cfg.treasuryAddress = treasury;
+        cfg.quoteToken = address(sof);
 
         vm.prank(nonAdmin);
         vm.expectRevert();
@@ -556,6 +561,7 @@ contract CriticalCoverageGapsTest is Test {
         cfg.winnerCount = 1;
         cfg.grandPrizeBps = 6500;
         cfg.treasuryAddress = treasury;
+        cfg.quoteToken = address(sof);
         uint256 seasonId2 = raffle.createSeason(cfg, _steps(), 50, 70);
         vm.warp(newStartTime); // Warp exactly to startTime
         raffle.startSeason(seasonId2);

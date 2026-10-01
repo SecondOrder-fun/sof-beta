@@ -6,7 +6,7 @@ import {SOFPaymaster} from "src/paymaster/SOFPaymaster.sol";
 import {SOFSmartAccountFactory} from "src/account/SOFSmartAccountFactory.sol";
 import {SOFSmartAccount} from "src/account/SOFSmartAccount.sol";
 import {Raffle} from "src/core/Raffle.sol";
-import {SOFToken} from "src/token/SOFToken.sol";
+import {MockERC20} from "src/test-helpers/MockERC20.sol";
 import {ERC7821} from "@openzeppelin/contracts/account/extensions/draft-ERC7821.sol";
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
 import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
@@ -33,7 +33,7 @@ contract SOFPaymasterTest is Test {
     SOFPaymaster internal paymaster;
     SOFSmartAccountFactory internal factory;
     Raffle internal raffle;
-    SOFToken internal sof;
+    MockERC20 internal sof;
 
     /// @dev EntryPoint stand-in. The new paymaster only requires that
     ///      `validatePaymasterUserOp` reverts unless `msg.sender == entryPoint`,
@@ -46,13 +46,13 @@ contract SOFPaymasterTest is Test {
     address internal constant VRF_COORDINATOR_PLACEHOLDER = address(0xC00D);
 
     function setUp() public {
-        // Real SOFToken so allowlist entries are non-zero, real addresses.
-        sof = new SOFToken("SecondOrder Fun Token", "SOF", 1_000_000 ether);
+        // Real MockERC20 so allowlist entries are non-zero, real addresses.
+        sof = new MockERC20("SecondOrder Fun Token", "SOF", 1_000_000 ether);
 
         // Real Raffle so we can exercise registerCurve / isSofCurve. The mock
         // VRF coordinator address is fine — the paymaster path doesn't touch
         // VRF. Pattern mirrors test/SeasonFactoryRollover.t.sol:28.
-        raffle = new Raffle(address(sof), VRF_COORDINATOR_PLACEHOLDER, 0, bytes32(0));
+        raffle = new Raffle(VRF_COORDINATOR_PLACEHOLDER, 0, bytes32(0));
 
         factory = new SOFSmartAccountFactory();
 
@@ -202,5 +202,89 @@ contract SOFPaymasterTest is Test {
             abi.encodeWithSignature("TargetNotAllowed(address)", NON_ALLOWLISTED_TARGET)
         );
         paymaster.validatePaymasterUserOp(op, bytes32(0), 0);
+    }
+    // ──────────────────────────────────────────────────────────────────
+    // Launchpad targets
+    // ──────────────────────────────────────────────────────────────────
+
+    function _validate(address target) internal returns (uint256 validationData) {
+        SOFSmartAccount account = factory.createAccount(EOA_OWNER);
+        PackedUserOperation memory op = _userOp(address(account), _singleCallBatch(target));
+        vm.prank(entryPoint);
+        (, validationData) = paymaster.validatePaymasterUserOp(op, bytes32(0), 0);
+    }
+
+    /// Selling approves the router, and a season priced in a launch token approves its
+    /// curve on that token — so launch tokens must be sponsorable without per-token wiring.
+    function test_sponsorsLaunchTokensAndTheLaunchpadAndItsRouter() public {
+        MockLaunchpadForPaymaster launchpad = new MockLaunchpadForPaymaster();
+        address launchToken = address(0x1A0C);
+        address router = address(0x2011);
+        launchpad.setLaunched(launchToken);
+        launchpad.setRouter(router);
+        raffle.setLaunchpad(address(launchpad));
+
+        assertEq(_validate(launchToken), 0, "launch token");
+        assertEq(_validate(address(launchpad)), 0, "launchpad");
+        assertEq(_validate(router), 0, "advertised router");
+    }
+
+    /// The router is read live: after `setRouter` the old one is no longer sponsored.
+    function test_replacedRouterIsNoLongerSponsored() public {
+        MockLaunchpadForPaymaster launchpad = new MockLaunchpadForPaymaster();
+        address oldRouter = address(0x2011);
+        launchpad.setRouter(oldRouter);
+        raffle.setLaunchpad(address(launchpad));
+        launchpad.setRouter(address(0x2012));
+
+        vm.expectRevert(abi.encodeWithSignature("TargetNotAllowed(address)", oldRouter));
+        this.validateExternal(oldRouter);
+    }
+
+    /// LP fee collection and claims go to the placer.
+    function test_sponsorsTheLaunchpadsCurrentPlacer() public {
+        MockLaunchpadForPaymaster launchpad = new MockLaunchpadForPaymaster();
+        address placerAddr = address(0x9A7C);
+        launchpad.setPlacer(placerAddr);
+        raffle.setLaunchpad(address(launchpad));
+        assertEq(_validate(placerAddr), 0);
+    }
+
+    function test_sponsorsAdminAllowlistedQuoteTokens() public {
+        address quote = address(0x9707E);
+        raffle.setQuoteTokenAllowed(quote, true);
+        assertEq(_validate(quote), 0);
+    }
+
+    /// With trading switched off (router 0) a zero target is still refused.
+    function test_zeroRouterDoesNotSponsorTheZeroAddress() public {
+        MockLaunchpadForPaymaster launchpad = new MockLaunchpadForPaymaster();
+        raffle.setLaunchpad(address(launchpad));
+        vm.expectRevert(abi.encodeWithSignature("TargetNotAllowed(address)", address(0)));
+        this.validateExternal(address(0));
+    }
+
+    function validateExternal(address target) external returns (uint256) {
+        return _validate(target);
+    }
+}
+
+/// @dev Stands in for TokenLaunchpad: the views Raffle and the paymaster read.
+contract MockLaunchpadForPaymaster {
+    mapping(address => bool) public isLaunchToken;
+    address public router;
+
+    function setLaunched(address token) external {
+        isLaunchToken[token] = true;
+    }
+
+    function setRouter(address r) external {
+        router = r;
+    }
+
+    address public placer;
+
+    function setPlacer(address p) external {
+        placer = p;
     }
 }

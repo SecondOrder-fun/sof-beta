@@ -3,11 +3,6 @@
     "type": "constructor",
     "inputs": [
       {
-        "name": "_sofToken",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
         "name": "_vrfCoordinator",
         "type": "address",
         "internalType": "address"
@@ -151,6 +146,25 @@
   },
   {
     "type": "function",
+    "name": "allowedQuoteTokens",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "canCreateSeason",
     "inputs": [
       {
@@ -230,6 +244,11 @@
           },
           {
             "name": "treasuryAddress",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "quoteToken",
             "type": "address",
             "internalType": "address"
           },
@@ -343,6 +362,11 @@
           },
           {
             "name": "treasuryAddress",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "quoteToken",
             "type": "address",
             "internalType": "address"
           },
@@ -768,6 +792,11 @@
             "internalType": "address"
           },
           {
+            "name": "quoteToken",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
             "name": "raffleToken",
             "type": "address",
             "internalType": "address"
@@ -979,6 +1008,25 @@
   },
   {
     "type": "function",
+    "name": "isAllowedQuoteToken",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "isSeasonActive",
     "inputs": [
       {
@@ -1011,6 +1059,19 @@
         "name": "",
         "type": "bool",
         "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "launchpad",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract ILaunchTokenRegistry"
       }
     ],
     "stateMutability": "view"
@@ -1346,6 +1407,11 @@
         "internalType": "address"
       },
       {
+        "name": "quoteToken",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
         "name": "raffleToken",
         "type": "address",
         "internalType": "address"
@@ -1437,12 +1503,43 @@
   },
   {
     "type": "function",
+    "name": "setLaunchpad",
+    "inputs": [
+      {
+        "name": "_launchpad",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setPrizeDistributor",
     "inputs": [
       {
         "name": "distributor",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setQuoteTokenAllowed",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "allowed",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "outputs": [],
@@ -1528,19 +1625,6 @@
         "name": "",
         "type": "bool",
         "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "sofToken",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "contract IERC20"
       }
     ],
     "stateMutability": "view"
@@ -1728,6 +1812,19 @@
       },
       {
         "name": "newAddress",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "LaunchpadUpdated",
+    "inputs": [
+      {
+        "name": "launchpad",
         "type": "address",
         "indexed": true,
         "internalType": "address"
@@ -1931,6 +2028,25 @@
         "type": "address",
         "indexed": false,
         "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "QuoteTokenAllowed",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "allowed",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
       }
     ],
     "anonymous": false
@@ -2315,6 +2431,11 @@
   },
   {
     "type": "error",
+    "name": "InvalidQuoteToken",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InvalidSeasonName",
     "inputs": []
   },
@@ -2419,6 +2540,44 @@
       },
       {
         "name": "coordinator",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "QuoteTokenDecimals",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "decimals",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "QuoteTokenDecimalsUnavailable",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "QuoteTokenNotAllowed",
+    "inputs": [
+      {
+        "name": "token",
         "type": "address",
         "internalType": "address"
       }

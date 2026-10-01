@@ -22,8 +22,7 @@ import { encodeFunctionData } from "viem";
 import { useSmartTransactions } from "@/hooks/useSmartTransactions";
 import { applyMaxSlippage, applyMinSlippage } from "@/utils/buysell/slippage";
 import { SOFBondingCurveAbi, ERC20Abi } from "@/utils/abis";
-import { getContractAddresses } from "@/config/contracts";
-import { getStoredNetworkKey } from "@/lib/wagmi";
+import { useSeasonQuoteToken } from "@/hooks/useSeasonQuoteToken";
 
 /**
  * @param {string} bondingCurveAddress
@@ -32,7 +31,9 @@ import { getStoredNetworkKey } from "@/lib/wagmi";
  */
 export function useBuySellTransactions(bondingCurveAddress, client) {
   const { t } = useTranslation(["common", "transactions"]);
-  const contracts = getContractAddresses(getStoredNetworkKey());
+  // The curve only accepts its own season's quote token; approving a
+  // platform-wide address would target the wrong ERC-20.
+  const { quoteToken } = useSeasonQuoteToken(bondingCurveAddress);
   const { executeBatch } = useSmartTransactions();
 
   const buyMutation = useMutation({
@@ -80,6 +81,14 @@ export function useBuySellTransactions(bondingCurveAddress, client) {
         );
       }
 
+      if (!quoteToken) {
+        throw new Error(
+          t("transactions:quoteTokenLoading", {
+            defaultValue: "The season's token is still loading. Try again in a moment.",
+          }),
+        );
+      }
+
       const cap = applyMaxSlippage(maxSofAmount, slippagePct);
       const hasRollover = rolloverSeasonId && rolloverAmount > 0n;
       const hasWalletTopup = hasRollover && walletTopupTickets > 0n;
@@ -104,7 +113,7 @@ export function useBuySellTransactions(bondingCurveAddress, client) {
                 : rolloverAmount + (rolloverAmount * 1000n) / 10000n,
           }),
           {
-            to: contracts.SOF,
+            to: quoteToken,
             data: encodeFunctionData({
               abi: ERC20Abi,
               functionName: "approve",
@@ -137,7 +146,7 @@ export function useBuySellTransactions(bondingCurveAddress, client) {
         // Normal buy: SMA approves curve, SMA calls buyTokens.
         calls = [
           {
-            to: contracts.SOF,
+            to: quoteToken,
             data: encodeFunctionData({
               abi: ERC20Abi,
               functionName: "approve",
@@ -192,7 +201,7 @@ export function useBuySellTransactions(bondingCurveAddress, client) {
           functionName: "curveConfig",
           args: [],
         });
-        if (cfg[1] /* sofReserves */ < minSofAmount) {
+        if (cfg[1] /* reserves */ < minSofAmount) {
           throw new Error(
             t("transactions:insufficientCurveReserves", {
               defaultValue: "Insufficient curve reserves — cannot sell this amount",

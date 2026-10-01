@@ -5,7 +5,7 @@
 /**
  * @typedef {Object} ContractAddresses
  * @property {`0x${string}` | string} RAFFLE
- * @property {`0x${string}` | string} SOF
+ * @property {`0x${string}` | string} QUOTE_TOKEN
  * @property {`0x${string}` | string} SEASON_FACTORY
  * @property {`0x${string}` | string} SEASON_GATING
  * @property {`0x${string}` | string} INFOFI_FACTORY
@@ -15,11 +15,12 @@
  * @property {`0x${string}` | string} CONDITIONAL_TOKENS // Gnosis Conditional Tokens
  * @property {`0x${string}` | string} VRF_COORDINATOR
  * @property {`0x${string}` | string} PRIZE_DISTRIBUTOR
- * @property {`0x${string}` | string} SOF_FAUCET
- * @property {`0x${string}` | string} SOF_EXCHANGE
  * @property {`0x${string}` | string} USDC
  * @property {`0x${string}` | string} SOF_SMART_ACCOUNT_FACTORY
  * @property {`0x${string}` | string} ROLLOVER_ESCROW
+ * @property {`0x${string}` | string} TOKEN_LAUNCHPAD
+ * @property {`0x${string}` | string} LIQUIDITY_PLACER
+ * @property {`0x${string}` | string} POOL_MANAGER
  */
 
 import { RaffleABI, SeasonGatingABI } from '@sof/contracts';
@@ -67,7 +68,10 @@ export function getContractAddresses(key) {
 
   return {
     RAFFLE: s(deployment.Raffle),
-    SOF: s(deployment.SOFToken),
+    // Placeholder quote token until the launchpad supplies real ones. Seasons
+    // name their own quoteToken; this is only the platform-level default used
+    // by non-season-scoped views (profile, sponsor staking).
+    QUOTE_TOKEN: s(deployment.QuoteToken),
     SEASON_FACTORY: s(deployment.SeasonFactory),
     SEASON_GATING: s(deployment.SeasonGating),
     INFOFI_FACTORY: s(deployment.InfoFiFactory),
@@ -77,12 +81,18 @@ export function getContractAddresses(key) {
     CONDITIONAL_TOKENS: s(deployment.ConditionalTokens),
     VRF_COORDINATOR: s(deployment.VRFCoordinator),
     PRIZE_DISTRIBUTOR: s(deployment.PrizeDistributor),
-    SOF_FAUCET: s(deployment.SOFFaucet),
-    SOF_EXCHANGE: s(deployment.SOFExchange),
     USDC: s(deployment.USDC),
     MARKET_TYPE_REGISTRY: s(deployment.MarketTypeRegistry),
     RAFFLE_ORACLE_ADAPTER: s(deployment.RaffleOracleAdapter),
     SOF_SMART_ACCOUNT_FACTORY: s(deployment.SOFSmartAccountFactory),
     ROLLOVER_ESCROW: s(deployment.RolloverEscrow),
+    // Launchpad. Empty on any deployment made before contracts 0.35.0 — the
+    // launch routes treat that as "not available on this network" rather than
+    // failing, since the raffle stack deploys independently of the launchpad.
+    TOKEN_LAUNCHPAD: s(deployment.TokenLaunchpad),
+    // Where NEW launches are placed. Read an existing launch through its own placer
+    // (TokenLaunchpad.placerOf): the launchpad's placer can be replaced.
+    LIQUIDITY_PLACER: s(deployment.LiquidityPlacer),
+    POOL_MANAGER: s(deployment.PoolManager),
   };
 }

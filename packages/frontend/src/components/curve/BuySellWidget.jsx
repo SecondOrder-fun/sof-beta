@@ -11,7 +11,8 @@ import { buildPublicClient } from "@/lib/viemClient";
 import { useAccount } from "wagmi";
 import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import { useSofDecimals } from "@/hooks/useSofDecimals";
-import { useSOFToken } from "@/hooks/useSOFToken";
+import { useQuoteToken } from "@/hooks/useQuoteToken";
+import { useSeasonQuoteToken } from "@/hooks/useSeasonQuoteToken";
 import {
   useFormatSOF,
   usePriceEstimation,
@@ -56,10 +57,13 @@ const BuySellWidget = ({
   const { address: eoaAddress } = useAccount();
   const { sma: smaAddress } = useRaffleAccount();
   const connectedAddress = smaAddress;
+  // Tickets are priced in the season's own quote token, so balance and
+  // affordability must be read against that token, not a platform-wide one.
+  const { quoteToken: seasonQuoteToken } = useSeasonQuoteToken(bondingCurveAddress);
   const {
     balance: sofBalance = "0",
     isLoading: isBalanceLoading,
-  } = useSOFToken();
+  } = useQuoteToken(seasonQuoteToken);
 
   // Tab state with localStorage persistence
   const [activeTab, setActiveTab] = useState(() => {

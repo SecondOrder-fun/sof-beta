@@ -27,9 +27,9 @@ vi.mock("@/services/onchainRaffleDistributor", () => ({
   getPrizeDistributor: vi.fn(),
 }));
 
-// useSOFBalance added to useProfileData (D18 migration)
-vi.mock("@/hooks/useSOFBalance", () => ({
-  useSOFBalance: () => ({
+// useQuoteBalance added to useProfileData (D18 migration)
+vi.mock("@/hooks/useQuoteBalance", () => ({
+  useQuoteBalance: () => ({
     balanceRaw: 0n,
     isLoading: false,
     refetch: () => {},

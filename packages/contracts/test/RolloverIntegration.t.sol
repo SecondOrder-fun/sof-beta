@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
 
-import {SOFToken} from "../src/token/SOFToken.sol";
+import {MockERC20} from "../src/test-helpers/MockERC20.sol";
 import {RaffleToken} from "../src/token/RaffleToken.sol";
 import {SOFBondingCurve} from "../src/curve/SOFBondingCurve.sol";
 import {RafflePrizeDistributor} from "../src/core/RafflePrizeDistributor.sol";
@@ -13,7 +13,7 @@ import {RaffleTypes} from "../src/lib/RaffleTypes.sol";
 /**
  * @title RolloverIntegrationTest
  * @notice Multi-season rollover lifecycle tests exercising the full system:
- *         SOFToken, RolloverEscrow, RafflePrizeDistributor, SOFBondingCurve, RaffleToken.
+ *         MockERC20, RolloverEscrow, RafflePrizeDistributor, SOFBondingCurve, RaffleToken.
  *
  * Two scenarios:
  *   1. Full cycle — deposit → spend (partial) → refund (remainder)
@@ -24,7 +24,7 @@ contract RolloverIntegrationTest is Test {
     // Contracts
     // -------------------------------------------------------------------------
 
-    SOFToken public sofToken;
+    MockERC20 public sofToken;
     RolloverEscrow public escrow;
     RafflePrizeDistributor public distributor;
     SOFBondingCurve public curve;
@@ -64,11 +64,11 @@ contract RolloverIntegrationTest is Test {
     function setUp() public {
         vm.startPrank(admin);
 
-        // 1. SOFToken
-        sofToken = new SOFToken("SOF", "SOF", INITIAL_SOF);
+        // 1. MockERC20
+        sofToken = new MockERC20("SOF", "SOF", INITIAL_SOF);
 
         // 2. RolloverEscrow
-        escrow = new RolloverEscrow(address(sofToken), treasury, raffleAddr);
+        escrow = new RolloverEscrow(treasury, raffleAddr);
 
         // 3. RafflePrizeDistributor — grant RAFFLE_ROLE to raffleAddr
         distributor = new RafflePrizeDistributor(admin);
@@ -149,7 +149,7 @@ contract RolloverIntegrationTest is Test {
 
         // Open rollover cohort for Season 1 (uses default bonus bps)
         vm.prank(admin);
-        escrow.openCohort(SEASON_1, BONUS_BPS);
+        escrow.openCohort(SEASON_1, BONUS_BPS, address(sofToken));
     }
 
     // =========================================================================

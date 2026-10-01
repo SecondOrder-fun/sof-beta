@@ -74,3 +74,6 @@ seed.txt
 # the team may want to commit later.
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
+
+# Agent worktrees (transient, never committed)
+.claude/worktrees/

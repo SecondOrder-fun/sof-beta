@@ -84,11 +84,11 @@ const SettingsMenu = ({ address, username, onDisconnect }) => {
   // SOF balance query — keyed on SMA. Only enabled while the dropdown
   // is open; closing the menu suspends the query until the next open.
   const sofBalanceQuery = useQuery({
-    queryKey: ["sofBalance", netKey, contracts.SOF, sma],
-    enabled: isMenuOpen && !!client && !!contracts.SOF && !!sma,
+    queryKey: ["sofBalance", netKey, contracts.QUOTE_TOKEN, sma],
+    enabled: isMenuOpen && !!client && !!contracts.QUOTE_TOKEN && !!sma,
     queryFn: async () => {
       const bal = await client.readContract({
-        address: contracts.SOF,
+        address: contracts.QUOTE_TOKEN,
         abi: ERC20Abi,
         functionName: "balanceOf",
         args: [sma],

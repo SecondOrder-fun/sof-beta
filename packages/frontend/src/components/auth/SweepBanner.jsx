@@ -25,7 +25,7 @@ import { ERC20Abi } from "@/utils/abis";
 export const SweepBanner = () => {
   const { t } = useTranslation("onboarding");
   const { eoa, sma, walletType, isReady } = useRaffleAccount();
-  const sofAddress = getContractAddresses(getStoredNetworkKey()).SOF;
+  const sofAddress = getContractAddresses(getStoredNetworkKey()).QUOTE_TOKEN;
 
   const enabled =
     isReady && walletType === "desktop-eoa" && !!eoa && !!sofAddress;

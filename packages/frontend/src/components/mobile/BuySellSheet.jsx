@@ -20,7 +20,8 @@ import { getStoredNetworkKey } from "@/lib/wagmi";
 import { getNetworkByKey } from "@/config/networks";
 import { buildPublicClient } from "@/lib/viemClient";
 import { useSofDecimals } from "@/hooks/useSofDecimals";
-import { useSOFToken } from "@/hooks/useSOFToken";
+import { useQuoteToken } from "@/hooks/useQuoteToken";
+import { useSeasonQuoteToken } from "@/hooks/useSeasonQuoteToken";
 import { useAccount } from "wagmi";
 import {
   useFormatSOF,
@@ -65,10 +66,13 @@ export const BuySellSheet = ({
   const sofDecimals = decimalsReady ? sofDecimalsState : 18;
   const formatSOF = useFormatSOF(sofDecimals);
   const { address: connectedAddress } = useAccount();
+  // Tickets are priced in the season's own quote token, so balance and
+  // affordability must be read against that token, not a platform-wide one.
+  const { quoteToken: seasonQuoteToken } = useSeasonQuoteToken(bondingCurveAddress);
   const {
     balance: sofBalance = "0",
     isLoading: isBalanceLoading,
-  } = useSOFToken();
+  } = useQuoteToken(seasonQuoteToken);
 
   const [activeTab, setActiveTab] = useState(() => {
     if (mode === "buy" || mode === "sell") {

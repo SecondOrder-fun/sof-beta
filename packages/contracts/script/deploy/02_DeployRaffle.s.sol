@@ -11,11 +11,14 @@ contract DeployRaffle is Script {
         vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
 
         Raffle raffle = new Raffle(
-            addrs.sofToken,
             addrs.vrfCoordinator,
             addrs.vrfSubscriptionId,
             addrs.vrfKeyHash
         );
+
+        // The platform quote token may price seasons. Launch tokens are accepted once
+        // step 21 points the raffle at the launchpad; anything else needs allowlisting.
+        if (addrs.quoteToken != address(0)) raffle.setQuoteTokenAllowed(addrs.quoteToken, true);
 
         vm.stopBroadcast();
 

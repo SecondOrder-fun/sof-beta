@@ -1,0 +1,109 @@
+// src/lib/launchFormat.js
+//
+// Presentation rules for launch valuations and prices.
+//
+// Kept separate from format.js because the choice of unit here is a judgement
+// about what a creator or buyer can actually reason about, not a generic number
+// format. Two decisions worth stating:
+//
+//   - **Valuations are shown in ETH.** FDV is the number that governs how a
+//     launch behaves; the per-token price is a derived detail. The bounds on the
+//     contract are chosen in FDV for the same reason.
+//
+//   - **Per-token prices are shown in gwei.** At the deployed floor — a 1 ETH
+//     valuation against a 1e9 supply — the price is exactly 1 gwei per token, and
+//     the ceiling is 1000 gwei. In ETH those are 0.000000001 and 0.000001, which
+//     no one can compare at a glance.
+
+import { formatEther, formatGwei } from 'viem';
+
+/**
+ * Trim a fixed-point string to at most `maxDecimals`, dropping trailing zeros.
+ * @param {string} value
+ * @param {number} maxDecimals
+ */
+function trimDecimals(value, maxDecimals) {
+  if (!value.includes('.')) return value;
+  const [whole, fraction] = value.split('.');
+  const kept = fraction.slice(0, maxDecimals).replace(/0+$/, '');
+  return kept ? `${whole}.${kept}` : whole;
+}
+
+/**
+ * A valuation in wei, rendered as ETH with thousands separators.
+ * @param {bigint | null | undefined} wei
+ * @param {number} [maxDecimals=4]
+ * @returns {string} e.g. "1", "12.5", "1,000"
+ */
+export function formatFdvEth(wei, maxDecimals = 4) {
+  if (wei == null) return '—';
+  const trimmed = trimDecimals(formatEther(wei), maxDecimals);
+  const [whole, fraction] = trimmed.split('.');
+  const grouped = Number(whole).toLocaleString('en-US');
+  return fraction ? `${grouped}.${fraction}` : grouped;
+}
+
+/**
+ * A per-token starting price in wei, rendered as gwei.
+ * @param {bigint | null | undefined} wei
+ * @param {number} [maxDecimals=4]
+ * @returns {string}
+ */
+export function formatPriceGwei(wei, maxDecimals = 4) {
+  if (wei == null) return '—';
+  return trimDecimals(formatGwei(wei), maxDecimals);
+}
+
+/**
+ * Whole tokens from a raw 18-decimal amount, abbreviated.
+ * A launch supply is 1,000,000,000 — "1B" is the only readable form on a card.
+ * @param {bigint | null | undefined} raw
+ * @returns {string}
+ */
+export function formatSupply(raw) {
+  if (raw == null) return '—';
+  const whole = raw / 10n ** 18n;
+  if (whole >= 1_000_000_000n) return `${trimDecimals(String(Number(whole) / 1e9), 2)}B`;
+  if (whole >= 1_000_000n) return `${trimDecimals(String(Number(whole) / 1e6), 2)}M`;
+  if (whole >= 1_000n) return `${trimDecimals(String(Number(whole) / 1e3), 2)}K`;
+  return whole.toLocaleString('en-US');
+}
+
+/**
+ * Relative age of a unix-seconds timestamp, as a short label.
+ * @param {bigint | number | null | undefined} unixSeconds
+ * @param {number} [nowMs=Date.now()]
+ * @returns {string} e.g. "3m", "5h", "2d"
+ */
+export function formatAge(unixSeconds, nowMs = Date.now()) {
+  if (unixSeconds == null) return '—';
+  const then = Number(unixSeconds) * 1000;
+  const seconds = Math.max(0, Math.floor((nowMs - then) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
+/**
+ * A price multiple, e.g. 23.6 -> "23.6", 1.004 -> "1.00".
+ * Two decimals below 10× so an early move is visible; one above.
+ * @param {number | null | undefined} n
+ */
+export function formatMultiple(n) {
+  if (n == null || !Number.isFinite(n)) return '—';
+  return n < 10 ? n.toFixed(2) : n.toFixed(1);
+}
+
+/**
+ * A 0..1 fraction as a percentage string without the sign.
+ * One decimal under 10% (where small moves matter), whole numbers above.
+ * @param {number | null | undefined} f
+ */
+export function formatPercent(f) {
+  if (f == null || !Number.isFinite(f)) return '—';
+  const pct = f * 100;
+  return pct < 10 ? pct.toFixed(1) : pct.toFixed(0);
+}

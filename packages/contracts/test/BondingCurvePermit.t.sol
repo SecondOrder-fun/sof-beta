@@ -2,13 +2,13 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {SOFToken} from "../src/token/SOFToken.sol";
+import {MockERC20} from "../src/test-helpers/MockERC20.sol";
 import {RaffleToken} from "../src/token/RaffleToken.sol";
 import {SOFBondingCurve} from "../src/curve/SOFBondingCurve.sol";
 import {RaffleTypes} from "../src/lib/RaffleTypes.sol";
 
 contract BondingCurvePermitTest is Test {
-    SOFToken public sofToken;
+    MockERC20 public sofToken;
     RaffleToken public raffleToken;
     SOFBondingCurve public curve;
 
@@ -24,7 +24,7 @@ contract BondingCurvePermitTest is Test {
 
         vm.startPrank(admin);
 
-        sofToken = new SOFToken("SOF", "SOF", INITIAL_SOF);
+        sofToken = new MockERC20("SOF", "SOF", INITIAL_SOF);
         // forge-lint: disable-next-line(erc20-unchecked-transfer)
         sofToken.transfer(buyer, 5_000e18);
 

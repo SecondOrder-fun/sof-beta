@@ -1,0 +1,63 @@
+// src/components/launchpad/SupplySold.jsx
+//
+// How much of the placed supply has sold, on the existing Progress primitive.
+//
+// This is the launchpad's progress metric in place of a graduation bar: the pool
+// is the market from block one, so there is no threshold to cross. What does
+// move is the price walking up the position's range — and "supply sold" is that
+// same fact in terms a buyer can read.
+
+import PropTypes from "prop-types";
+import { useTranslation } from "react-i18next";
+
+import { Card, CardContent } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { formatFdvEth, formatPercent, formatSupply } from "@/lib/launchFormat";
+
+const SupplySold = ({ market, totalSupply, symbol }) => {
+  const { t } = useTranslation("launchpad");
+  const pct = market.soldFraction * 100;
+  const soldRaw = (BigInt(totalSupply) * BigInt(Math.round(market.soldFraction * 1e6))) / 1_000_000n;
+
+  // Quarter markers; the ends carry the two valuations the range spans.
+  const steps = [
+    { position: 0, label: t("detail.launchMarker", { fdv: formatFdvEth(market.launchFdvWei, 2) }) },
+    { position: 25 },
+    { position: 50 },
+    { position: 75 },
+    { position: 100, label: t("detail.selloutMarker", { fdv: formatFdvEth(market.selloutFdvWei, 0) }) },
+  ];
+
+  return (
+    <Card>
+      <CardContent className="p-5 space-y-3">
+        <div className="flex items-baseline justify-between gap-4">
+          <span className="text-sm text-muted-foreground">
+            <span className="text-xl font-semibold text-heading mr-2">{formatPercent(market.soldFraction)}%</span>
+            {t("detail.soldLabel")}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            {t("detail.soldCount", { sold: formatSupply(soldRaw), total: formatSupply(BigInt(totalSupply)), symbol })}
+          </span>
+        </div>
+        <Progress value={pct} steps={steps} />
+        <div className="flex justify-between text-xs text-muted-foreground">
+          <span>{steps[0].label}</span>
+          <span>{steps[4].label}</span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+SupplySold.propTypes = {
+  market: PropTypes.shape({
+    soldFraction: PropTypes.number.isRequired,
+    launchFdvWei: PropTypes.any,
+    selloutFdvWei: PropTypes.any,
+  }).isRequired,
+  totalSupply: PropTypes.any.isRequired,
+  symbol: PropTypes.string,
+};
+
+export default SupplySold;

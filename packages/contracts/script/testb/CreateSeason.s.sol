@@ -6,11 +6,14 @@ import {Raffle} from "../../src/core/Raffle.sol";
 import {RaffleTypes} from "../../src/lib/RaffleTypes.sol";
 
 /// @notice Test-B helper: create a short-lived season on the local Raffle contract.
-/// @dev Env: RAFFLE, TREASURY, SEASON_NAME, DURATION_SECS, PRIVATE_KEY.
+/// @dev Env: RAFFLE, TREASURY, QUOTE_TOKEN, SEASON_NAME, START_TIME, DURATION_SECS, PRIVATE_KEY.
+///      QUOTE_TOKEN must be a launch token or on the Raffle's quote-token allowlist —
+///      on a DeployAll stack, the deployment's QuoteToken qualifies.
 contract CreateSeason is Script {
     function run() external {
         address raffleAddr = vm.envAddress("RAFFLE");
         address treasury = vm.envAddress("TREASURY");
+        address quoteToken = vm.envAddress("QUOTE_TOKEN");
         string memory name = vm.envString("SEASON_NAME");
         uint256 duration = vm.envUint("DURATION_SECS");
         uint256 pk = vm.envUint("PRIVATE_KEY");
@@ -26,6 +29,7 @@ contract CreateSeason is Script {
         cfg.winnerCount = 1;
         cfg.grandPrizeBps = 6500; // 65% grand, 35% consolation
         cfg.treasuryAddress = treasury;
+        cfg.quoteToken = quoteToken;
 
         vm.startBroadcast(pk);
         uint256 seasonId = Raffle(raffleAddr).createSeason(cfg, steps, 0, 0);

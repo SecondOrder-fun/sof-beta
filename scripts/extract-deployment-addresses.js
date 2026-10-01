@@ -40,7 +40,9 @@ const NETWORKS = {
 // historical reasons in the deployments json shape that the frontend
 // and backend both consume.
 const CONTRACT_NAME_MAP = {
-  SOFToken: "SOFToken",
+  // 01_DeployQuoteToken's placeholder (local / Base Sepolia only). Where a real token is
+  // configured instead, QUOTE_TOKEN_ADDRESS supplies it below.
+  MockERC20: "QuoteToken",
   Raffle: "Raffle",
   SeasonFactory: "SeasonFactory",
   InfoFiPriceOracle: "InfoFiPriceOracle",
@@ -51,11 +53,16 @@ const CONTRACT_NAME_MAP = {
   InfoFiMarketFactory: "InfoFiFactory",
   InfoFiSettlement: "InfoFiSettlement",
   RafflePrizeDistributor: "PrizeDistributor",
-  SOFFaucet: "SOFFaucet",
   SOFSmartAccountFactory: "SOFSmartAccountFactory",
   SOFPaymaster: "Paymaster",
   RolloverEscrow: "RolloverEscrow",
-  SOFExchange: "SOFExchange",
+  // Launchpad. PoolManager only appears as a CREATE on local — elsewhere it is the
+  // pre-existing v4 singleton and comes through STATIC / POOL_MANAGER_ADDRESS.
+  PoolManager: "PoolManager",
+  TokenLaunchpad: "TokenLaunchpad",
+  UniV4LiquidityPlacer: "LiquidityPlacer",
+  LaunchPoolGate: "LaunchPoolGate",
+  UniV4LaunchRouter: "LaunchRouter",
 };
 
 // Static / non-DeployAll addresses to merge into the output. These are
@@ -87,7 +94,7 @@ const STATIC = {
 
 // Canonical key order for human-readable diff stability
 const KEY_ORDER = [
-  "SOFToken",
+  "QuoteToken",
   "Raffle",
   "SeasonFactory",
   "SOFBondingCurve",
@@ -99,15 +106,31 @@ const KEY_ORDER = [
   "MarketTypeRegistry",
   "VRFCoordinator",
   "PrizeDistributor",
-  "SOFFaucet",
   "RaffleOracleAdapter",
   "SeasonGating",
-  "SOFExchange",
   "USDC",
   "SOFSmartAccountFactory",
   "Paymaster",
   "RolloverEscrow",
+  "PoolManager",
+  "TokenLaunchpad",
+  "LiquidityPlacer",
+  "LaunchPoolGate",
+  "LaunchRouter",
 ];
+
+function outPathFor(repoRoot, network) {
+  return path.join(repoRoot, `packages/contracts/deployments/${network}.json`);
+}
+
+/** The `contracts` map already on disk, or `{}` if the file is absent or unreadable. */
+function readExistingContracts(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, "utf8")).contracts || {};
+  } catch {
+    return {};
+  }
+}
 
 function parseArgs(argv) {
   const args = { network: null };
@@ -164,6 +187,26 @@ function main() {
   // Merge static + per-network
   Object.assign(contracts, STATIC[network] || {});
 
+  // Carry forward the Uniswap v4 PoolManager on non-local chains. It is a pre-existing
+  // third-party singleton, so it never appears as a CREATE in our broadcast log and cannot
+  // go in STATIC either — we do not want a per-chain address hardcoded in two places, and
+  // the launchpad is meant to move chains. Without this step, re-running the extractor
+  // would silently drop a PoolManager an operator had recorded, and the next deploy would
+  // find nothing to resolve. POOL_MANAGER_ADDRESS wins when set, since that is what the
+  // deploy that produced this broadcast actually used.
+  if (network !== "local") {
+    const fromEnv = process.env.POOL_MANAGER_ADDRESS;
+    const existing = readExistingContracts(outPathFor(repoRoot, network)).PoolManager;
+    const poolManager = fromEnv || existing;
+    if (poolManager) contracts.PoolManager = poolManager;
+    else console.warn("  WARN: no PoolManager for this network (launchpad launches will revert PlacerNotSet)");
+  }
+
+  // A configured quote token (QUOTE_TOKEN_ADDRESS, required off local/Base Sepolia) is not
+  // a CREATE in the broadcast, so it comes from the same env the deploy read.
+  if (process.env.QUOTE_TOKEN_ADDRESS) contracts.QuoteToken = process.env.QUOTE_TOKEN_ADDRESS.trim();
+  if (!contracts.QuoteToken) console.warn("  WARN: no QuoteToken (set QUOTE_TOKEN_ADDRESS)");
+
   // Reorder for human-readable stability; warn on unmapped keys
   const ordered = {};
   for (const key of KEY_ORDER) {
@@ -182,7 +225,7 @@ function main() {
     contracts: ordered,
   };
 
-  const outPath = path.join(repoRoot, `packages/contracts/deployments/${network}.json`);
+  const outPath = outPathFor(repoRoot, network);
   fs.writeFileSync(outPath, `${JSON.stringify(json, null, 2)}\n`);
 
   console.log(

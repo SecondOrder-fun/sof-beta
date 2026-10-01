@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useSponsorStaking } from "@/hooks/useSponsorStaking";
-import { useSOFBalance } from "@/hooks/useSOFBalance";
+import { useQuoteBalance } from "@/hooks/useQuoteBalance";
 import { useSmartTransactions } from "@/hooks/useSmartTransactions";
 import { HATS_CONFIG } from "@/config/hats";
 import { getContractAddresses } from "@/config/contracts";
@@ -58,7 +58,7 @@ export function SponsorStakingCard() {
   const { t } = useTranslation("raffle");
   const { address, isConnected } = useAccount();
   const network = (import.meta.env.VITE_NETWORK || "TESTNET").toUpperCase();
-  const sofAddress = getContractAddresses(network).SOF;
+  const sofAddress = getContractAddresses(network).QUOTE_TOKEN;
   
   const {
     stakeAmount,
@@ -76,7 +76,7 @@ export function SponsorStakingCard() {
     refetch,
   } = useSponsorStaking();
 
-  const { balance: sofBalance, isLoading: isBalanceLoading } = useSOFBalance();
+  const { balance: sofBalance, isLoading: isBalanceLoading } = useQuoteBalance();
   
   // Steps: idle → approving → staking → minting → unstaking → completing
   const [step, setStep] = useState("idle");

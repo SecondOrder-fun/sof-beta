@@ -4,7 +4,6 @@
   "deployedAt": null,
   "contracts": {
     "Raffle": "",
-    "SOFToken": "",
     "SeasonFactory": "",
     "SOFBondingCurve": "",
     "InfoFiFactory": "",
@@ -15,12 +14,11 @@
     "MarketTypeRegistry": "",
     "VRFCoordinator": "",
     "PrizeDistributor": "",
-    "SOFFaucet": "",
     "RaffleOracleAdapter": "",
     "SeasonGating": "",
-    "SOFExchange": "",
     "SOFAirdrop": "",
     "USDC": "",
-    "SOFSmartAccount": ""
+    "SOFSmartAccount": "",
+    "QuoteToken": ""
   }
 }

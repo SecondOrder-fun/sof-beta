@@ -40,6 +40,53 @@ npm test         # Vitest
 npm run lint         # ESLint (zero warnings enforced)
 ```
 
+## Launchpad routes
+
+`/launch`, `/tokens` and `/tokens/:address` read the `TokenLaunchpad` on-chain.
+The backend indexes launches (`/api/launchpad/tokens`) but not yet trade history or
+metadata, so routing the feed through it would add a dependency without adding
+data. Only the trade feed on the token page uses the backend. Once volume and
+metadata are indexed, the backend becomes primary and on-chain the fallback.
+
+**The launch form takes a valuation, not a per-token price** (`src/lib/launchFormat.js`,
+`src/hooks/useTokenLaunchpad.js`). Every launch mints the same 1e9 supply, so the
+number that governs behaviour is `startPriceWei * supply`, nine orders of magnitude
+from the price — the contract's own bounds are set in FDV terms for that reason.
+Display valuations in ETH and per-token prices in gwei; at the 1 ETH floor the
+price is exactly 1 gwei per token.
+
+A network with no launchpad in its deployment JSON renders an explanation, not an
+error. The raffle stack deploys independently of the launchpad.
+
+**Live pool state comes straight from Uniswap v4, not the indexer.**
+`useLaunchMarkets` reads each pool's slot0 and liquidity via `PoolManager.extsload`
+plus the tick range from the placer that placed that launch (`TokenLaunchpad.placerOf`
+— never the deployment's `LiquidityPlacer`, which is only where new launches go), and `src/lib/v4PoolMath.js` turns that into price,
+FDV, multiple since launch, supply sold, and exact buy/sell quotes. There is no
+quoter contract in the stack. That math is pinned against a real `PoolManager`
+swap: `test_fixture_quoteMathForFrontend` in the contracts package emits the
+numbers `tests/lib/v4PoolMath.test.js` reproduces. If a contracts change moves
+them, re-run the fixture and update the constants — never loosen the tolerances.
+Two traps it encodes: out of range v4 reports **0 active liquidity** (at launch the
+price sits exactly on the upper edge; after a sell-out, on the lower one), so quote
+with the position's liquidity; and range
+edges must use the exact `TickMath` port, not a float, or a capped quote promises
+more than the whole supply.
+
+**The launchpad UI is composed only from existing primitives** (see the UI Gym):
+Tabs for buy/sell and sort, Card, Avatar for token art, Badge, Progress for supply
+sold, ButtonGroup, Input, ContentBox, Table, Sheet, SlippageSettings. New visual
+elements are confirmed with the product owner and designed on the canvas first.
+
+**Trades go through whichever router the launchpad advertises.** `useLaunchTrade`
+reads `TokenLaunchpad.router()` and `lib/launchTrade.js` encodes against the
+`ILaunchRouter` interface ABI — never an implementation's — then sends through
+`executeBatch` (a sell batches approve + sell). So replacing the router is a
+`setRouter` transaction with no frontend change, and `setRouter(0)` switches in-app
+trading off (the panel keeps quoting and says trading is off). Minimum-out is the
+quote less the slippage setting; `UniV4LaunchRouter.t.sol` pins the router to the
+same amounts the quote math is pinned to, so the quote shown is the trade made.
+
 ## ABI Imports
 
 ```js

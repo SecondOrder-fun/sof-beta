@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import {AccessControl} from "openzeppelin-contracts/contracts/access/AccessControl.sol";
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {VRFConsumerBaseV2Plus} from "chainlink-brownie-contracts/contracts/src/v0.8/vrf/dev/VRFConsumerBaseV2Plus.sol";
 import {IVRFCoordinatorV2Plus} from "chainlink-brownie-contracts/contracts/src/v0.8/vrf/dev/interfaces/IVRFCoordinatorV2Plus.sol";
@@ -18,6 +19,11 @@ import {IRafflePrizeDistributor} from "../lib/IRafflePrizeDistributor.sol";
 import {TierConfigFailed} from "./RafflePrizeDistributor.sol";
 import {ISeasonGating} from "../gating/ISeasonGating.sol";
 import {IRolloverEscrow} from "./IRolloverEscrow.sol";
+
+/// @dev The one call Raffle makes on the launchpad: is this token one it launched?
+interface ILaunchTokenRegistry {
+    function isLaunchToken(address token) external view returns (bool);
+}
 
 // ============================================================================
 // CUSTOM ERRORS - Clear, gas-efficient error reporting
@@ -39,6 +45,10 @@ error InvalidSeasonName();
 error InvalidStartTime(uint256 startTime, uint256 currentTime);
 error InvalidEndTime(uint256 endTime, uint256 startTime);
 error InvalidTreasuryAddress();
+error InvalidQuoteToken();
+error QuoteTokenDecimals(address token, uint8 decimals);
+error QuoteTokenDecimalsUnavailable(address token);
+error QuoteTokenNotAllowed(address token);
 error UnauthorizedCaller();
 error NoVRFWords(uint256 seasonId);
 error UserNotVerified(uint256 seasonId, address user);
@@ -82,7 +92,6 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
     event SofCurveRegistered(address indexed curve);
 
     // Core
-    IERC20 public immutable sofToken;
     ISeasonFactory public seasonFactory;
     // Prize Distributor integration
     address public prizeDistributor;
@@ -104,11 +113,9 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         uint256 indexed seasonId, address indexed player, uint256 oldTickets, uint256 newTickets, uint256 totalTickets
     );
 
-    constructor(address _sofToken, address _vrfCoordinator, uint256 _vrfSubscriptionId, bytes32 _vrfKeyHash)
+    constructor(address _vrfCoordinator, uint256 _vrfSubscriptionId, bytes32 _vrfKeyHash)
         VRFConsumerBaseV2Plus(_vrfCoordinator)
     {
-        if (_sofToken == address(0)) revert InvalidAddress();
-        sofToken = IERC20(_sofToken);
         COORDINATOR = IVRFCoordinatorV2Plus(_vrfCoordinator);
         vrfSubscriptionId = _vrfSubscriptionId;
         vrfKeyHash = _vrfKeyHash;
@@ -132,6 +139,42 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
     }
 
     event RolloverEscrowUpdated(address indexed previous, address indexed current);
+
+    // ------------------------------------------------------------------
+    // Quote tokens a season may be priced in
+    // ------------------------------------------------------------------
+    //
+    // Only tokens the protocol can vouch for: ones the launchpad launched (plain,
+    // ownerless, fixed-supply ERC-20s) plus an admin allowlist (e.g. the testnet
+    // placeholder). An arbitrary ERC-20 could be fee-on-transfer or rebasing; the curve
+    // books `baseCost` into reserves but would receive less, and finalization's
+    // extractReserves would then revert, locking players' funds.
+
+    /// @notice Launchpad whose tokens may price seasons. Zero = launch tokens not accepted.
+    ILaunchTokenRegistry public launchpad;
+    /// @notice Non-launch tokens an admin has approved as quote tokens.
+    mapping(address => bool) public allowedQuoteTokens;
+
+    event LaunchpadUpdated(address indexed launchpad);
+    event QuoteTokenAllowed(address indexed token, bool allowed);
+
+    function setLaunchpad(address _launchpad) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        launchpad = ILaunchTokenRegistry(_launchpad);
+        emit LaunchpadUpdated(_launchpad);
+    }
+
+    function setQuoteTokenAllowed(address token, bool allowed) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (token == address(0)) revert InvalidQuoteToken();
+        allowedQuoteTokens[token] = allowed;
+        emit QuoteTokenAllowed(token, allowed);
+    }
+
+    /// @notice Whether `token` may price a new season.
+    function isAllowedQuoteToken(address token) public view returns (bool) {
+        if (allowedQuoteTokens[token]) return true;
+        ILaunchTokenRegistry lp = launchpad;
+        return address(lp) != address(0) && lp.isLaunchToken(token);
+    }
 
     /**
      * @notice Set (or unset) the rollover escrow contract.
@@ -260,6 +303,25 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         if (config.treasuryAddress == address(0)) revert InvalidTreasuryAddress();
         if (bondSteps.length == 0) revert InvalidBondSteps();
 
+        // Every season names the ERC-20 its tickets are priced in. There is no
+        // protocol-wide default: the quote token is per-season so that each launched
+        // token can denominate its own seasons.
+        if (config.quoteToken == address(0)) revert InvalidQuoteToken();
+        if (!isAllowedQuoteToken(config.quoteToken)) revert QuoteTokenNotAllowed(config.quoteToken);
+
+        // Tickets are 0-decimal and every quote token is 18-decimal, so the whole
+        // pricing path only ever handles one decimal pair. Assert it at the boundary
+        // rather than teaching every downstream calculation to generalise.
+        // `decimals()` is in IERC20Metadata, not core ERC-20, so a token may omit it:
+        // reject that rather than assuming 18.
+        uint8 quoteDecimals;
+        try IERC20Metadata(config.quoteToken).decimals() returns (uint8 d) {
+            quoteDecimals = d;
+        } catch {
+            revert QuoteTokenDecimalsUnavailable(config.quoteToken);
+        }
+        if (quoteDecimals != 18) revert QuoteTokenDecimals(config.quoteToken, quoteDecimals);
+
         // Derive winnerCount from tier config if provided
         if (tierConfigs.length > 0) {
             uint16 totalWinners = 0;
@@ -359,7 +421,7 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         // Lock trading on curve
         SOFBondingCurve curve = SOFBondingCurve(seasons[seasonId].bondingCurve);
         curve.lockTrading();
-        seasonStates[seasonId].totalPrizePool = curve.getSofReserves();
+        seasonStates[seasonId].totalPrizePool = curve.getReserves();
         seasons[seasonId].isActive = false;
         seasonStates[seasonId].status = SeasonStatus.EndRequested;
         emit SeasonLocked(seasonId);
@@ -401,7 +463,7 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         // Lock trading on curve
         SOFBondingCurve curve = SOFBondingCurve(seasons[seasonId].bondingCurve);
         curve.lockTrading();
-        seasonStates[seasonId].totalPrizePool = curve.getSofReserves();
+        seasonStates[seasonId].totalPrizePool = curve.getReserves();
         seasons[seasonId].isActive = false;
         seasonStates[seasonId].status = SeasonStatus.EndRequested;
         emit SeasonLocked(seasonId);
@@ -506,7 +568,7 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
             // defaultBonusBps inside RolloverEscrow.openCohort; Raffle holds
             // DEFAULT_ADMIN_ROLE on the escrow (granted in 14_ConfigureRoles).
             if (address(rolloverEscrow) != address(0)) {
-                rolloverEscrow.openCohort(seasonId, 0);
+                rolloverEscrow.openCohort(seasonId, 0, cfg.quoteToken);
             }
             cfg.isCompleted = true;
             state.status = SeasonStatus.Completed;
@@ -534,9 +596,12 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         address curveAddr = cfg.bondingCurve;
         if (curveAddr == address(0)) revert InvalidAddress();
 
+        // The prize asset is the season's quote token — the same asset `extractReserves` below
+        // pulls out of the curve. These must agree: configuring one token and funding with
+        // another leaves the distributor holding an asset it will not pay out.
         IRafflePrizeDistributor(prizeDistributor).configureSeason(
             seasonId,
-            address(sofToken),
+            cfg.quoteToken,
             grandWinner,
             grandAmount,
             consolationAmount,
@@ -550,7 +615,7 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         // coordinator); touching N storage slots inline would OOG once N
         // exceeds ~1500 regardless of the limit chosen.
 
-        SOFBondingCurve(curveAddr).extractSof(prizeDistributor, totalPrizePool);
+        SOFBondingCurve(curveAddr).extractReserves(prizeDistributor, totalPrizePool);
 
         IRafflePrizeDistributor(prizeDistributor).fundSeason(seasonId, totalPrizePool);
 
@@ -562,7 +627,7 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         // 14_ConfigureRoles). Passing 0 falls through to defaultBonusBps
         // inside RolloverEscrow.openCohort.
         if (address(rolloverEscrow) != address(0)) {
-            rolloverEscrow.openCohort(seasonId, 0);
+            rolloverEscrow.openCohort(seasonId, 0, cfg.quoteToken);
         }
 
         cfg.isCompleted = true;

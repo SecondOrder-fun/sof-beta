@@ -7,7 +7,7 @@ import {DeployedAddresses} from "./DeployedAddresses.sol";
 import {HelperConfig} from "./HelperConfig.s.sol";
 
 import {DeployVRFMock} from "./00_DeployVRFMock.s.sol";
-import {DeploySOFToken} from "./01_DeploySOFToken.s.sol";
+import {DeployQuoteToken} from "./01_DeployQuoteToken.s.sol";
 import {DeployRaffle} from "./02_DeployRaffle.s.sol";
 import {DeploySeasonFactory} from "./03_DeploySeasonFactory.s.sol";
 import {DeployInfoFiOracle} from "./04_DeployInfoFiOracle.s.sol";
@@ -18,14 +18,16 @@ import {DeployMarketTypeRegistry} from "./08_DeployMarketTypeRegistry.s.sol";
 import {DeployInfoFiFactory} from "./09_DeployInfoFiFactory.s.sol";
 import {DeploySettlement} from "./10_DeploySettlement.s.sol";
 import {DeployDistributor} from "./11_DeployDistributor.s.sol";
-import {DeployFaucet} from "./12_DeployFaucet.s.sol";
 import {DeploySOFSmartAccountFactory} from "./13_DeploySOFSmartAccountFactory.s.sol";
 import {ConfigureRoles} from "./14_ConfigureRoles.s.sol";
 import {DeployPaymaster} from "./15_DeployPaymaster.s.sol";
 import {DeployRolloverEscrow} from "./16_DeployRolloverEscrow.s.sol";
 import {DeployUSDCMock} from "./17_DeployUSDCMock.s.sol";
-import {DeploySOFExchange} from "./18_DeploySOFExchange.s.sol";
 import {AddVRFConsumer} from "./19_AddVRFConsumer.s.sol";
+import {DeployPoolManager} from "./20_DeployPoolManager.s.sol";
+import {DeployTokenLaunchpad} from "./21_DeployTokenLaunchpad.s.sol";
+import {DeployLiquidityPlacer} from "./22_DeployLiquidityPlacer.s.sol";
+import {DeployLaunchRouter} from "./23_DeployLaunchRouter.s.sol";
 import {Raffle} from "../../src/core/Raffle.sol";
 import {RafflePrizeDistributor} from "../../src/core/RafflePrizeDistributor.sol";
 import {RolloverEscrow} from "../../src/core/RolloverEscrow.sol";
@@ -54,8 +56,8 @@ contract DeployAll is Script {
         }
 
         // --- 3. Deploy contracts in sequence ---
-        console2.log("=== 01: SOFToken ===");
-        addrs = new DeploySOFToken().run(addrs);
+        console2.log("=== 01: QuoteToken (placeholder) ===");
+        addrs = new DeployQuoteToken().run(addrs);
 
         console2.log("=== 02: Raffle ===");
         addrs = new DeployRaffle().run(addrs);
@@ -87,9 +89,6 @@ contract DeployAll is Script {
         console2.log("=== 11: RafflePrizeDistributor ===");
         addrs = new DeployDistributor().run(addrs);
 
-        console2.log("=== 12: SOFFaucet ===");
-        addrs = new DeployFaucet().run(addrs);
-
         console2.log("=== 13: SOFSmartAccountFactory ===");
         addrs = new DeploySOFSmartAccountFactory().run(addrs);
 
@@ -105,30 +104,20 @@ contract DeployAll is Script {
         console2.log("=== 17: USDCMock (local only) ===");
         addrs = new DeployUSDCMock().run(addrs);
 
-        console2.log("=== 18: SOFExchange ===");
-        addrs = new DeploySOFExchange().run(addrs);
-
         // --- 18b: Late-bound paymaster allowlist entries ---
-        // RolloverEscrow (step 16) and SOFExchange (step 18) deploy AFTER the
-        // paymaster (step 15), so 15_DeployPaymaster.s.sol cannot include them
-        // in the constructor's initialAllowlist. Wire them in now via
-        // setAllowlisted (deployer holds ADMIN_ROLE from the paymaster ctor).
-        // Combined with 15_DeployPaymaster's initialAllowlist (7 targets
-        // including RafflePrizeDistributor), this brings the static
-        // allowlist to 9 targets total. The defensive prizeDistributor
+        // RolloverEscrow (step 16) deploys AFTER the paymaster (step 15), so
+        // 15_DeployPaymaster.s.sol cannot include it in the constructor's
+        // initialAllowlist. Wire it in now via setAllowlisted (deployer holds
+        // ADMIN_ROLE from the paymaster ctor). The defensive prizeDistributor
         // re-set below is a no-op on fresh deploys but heals paymasters
         // deployed before the constructor allowlist included it.
-        console2.log("=== 18b: Wire late paymaster allowlist (RolloverEscrow, SOFExchange) ===");
+        console2.log("=== 18b: Wire late paymaster allowlist (RolloverEscrow) ===");
         {
             SOFPaymaster paymaster = SOFPaymaster(addrs.paymasterAddress);
             vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
             if (addrs.rolloverEscrow != address(0)) {
                 paymaster.setAllowlisted(addrs.rolloverEscrow, true);
                 console2.log("Allowlisted RolloverEscrow on Paymaster");
-            }
-            if (addrs.sofExchange != address(0)) {
-                paymaster.setAllowlisted(addrs.sofExchange, true);
-                console2.log("Allowlisted SOFExchange on Paymaster");
             }
             // Defensive: heal existing paymaster deployments that predate the
             // prizeDistributor allowlist entry (see 15_DeployPaymaster.s.sol).
@@ -183,24 +172,29 @@ contract DeployAll is Script {
             vm.stopBroadcast();
         }
 
-        // --- 16c: Treasury SOF approval for RolloverEscrow ---
-        // RolloverEscrow.spendFromRollover() pulls `bonusAmount` via
-        // safeTransferFrom(treasury, ...). If the deployer == treasury (always
-        // true on local Anvil), auto-grant max approval so rollover E2E works
-        // out of the box. On testnet/mainnet the treasury is usually a different
-        // wallet, so log a manual instruction instead.
+        // --- 16c: Treasury quote-token approval for RolloverEscrow ---
+        // RolloverEscrow.spendFromRollover() pulls `bonusAmount` in the cohort's
+        // own quote token via safeTransferFrom(treasury, ...), and a bonus is paid
+        // only if that approval (and balance) is there. This approves the
+        // platform default quote token only: seasons priced in a launch token need
+        // the treasury to approve that token too, or their bonus is skipped
+        // (BonusUnfunded). If the deployer == treasury (always true on local
+        // Anvil), auto-grant max approval so rollover E2E works out of the box. On
+        // testnet/mainnet the treasury is usually a different wallet, so log a
+        // manual instruction instead.
         {
             address deployer = vm.addr(vm.envUint("PRIVATE_KEY"));
             address treasury = vm.envAddress("TREASURY_ADDRESS");
             if (treasury == deployer) {
                 vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
-                IERC20(addrs.sofToken).approve(addrs.rolloverEscrow, type(uint256).max);
+                IERC20(addrs.quoteToken).approve(addrs.rolloverEscrow, type(uint256).max);
                 vm.stopBroadcast();
-                console2.log("Treasury auto-approved RolloverEscrow for SOF (deployer == treasury)");
+                console2.log("Treasury auto-approved RolloverEscrow for the quote token (deployer == treasury)");
             } else {
-                console2.log("IMPORTANT: Treasury must approve RolloverEscrow for SOF spending");
-                console2.log("  Run: sof.approve(", vm.toString(addrs.rolloverEscrow), ", type(uint256).max)");
-                console2.log("  From the treasury wallet");
+                console2.log("IMPORTANT: Treasury must approve RolloverEscrow to spend the quote token");
+                console2.log("  Run: <quoteToken>.approve(", vm.toString(addrs.rolloverEscrow), ", type(uint256).max)");
+                console2.log("  From the treasury wallet, for", vm.toString(addrs.quoteToken));
+                console2.log("  and again for each launch token whose seasons should pay a rollover bonus");
             }
         }
 
@@ -215,7 +209,46 @@ contract DeployAll is Script {
             addrs = new AddVRFConsumer().run(addrs);
         }
 
-        // --- 4. Write deployment JSON (merge with existing file) ---
+        // --- 20-22: Launchpad ---
+        // Independent of the raffle stack above: a launched token is a quote token a season
+        // may use, but nothing here depends on the launchpad existing. Deployed last so a
+        // chain without a Uniswap v4 deployment still gets everything else.
+        if (networkConfig.isLocal) {
+            console2.log("=== 20: PoolManager (local v4 singleton) ===");
+            addrs = new DeployPoolManager().run(addrs);
+        }
+
+        console2.log("=== 21: TokenLaunchpad ===");
+        addrs = new DeployTokenLaunchpad().run(addrs);
+
+        console2.log("=== 22: UniV4LiquidityPlacer (+ wire into launchpad) ===");
+        addrs = new DeployLiquidityPlacer().run(addrs);
+
+        console2.log("=== 23: UniV4LaunchRouter (+ set as launchpad.router) ===");
+        addrs = new DeployLaunchRouter().run(addrs);
+
+        // --- 4. Build the deployment JSON (reference only — nothing writes it;
+        //         see the note in _buildDeploymentJson) ---
+        _buildDeploymentJson(addrs, deploymentPath);
+        console2.log("Skipping in-script JSON write.");
+        console2.log("Run: node scripts/extract-deployment-addresses.js --network <network>");
+        console2.log("=== DeployAll complete ===");
+    }
+
+    /**
+     * @notice Builds the deployments/<network>.json payload from the in-memory addresses.
+     * @dev Kept for reference only — nothing writes the result. See the note at the call
+     *      site in run(): deployments/<network>.json is regenerated from the broadcast log
+     *      by scripts/extract-deployment-addresses.js, which is authoritative under --resume.
+     *      Lives in its own function so run() does not blow the Yul stack under via_ir.
+     * @param addrs The accumulated deployed addresses
+     * @param deploymentPath Path of the existing JSON file, read to preserve unmanaged keys
+     * @return The JSON document
+     */
+    function _buildDeploymentJson(DeployedAddresses memory addrs, string memory deploymentPath)
+        private
+        returns (string memory)
+    {
         string memory networkName;
         if (block.chainid == 31337) networkName = "local";
         else if (block.chainid == 84532) networkName = "base-sepolia";
@@ -223,7 +256,7 @@ contract DeployAll is Script {
         else networkName = "unknown";
 
         // Read existing file to preserve non-managed keys.
-        // Note: SOFExchange / USDC moved into the managed set in 0.25.0
+        // Note: USDC mock moved into the managed set in 0.25.0
         // (deploy steps 17-18; SOFAirdrop step 19 was deleted in the gasless
         // rewrite). SOFBondingCurve / SeasonGating / VRFCoordinator are still
         // hand-maintained for non-local deploys.
@@ -254,61 +287,38 @@ contract DeployAll is Script {
             }
         }
 
-        // Split JSON construction to avoid Yul stack-too-deep
-        string memory part1 = string.concat(
-            '{\n  "network": "', networkName, '",\n',
-            '  "chainId": ', vm.toString(block.chainid), ',\n',
-            '  "deployedAt": "', vm.toString(block.timestamp), '",\n',
-            '  "contracts": {\n',
-            '    "SOFToken": "', vm.toString(addrs.sofToken), '",\n',
-            '    "Raffle": "', vm.toString(addrs.raffle), '",\n',
-            '    "SeasonFactory": "', vm.toString(addrs.seasonFactory), '",\n'
-        );
-        string memory part2 = string.concat(
-            '    "InfoFiPriceOracle": "', vm.toString(addrs.infoFiOracle), '",\n',
-            '    "ConditionalTokens": "', vm.toString(addrs.conditionalTokens), '",\n',
-            '    "RaffleOracleAdapter": "', vm.toString(addrs.oracleAdapter), '",\n',
-            '    "InfoFiFPMM": "', vm.toString(addrs.fpmmManager), '",\n',
-            '    "MarketTypeRegistry": "', vm.toString(addrs.marketTypeRegistry), '",\n',
-            '    "InfoFiFactory": "', vm.toString(addrs.infoFiFactory), '",\n'
-        );
-        string memory part3 = string.concat(
-            '    "InfoFiSettlement": "', vm.toString(addrs.infoFiSettlement), '",\n',
-            '    "PrizeDistributor": "', vm.toString(addrs.prizeDistributor), '",\n',
-            '    "SOFFaucet": "', vm.toString(addrs.faucet), '",\n',
-            '    "SOFSmartAccountFactory": "', vm.toString(addrs.sofSmartAccountFactory), '",\n',
-            '    "Paymaster": "', vm.toString(addrs.paymasterAddress), '",\n',
-            '    "RolloverEscrow": "', vm.toString(addrs.rolloverEscrow), '",\n'
-        );
-        string memory part4 = string.concat(
-            // Newly managed addresses (0.25.0). USDC may be address(0) on
-            // non-local until HelperConfig grows a per-network USDC field.
-            '    "SOFExchange": "', vm.toString(addrs.sofExchange), '",\n',
-            '    "USDC": "', vm.toString(addrs.usdc), '"',
-            preservedSection,
-            '\n  }\n}'
-        );
-        string memory json = string.concat(part1, part2, part3, part4);
+        // Built one field at a time: a few big string.concat() calls keep too many
+        // live memory pointers for via_ir's stack.
+        string memory json = string.concat('{\n  "network": "', networkName, '",\n');
+        json = string.concat(json, '  "chainId": ', vm.toString(block.chainid), ',\n');
+        json = string.concat(json, '  "deployedAt": "', vm.toString(block.timestamp), '",\n');
+        json = string.concat(json, '  "contracts": {\n');
+        json = string.concat(json, '    "QuoteToken": "', vm.toString(addrs.quoteToken), '",\n');
+        json = string.concat(json, '    "Raffle": "', vm.toString(addrs.raffle), '",\n');
+        json = string.concat(json, '    "SeasonFactory": "', vm.toString(addrs.seasonFactory), '",\n');
+        json = string.concat(json, '    "InfoFiPriceOracle": "', vm.toString(addrs.infoFiOracle), '",\n');
+        json = string.concat(json, '    "ConditionalTokens": "', vm.toString(addrs.conditionalTokens), '",\n');
+        json = string.concat(json, '    "RaffleOracleAdapter": "', vm.toString(addrs.oracleAdapter), '",\n');
+        json = string.concat(json, '    "InfoFiFPMM": "', vm.toString(addrs.fpmmManager), '",\n');
+        json = string.concat(json, '    "MarketTypeRegistry": "', vm.toString(addrs.marketTypeRegistry), '",\n');
+        json = string.concat(json, '    "InfoFiFactory": "', vm.toString(addrs.infoFiFactory), '",\n');
+        json = string.concat(json, '    "InfoFiSettlement": "', vm.toString(addrs.infoFiSettlement), '",\n');
+        json = string.concat(json, '    "PrizeDistributor": "', vm.toString(addrs.prizeDistributor), '",\n');
+        json = string.concat(json, '    "SOFSmartAccountFactory": "', vm.toString(addrs.sofSmartAccountFactory), '",\n');
+        json = string.concat(json, '    "Paymaster": "', vm.toString(addrs.paymasterAddress), '",\n');
+        json = string.concat(json, '    "RolloverEscrow": "', vm.toString(addrs.rolloverEscrow), '",\n');
+        // Newly managed addresses (0.25.0). USDC may be address(0) on
+        // non-local until HelperConfig grows a per-network USDC field.
+        json = string.concat(json, '    "USDC": "', vm.toString(addrs.usdc), '",\n');
+        // Launchpad (0.35.0). PoolManager is the v4 singleton — locally deployed, elsewhere
+        // supplied; LiquidityPlacer is address(0) on a chain where v4 is not deployed.
+        json = string.concat(json, '    "PoolManager": "', vm.toString(addrs.poolManager), '",\n');
+        json = string.concat(json, '    "TokenLaunchpad": "', vm.toString(addrs.tokenLaunchpad), '",\n');
+        json = string.concat(json, '    "LiquidityPlacer": "', vm.toString(addrs.liquidityPlacer), '",\n');
+        json = string.concat(json, '    "LaunchPoolGate": "', vm.toString(addrs.launchPoolGate), '",\n');
+        json = string.concat(json, '    "LaunchRouter": "', vm.toString(addrs.launchRouter), '"');
+        json = string.concat(json, preservedSection, "\n  }\n}");
 
-        // NOTE: Disabled. Use scripts/extract-deployment-addresses.js instead —
-        // run it after every `forge script ... --broadcast` (or --resume) to
-        // regenerate deployments/<network>.json from the broadcast log.
-        //
-        // Why: this in-script writer reads addresses from the in-memory `addrs`
-        // struct, which gets corrupted when --resume is used to recover from
-        // a partial broadcast. The struct ends up mixing real addresses (for
-        // newly-broadcast slots) with simulator-predicted addresses (for
-        // already-broadcast slots), and on the 2026-05-02 redeploy the slots
-        // ended up shifted such that "Raffle" pointed at InfoFiPriceOracle's
-        // address. The broadcast log doesn't have this problem because each
-        // entry is forge's authoritative record of the actual deployed address.
-        //
-        // Keeping the JSON-building code above for reference, but the file
-        // write is gone — single source of truth via the JS extractor.
-        // vm.writeFile(deploymentPath, json);
-        json; // silence unused-local-warning
-        console2.log("Skipping in-script JSON write.");
-        console2.log("Run: node scripts/extract-deployment-addresses.js --network <network>");
-        console2.log("=== DeployAll complete ===");
+        return json;
     }
 }

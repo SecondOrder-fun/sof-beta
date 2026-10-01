@@ -106,7 +106,19 @@ After pushing, sanity-check the affected endpoint with a curl probe (`/api/airdr
 
 ## PR Preview Pairing
 
-Both Vercel (frontend) and Railway (backend) previews must be up, or neither. The `.github/workflows/pr-preview.yml` workflow orchestrates this automatically. Never deploy one without the other.
+Both Vercel (frontend) and Railway (backend) previews must be up, or neither, **on any PR that gets a preview**. The `.github/workflows/pr-preview-pairing.yml` workflow orchestrates this automatically. Never deploy one without the other.
+
+**Preview builds are opt-in, by commit marker.** Vercel builds a preview only when the commit message contains `[preview]`; production always builds (`packages/frontend/scripts/vercel-ignore-build.sh`, wired as `ignoreCommand` in `packages/frontend/vercel.json`). The pairing workflow applies the same marker, so it pairs only PRs whose head commit carries it.
+
+## Stacked PRs
+
+Large work lands as a stack: each PR is based on the one below, bottom PR against `main`. To keep a stack to one Vercel build on submission:
+
+- Tag the **top** commit of the stack `[preview]` when it is submitted — that is the one paired preview.
+- Tag a commit mid-stack only when you want a test build of it (e.g. a layout change).
+- Everything else is pushed untagged and skipped.
+
+Only the top of a stack is paired. A lower PR that touches the backend may still get a Railway PR environment (Railway creates one regardless); it stays unpaired, and that is expected — not a violation of the pairing rule above.
 
 ## Authentication Context
 

@@ -25,7 +25,7 @@ vi.mock("wagmi", () => ({
 
 vi.mock("@/config/contracts", () => ({
   getContractAddresses: () => ({
-    SOF: "0x2222222222222222222222222222222222222222",
+    QUOTE_TOKEN: "0x2222222222222222222222222222222222222222",
   }),
 }));
 

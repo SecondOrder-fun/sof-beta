@@ -113,9 +113,9 @@ const CreateSeasonForm = ({ createSeason, chainTimeQuery, activeSection = "all" 
     let cancelled = false;
     async function loadDecimals() {
       try {
-        if (!addresses.SOF || !publicClient) return;
+        if (!addresses.QUOTE_TOKEN || !publicClient) return;
         const dec = await publicClient.readContract({
-          address: addresses.SOF,
+          address: addresses.QUOTE_TOKEN,
           abi: ERC20Abi,
           functionName: "decimals",
         });
@@ -128,7 +128,7 @@ const CreateSeasonForm = ({ createSeason, chainTimeQuery, activeSection = "all" 
     return () => {
       cancelled = true;
     };
-  }, [addresses.SOF, publicClient]);
+  }, [addresses.QUOTE_TOKEN, publicClient]);
 
   // Set initial start time if not set (Now + 5 minutes)
   useEffect(() => {

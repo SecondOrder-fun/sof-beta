@@ -20,16 +20,16 @@ export function updateSofMetadataCache({ address, decimals, symbol }) {
   sofMetadataCache.updatedAt = Date.now();
 }
 
-// SOFToken ERC20 metadata. The address comes from the deployment JSON; the
+// Quote-token ERC20 metadata. The address comes from the deployment JSON; the
 // decimals/symbol are read from the chain once and cached. Safe to call
 // multiple times — only refreshes if the cache is empty.
 export async function fetchSofMetadata({ publicClient, network, logger }) {
   if (sofMetadataCache.decimals != null) return sofMetadataCache;
 
   const deployment = getDeployment(network);
-  const address = deployment?.SOFToken;
+  const address = deployment?.QuoteToken;
   if (!address) {
-    throw new Error(`SOFToken address missing from deployment ${network}`);
+    throw new Error(`QuoteToken address missing from deployment ${network}`);
   }
 
   const erc20Abi = [

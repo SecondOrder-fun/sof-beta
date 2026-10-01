@@ -76,13 +76,15 @@ import MarketsIndex, {
 } from "./routes/MarketsIndex";
 import UsersIndex from "./routes/UsersIndex";
 import UserProfile from "./routes/UserProfile";
-import GetSof from "./routes/GetSof";
 import Guides from "./routes/Guides";
 import FAQ from "./routes/FAQ";
 import TermsOfService from "./routes/TermsOfService";
 import PrivacyPolicy from "./routes/PrivacyPolicy";
 import Disclaimer from "./routes/Disclaimer";
 import CreateSeasonPage from "./routes/CreateSeasonPage";
+import Launch from "./routes/Launch";
+import TokensIndex from "./routes/TokensIndex";
+import TokenDetail from "./routes/TokenDetail";
 import LocalizationAdmin from "./routes/LocalizationAdmin";
 import InfoFiMarketDetail from "./pages/InfoFiMarketDetail";
 // Dev-only: UI Gym component showcase (tree-shaken in production)
@@ -170,12 +172,20 @@ const router = createBrowserRouter([
         element: <CreateSeasonPage />,
       },
       {
-        path: "portfolio",
-        element: <AccountPage />,
+        path: "launch",
+        element: <Launch />,
       },
       {
-        path: "get-sof",
-        element: <GetSof />,
+        path: "tokens",
+        element: <TokensIndex />,
+      },
+      {
+        path: "tokens/:address",
+        element: <TokenDetail />,
+      },
+      {
+        path: "portfolio",
+        element: <AccountPage />,
       },
       {
         path: "guides",

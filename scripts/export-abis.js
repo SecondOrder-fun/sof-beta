@@ -44,10 +44,8 @@ const CONTRACTS_TO_EXPORT = [
   { source: 'InfoFiFPMMV2.sol/SOLPToken.json', name: 'SOLPToken' },
   { source: 'ConditionalTokenSOF.sol/ConditionalTokenSOF.json', name: 'ConditionalTokenSOF' },
 
-  // Bonding Curve & Tokens
+  // Bonding Curve
   { source: 'SOFBondingCurve.sol/SOFBondingCurve.json', name: 'SOFBondingCurve' },
-  { source: 'SOFToken.sol/SOFToken.json', name: 'SOFToken' },
-  { source: 'SOFFaucet.sol/SOFFaucet.json', name: 'SOFFaucet' },
 
   // Season Management
   { source: 'SeasonFactory.sol/SeasonFactory.json', name: 'SeasonFactory' },
@@ -63,7 +61,6 @@ const CONTRACTS_TO_EXPORT = [
 
   // Exchange (SOFAirdrop deleted in the gasless rewrite — backend relayer
   // does direct transfers now per spec §5.3)
-  { source: 'SOFExchange.sol/SOFExchange.json', name: 'SOFExchange' },
 
   // ERC-4337 account abstraction (gasless rewrite)
   { source: 'SOFSmartAccount.sol/SOFSmartAccount.json', name: 'SOFSmartAccount' },
@@ -72,6 +69,19 @@ const CONTRACTS_TO_EXPORT = [
 
   // Rollover Incentives
   { source: 'RolloverEscrow.sol/RolloverEscrow.json', name: 'RolloverEscrow' },
+
+  // Token Launchpad.
+  { source: 'TokenLaunchpad.sol/TokenLaunchpad.json', name: 'TokenLaunchpad' },
+  { source: 'LaunchToken.sol/LaunchToken.json', name: 'LaunchToken' },
+  // Read-only from clients: getPlacement() gives a pool's tick range, which is what
+  // turns a price into "supply sold" and caps a quote at the edge of the position.
+  { source: 'UniV4LiquidityPlacer.sol/UniV4LiquidityPlacer.json', name: 'UniV4LiquidityPlacer' },
+  // Uniswap v4's singleton. Clients use only extsload(), to read a pool's slot0 and
+  // liquidity for pricing and quotes — there is no quoter contract in the stack.
+  { source: 'PoolManager.sol/PoolManager.json', name: 'PoolManager' },
+  // Clients trade through the INTERFACE, never an implementation's ABI: the active router
+  // is read from TokenLaunchpad.router(), so swapping implementations needs no client change.
+  { source: 'ILaunchRouter.sol/ILaunchRouter.json', name: 'ILaunchRouter' },
 ];
 
 async function exportAbis() {

@@ -63,8 +63,8 @@ contract MockSOFOC {
 // Harness: re-use the same pattern from RaffleFinalizeSeason.t.sol
 // ---------------------------------------------------------------------------
 contract RaffleFinalizeHarnessOC is Raffle {
-    constructor(address sof, address coord, uint64 subId, bytes32 keyHash)
-        Raffle(sof, coord, subId, keyHash)
+    constructor(address coord, uint64 subId, bytes32 keyHash)
+        Raffle(coord, subId, keyHash)
     {}
 
     function testSetVrfState(uint256 seasonId, uint256 requestId, uint256[] calldata words) external {
@@ -79,7 +79,7 @@ contract RaffleFinalizeHarnessOC is Raffle {
     /// tests can exercise _executeFinalization's normal (non-early-exit) branch.
     function testRequestSeasonEnd(uint256 seasonId, uint256 requestId) external {
         SOFBondingCurve(seasons[seasonId].bondingCurve).lockTrading();
-        seasonStates[seasonId].totalPrizePool = SOFBondingCurve(seasons[seasonId].bondingCurve).getSofReserves();
+        seasonStates[seasonId].totalPrizePool = SOFBondingCurve(seasons[seasonId].bondingCurve).getReserves();
         seasons[seasonId].isActive = false;
         seasonStates[seasonId].status = SeasonStatus.VRFPending;
         seasonStates[seasonId].vrfRequestTimestamp = block.timestamp;
@@ -107,7 +107,8 @@ contract RaffleOpenCohortIntegrationTest is Test {
         sof.mint(player2, 10000 ether);
 
         address mockCoordinator = address(0xCAFE);
-        raffle = new RaffleFinalizeHarnessOC(address(sof), mockCoordinator, 0, bytes32(0));
+        raffle = new RaffleFinalizeHarnessOC(mockCoordinator, 0, bytes32(0));
+        raffle.setQuoteTokenAllowed(address(sof), true);
 
         factory = new SeasonFactory(address(raffle));
         raffle.setSeasonFactory(address(factory));
@@ -118,7 +119,7 @@ contract RaffleOpenCohortIntegrationTest is Test {
         raffle.setPrizeDistributor(address(distributor));
 
         // Deploy RolloverEscrow: constructor(address sof, address treasury, address raffle)
-        escrow = new RolloverEscrow(address(sof), treasury, address(raffle));
+        escrow = new RolloverEscrow(treasury, address(raffle));
 
         // Grant DEFAULT_ADMIN_ROLE on escrow to raffle so it can call openCohort
         escrow.grantRole(escrow.DEFAULT_ADMIN_ROLE(), address(raffle));
@@ -145,6 +146,7 @@ contract RaffleOpenCohortIntegrationTest is Test {
         cfg.winnerCount = 2;
         cfg.grandPrizeBps = 6500;
         cfg.treasuryAddress = treasury;
+        cfg.quoteToken = address(sof);
         seasonId = raffle.createSeason(cfg, _steps(), 50, 70);
         (RaffleTypes.SeasonConfig memory out,,,,) = raffle.getSeasonDetails(seasonId);
         SOFBondingCurve curve = SOFBondingCurve(out.bondingCurve);
@@ -216,6 +218,7 @@ contract RaffleOpenCohortIntegrationTest is Test {
         cfg.winnerCount = 2;
         cfg.grandPrizeBps = 6500;
         cfg.treasuryAddress = treasury;
+        cfg.quoteToken = address(sof);
         uint256 seasonId = raffle.createSeason(cfg, _steps(), 50, 70);
         (RaffleTypes.SeasonConfig memory out,,,,) = raffle.getSeasonDetails(seasonId);
         SOFBondingCurve curve = SOFBondingCurve(out.bondingCurve);

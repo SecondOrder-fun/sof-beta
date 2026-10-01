@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import {AccessControl} from "openzeppelin-contracts/contracts/access/AccessControl.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import {RaffleTypes} from "../lib/RaffleTypes.sol";
 import {RaffleOracleAdapter} from "./RaffleOracleAdapter.sol";
@@ -18,7 +19,7 @@ import {MarketTypeRegistry} from "./MarketTypeRegistry.sol";
  * - Replaced CSMM with SimpleFPMM (x * y = k invariant)
  * - Integrated Gnosis Conditional Token Framework via interfaces
  * - Added RaffleOracleAdapter for VRF-based resolution
- * - Automatic 100 SOF liquidity provision per market from treasury
+ * - Automatic seeding per market from treasury, sized by seedAmountFor(token)
  * - SOLP token rewards for liquidity providers
  * - 2% trading fee (100% to protocol treasury initially)
  *
@@ -28,6 +29,11 @@ import {MarketTypeRegistry} from "./MarketTypeRegistry.sol";
  * - Defensive approval pattern for token compatibility
  * - Structured event logging with contextual data
  * - Full NatSpec documentation
+ *
+ * V4 Changes (Per-Season Quote Token):
+ * - Market collateral is the season's own RaffleTypes.SeasonConfig.quoteToken,
+ *   read from the raffle per seasonId. The factory holds no protocol-wide token.
+ * - The treasury must hold and approve the quote token of every season it seeds.
  *
  * V3 Changes (Registry Pattern):
  * - Integrated MarketTypeRegistry for dynamic market type management
@@ -55,13 +61,61 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
     IInfoFiPriceOracleMinimal public immutable oracle;
     RaffleOracleAdapter public immutable oracleAdapter;
     InfoFiFPMMV2 public immutable fpmmManager;
-    IERC20 public immutable sofToken;
     MarketTypeRegistry public marketTypeRegistry;
 
     address public treasury;
 
     uint256 public constant THRESHOLD_BPS = 100;
-    uint256 public constant INITIAL_LIQUIDITY = 100e18;
+    /// @notice Default seed size per market, in WHOLE quote tokens (not wei).
+    /// @dev Configurable, because the right number is an empirical question. Seeding is
+    ///      denominated in the quote token and InfoFi pricing is a constant 1 QUOTE per
+    ///      YES/NO pair, so no USD conversion — and therefore no price oracle — is
+    ///      involved anywhere in this path.
+    ///
+    ///      What the seed actually controls is SLIPPAGE PER TRADE, not the number of
+    ///      trades (which is unbounded). For a 2-outcome FPMM with L per side, the
+    ///      average price of buying x is (L+x)/(2L+x), starting from 0.5000 at x->0.
+    ///      At L=100: a 1-token trade pays 0.5% slippage, 5 tokens 2.4%, 10 tokens 4.8%.
+    ///      See scripts/analysis/fpmm-seed-slippage.py for the full table.
+    uint256 public defaultSeedWhole = 100;
+
+    /// @notice Per-token override of the seed size, in WHOLE tokens. Zero = use default.
+    /// @dev Exists so a token whose sane seed differs (an unusually cheap or expensive
+    ///      one) can be tuned without moving every other market.
+    mapping(address => uint256) public seedWholeOverride;
+
+    /// @notice Emitted when the default seed size changes.
+    event DefaultSeedWholeUpdated(uint256 previous, uint256 current);
+
+    /// @notice Emitted when a token's seed override changes. Zero means "use default".
+    event SeedWholeOverrideUpdated(address indexed token, uint256 previous, uint256 current);
+
+    /// @notice Set the default seed size, in whole quote tokens.
+    function setDefaultSeedWhole(uint256 wholeTokens) external onlyRole(ADMIN_ROLE) {
+        if (wholeTokens == 0) revert InvalidSeedSize();
+        emit DefaultSeedWholeUpdated(defaultSeedWhole, wholeTokens);
+        defaultSeedWhole = wholeTokens;
+    }
+
+    /// @notice Override the seed size for one token. Pass 0 to fall back to the default.
+    function setSeedWholeOverride(address token, uint256 wholeTokens) external onlyRole(ADMIN_ROLE) {
+        if (token == address(0)) revert InvalidAddress();
+        emit SeedWholeOverrideUpdated(token, seedWholeOverride[token], wholeTokens);
+        seedWholeOverride[token] = wholeTokens;
+    }
+
+    /// @notice Seed amount for a market collateralised in `token`, in that token's units.
+    /// @dev Falls back to 18 decimals when the token does not expose `decimals()`,
+    ///      which matches what the old constant assumed.
+    function seedAmountFor(address token) public view returns (uint256) {
+        uint8 dec = 18;
+        try IERC20Metadata(token).decimals() returns (uint8 d) {
+            dec = d;
+        } catch {}
+        uint256 whole = seedWholeOverride[token];
+        if (whole == 0) whole = defaultSeedWhole;
+        return whole * (10 ** uint256(dec));
+    }
     bytes32 public constant WINNER_PREDICTION = keccak256("WINNER_PREDICTION");
 
     mapping(uint256 => mapping(address => bool)) public marketCreated;
@@ -72,6 +126,11 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
     // High-priority robustness improvements
     mapping(uint256 => mapping(address => MarketCreationStatus)) public marketStatus;
     mapping(uint256 => mapping(address => string)) public marketFailureReason;
+
+    /// @dev seasonId => its quote token, once read. A season's quote token is fixed at
+    ///      creation, and `getSeasonDetails` returns the whole config (name string
+    ///      included), too costly to decode on every position update.
+    mapping(uint256 => address) private _seasonQuoteTokenCache;
 
     // ============ EVENTS ============
 
@@ -99,8 +158,8 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
     /// @notice Emitted when market type registry is updated
     event MarketTypeRegistryUpdated(address indexed oldRegistry, address indexed newRegistry);
 
-    /// @notice Emitted when treasury balance is low
-    event TreasuryLow(uint256 currentBalance, uint256 requiredPerMarket);
+    /// @notice Emitted when the treasury balance of a season's quote token is low
+    event TreasuryLow(address indexed quoteToken, uint256 currentBalance, uint256 requiredPerMarket);
 
     /// @notice Emitted when market creation status changes
     event MarketStatusChanged(
@@ -146,16 +205,21 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
     /// @notice Thrown when caller is not authorized
     error UnauthorizedCaller();
 
+    /// @notice Thrown when a season has no quote token to collateralise its markets with
+    error QuoteTokenNotSet(uint256 seasonId);
+    error InvalidSeedSize();
+
     // ============ CONSTRUCTOR ============
 
     /**
      * @notice Initializes the InfoFi Market Factory with all required dependencies
      * @dev All addresses are validated to prevent zero-address initialization
+     * @dev No collateral token is configured here: each market is seeded in the
+     *      quote token of its own season, read from the raffle at creation time
      * @param _raffle Address of the Raffle contract (must have RAFFLE_ROLE)
      * @param _oracle Address of the InfoFi Price Oracle
      * @param _oracleAdapter Address of the Raffle Oracle Adapter
      * @param _fpmmManager Address of the FPMM Manager contract
-     * @param _sofToken Address of the SOF token contract
      * @param _marketTypeRegistry Address of the Market Type Registry
      * @param _treasury Address of the treasury (receives TREASURY_ROLE)
      * @param _admin Address of the admin (receives ADMIN_ROLE)
@@ -165,7 +229,6 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
         address _oracle,
         address _oracleAdapter,
         address _fpmmManager,
-        address _sofToken,
         address _marketTypeRegistry,
         address _treasury,
         address _admin
@@ -174,7 +237,6 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
         if (_oracle == address(0)) revert InvalidAddress();
         if (_oracleAdapter == address(0)) revert InvalidAddress();
         if (_fpmmManager == address(0)) revert InvalidAddress();
-        if (_sofToken == address(0)) revert InvalidAddress();
         if (_marketTypeRegistry == address(0)) revert InvalidAddress();
         if (_treasury == address(0)) revert InvalidAddress();
         if (_admin == address(0)) revert InvalidAddress();
@@ -183,7 +245,6 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
         oracle = IInfoFiPriceOracleMinimal(_oracle);
         oracleAdapter = RaffleOracleAdapter(_oracleAdapter);
         fpmmManager = InfoFiFPMMV2(_fpmmManager);
-        sofToken = IERC20(_sofToken);
         marketTypeRegistry = MarketTypeRegistry(_marketTypeRegistry);
         treasury = _treasury;
 
@@ -210,7 +271,8 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
      * @notice Called by Backend Paymaster Service when a participant's position changes
      * @dev This function is now called via gasless transaction sponsored by Base Paymaster
      * @dev Automatically creates InfoFi markets when player crosses 1% threshold
-     * @dev Monitors treasury balance and emits warning if depleted
+     * @dev Monitors the treasury balance of this season's quote token and emits a
+     *      warning if depleted
      * @param seasonId The season identifier
      * @param player The player address whose position changed
      * @param oldTickets The player's previous ticket count
@@ -235,10 +297,14 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
         // EMIT PROBABILITY UPDATE EVENT
         emit ProbabilityUpdated(seasonId, player, oldBps, newBps);
 
-        // MONITOR TREASURY BALANCE
-        uint256 treasuryBalance = sofToken.balanceOf(treasury);
-        if (treasuryBalance < INITIAL_LIQUIDITY * 10) {
-            emit TreasuryLow(treasuryBalance, INITIAL_LIQUIDITY);
+        // MONITOR TREASURY BALANCE OF THIS SEASON'S QUOTE TOKEN
+        address quoteToken = _seasonQuoteTokenOrZero(seasonId);
+        if (quoteToken != address(0)) {
+            uint256 treasuryBalance = IERC20(quoteToken).balanceOf(treasury);
+            uint256 seed = seedAmountFor(quoteToken);
+            if (treasuryBalance < seed * 10) {
+                emit TreasuryLow(quoteToken, treasuryBalance, seed);
+            }
         }
 
         // CREATE MARKET IF THRESHOLD CROSSED
@@ -257,8 +323,17 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
         // DETERMINE MARKET TYPE
         bytes32 marketType = WINNER_PREDICTION;
 
-        // CHECK TREASURY BALANCE BEFORE ATTEMPTING CREATION
-        if (sofToken.balanceOf(treasury) < INITIAL_LIQUIDITY) {
+        // RESOLVE THIS SEASON'S COLLATERAL BEFORE ATTEMPTING CREATION
+        address quoteToken = _seasonQuoteTokenOrZero(seasonId);
+        if (quoteToken == address(0)) {
+            marketStatus[seasonId][player] = MarketCreationStatus.Failed;
+            marketFailureReason[seasonId][player] = "Season quote token not set";
+            emit MarketCreationFailed(seasonId, player, marketType, "Season quote token not set");
+            return;
+        }
+
+        // CHECK TREASURY BALANCE OF THAT TOKEN BEFORE ATTEMPTING CREATION
+        if (IERC20(quoteToken).balanceOf(treasury) < seedAmountFor(quoteToken)) {
             marketStatus[seasonId][player] = MarketCreationStatus.Failed;
             marketFailureReason[seasonId][player] = "Insufficient treasury balance";
             emit MarketCreationFailed(seasonId, player, marketType, "Insufficient treasury balance");
@@ -315,7 +390,8 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
         if (errorSelector == MarketCreationInternalFailed.selector) return "MarketCreationInternalFailed";
         if (errorSelector == UnauthorizedCaller.selector) return "UnauthorizedCaller";
 
-        // Check for InvalidMarketType (has parameter)
+        // Errors carrying a parameter
+        if (errorSelector == QuoteTokenNotSet.selector) return "QuoteTokenNotSet";
         if (errorSelector == InvalidMarketType.selector) {
             if (data.length >= 36) {
                 return "InvalidMarketType";
@@ -369,6 +445,8 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
      * @notice Executes the market creation pipeline for a player
      * @dev External so it can be called via try/catch from _createMarket.
      *      Guarded by msg.sender == address(this) to prevent external abuse.
+     * @dev Seeds the market with seedAmountFor(quoteToken) of the season's quote token,
+     *      pulled from the treasury. Reverts if the season has no quote token.
      * @param seasonId The season identifier
      * @param player The player address
      * @param marketType The type of market to create (validated against registry)
@@ -383,8 +461,13 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
             revert InvalidMarketType(marketType);
         }
 
+        // RESOLVE COLLATERAL: this season's quote token, not a protocol-wide token
+        IERC20 quoteToken = _seasonQuoteToken(seasonId);
+        // Scaled to the token's own decimals; see seedAmountFor.
+        uint256 seed = seedAmountFor(address(quoteToken));
+
         // PRECONDITION CHECKS (before any state changes)
-        require(sofToken.balanceOf(treasury) >= INITIAL_LIQUIDITY, "Insufficient treasury");
+        require(quoteToken.balanceOf(treasury) >= seed, "Insufficient treasury");
         require(!marketCreated[seasonId][player], "Market already created");
 
         // STEP 1: PREPARE CONDITION (or reuse if already prepared)
@@ -411,29 +494,29 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
         oldStatus = marketStatus[seasonId][player];
 
         // Check treasury allowance first
-        uint256 treasuryAllowance = sofToken.allowance(treasury, address(this));
+        uint256 treasuryAllowance = quoteToken.allowance(treasury, address(this));
         require(
-            treasuryAllowance >= INITIAL_LIQUIDITY,
+            treasuryAllowance >= seed,
             string(
                 abi.encodePacked(
                     "Treasury allowance insufficient: has ",
                     _uint2str(treasuryAllowance),
                     " needs ",
-                    _uint2str(INITIAL_LIQUIDITY)
+                    _uint2str(seed)
                 )
             )
         );
 
         // Check treasury balance
-        uint256 treasuryBalance = sofToken.balanceOf(treasury);
+        uint256 treasuryBalance = quoteToken.balanceOf(treasury);
         require(
-            treasuryBalance >= INITIAL_LIQUIDITY,
+            treasuryBalance >= seed,
             string(
                 abi.encodePacked(
                     "Treasury balance insufficient: has ",
                     _uint2str(treasuryBalance),
                     " needs ",
-                    _uint2str(INITIAL_LIQUIDITY)
+                    _uint2str(seed)
                 )
             )
         );
@@ -443,18 +526,19 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
             seasonId, player, oldStatus, MarketCreationStatus.LiquidityTransferred, "Starting liquidity transfer"
         );
 
-        bool transferSuccess = sofToken.transferFrom(treasury, address(this), INITIAL_LIQUIDITY);
+        bool transferSuccess = quoteToken.transferFrom(treasury, address(this), seed);
         require(transferSuccess, "Treasury transfer failed - transferFrom returned false");
 
         // STEP 3: APPROVE AND CREATE MARKET
         // Use defensive approval pattern: reset to 0 first, then approve exact amount
-        uint256 currentAllowance = sofToken.allowance(address(this), address(fpmmManager));
+        uint256 currentAllowance = quoteToken.allowance(address(this), address(fpmmManager));
         if (currentAllowance > 0) {
-            require(sofToken.approve(address(fpmmManager), 0), "Approval reset failed");
+            require(quoteToken.approve(address(fpmmManager), 0), "Approval reset failed");
         }
-        require(sofToken.approve(address(fpmmManager), INITIAL_LIQUIDITY), "Approval failed");
+        require(quoteToken.approve(address(fpmmManager), seed), "Approval failed");
 
-        (address fpmm,) = fpmmManager.createMarket(seasonId, player, conditionId, probabilityBps);
+        (address fpmm,) =
+            fpmmManager.createMarket(seasonId, player, conditionId, probabilityBps, address(quoteToken), seed);
 
         // STEP 4: SET ALL STATE AT END
         marketCreated[seasonId][player] = true;
@@ -581,6 +665,49 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
         created = marketCreated[seasonId][player];
         conditionId = playerConditions[seasonId][player];
         fpmmAddress = playerMarkets[seasonId][player];
+    }
+
+    /**
+     * @notice Returns the token a season's markets are collateralised in
+     * @dev This is the season's own quote token, read from the raffle. Returns the
+     *      zero address for a season that does not exist or has no quote token.
+     * @param seasonId The season identifier
+     * @return The season's quote token address
+     */
+    function getSeasonQuoteToken(uint256 seasonId) external view returns (address) {
+        address cached = _seasonQuoteTokenCache[seasonId];
+        return cached != address(0) ? cached : _readSeasonQuoteToken(seasonId);
+    }
+
+    /**
+     * @notice A season's quote token without reverting, cached after the first read
+     * @dev Only a non-zero token is cached, so a season read before it exists is read
+     *      again next time rather than pinned to zero.
+     * @param seasonId The season identifier
+     * @return token The season's quote token, or the zero address if it has none
+     */
+    function _seasonQuoteTokenOrZero(uint256 seasonId) internal returns (address token) {
+        token = _seasonQuoteTokenCache[seasonId];
+        if (token != address(0)) return token;
+        token = _readSeasonQuoteToken(seasonId);
+        if (token != address(0)) _seasonQuoteTokenCache[seasonId] = token;
+    }
+
+    /// @dev The uncached read from the raffle.
+    function _readSeasonQuoteToken(uint256 seasonId) internal view returns (address) {
+        (RaffleTypes.SeasonConfig memory config,,,,) = raffle.getSeasonDetails(seasonId);
+        return config.quoteToken;
+    }
+
+    /**
+     * @notice Reads a season's quote token, reverting if it has none
+     * @param seasonId The season identifier
+     * @return The season's quote token as an IERC20
+     */
+    function _seasonQuoteToken(uint256 seasonId) internal returns (IERC20) {
+        address quoteToken = _seasonQuoteTokenOrZero(seasonId);
+        if (quoteToken == address(0)) revert QuoteTokenNotSet(seasonId);
+        return IERC20(quoteToken);
     }
 
     /**

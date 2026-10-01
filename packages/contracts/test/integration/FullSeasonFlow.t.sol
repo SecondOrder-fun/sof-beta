@@ -7,20 +7,20 @@ import {RaffleStorage} from "../../src/core/RaffleStorage.sol";
 import {SeasonFactory} from "../../src/core/SeasonFactory.sol";
 import {RafflePrizeDistributor} from "../../src/core/RafflePrizeDistributor.sol";
 import {SOFBondingCurve} from "../../src/curve/SOFBondingCurve.sol";
-import {SOFToken} from "../../src/token/SOFToken.sol";
+import {MockERC20} from "../../src/test-helpers/MockERC20.sol";
 import {RaffleTypes} from "../../src/lib/RaffleTypes.sol";
 
 // Harness that exposes internal VRF fulfillment for testing
 contract RaffleTestHarness is Raffle {
-    constructor(address sof, address coord, uint256 subId, bytes32 keyHash)
-        Raffle(sof, coord, subId, keyHash)
+    constructor(address coord, uint256 subId, bytes32 keyHash)
+        Raffle(coord, subId, keyHash)
     {}
 
     /// @notice Simulate requestSeasonEnd by locking trading and setting VRFPending
     function testRequestSeasonEnd(uint256 seasonId, uint256 requestId) external {
         SOFBondingCurve(seasons[seasonId].bondingCurve).lockTrading();
         seasonStates[seasonId].totalPrizePool =
-            SOFBondingCurve(seasons[seasonId].bondingCurve).getSofReserves();
+            SOFBondingCurve(seasons[seasonId].bondingCurve).getReserves();
         seasons[seasonId].isActive = false;
         seasonStates[seasonId].status = SeasonStatus.VRFPending;
         seasonStates[seasonId].vrfRequestTimestamp = block.timestamp;
@@ -41,7 +41,7 @@ contract FullSeasonFlowTest is Test {
     // Core contracts
     RaffleTestHarness public raffle;
     SeasonFactory public seasonFactory;
-    SOFToken public sof;
+    MockERC20 public sof;
     RafflePrizeDistributor public distributor;
 
     // Test addresses
@@ -63,16 +63,15 @@ contract FullSeasonFlowTest is Test {
         treasury = address(0xFEE);
 
         // Deploy SOF token (name, symbol, initialSupply)
-        sof = new SOFToken("SecondOrder Fun Token", "SOF", 1_000_000 * 10 ** 18);
+        sof = new MockERC20("SecondOrder Fun Token", "SOF", 1_000_000 * 10 ** 18);
 
         // Deploy Raffle harness with mock VRF coordinator
         address mockCoordinator = address(0xCAFE);
-        raffle = new RaffleTestHarness(
-            address(sof),
-            mockCoordinator,
+        raffle = new RaffleTestHarness(mockCoordinator,
             1, // subscriptionId
             bytes32(0) // keyHash
         );
+        raffle.setQuoteTokenAllowed(address(sof), true);
 
         // Deploy SeasonFactory (needs raffle address)
         seasonFactory = new SeasonFactory(address(raffle));
@@ -107,6 +106,7 @@ contract FullSeasonFlowTest is Test {
         config.winnerCount = 3;
         config.grandPrizeBps = 6500; // 65%
         config.treasuryAddress = treasury;
+        config.quoteToken = address(sof);
 
         seasonId = raffle.createSeason(config, steps, 50, 70); // 0.5% buy fee, 0.7% sell fee
 
@@ -252,7 +252,7 @@ contract FullSeasonFlowTest is Test {
         vm.stopPrank();
 
         // Verify SOF reserves accumulated in curve
-        uint256 reserves = curve.getSofReserves();
+        uint256 reserves = curve.getReserves();
         assertTrue(reserves > 0, "Curve should hold SOF reserves");
     }
 }

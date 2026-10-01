@@ -7,14 +7,14 @@ import {SeasonFactory} from "../src/core/SeasonFactory.sol";
 import {RafflePrizeDistributor} from "../src/core/RafflePrizeDistributor.sol";
 import {RolloverEscrow} from "../src/core/RolloverEscrow.sol";
 import {SOFBondingCurve} from "../src/curve/SOFBondingCurve.sol";
-import {SOFToken} from "../src/token/SOFToken.sol";
+import {MockERC20} from "../src/test-helpers/MockERC20.sol";
 import {RaffleTypes} from "../src/lib/RaffleTypes.sol";
 
 /// @notice Verifies SeasonFactory auto-grants ESCROW_ROLE to the configured RolloverEscrow
 ///         on every newly-deployed bonding curve. Covers the gap where rollover spends
 ///         would revert on fresh seasons because nobody had a public path to grant the role.
 contract SeasonFactoryRolloverTest is Test {
-    SOFToken public sof;
+    MockERC20 public sof;
     Raffle public raffle;
     SeasonFactory public seasonFactory;
     RafflePrizeDistributor public distributor;
@@ -24,8 +24,9 @@ contract SeasonFactoryRolloverTest is Test {
     address public treasury = address(0xFEE);
 
     function setUp() public {
-        sof = new SOFToken("SecondOrder Fun Token", "SOF", 1_000_000 ether);
-        raffle = new Raffle(address(sof), address(0xCAFE), 1, bytes32(0));
+        sof = new MockERC20("SecondOrder Fun Token", "SOF", 1_000_000 ether);
+        raffle = new Raffle(address(0xCAFE), 1, bytes32(0));
+        raffle.setQuoteTokenAllowed(address(sof), true);
         seasonFactory = new SeasonFactory(address(raffle));
         raffle.setSeasonFactory(address(seasonFactory));
         raffle.grantRole(raffle.SEASON_FACTORY_ROLE(), address(seasonFactory));
@@ -34,7 +35,7 @@ contract SeasonFactoryRolloverTest is Test {
         distributor.grantRole(distributor.RAFFLE_ROLE(), address(raffle));
         raffle.setPrizeDistributor(address(distributor));
 
-        escrow = new RolloverEscrow(address(sof), treasury, address(raffle));
+        escrow = new RolloverEscrow(treasury, address(raffle));
     }
 
     function _createSeason() internal returns (uint256 id, SOFBondingCurve curve) {
@@ -48,6 +49,7 @@ contract SeasonFactoryRolloverTest is Test {
         cfg.winnerCount = 1;
         cfg.grandPrizeBps = 6500;
         cfg.treasuryAddress = treasury;
+        cfg.quoteToken = address(sof);
 
         id = raffle.createSeason(cfg, steps, 0, 0);
         (RaffleTypes.SeasonConfig memory deployed,,,,) = raffle.getSeasonDetails(id);
