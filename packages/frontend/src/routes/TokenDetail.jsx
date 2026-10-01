@@ -164,7 +164,15 @@ const TokenDetail = () => {
 
         <aside className="space-y-4 lg:sticky lg:top-4">
           {compact ? null : panel}
-          <CreatorFeesCard token={launch.token} name={launch.name} symbol={launch.symbol} market={market} />
+          {/* Keyed: the route stays mounted across /tokens/:address changes, and the
+              card's claimed / handed-on state belongs to one token. */}
+          <CreatorFeesCard
+            key={launch.token}
+            token={launch.token}
+            name={launch.name}
+            symbol={launch.symbol}
+            market={market}
+          />
           <RaffleCard token={launch.token} symbol={launch.symbol} market={market} />
           <Card>
             <CardHeader className="pb-2">

@@ -24,7 +24,8 @@ const GONE = getAddress("0xdddd00000000000000000000000000000000dddd");
 const E = 10n ** 18n;
 const lc = (a) => a.toLowerCase();
 
-vi.mock("@/hooks/useRaffleAccount", () => ({ useRaffleAccount: () => ({ eoa: SMA, sma: SMA }) }));
+const accounts = { current: { eoa: SMA, sma: SMA } };
+vi.mock("@/hooks/useRaffleAccount", () => ({ useRaffleAccount: () => accounts.current }));
 
 const created = { current: [] };
 vi.mock("@/hooks/useLaunchActivity", () => ({
@@ -69,6 +70,7 @@ const setup = () =>
 
 describe("CreatorFeesSection", () => {
   beforeEach(() => {
+    accounts.current = { eoa: SMA, sma: SMA };
     created.current = [
       meta(POND, "Frog Pond", "POND"),
       meta(LAMP, "Night Lamp", "LAMP"),
@@ -181,6 +183,19 @@ describe("CreatorFeesSection", () => {
       ["collectFees", POND],
       ["claimToken", POND, SMA],
     ]);
+  });
+
+  it("names no single address when Claim all ETH pays both accounts", async () => {
+    const EOA = getAddress("0x6666666666666666666666666666666666666666");
+    accounts.current = { eoa: EOA, sma: SMA };
+    fees.current.placers[lc(PLACER)].claimableEth = { [lc(SMA)]: E / 2n, [lc(EOA)]: E / 4n };
+    setup();
+    fireEvent.click(screen.getByRole("button", { name: "creatorFees.profile.claimAllEth" }));
+    await waitFor(() => expect(write.send).toHaveBeenCalled());
+    const [[batches]] = write.send.mock.calls;
+    expect(batches.map((b) => b.sender.account)).toEqual([SMA, EOA]);
+    const status = await screen.findByRole("status");
+    expect(within(status).getByText("creatorFees.claimedBodyAccounts")).toBeInTheDocument();
   });
 
   it("disables Claim all ETH with no ETH to claim", () => {

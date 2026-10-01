@@ -4,7 +4,8 @@
 // setFeeRecipient). Composed from Dialog, Label, Input and Button. The address
 // is checked as the contract would check it (lib/creatorFees.validateNewRecipient)
 // before Transfer is enabled, and the error shows once the field has been left
-// or submitted, not while the address is still being typed.
+// or submitted, not while the address is still being typed. The dialog can't be
+// closed while the transfer is in flight.
 
 import { useState } from "react";
 import PropTypes from "prop-types";
@@ -33,6 +34,8 @@ const TransferFeesDialog = ({ open, onOpenChange, name, currentRecipient, onTran
   const showProblem = touched && value.trim() !== "" && problem;
 
   const close = (next) => {
+    // Stays open while the transfer is in flight, so its outcome is shown here.
+    if (!next && isPending) return;
     if (!next) {
       setValue("");
       setTouched(false);
@@ -86,7 +89,7 @@ const TransferFeesDialog = ({ open, onOpenChange, name, currentRecipient, onTran
             </p>
           ) : null}
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => close(false)}>
+            <Button type="button" variant="outline" disabled={isPending} onClick={() => close(false)}>
               {t("creatorFees.transferDialog.cancel")}
             </Button>
             <Button type="submit" disabled={Boolean(problem) || isPending}>

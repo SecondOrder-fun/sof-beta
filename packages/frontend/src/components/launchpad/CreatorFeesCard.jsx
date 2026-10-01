@@ -93,7 +93,9 @@ export const ClaimedStatus = ({ title, address, hash }) => {
         {title}
       </p>
       <p className="text-sm text-muted-foreground">
-        {t("creatorFees.claimedBody", { address: shortAddress(address) })}
+        {address
+          ? t("creatorFees.claimedBody", { address: shortAddress(address) })
+          : t("creatorFees.claimedBodyAccounts")}
       </p>
       {url ? (
         <a href={url} target="_blank" rel="noopener noreferrer" className="text-sm">
@@ -106,7 +108,8 @@ export const ClaimedStatus = ({ title, address, hash }) => {
 
 ClaimedStatus.propTypes = {
   title: PropTypes.string.isRequired,
-  address: PropTypes.string.isRequired,
+  /** Where the claim was paid; null when it went to both of the user's accounts. */
+  address: PropTypes.string,
   hash: PropTypes.string,
 };
 
@@ -260,6 +263,9 @@ const CreatorFeesCard = ({ token, name, symbol, market }) => {
             type="button"
             variant="outline"
             size="sm"
+            // Not while a transfer is in flight: reset() would detach it and
+            // re-enable submit, letting a second setFeeRecipient go out.
+            disabled={transfer.isPending}
             onClick={() => {
               transfer.reset();
               setDialogOpen(true);

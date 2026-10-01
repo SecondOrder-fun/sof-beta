@@ -262,6 +262,20 @@ describe("CreatorFeesCard", () => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
 
+    it("can't be closed, or opened again, while a transfer is in flight", () => {
+      setFees();
+      const { rerender } = setup();
+      openDialog();
+      write.isPending = true;
+      rerender(<CreatorFeesCard token={TOKEN} name="Frog Pond" symbol="POND" market={market} />);
+
+      expect(screen.getByRole("button", { name: "creatorFees.transferDialog.cancel" })).toBeDisabled();
+      fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      // The card's own Transfer button is disabled too, so reset() can't detach it.
+      expect(screen.getByRole("button", { name: "creatorFees.transfer", hidden: true })).toBeDisabled();
+    });
+
     it("cancels without sending", () => {
       setFees();
       setup();

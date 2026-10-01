@@ -77,7 +77,9 @@ const CreatorFeesSection = () => {
     setClaimed(null);
     try {
       const hash = await write.send(batches);
-      setClaimed({ ...result, hash, to: batches[batches.length - 1].sender.account });
+      // Each batch pays its own sender; name the address only when there is one.
+      const senders = new Set(batches.map((b) => b.sender.account.toLowerCase()));
+      setClaimed({ ...result, hash, to: senders.size === 1 ? batches[0].sender.account : null });
     } catch {
       // Surfaced from write.error below.
     } finally {
