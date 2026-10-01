@@ -7,7 +7,6 @@
 
 import crypto from "node:crypto";
 import process from "node:process";
-import { verifyMessage } from "viem";
 import { createClient as createQuickAuthClient } from "@farcaster/quick-auth";
 import { redisClient } from "../../shared/redisClient.js";
 import { AuthService } from "../../shared/auth.js";
@@ -134,7 +133,11 @@ export default async function authRoutes(fastify) {
 
       let isValid;
       try {
-        isValid = await verifyMessage({ address, message, signature });
+        // publicClient.verifyMessage, not viem's standalone verifyMessage: it
+        // also checks smart-wallet signatures (ERC-1271 for deployed accounts,
+        // ERC-6492 for counterfactual ones, e.g. Coinbase Smart Wallet), which
+        // plain ECDSA recovery rejects.
+        isValid = await publicClient.verifyMessage({ address, message, signature });
       } catch (err) {
         fastify.log.error({ err }, "Signature verification error");
         return reply.code(401).send({ error: "Signature verification failed" });
