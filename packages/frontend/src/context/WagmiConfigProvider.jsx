@@ -5,7 +5,6 @@ import {
   WagmiProvider,
   useAccount,
   useChainId,
-  useConnect,
   useSwitchChain,
 } from "wagmi";
 import { getChainConfig, getStoredNetworkKey } from "@/lib/wagmi";
@@ -13,50 +12,6 @@ import { config, initialNetworkKey } from "@/lib/wagmiConfig";
 
 // Re-export config for backwards compatibility with existing imports
 export { config } from "@/lib/wagmiConfig";
-
-/**
- * Auto-connect component for Farcaster/Base App
- * Automatically connects using the Farcaster connector when in a MiniApp context
- */
-const FarcasterAutoConnect = () => {
-  const { connect, connectors } = useConnect();
-  const [hasAttempted, setHasAttempted] = useState(false);
-
-  useEffect(() => {
-    if (hasAttempted) return;
-
-    const autoConnect = async () => {
-      try {
-        // Dynamically import SDK to check if we're in Farcaster
-        const { sdk } = await import("@farcaster/miniapp-sdk");
-        const ctx = await sdk.context;
-
-        if (ctx) {
-          // We're in a Farcaster client - find and use the Farcaster connector
-          const farcasterConnector = connectors.find((c) => {
-            const id = typeof c?.id === "string" ? c.id.toLowerCase() : "";
-            const name =
-              typeof c?.name === "string" ? c.name.toLowerCase() : "";
-            return id.includes("farcaster") || name.includes("farcaster");
-          });
-          if (farcasterConnector) {
-            connect({ connector: farcasterConnector });
-          }
-          // Signal Mini App is ready to prevent stuck loading screen
-          // Per dTech docs: must call ready() after context detection
-          sdk.actions.ready();
-        }
-      } catch {
-        // Not in Farcaster client - no auto-connect
-      }
-      setHasAttempted(true);
-    };
-
-    autoConnect();
-  }, [connect, connectors, hasAttempted]);
-
-  return null;
-};
 
 const EnsureActiveChain = () => {
   const { isConnected } = useAccount();
@@ -121,7 +76,6 @@ export const WagmiConfigProvider = ({ children }) => {
 
   return (
     <WagmiProvider config={config}>
-      <FarcasterAutoConnect />
       <EnsureActiveChain />
       {children}
     </WagmiProvider>

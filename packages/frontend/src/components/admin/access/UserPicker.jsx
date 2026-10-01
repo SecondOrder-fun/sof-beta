@@ -8,21 +8,13 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL;
 const MAX_VISIBLE = 20;
 
 const WALLET_RE = /^0x[a-fA-F0-9]{40}$/;
-const FID_RE = /^\d+$/;
 
 function freeTextOption(trimmed) {
   if (WALLET_RE.test(trimmed)) {
     return {
       kind: "wallet",
       label: `Use ${trimmed.slice(0, 6)}…${trimmed.slice(-4)}`,
-      payload: { source: "freeText", fid: null, wallet: trimmed },
-    };
-  }
-  if (FID_RE.test(trimmed)) {
-    return {
-      kind: "fid",
-      label: `Use FID ${trimmed}`,
-      payload: { source: "freeText", fid: Number(trimmed), wallet: null },
+      payload: { source: "freeText", wallet: trimmed },
     };
   }
   return null;
@@ -45,22 +37,16 @@ function truncateWallet(addr) {
 function rankMatch(entry, q) {
   const username = entry.username?.toLowerCase() ?? "";
   const wallet = entry.wallet_address?.toLowerCase() ?? "";
-  const fidStr = entry.fid != null ? String(entry.fid) : "";
 
   if (username === q) return 0;
-  if (fidStr === q) return 1;
-  if (wallet.startsWith(q.toLowerCase())) return 2;
-  if (
-    username.includes(q) ||
-    fidStr.startsWith(q) ||
-    wallet.includes(q.toLowerCase())
-  ) return 3;
+  if (wallet.startsWith(q.toLowerCase())) return 1;
+  if (username.includes(q) || wallet.includes(q.toLowerCase())) return 2;
   return -1;
 }
 
 const UserPicker = forwardRef(function UserPicker(
   {
-    placeholder = "@username, FID, or 0x…",
+    placeholder = "@username or 0x…",
     onSelect,
     disabled = false,
     autoFocus = false,
@@ -99,7 +85,8 @@ const UserPicker = forwardRef(function UserPicker(
   const matches = useMemo(() => {
     const q = inputValue.trim().toLowerCase();
     if (!q) return [];
-    const all = entriesQuery.data?.entries ?? [];
+    // Access is wallet-only: entries without a wallet can't be selected.
+    const all = (entriesQuery.data?.entries ?? []).filter((e) => e.wallet_address);
     const scored = all
       .map((e) => ({ entry: e, rank: rankMatch(e, q) }))
       .filter((x) => x.rank >= 0);
@@ -115,13 +102,11 @@ const UserPicker = forwardRef(function UserPicker(
   const options = visible.length > 0
     ? visible.map((entry) => ({
         kind: "match",
-        key: entry.fid ?? entry.wallet_address,
+        key: entry.wallet_address,
         payload: {
           source: "match",
-          fid: entry.fid ?? null,
-          wallet: entry.wallet_address ?? null,
+          wallet: entry.wallet_address,
           username: entry.username ?? null,
-          pfpUrl: entry.pfpUrl ?? null,
         },
         entry,
       }))
@@ -187,7 +172,7 @@ const UserPicker = forwardRef(function UserPicker(
         >
           {entriesQuery.isError && (
             <li className="px-3 py-2 text-xs text-destructive border-b">
-              Couldn&apos;t load users — type a full FID or 0x address
+              Couldn&apos;t load users — type a full 0x address
             </li>
           )}
           {options.map((opt, idx) => (
@@ -207,13 +192,6 @@ const UserPicker = forwardRef(function UserPicker(
             >
               {opt.kind === "match" ? (
                 <>
-                  {opt.entry.pfpUrl && (
-                    <img
-                      src={opt.entry.pfpUrl}
-                      alt=""
-                      className="w-4 h-4 rounded-full"
-                    />
-                  )}
                   <span className="flex-1">
                     {opt.entry.username
                       ? `@${opt.entry.username}`
@@ -222,11 +200,6 @@ const UserPicker = forwardRef(function UserPicker(
                   {opt.entry.username && opt.entry.wallet_address && (
                     <span className="font-mono text-xs text-muted-foreground">
                       {truncateWallet(opt.entry.wallet_address)}
-                    </span>
-                  )}
-                  {opt.entry.fid && (
-                    <span className="text-xs text-muted-foreground">
-                      FID:{opt.entry.fid}
                     </span>
                   )}
                 </>

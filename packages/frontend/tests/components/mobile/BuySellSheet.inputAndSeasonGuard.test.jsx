@@ -79,7 +79,7 @@ vi.mock("@/lib/contractErrors", () => ({
 
 import BuySellSheet from "@/components/mobile/BuySellSheet.jsx";
 
-describe("BuySellSheet (mobile/Farcaster) input + season guard", () => {
+describe("BuySellSheet (mobile) input + season guard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

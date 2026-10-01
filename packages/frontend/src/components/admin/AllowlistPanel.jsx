@@ -30,11 +30,8 @@ import {
   Clock,
   Plus,
   Trash2,
-  RefreshCw,
-  Download,
   CheckCircle,
   XCircle,
-  AlertCircle,
 } from "lucide-react";
 import { useAppAuth } from "@/hooks/useAppAuth";
 
@@ -75,14 +72,14 @@ async function fetchEntries(activeOnly = true, authHeaders = {}) {
 /**
  * Add to allowlist
  */
-async function addToAllowlist({ fid, wallet, authHeaders = {} }) {
+async function addToAllowlist({ wallet, authHeaders = {} }) {
   const res = await fetch(`${getApiBase()}/add`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...authHeaders,
     },
-    body: JSON.stringify(fid ? { fid } : { wallet }),
+    body: JSON.stringify({ wallet }),
   });
   if (!res.ok) {
     const data = await res.json();
@@ -94,14 +91,14 @@ async function addToAllowlist({ fid, wallet, authHeaders = {} }) {
 /**
  * Remove from allowlist
  */
-async function removeFromAllowlist({ fid, authHeaders = {} }) {
+async function removeFromAllowlist({ wallet, authHeaders = {} }) {
   const res = await fetch(`${getApiBase()}/remove`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...authHeaders,
     },
-    body: JSON.stringify({ fid }),
+    body: JSON.stringify({ wallet }),
   });
   if (!res.ok) {
     const data = await res.json();
@@ -126,30 +123,6 @@ async function updateConfig({ windowStart, windowEnd, maxEntries, authHeaders = 
     const data = await res.json();
     throw new Error(data.error || "Failed to update config");
   }
-  return res.json();
-}
-
-/**
- * Retry pending wallet resolutions
- */
-async function retryResolutions(authHeaders = {}) {
-  const res = await fetch(`${getApiBase()}/retry-resolutions`, {
-    method: "POST",
-    headers: authHeaders,
-  });
-  if (!res.ok) throw new Error("Failed to retry resolutions");
-  return res.json();
-}
-
-/**
- * Import from notification tokens
- */
-async function importFromNotifications(authHeaders = {}) {
-  const res = await fetch(`${getApiBase()}/import-from-notifications`, {
-    method: "POST",
-    headers: authHeaders,
-  });
-  if (!res.ok) throw new Error("Failed to import");
   return res.json();
 }
 
@@ -201,25 +174,7 @@ export default function AllowlistPanel() {
   });
 
   const removeMutation = useMutation({
-    mutationFn: (fid) => removeFromAllowlist({ fid, authHeaders: getAuthHeaders() }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["allowlist-stats"] });
-      queryClient.invalidateQueries({ queryKey: ["allowlist-entries"] });
-      queryClient.invalidateQueries({ queryKey: ["allowlist-entries-picker"] });
-    },
-  });
-
-  const retryMutation = useMutation({
-    mutationFn: () => retryResolutions(getAuthHeaders()),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["allowlist-stats"] });
-      queryClient.invalidateQueries({ queryKey: ["allowlist-entries"] });
-      queryClient.invalidateQueries({ queryKey: ["allowlist-entries-picker"] });
-    },
-  });
-
-  const importMutation = useMutation({
-    mutationFn: () => importFromNotifications(getAuthHeaders()),
+    mutationFn: (wallet) => removeFromAllowlist({ wallet, authHeaders: getAuthHeaders() }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["allowlist-stats"] });
       queryClient.invalidateQueries({ queryKey: ["allowlist-entries"] });
@@ -239,13 +194,10 @@ export default function AllowlistPanel() {
     const input = addInput.trim();
     if (!input) return;
 
-    // Check if it's a wallet address or FID
     if (input.match(/^0x[a-fA-F0-9]{40}$/)) {
       addMutation.mutate({ wallet: input });
-    } else if (/^\d+$/.test(input)) {
-      addMutation.mutate({ fid: parseInt(input, 10) });
     } else {
-      alert("Enter a valid FID (number) or wallet address (0x...)");
+      alert("Enter a valid wallet address (0x...)");
     }
   };
 
@@ -274,12 +226,15 @@ export default function AllowlistPanel() {
   };
 
   const stats = statsQuery.data || {};
-  const entries = entriesQuery.data?.entries || [];
+  // Access is wallet-only: entries without a wallet are not listed.
+  const entries = (entriesQuery.data?.entries || []).filter(
+    (entry) => entry.wallet_address,
+  );
 
   return (
     <div className="space-y-6">
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-2">
@@ -299,22 +254,6 @@ export default function AllowlistPanel() {
               <div>
                 <p className="text-2xl font-bold">{stats.withWallet || 0}</p>
                 <p className="text-xs text-muted-foreground">With Wallet</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-muted-foreground" />
-              <div>
-                <p className="text-2xl font-bold">
-                  {stats.pendingResolution || 0}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Pending Resolution
-                </p>
               </div>
             </div>
           </CardContent>
@@ -346,13 +285,13 @@ export default function AllowlistPanel() {
           <CardHeader>
             <CardTitle className="text-lg">Add to Allowlist</CardTitle>
             <CardDescription>
-              Add a user by FID or wallet address (bypasses time gate)
+              Add a user by wallet address (bypasses time gate)
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex gap-2">
               <Input
-                placeholder="FID (e.g., 12345) or wallet (0x...)"
+                placeholder="Wallet (0x...)"
                 value={addInput}
                 onChange={(e) => setAddInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleAdd()}
@@ -455,38 +394,6 @@ export default function AllowlistPanel() {
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
           <Button
-            variant="outline"
-            size="sm"
-            onClick={() => retryMutation.mutate()}
-            disabled={retryMutation.isPending || stats.pendingResolution === 0}
-          >
-            <RefreshCw
-              className={`h-4 w-4 mr-1 ${
-                retryMutation.isPending ? "animate-spin" : ""
-              }`}
-            />
-            Retry Wallet Resolution ({stats.pendingResolution || 0})
-          </Button>
-
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              if (
-                confirm(
-                  "Import all users from notification tokens to allowlist?",
-                )
-              ) {
-                importMutation.mutate();
-              }
-            }}
-            disabled={importMutation.isPending}
-          >
-            <Download className="h-4 w-4 mr-1" />
-            Import from Notifications
-          </Button>
-
-          <Button
             variant="ghost"
             size="sm"
             onClick={() => setShowInactive(!showInactive)}
@@ -494,14 +401,6 @@ export default function AllowlistPanel() {
             {showInactive ? "Hide Inactive" : "Show Inactive"}
           </Button>
 
-          {(retryMutation.isSuccess || importMutation.isSuccess) && (
-            <span className="text-sm text-success self-center">
-              {retryMutation.isSuccess &&
-                `Resolved: ${retryMutation.data.resolved}, Failed: ${retryMutation.data.failed}`}
-              {importMutation.isSuccess &&
-                `Added: ${importMutation.data.added}, Skipped: ${importMutation.data.skipped}`}
-            </span>
-          )}
         </CardContent>
       </Card>
 
@@ -509,7 +408,7 @@ export default function AllowlistPanel() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">
-            Allowlist Entries ({entriesQuery.data?.count || 0})
+            Allowlist Entries ({entries.length})
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -524,7 +423,6 @@ export default function AllowlistPanel() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>FID</TableHead>
                     <TableHead>Username</TableHead>
                     <TableHead>Wallet</TableHead>
                     <TableHead>Source</TableHead>
@@ -536,38 +434,19 @@ export default function AllowlistPanel() {
                 <TableBody>
                   {entries.map((entry) => (
                     <TableRow key={entry.id}>
-                      <TableCell className="font-mono">{entry.fid}</TableCell>
                       <TableCell>
                         {entry.username ? (
-                          <a
-                            href={`https://warpcast.com/${entry.username}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-2 hover:underline text-muted-foreground hover:text-foreground"
-                          >
-                            {entry.pfpUrl && (
-                              <img
-                                src={entry.pfpUrl}
-                                alt={entry.username}
-                                className="w-6 h-6 rounded-full"
-                              />
-                            )}
-                            <span>@{entry.username}</span>
-                          </a>
+                          <span className="text-muted-foreground">
+                            @{entry.username}
+                          </span>
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}
                       </TableCell>
                       <TableCell className="font-mono">
-                        {entry.wallet_address ? (
-                          <span title={entry.wallet_address}>
-                            {truncateAddress(entry.wallet_address)}
-                          </span>
-                        ) : (
-                          <Badge variant="outline" className="text-warning">
-                            Pending
-                          </Badge>
-                        )}
+                        <span title={entry.wallet_address}>
+                          {truncateAddress(entry.wallet_address)}
+                        </span>
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">{entry.source}</Badge>
@@ -585,17 +464,17 @@ export default function AllowlistPanel() {
                         )}
                       </TableCell>
                       <TableCell>
-                        {entry.is_active && entry.fid > 0 && (
+                        {entry.is_active && (
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => {
                               if (
                                 confirm(
-                                  `Remove FID ${entry.fid} from allowlist?`,
+                                  `Remove ${entry.wallet_address} from allowlist?`,
                                 )
                               ) {
-                                removeMutation.mutate(entry.fid);
+                                removeMutation.mutate(entry.wallet_address);
                               }
                             }}
                             disabled={removeMutation.isPending}

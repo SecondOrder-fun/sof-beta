@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package",
   "name": "@sof/frontend",
-  "version": "0.53.1",
+  "version": "0.54.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -15,10 +15,6 @@
   },
   "dependencies": {
     "@base-org/account": "^2.4.2",
-    "@farcaster/auth-kit": "^0.8.2",
-    "@farcaster/miniapp-node": "^0.1.11",
-    "@farcaster/miniapp-sdk": "^0.2.1",
-    "@farcaster/miniapp-wagmi-connector": "^1.1.0",
     "@number-flow/react": "^0.5.10",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-avatar": "^1.1.11",

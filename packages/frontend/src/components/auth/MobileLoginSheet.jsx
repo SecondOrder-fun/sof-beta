@@ -27,11 +27,10 @@ const MobileLoginSheet = () => {
     if (!open) closeLoginModal();
   };
 
-  // Filter the Farcaster MiniApp connector + dedupe by id (see LoginModal).
+  // Dedupe connectors by id (see LoginModal).
   const walletConnectors = (() => {
     const seen = new Set();
     return connectors.filter((c) => {
-      if (c.id === "farcasterFrame" || c.type === "farcasterFrame") return false;
       if (seen.has(c.id)) return false;
       seen.add(c.id);
       return true;

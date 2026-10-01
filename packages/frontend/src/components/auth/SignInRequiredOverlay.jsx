@@ -26,7 +26,6 @@ import PropTypes from "prop-types";
 import { useTranslation } from "react-i18next";
 import { useAccount } from "wagmi";
 import { AppAuthContext } from "@/context/AppAuthContext";
-import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 
 export const SignInRequiredOverlay = ({ variant = "desktop" }) => {
   const { t } = useTranslation("auth");
@@ -37,17 +36,9 @@ export const SignInRequiredOverlay = ({ variant = "desktop" }) => {
   // throws "connection.connector.getChainId is not a function" — the same
   // failure mode AppAuthProvider's auto-fire effect guards against.
   const { address, status: walletStatus } = useAccount();
-  const { walletType } = useRaffleAccount();
 
   if (!ctx) return null;
   if (!address || walletStatus !== "connected") return null;
-  // Farcaster MiniApp users auto-sign-in via the WagmiConfigProvider
-  // FarcasterAutoConnect + AppAuthProvider.signIn({ method: 'farcaster' })
-  // path. Routing them through this overlay would call signIn() with the
-  // default method:'wallet' and send raw SIWE through the Farcaster
-  // connector, bypassing the intended SIWF flow. Mirrors AppAuthProvider's
-  // AUTO_FIRE_WALLET_TYPES exclusion.
-  if (walletType === "farcaster-miniapp") return null;
 
   const { status, error, signIn } = ctx;
   if (status === "authenticated") return null;

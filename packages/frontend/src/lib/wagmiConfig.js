@@ -4,7 +4,6 @@
 // while WagmiConfigProvider also imports hooks that need this config.
 
 import { createConfig } from "wagmi";
-import { farcasterMiniApp } from "@farcaster/miniapp-wagmi-connector";
 import { connectorsForWallets } from "@rainbow-me/rainbowkit";
 import {
   coinbaseWallet,
@@ -53,11 +52,13 @@ const rainbowWalletConnectors = walletProjectId
     )
   : [];
 
-// Create config with Farcaster auto-connect + RainbowKit wallets (with deep linking)
+// Create config with the RainbowKit wallets (with deep linking). Without a
+// WalletConnect project ID the list is empty and the login UI shows only the
+// browser wallets wagmi discovers via EIP-6963 (multiInjectedProviderDiscovery).
 // Used by WagmiProvider and imperative @wagmi/core actions (e.g. getBytecode).
 export const config = createConfig({
   chains: [activeChainConfig.chain],
-  connectors: [farcasterMiniApp(), ...rainbowWalletConnectors],
+  connectors: rainbowWalletConnectors,
   transports: {
     [activeChainConfig.chain.id]: activeChainConfig.transport,
   },

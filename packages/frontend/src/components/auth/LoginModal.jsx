@@ -28,15 +28,13 @@ const LoginModal = () => {
     if (!open) closeLoginModal();
   };
 
-  // Filter the Farcaster MiniApp connector (auto-connects in MiniApp context;
-  // never relevant in a browser sign-in list) and dedupe by id. RainbowKit
+  // Dedupe connectors by id. RainbowKit
   // emits multiple WalletConnect-backed connectors (rainbowWallet,
   // walletConnectWallet, ...) all sharing id="walletConnect"; without dedupe
   // they render as 2-3 indistinct "WalletConnect" rows with no icons.
   const walletConnectors = (() => {
     const seen = new Set();
     return connectors.filter((c) => {
-      if (c.id === "farcasterFrame" || c.type === "farcasterFrame") return false;
       if (seen.has(c.id)) return false;
       seen.add(c.id);
       return true;

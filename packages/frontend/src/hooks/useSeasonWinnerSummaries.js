@@ -7,7 +7,7 @@
 // the data is effectively cold — never re-fetched after first load.
 //
 // Usernames: resolved via a separate useWarmRead call that batch-fetches
-// Farcaster usernames from the backend index. Joined into the summaries
+// usernames from the backend index. Joined into the summaries
 // after both queries settle.
 //
 // Active seasons: this hook does not read active-season data — it only

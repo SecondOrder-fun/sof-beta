@@ -177,20 +177,20 @@ export function useAddUserToGroup({ getAuthHeaders } = {}) {
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
-    mutationFn: async ({ fid, wallet, groupSlug, expiresAt, grantedBy }) => {
+    mutationFn: async ({ wallet, groupSlug, expiresAt, grantedBy }) => {
       const authHeaders = getAuthHeaders?.() ?? {};
       const res = await fetch(`${API_BASE}/groups/assign`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({ fid, wallet, groupSlug, expiresAt, grantedBy }),
+        body: JSON.stringify({ wallet, groupSlug, expiresAt, grantedBy }),
       });
       if (!res.ok) throw new Error("Failed to add user to group");
       return res.json();
     },
     onSuccess: (_, variables) => {
-      if (variables.fid) {
+      if (variables.wallet) {
         queryClient.invalidateQueries({
-          queryKey: ["user-groups", variables.fid],
+          queryKey: ["user-groups", variables.wallet],
         });
       }
       queryClient.invalidateQueries({
@@ -216,20 +216,20 @@ export function useRemoveUserFromGroup({ getAuthHeaders } = {}) {
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
-    mutationFn: async ({ fid, wallet, groupSlug }) => {
+    mutationFn: async ({ wallet, groupSlug }) => {
       const authHeaders = getAuthHeaders?.() ?? {};
       const res = await fetch(`${API_BASE}/groups/remove`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({ fid, wallet, groupSlug }),
+        body: JSON.stringify({ wallet, groupSlug }),
       });
       if (!res.ok) throw new Error("Failed to remove user from group");
       return res.json();
     },
     onSuccess: (_, variables) => {
-      if (variables.fid) {
+      if (variables.wallet) {
         queryClient.invalidateQueries({
-          queryKey: ["user-groups", variables.fid],
+          queryKey: ["user-groups", variables.wallet],
         });
       }
       queryClient.invalidateQueries({
@@ -275,23 +275,25 @@ export function useGroupMembers(slug) {
 
 /**
  * Hook to get user's groups
- * @param {number} fid - Farcaster ID
+ * @param {string} wallet - Wallet address
  * @returns {{
  *   groups: object[],
  *   isLoading: boolean,
  *   isError: boolean
  * }}
  */
-export function useUserGroups(fid) {
+export function useUserGroups(wallet) {
   const query = useQuery({
-    queryKey: ["user-groups", fid],
+    queryKey: ["user-groups", wallet],
     queryFn: async () => {
-      const res = await fetch(`${API_BASE}/user-groups/${fid}`);
+      const res = await fetch(
+        `${API_BASE}/user-groups?wallet=${encodeURIComponent(wallet)}`,
+      );
       if (!res.ok) throw new Error("Failed to fetch user groups");
       const data = await res.json();
       return data.groups;
     },
-    enabled: !!fid,
+    enabled: !!wallet,
     staleTime: 30000,
   });
 

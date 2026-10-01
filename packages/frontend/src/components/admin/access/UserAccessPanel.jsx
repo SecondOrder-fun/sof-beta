@@ -57,8 +57,7 @@ export default function UserAccessPanel({ getAuthHeaders }) {
     queryFn: async () => {
       if (!lookupParams) return null;
       const params = new URLSearchParams();
-      if (lookupParams.fid) params.set("fid", lookupParams.fid);
-      if (lookupParams.wallet) params.set("wallet", lookupParams.wallet);
+      params.set("wallet", lookupParams.wallet);
       const res = await fetch(`${API_BASE}/check?${params}`, {
         headers: getAuthHeaders(),
       });
@@ -69,10 +68,8 @@ export default function UserAccessPanel({ getAuthHeaders }) {
   });
 
   const setAccessMutation = useMutation({
-    mutationFn: async ({ fid, wallet, accessLevel }) => {
-      const body = { accessLevel };
-      if (fid) body.fid = fid;
-      if (wallet) body.wallet = wallet;
+    mutationFn: async ({ wallet, accessLevel }) => {
+      const body = { accessLevel, wallet };
       const res = await fetch(`${API_BASE}/set-access-level`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
@@ -92,17 +89,15 @@ export default function UserAccessPanel({ getAuthHeaders }) {
 
   const handleSave = () => {
     const entry = lookupQuery.data?.entry;
-    const fid = entry?.fid || (lookupParams?.fid ? parseInt(lookupParams.fid, 10) : null);
     const wallet = entry?.wallet_address || lookupParams?.wallet || null;
 
-    if (!fid && !wallet) {
-      alert("Cannot update: no FID or wallet found for this user");
+    if (!wallet) {
+      alert("Cannot update: no wallet found for this user");
       return;
     }
 
     setAccessMutation.mutate({
-      fid: fid || undefined,
-      wallet: wallet || undefined,
+      wallet,
       accessLevel: parseInt(newAccessLevel, 10),
     });
   };
@@ -117,15 +112,13 @@ export default function UserAccessPanel({ getAuthHeaders }) {
           User Access Lookup
         </CardTitle>
         <CardDescription>
-          Look up a user by wallet address or FID and manage their access level
+          Look up a user by wallet address and manage their access level
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <UserPicker
-          placeholder="@username, FID, or 0x…"
-          onSelect={(r) =>
-            setLookupParams(r.fid ? { fid: String(r.fid) } : { wallet: r.wallet })
-          }
+          placeholder="@username or 0x…"
+          onSelect={(r) => setLookupParams({ wallet: r.wallet })}
           disabled={lookupQuery.isFetching}
         />
 
@@ -179,7 +172,6 @@ export default function UserAccessPanel({ getAuthHeaders }) {
 
             {userData.entry && (
               <div className="text-xs text-muted-foreground space-y-1 border-t pt-2">
-                {userData.entry.fid && <p>FID: {userData.entry.fid}</p>}
                 {userData.entry.wallet_address && (
                   <p>Wallet: {userData.entry.wallet_address}</p>
                 )}

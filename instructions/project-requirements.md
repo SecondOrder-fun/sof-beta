@@ -44,11 +44,12 @@ SecondOrder.fun transforms memecoins from chaotic, scam-prone infinite games int
 
 ## Authentication Flows
 
-| Context | Primary Auth | Farcaster |
-|---------|-------------|-----------|
-| Farcaster MiniApp | SIWF auto-login (Farcaster Auth Kit) | Native — user is already in Warpcast |
-| Base App | Coinbase Wallet login | Optional "Link Farcaster Account" |
-| Desktop browser | Wallet connect (RainbowKit) | Optional "Link Farcaster Account" |
+Wallet sign-in only: connect a wallet, then sign a one-time SIWE message.
+
+| Context | Primary Auth | Notes |
+|---------|-------------|-------|
+| Base App / Coinbase Smart Wallet | Coinbase Wallet login | Connected address is the smart account |
+| Desktop browser | Wallet connect (RainbowKit) | Gameplay routes through the deterministic smart account |
 
 ## Smart Contract System
 

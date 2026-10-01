@@ -29,10 +29,10 @@ export const UsernameProvider = ({ children }) => {
     if (isConnected && address && !isLoading && hasCheckedUsername) {
       // User has connected and we've checked for username
       if (!username) {
-        // If SIWF authenticated and backend synced a username, it will show up
-        // in the username query. If it didn't sync (incompatible name), suggest it.
+        // If the signed-in backend user carries a username the username
+        // query doesn't return (an incompatible name), suggest it.
         if (isBackendAuthenticated && backendUser?.username) {
-          // Sanitize Farcaster username as suggestion
+          // Sanitize it into the allowed username format
           const sanitized = backendUser.username.replace(/-/g, '_');
           if (/^[a-zA-Z0-9_]{3,20}$/.test(sanitized)) {
             setSuggestedUsername(sanitized);

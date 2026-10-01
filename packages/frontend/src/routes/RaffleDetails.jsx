@@ -322,7 +322,7 @@ const RaffleDetails = () => {
     setGateModalOpen(true);
   }, []);
 
-  // Mobile view for Farcaster Mini App and Base App
+  // Mobile view (phones, touch tablets)
   if (isMobile && seasonDetailsQuery.data?.config) {
     const cfg = seasonDetailsQuery.data.config;
     const totalPrizePool = curveReserves || 0n;

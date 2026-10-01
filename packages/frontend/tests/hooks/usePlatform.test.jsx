@@ -1,14 +1,9 @@
 // tests/hooks/usePlatform.test.jsx
-// isMobile is the layout switch: a media query for phones and touch tablets,
-// independent of the Farcaster / Base App platform detection.
+// isMobile is the layout switch: a media query for phones and touch tablets.
 import { renderHook, act } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 
 import { usePlatform, MOBILE_LAYOUT_QUERY } from "@/hooks/usePlatform";
-import { useFarcasterSDK } from "@/hooks/useFarcasterSDK";
-
-vi.mock("@/hooks/useFarcasterSDK", () => ({ useFarcasterSDK: vi.fn() }));
-vi.mock("@/hooks/useIsMobile", () => ({ useSupportsBaseApp: () => false }));
 
 // A controllable MediaQueryList: `set(matches)` fires "change" like a resize.
 const installMatchMedia = (initial) => {
@@ -35,10 +30,6 @@ const installMatchMedia = (initial) => {
 
 describe("usePlatform", () => {
   const originalMatchMedia = window.matchMedia;
-
-  beforeEach(() => {
-    useFarcasterSDK.mockReturnValue({ isInFarcasterClient: false, isSDKLoaded: true });
-  });
 
   afterEach(() => {
     window.matchMedia = originalMatchMedia;
@@ -72,24 +63,9 @@ describe("usePlatform", () => {
     expect(result.current.isMobile).toBe(false);
   });
 
-  it("does not wait for the Farcaster SDK", () => {
-    useFarcasterSDK.mockReturnValue({ isInFarcasterClient: false, isSDKLoaded: false });
+  it("exposes only isMobile", () => {
     installMatchMedia(true);
     const { result } = renderHook(() => usePlatform());
-    expect(result.current.isMobile).toBe(true);
-  });
-
-  it("is not mobile just because it runs in the Farcaster client", () => {
-    useFarcasterSDK.mockReturnValue({ isInFarcasterClient: true, isSDKLoaded: true });
-    installMatchMedia(false);
-    const { result } = renderHook(() => usePlatform());
-    expect(result.current.isFarcaster).toBe(true);
-    expect(result.current.isMobile).toBe(false);
-  });
-
-  it("no longer exposes isMobileBrowser", () => {
-    installMatchMedia(true);
-    const { result } = renderHook(() => usePlatform());
-    expect(result.current).not.toHaveProperty("isMobileBrowser");
+    expect(Object.keys(result.current)).toEqual(["isMobile"]);
   });
 });

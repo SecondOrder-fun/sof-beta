@@ -2,9 +2,9 @@
 //
 // One-time welcome shown to desktop-EOA wallets the first time they connect,
 // explaining that gameplay routes through their deterministic smart account
-// (SMA) while ownership stays at the connected EOA. Coinbase Smart Wallet and
-// Farcaster MiniApp users skip this banner — for those wallets the connected
-// address IS the smart account, so there's no separate identity to surface.
+// (SMA) while ownership stays at the connected EOA. Coinbase Smart Wallet users
+// skip this banner — for that wallet the connected address IS the smart
+// account, so there's no separate identity to surface.
 //
 // The dismissal flag is keyed on the EOA, not the device, so a user who
 // connects the same wallet on a new browser still gets reminded once there.

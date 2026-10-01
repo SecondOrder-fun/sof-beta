@@ -8,13 +8,11 @@ import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { RainbowKitProvider } from "@rainbow-me/rainbowkit";
 import { WagmiConfigProvider } from "./context/WagmiConfigProvider";
 import { getInitialChain, getRainbowKitChains } from "./context/initialChain";
-import { AuthKitProvider } from "@farcaster/auth-kit";
 import "@rainbow-me/rainbowkit/styles.css";
 import "./styles/tailwind.css";
 
 import App from "./App";
 import ErrorPage from "./components/common/ErrorPage";
-import { FarcasterProvider } from "./context/FarcasterProvider";
 import { LoginModalProvider } from "./context/LoginModalContext";
 import { SSEProvider } from "./context/SSEProvider";
 import { UsernameProvider } from "./context/UsernameContext";
@@ -51,17 +49,6 @@ if (import.meta.env.DEV) {
     originalWarn(...args);
   };
 }
-
-// Initialize Farcaster AuthKit
-const farcasterConfig =
-  typeof window !== "undefined"
-    ? {
-        domain: window.location.host,
-        siweUri: `${window.location.origin}/login`,
-        relay: "https://relay.farcaster.xyz",
-        rpcUrl: "https://mainnet.optimism.io",
-      }
-    : {};
 
 // Import route components
 import Home from "./routes/Home";
@@ -291,30 +278,24 @@ import("./i18n").then(() => {
               <RaffleAccountProvider>
                 <AppAuthProvider>
                   <ProviderErrorBoundary>
-                    <AuthKitProvider config={farcasterConfig}>
+                    <RainbowKitProvider
+                      locale="en"
+                      initialChain={getInitialChain()}
+                      chains={getRainbowKitChains()}
+                    >
                       <ProviderErrorBoundary>
-                        <RainbowKitProvider
-                          locale="en"
-                          initialChain={getInitialChain()}
-                          chains={getRainbowKitChains()}
-                        >
-                          <ProviderErrorBoundary>
-                            <FarcasterProvider>
-                              <LoginModalProvider>
-                                <SSEProvider>
-                                  <UsernameProvider>
-                                  <RouterProvider router={router} />
-                                  {import.meta.env.DEV && (
-                                    <ReactQueryDevtools initialIsOpen={false} />
-                                  )}
-                                  </UsernameProvider>
-                                </SSEProvider>
-                              </LoginModalProvider>
-                            </FarcasterProvider>
-                          </ProviderErrorBoundary>
-                        </RainbowKitProvider>
+                        <LoginModalProvider>
+                          <SSEProvider>
+                            <UsernameProvider>
+                              <RouterProvider router={router} />
+                              {import.meta.env.DEV && (
+                                <ReactQueryDevtools initialIsOpen={false} />
+                              )}
+                            </UsernameProvider>
+                          </SSEProvider>
+                        </LoginModalProvider>
                       </ProviderErrorBoundary>
-                    </AuthKitProvider>
+                    </RainbowKitProvider>
                   </ProviderErrorBoundary>
                 </AppAuthProvider>
               </RaffleAccountProvider>

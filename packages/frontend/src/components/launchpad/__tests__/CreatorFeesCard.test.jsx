@@ -120,8 +120,8 @@ describe("CreatorFeesCard", () => {
     expect(screen.getByText("creatorFees.you")).toBeInTheDocument();
   });
 
-  // Coinbase Smart Wallet and Farcaster batches go through other paymasters,
-  // optionally; a replaced placer is not sponsored by SOFPaymaster.
+  // Coinbase Smart Wallet batches go through other paymasters, optionally; a
+  // replaced placer is not sponsored by SOFPaymaster.
   it("does not promise a gas-free claim where SOFPaymaster is not known to pay", () => {
     accounts.current = { eoa: SMA, sma: SMA, walletType: "coinbase-smart" };
     setFees({ eth: { [lc(SMA)]: E } });

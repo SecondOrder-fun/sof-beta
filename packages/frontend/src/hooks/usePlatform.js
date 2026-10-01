@@ -6,16 +6,10 @@
  * components/mobile), every other screen gets the desktop one. It is a pure
  * media query (MOBILE_LAYOUT_QUERY) read synchronously through
  * useSyncExternalStore, so the first render already has the right layout (no
- * desktop-to-mobile flash) and nothing waits on the Farcaster SDK.
- *
- * `platform` / `isWeb` / `isFarcaster` / `isBaseApp` still report whether the
- * app runs in a browser, the Farcaster Mini App or a Base App dApp browser.
- * They do not influence the layout and go away with the Farcaster integration.
+ * desktop-to-mobile flash).
  */
 
-import { useState, useEffect, useSyncExternalStore } from "react";
-import { useFarcasterSDK } from "./useFarcasterSDK";
-import { useSupportsBaseApp } from "./useIsMobile";
+import { useSyncExternalStore } from "react";
 
 /** Phones (up to 768px wide) and touch tablets up to 1024px (iPad portrait). */
 export const MOBILE_LAYOUT_QUERY =
@@ -51,51 +45,14 @@ function getServerSnapshotMobileMQ() {
   return false;
 }
 
-export const PLATFORMS = {
-  WEB: "web",
-  FARCASTER: "farcaster",
-  BASE_APP: "base_app",
-};
-
 export const usePlatform = () => {
-  const { isInFarcasterClient, isSDKLoaded } = useFarcasterSDK();
-  const supportsBaseApp = useSupportsBaseApp();
-  const [platform, setPlatform] = useState(PLATFORMS.WEB);
   const isMobile = useSyncExternalStore(
     subscribeMobileMQ,
     getSnapshotMobileMQ,
     getServerSnapshotMobileMQ,
   );
 
-  useEffect(() => {
-    if (!isSDKLoaded) return;
-
-    // Priority: Farcaster > Base App > Web
-    if (isInFarcasterClient) {
-      setPlatform(PLATFORMS.FARCASTER);
-    } else if (supportsBaseApp) {
-      // Check if we're in a dApp browser
-      const isInDappBrowser =
-        typeof window !== "undefined" &&
-        (window.ethereum !== undefined || window.coinbaseWallet !== undefined);
-
-      if (isInDappBrowser) {
-        setPlatform(PLATFORMS.BASE_APP);
-      } else {
-        setPlatform(PLATFORMS.WEB);
-      }
-    } else {
-      setPlatform(PLATFORMS.WEB);
-    }
-  }, [isInFarcasterClient, isSDKLoaded, supportsBaseApp]);
-
-  return {
-    platform,
-    isWeb: platform === PLATFORMS.WEB,
-    isFarcaster: platform === PLATFORMS.FARCASTER,
-    isBaseApp: platform === PLATFORMS.BASE_APP,
-    isMobile,
-  };
+  return { isMobile };
 };
 
 export default usePlatform;

@@ -1,6 +1,6 @@
 /**
  * Mobile Leaderboard
- * Mobile-optimized player leaderboard for Farcaster and mobile UIs
+ * Mobile-optimized player leaderboard for the mobile layout
  * Uses table format with bottom search panel and adaptive page size
  */
 

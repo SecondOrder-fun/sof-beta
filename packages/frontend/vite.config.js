@@ -70,8 +70,8 @@ export default defineConfig(() => {
               return "motion";
             if (id.includes("/i18next") || id.includes("/react-i18next/"))
               return "i18n";
-            if (id.includes("/@farcaster/") || id.includes("/@base-org/account/"))
-              return "farcaster";
+            if (id.includes("/@base-org/account/"))
+              return "base-account";
             if (id.includes("/@tanstack/"))
               return "data";
             if (id.includes("/@visx/"))

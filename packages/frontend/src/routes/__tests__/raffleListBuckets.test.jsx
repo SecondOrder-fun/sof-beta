@@ -68,7 +68,7 @@ vi.mock('@/hooks/useAllSeasons', () => ({
 vi.mock('@/hooks/useSeasonWinnerSummaries', () => ({
   useSeasonWinnerSummaries: () => ({ data: {} }),
 }));
-vi.mock('@/hooks/usePlatform', () => ({ usePlatform: () => ({ isMobile: false, isFarcaster: false }) }));
+vi.mock('@/hooks/usePlatform', () => ({ usePlatform: () => ({ isMobile: false }) }));
 vi.mock('wagmi', () => ({
   useAccount: () => ({ address: undefined, isConnected: false, chainId: 84532 }),
   useChains: () => [],

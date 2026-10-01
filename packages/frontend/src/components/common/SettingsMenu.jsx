@@ -185,8 +185,8 @@ const SettingsMenu = ({ address, username, onDisconnect }) => {
               spec §4.5 / plan task 5.10. Shows the gameplay-bearing SMA
               with a copy button (and explorer link). For desktop-EOA
               wallets we also surface the underlying signer EOA dimmed; for
-              Coinbase / Farcaster wallets the SMA == EOA so the second
-              line is suppressed. */}
+              Coinbase Smart Wallet the SMA == EOA so the second line is
+              suppressed. */}
           {isReady && (sma || eoa) && (
             <>
               <DropdownMenuLabel className="text-muted-foreground text-xs font-normal">

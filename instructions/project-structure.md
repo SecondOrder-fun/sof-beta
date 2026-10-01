@@ -47,15 +47,13 @@ packages/frontend/
 │   ├── components/
 │   │   ├── ui/                     # shadcn/ui base components (Radix wrappers)
 │   │   ├── layout/                 # Header, Footer, PageTitle, StickyFooter
-│   │   ├── auth/                   # FarcasterAuth, LoginModal, MobileLoginSheet
+│   │   ├── auth/                   # LoginModal, MobileLoginSheet, sign-in banners/overlays
 │   │   ├── access/                 # AccessGate, ProtectedRoute, MaintenancePage
 │   │   ├── infofi/                 # InfoFi market cards, charts, trading
 │   │   ├── buysell/                # BuyForm, SellForm, SlippageSettings
 │   │   ├── mint/                   # AllowlistMintCard, GiftClaimCard
 │   │   ├── gating/                 # SignatureGateModal, PasswordGateModal
-│   │   ├── landing/                # OpenAppButton
-│   │   ├── mobile/                 # Mobile layout (phones, touch tablets): MobileHeader, BottomNav, SystemMenu, per-route views
-│   │   └── shells/                 # WebShell, MiniAppShell
+│   │   └── mobile/                 # Mobile layout (phones, touch tablets): MobileHeader, BottomNav, SystemMenu, per-route views
 │   ├── context/                    # React contexts (auth, SSE, theme, wallet)
 │   ├── features/                   # Feature modules
 │   │   └── admin/                  # Admin panel components

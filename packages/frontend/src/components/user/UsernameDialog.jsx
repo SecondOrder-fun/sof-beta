@@ -30,7 +30,7 @@ const UsernameDialog = ({ open, onOpenChange, suggestedUsername }) => {
   const { data: availabilityData, isLoading: isCheckingAvailability } =
     useCheckUsername(debouncedUsername);
 
-  // Pre-fill suggested username from Farcaster (once)
+  // Pre-fill the suggested username (once)
   useEffect(() => {
     if (suggestedUsername && !hasAppliedSuggestion && !username && open) {
       setUsername(suggestedUsername);

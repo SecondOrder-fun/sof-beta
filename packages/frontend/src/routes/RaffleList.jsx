@@ -40,7 +40,7 @@ const VALID_TABS = ["upcoming", "active", "settling", "complete"];
 
 const RaffleList = () => {
   const { t } = useTranslation(["raffle", "navigation"]);
-  const { isMobile, isFarcaster } = usePlatform();
+  const { isMobile } = usePlatform();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { address, isConnected, chainId } = useAccount();
@@ -262,7 +262,7 @@ const RaffleList = () => {
     }
   }, [navigate, selectedSeason]);
 
-  // Mobile view for Farcaster Mini App and Base App
+  // Mobile view (phones, touch tablets)
   const displayedSeasons = useMemo(() => {
     const sorted = [...(allSeasonsQuery.data || [])].sort(
       (a, b) => Number(b.id) - Number(a.id),
@@ -315,7 +315,6 @@ const RaffleList = () => {
           onVerify={handleVerifyActive}
           isConnected={isConnected}
           onConnect={handleConnect}
-          isFarcaster={isFarcaster}
           showMineOnly={showMineOnly}
           onToggleMine={handleToggleMine}
         />

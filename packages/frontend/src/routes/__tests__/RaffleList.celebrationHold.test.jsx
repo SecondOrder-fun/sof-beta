@@ -58,7 +58,7 @@ vi.mock('@/hooks/useSeasonWinnerSummaries', () => ({
   useSeasonWinnerSummaries: () => ({ data: {} }),
 }));
 vi.mock('@/hooks/usePlatform', () => ({
-  usePlatform: vi.fn(() => ({ isMobile: false, isFarcaster: false })),
+  usePlatform: vi.fn(() => ({ isMobile: false })),
 }));
 vi.mock('wagmi', () => ({
   useAccount: () => ({ address: undefined, isConnected: false, chainId: 84532 }),
@@ -202,12 +202,12 @@ describe('RaffleList celebration hold', () => {
   describe('mobile demotion (unified with desktop)', () => {
     beforeEach(() => {
       mobileCalls.length = 0;
-      vi.mocked(usePlatform).mockReturnValue({ isMobile: true, isFarcaster: false });
+      vi.mocked(usePlatform).mockReturnValue({ isMobile: true });
     });
 
     afterEach(() => {
       vi.mocked(usePlatform).mockReset();
-      vi.mocked(usePlatform).mockReturnValue({ isMobile: false, isFarcaster: false });
+      vi.mocked(usePlatform).mockReturnValue({ isMobile: false });
     });
 
     it('demotes unseen completed seasons into the settling group on mobile', () => {

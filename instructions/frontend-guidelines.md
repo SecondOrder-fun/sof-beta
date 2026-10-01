@@ -9,7 +9,7 @@
 - **framer-motion** for complex animations (use with Motion Primitives patterns for Radix)
 - **React Query** for server state management
 - **Wagmi + Viem** for Ethereum interactions
-- **Farcaster Auth Kit** for social authentication
+- **RainbowKit** for wallet connection; sign-in is a one-time SIWE signature (`AppAuthProvider`)
 
 ## Internationalization (i18n)
 
@@ -115,7 +115,7 @@ className="text-primary bg-muted border-foreground"
 2. **No hardcoded hex in Tailwind brackets** — use `bg-primary` not `bg-[#c82a54]`.
 3. **No `text-white` / `bg-black`** — use `text-foreground` / `bg-background`. Use `text-primary-foreground` for text on colored backgrounds.
 4. **No `dark:` prefix scattering** — theme switching is handled by CSS variables in `:root` / `.dark`.
-5. **External brand colors** (Farcaster `#7c3aed`, Base `#0052ff`) are acceptable only as dedicated Button variants (`variant="farcaster"`, `variant="base"`).
+5. **External brand colors** (Base `#0052ff`) are acceptable only as dedicated Button variants (`variant="base"`).
 6. **Recharts/SVG** — inline `style` props for SVG attributes (fontSize, stroke) are acceptable.
 
 ### Button Variants
@@ -129,14 +129,13 @@ className="text-primary bg-muted border-foreground"
 | `ghost` | Minimal, no background |
 | `link` | Inline text links |
 | `destructive` / `danger` | Delete/error actions |
-| `farcaster` | Farcaster brand purple |
 | `base` | Base/Coinbase brand blue |
 
 Use `asChild` to render Button as an anchor or other element.
 
-### Pointer-Event Pressed State (Mobile/Farcaster)
+### Pointer-Event Pressed State (Mobile)
 
-CSS `:active` pseudo-class MUST NOT be used on buttons. On mobile browsers and Farcaster frames, `:active` can become "stuck." Use pointer events + `data-pressed` attribute instead.
+CSS `:active` pseudo-class MUST NOT be used on buttons. On mobile browsers, `:active` can become "stuck." Use pointer events + `data-pressed` attribute instead.
 
 ```jsx
 // WRONG — :active gets stuck on touch UIs
@@ -204,9 +203,8 @@ Mobile-first approach. Use Tailwind responsive prefixes (`md:`, `lg:`).
 Phones and touch tablets get a separate app shell, not a squeezed desktop.
 `usePlatform().isMobile` is the single switch: the media query
 `(max-width: 768px), (pointer: coarse) and (max-width: 1024px)`, read
-synchronously so the first render already has the right layout. It does not
-depend on Farcaster or the Base App — the `platform` / `isFarcaster` /
-`isBaseApp` fields never decide layout. Do not call `matchMedia` or add a
+synchronously so the first render already has the right layout; it is the
+only field `usePlatform` returns. Do not call `matchMedia` or add a
 second breakpoint hook for layout decisions; use `isMobile`.
 
 - **Shell** (`App.jsx` mobile branch): `MobileHeader` (its avatar opens

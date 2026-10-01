@@ -16,7 +16,6 @@ const RaffleAccountContext = createContext({
 function classifyWalletType(connectorId) {
   if (!connectorId) return undefined;
   if (connectorId === "coinbaseWalletSDK") return "coinbase-smart";
-  if (connectorId.toLowerCase().includes("farcaster")) return "farcaster-miniapp";
   return "desktop-eoa";
 }
 
@@ -49,7 +48,7 @@ export const RaffleAccountProvider = ({ children }) => {
         isReady: !smaPending && !smaError && !!derivedSma,
       };
     }
-    // coinbase-smart and farcaster-miniapp: connected address IS the smart account
+    // coinbase-smart: connected address IS the smart account
     return { eoa, sma: eoa, walletType, isReady: true };
   }, [eoa, isConnected, walletType, derivedSma, smaPending, smaError]);
 

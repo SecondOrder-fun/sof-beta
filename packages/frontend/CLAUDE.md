@@ -19,23 +19,25 @@ ALL on-chain operations use `useSmartTransactions.executeBatch` with three-tier 
 Never use raw `writeContractAsync` for user-facing transactions.
 
 ### Authentication Context
-- **Farcaster MiniApp**: SIWF auto-login via Farcaster Auth Kit
-- **Base App**: Coinbase Wallet login (docs TBD)
-- **Desktop browser**: Wallet connect via RainbowKit
+Wallet sign-in only: connect a wallet (RainbowKit — `LoginModal` on desktop,
+`MobileLoginSheet` on the mobile layout), then `AppAuthProvider` auto-fires a
+one-time SIWE signature (`POST /api/auth/verify method:"wallet"`).
+- **Base App / Coinbase Smart Wallet**: Coinbase Wallet login; the connected address is the smart account
+- **Desktop browser**: any RainbowKit wallet; gameplay routes through the deterministic smart account
 
-### Farcaster SIWF Gotchas
+Allowlist, access-group and route-access checks are keyed by wallet address only.
+
+### Sign-in Gotchas
 - SIWE nonces must be alphanumeric (`[a-zA-Z0-9]{8+}`). Use `crypto.randomUUID().replaceAll('-', '')`.
-- Backend `verifySignInMessage` must use the domain from the signed SIWE message. Use `SIWF_ALLOWED_DOMAINS` env var with wildcard support for preview deployments.
-- Keep `@farcaster/auth-kit` up to date. Old versions may fail silently with the current relay.
 
 ### Mobile layout
 Phones and touch tablets get the mobile shell (`App.jsx`: MobileHeader, BottomNav,
 MobileLoginSheet, `components/mobile/*`); the switch is `usePlatform().isMobile`, a
-media query that does not depend on Farcaster. Details, nav and padding rules:
+media query. Details, nav and padding rules:
 `instructions/frontend-guidelines.md` → Mobile layout.
 
 ### Button Touch States
-Never use CSS `:active` on buttons (gets stuck on mobile/Farcaster). Use `data-[pressed]:` with pointer events instead.
+Never use CSS `:active` on buttons (gets stuck on mobile touch UIs). Use `data-[pressed]:` with pointer events instead.
 
 ## Commands
 
@@ -148,14 +150,14 @@ call-building and the earned/summary math are pure in `lib/creatorFees.js`.
   pool's uncollected share. Calls are grouped per placer, batches per sender.
 - **The claimant is `msg.sender`, so the batch must come from the credited
   account.** `executeBatch` sends from the smart account on every tier (desktop
-  EOAs via Path A; Coinbase Smart Wallet and Farcaster, where `eoa === sma`), and
+  EOAs via Path A; Coinbase Smart Wallet, where `eoa === sma`), and
   in-app launches therefore credit the SMA. Fees credited to a desktop wallet's
   EOA (a launch made outside the app, or a transfer to the EOA) are claimed with
   `executeBatch(calls, { bypassSponsorship: true })` — sent by the EOA itself, gas
   paid, one confirmation per call; the card's caption says so (`claimSender`).
   "No gas to pay" is shown only where SOFPaymaster is known to pay
   (`isSponsoredClaim`: a desktop wallet's smart account, the launchpad's current
-  placer); Coinbase / Farcaster batches use other, optional paymasters.
+  placer); Coinbase Smart Wallet batches use other, optional paymasters.
 - **The profile lists launches by creator** (`useCreatorLaunches`,
   `/api/launchpad/tokens?creator=`, both accounts). A launch whose fees another
   creator handed to this account does not appear there (no recipient index);
