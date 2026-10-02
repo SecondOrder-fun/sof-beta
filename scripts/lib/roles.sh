@@ -12,37 +12,36 @@ read_env_value() {
 }
 
 # role_read CONTRACT ROLE ACCOUNT RPC_URL — prints true/false and returns 0.
-# A failed or odd read prints cast's output to stderr and returns 1, so a
-# caller can never mistake a read error for "not held".
+# Only cast's stdout is parsed; its stderr (warnings, or the error on a failed
+# call) passes through. A failed or odd read returns 1, so a caller can never
+# mistake a read error for "not held".
 role_read() {
   local out
-  if out="$(cast call "$1" 'hasRole(bytes32,address)(bool)' "$2" "$3" --rpc-url "$4" 2>&1)" \
-      && { [ "$out" = true ] || [ "$out" = false ]; }; then
-    printf '%s' "$out"
-    return 0
-  fi
-  printf '%s\n' "$out" >&2
-  return 1
+  out="$(cast call "$1" 'hasRole(bytes32,address)(bool)' "$2" "$3" --rpc-url "$4")" || return 1
+  case "$out" in
+    true|false) printf '%s' "$out" ;;
+    *) echo "unexpected hasRole result from $1: $out" >&2; return 1 ;;
+  esac
 }
 
 # role_wait CONTRACT ROLE ACCOUNT RPC_URL WANT — after a send, the gateway can
 # answer from a node one block behind, or a read can fail transiently: read up
 # to 5 times, 3s apart, until the role reads WANT (true|false). Returns 0 once
-# it does. Otherwise returns 1 and prints why to stderr: the last value that
-# was read, or — if no read succeeded — the last read error.
+# it does. Otherwise returns 1 and prints why on stderr: the last value read,
+# or — if no read succeeded — the last read error. Use as
+#   if ! why="$(role_wait … 2>&1)"; then …; fi
 role_wait() {
-  local want="$5" attempt got last_value="" last_err="" errf
-  errf="$(mktemp)"
+  local want="$5" attempt res last_value="" last_err=""
   for attempt in 1 2 3 4 5; do
-    if got="$(role_read "$1" "$2" "$3" "$4" 2>"$errf")"; then
-      [ "$got" = "$want" ] && { rm -f "$errf"; return 0; }
-      last_value="$got"
+    if res="$(role_read "$1" "$2" "$3" "$4" 2>&1)"; then
+      res="${res##*$'\n'}"   # any cast warnings come first; the value is last
+      [ "$res" = "$want" ] && return 0
+      last_value="$res"
     else
-      last_err="$(cat "$errf")"
+      last_err="$res"
     fi
     [ "$attempt" -lt 5 ] && sleep 3
   done
-  rm -f "$errf"
   if [ -n "$last_value" ]; then
     echo "still reads as $last_value after 5 reads" >&2
   else

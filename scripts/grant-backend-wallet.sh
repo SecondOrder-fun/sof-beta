@@ -94,12 +94,9 @@ echo "Granting PAYMASTER_ROLE on $FACTORY to $BACKEND_WALLET_ADDRESS ($NETWORK).
       --rpc-url "$RPC_URL" --broadcast --slow
 )
 
-ERRF="$(mktemp)"
-if role_wait "$FACTORY" "$ROLE" "$BACKEND_WALLET_ADDRESS" "$RPC_URL" true 2>"$ERRF"; then
-  rm -f "$ERRF"
+if why="$(role_wait "$FACTORY" "$ROLE" "$BACKEND_WALLET_ADDRESS" "$RPC_URL" true 2>&1)"; then
   echo "✓ Granted. Backend wallet $BACKEND_WALLET_ADDRESS now holds PAYMASTER_ROLE."
 else
-  echo "✗ Could not confirm the grant: PAYMASTER_ROLE $(cat "$ERRF"). Check the forge output above." >&2
-  rm -f "$ERRF"
+  echo "✗ Could not confirm the grant: PAYMASTER_ROLE $why. Check the forge output above." >&2
   exit 1
 fi

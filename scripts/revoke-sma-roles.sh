@@ -130,7 +130,9 @@ fi
 # Every revoke must be authorised by the role's admin role: check them all up
 # front so the run is all-or-nothing rather than failing halfway.
 for i in "${HELD[@]}"; do
-  ADMIN_ROLE="$(cast call "${TARGETS[$i]}" 'getRoleAdmin(bytes32)(bytes32)' "${ROLE_HASHES[$i]}" --rpc-url "$RPC_URL")"
+  ADMIN_ROLE="$(cast call "${TARGETS[$i]}" 'getRoleAdmin(bytes32)(bytes32)' "${ROLE_HASHES[$i]}" --rpc-url "$RPC_URL")" \
+    && [[ "$ADMIN_ROLE" =~ ^0x[0-9a-fA-F]{64}$ ]] || {
+    echo "✗ could not read the admin role of ${ROLE_NAMES[$i]} on ${LABELS[$i]} (got: ${ADMIN_ROLE:-nothing})" >&2; exit 1; }
   held="$(role_read "${TARGETS[$i]}" "$ADMIN_ROLE" "$DEPLOYER" "$RPC_URL")" || {
     echo "✗ could not read the deployer's admin role on ${LABELS[$i]} (error above)" >&2; exit 1; }
   if [ "$held" != "true" ]; then
@@ -142,24 +144,38 @@ done
 # The revokes go through a forge script (--broadcast --slow), like
 # grant-backend-wallet.sh: forge assigns the nonces locally from one read and
 # waits for each receipt, so there is no per-send nonce lookup on the
-# load-balanced gateway to go stale. The script re-checks each role on-chain
+# load-balanced gateway to go stale. (Forge's single starting read can still
+# hit a lagging node right after another deployer tx; the send then fails with
+# "nonce too low" — re-run.) The held (contract, role) pairs are passed in, so
+# this script's list is the only list; the forge script re-checks each on-chain
 # and skips any no longer held, so re-running is safe.
+REVOKE_CONTRACTS=""; REVOKE_ROLES=""
+for i in "${HELD[@]}"; do
+  REVOKE_CONTRACTS="${REVOKE_CONTRACTS:+$REVOKE_CONTRACTS,}${TARGETS[$i]}"
+  REVOKE_ROLES="${REVOKE_ROLES:+$REVOKE_ROLES,}${ROLE_HASHES[$i]}"
+done
 echo "Revoking ${#HELD[@]} role(s) from $TARGET through script/ops/RevokeSmaRoles.s.sol..."
+FORGE_FAILED=0
 (
   cd "$CONTRACTS_DIR"
-  PRIVATE_KEY="$PRIVATE_KEY" RAFFLE_ADDRESS="$RAFFLE" SEASON_FACTORY_ADDRESS="$SEASON_FACTORY" REVOKE_TARGET="$TARGET" \
+  PRIVATE_KEY="$PRIVATE_KEY" REVOKE_TARGET="$TARGET" \
+    REVOKE_CONTRACTS="$REVOKE_CONTRACTS" REVOKE_ROLES="$REVOKE_ROLES" \
     forge script script/ops/RevokeSmaRoles.s.sol:RevokeSmaRoles \
       --rpc-url "$RPC_URL" --broadcast --slow
-)
+) || FORGE_FAILED=1
 
+# Check every role even if forge failed partway, so the report says which
+# roles are still held.
 FAILED=0
-ERRF="$(mktemp)"
 for i in "${HELD[@]}"; do
-  if ! role_wait "${TARGETS[$i]}" "${ROLE_HASHES[$i]}" "$TARGET" "$RPC_URL" false 2>"$ERRF"; then
-    echo "✗ ${LABELS[$i]} ${ROLE_NAMES[$i]} $(cat "$ERRF")" >&2
+  if ! why="$(role_wait "${TARGETS[$i]}" "${ROLE_HASHES[$i]}" "$TARGET" "$RPC_URL" false 2>&1)"; then
+    echo "✗ ${LABELS[$i]} ${ROLE_NAMES[$i]} $why" >&2
     FAILED=1
   fi
 done
-rm -f "$ERRF"
+if [ "$FORGE_FAILED" -ne 0 ]; then
+  echo "✗ The forge broadcast failed (see its output above). Re-run to revoke what is left." >&2
+  exit 1
+fi
 [ "$FAILED" -eq 0 ] || exit 1
 echo "✓ Revoked. $TARGET holds none of the mirrored admin roles."
