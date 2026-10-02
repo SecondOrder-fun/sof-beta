@@ -1,5 +1,5 @@
 // src/features/admin/components/BackendWalletManager.jsx
-// Backend wallet management, paymaster status, and infrastructure monitoring
+// Backend wallet management, position relay status, and infrastructure monitoring
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -60,18 +60,18 @@ export function BackendWalletManager() {
     refetchInterval: 60000,
   });
 
-  // Query paymaster status
+  // Query position relay status
   const {
-    data: paymasterStatus,
-    refetch: refetchPaymaster,
-    isLoading: isLoadingPaymaster,
+    data: relayStatus,
+    refetch: refetchRelay,
+    isLoading: isLoadingRelay,
   } = useQuery({
-    queryKey: ["paymasterStatus"],
+    queryKey: ["relayStatus"],
     queryFn: async () => {
-      const response = await fetch(`${API_BASE}/admin/paymaster-status`, {
+      const response = await fetch(`${API_BASE}/admin/relay-status`, {
         headers: getAuthHeaders(),
       });
-      if (!response.ok) throw new Error("Failed to fetch paymaster status");
+      if (!response.ok) throw new Error("Failed to fetch position relay status");
       return response.json();
     },
     refetchInterval: 60000,
@@ -94,7 +94,7 @@ export function BackendWalletManager() {
   const handleRefresh = () => {
     refetchWallet();
     refetchStats();
-    refetchPaymaster();
+    refetchRelay();
     toast({
       title: "Refreshed",
       description: "All service data updated",
@@ -127,7 +127,7 @@ export function BackendWalletManager() {
     }
   };
 
-  if (isLoadingWallet || isLoadingStats || isLoadingPaymaster) {
+  if (isLoadingWallet || isLoadingStats || isLoadingRelay) {
     return (
       <div className="flex items-center justify-center p-8">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
@@ -222,26 +222,26 @@ export function BackendWalletManager() {
         </CardContent>
       </Card>
 
-      {/* Paymaster Status Card */}
+      {/* Position Relay Status Card */}
       <Card>
         <CardHeader>
-          <CardTitle>Paymaster Status</CardTitle>
+          <CardTitle>Position Relay Status</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
             <label className="text-sm text-muted-foreground">
-              Smart Account Address
+              Relay Wallet Address
             </label>
             <div className="flex items-center gap-2 mt-1">
               <code className="text-sm bg-muted px-2 py-1 rounded break-all">
-                {paymasterStatus?.smartAccountAddress || "Not initialized"}
+                {relayStatus?.walletAddress || "Not initialized"}
               </code>
-              {paymasterStatus?.smartAccountAddress && (
+              {relayStatus?.walletAddress && (
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() =>
-                    copyToClipboard(paymasterStatus.smartAccountAddress)
+                    copyToClipboard(relayStatus.walletAddress)
                   }
                 >
                   <Copy className="h-4 w-4" />
@@ -256,7 +256,7 @@ export function BackendWalletManager() {
                 Initialization
               </label>
               <div className="mt-1">
-                {paymasterStatus?.initialized ? (
+                {relayStatus?.initialized ? (
                   <Badge variant="success">
                     <CheckCircle className="h-3 w-3 mr-1" />
                     Initialized
@@ -274,9 +274,9 @@ export function BackendWalletManager() {
               <label className="text-sm text-muted-foreground">Network</label>
               <div className="flex items-center gap-2 mt-1">
                 <span className="font-medium">
-                  {paymasterStatus?.network || "Unknown"}
+                  {relayStatus?.network || "Unknown"}
                 </span>
-                {paymasterStatus?.isTestnet && (
+                {relayStatus?.isTestnet && (
                   <Badge variant="secondary">Testnet</Badge>
                 )}
               </div>
@@ -284,10 +284,10 @@ export function BackendWalletManager() {
 
             <div>
               <label className="text-sm text-muted-foreground">
-                Paymaster URL
+                RPC URL
               </label>
               <div className="mt-1">
-                {paymasterStatus?.paymasterUrlConfigured ? (
+                {relayStatus?.rpcConfigured ? (
                   <Badge variant="success">
                     Configured
                   </Badge>
@@ -298,12 +298,12 @@ export function BackendWalletManager() {
             </div>
           </div>
 
-          {paymasterStatus?.initializationError && (
+          {relayStatus?.initializationError && (
             <div className="flex items-start gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-sm">
               <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
               <div>
                 <span className="font-medium">Initialization Error: </span>
-                {paymasterStatus.initializationError}
+                {relayStatus.initializationError}
               </div>
             </div>
           )}

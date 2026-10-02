@@ -365,15 +365,14 @@ export default async function adminRoutes(fastify) {
   });
 
   /**
-   * GET /api/admin/paymaster-status
+   * GET /api/admin/relay-status
    * Health of the position relay (the backend wallet that calls
-   * InfoFiMarketFactory.onPositionUpdate). The path and field names are the
-   * admin panel's contract (BackendWalletManager): `smartAccountAddress` is
-   * the backend wallet address and `paymasterUrlConfigured` reports whether
-   * the RPC the relay sends through is configured.
-   * Shape: { network, isTestnet, paymasterUrlConfigured, initialized, smartAccountAddress, initializationError }
+   * InfoFiMarketFactory.onPositionUpdate), shown by the admin panel's
+   * BackendWalletManager. `rpcConfigured` reports whether the RPC the relay
+   * sends through is configured.
+   * Shape: { network, isTestnet, rpcConfigured, initialized, walletAddress, initializationError }
    */
-  fastify.get("/paymaster-status", { preHandler: requireAdmin }, async (_request, reply) => {
+  fastify.get("/relay-status", { preHandler: requireAdmin }, async (_request, reply) => {
     try {
       const network = NETWORK;
 
@@ -411,9 +410,9 @@ export default async function adminRoutes(fastify) {
       return reply.send({
         network,
         isTestnet,
-        paymasterUrlConfigured: rpcConfigured,
+        rpcConfigured,
         initialized,
-        smartAccountAddress: walletAddress,
+        walletAddress,
         initializationError,
       });
     } catch (error) {
