@@ -13,7 +13,6 @@ import { startMarketCreatedListener } from "../src/listeners/marketCreatedListen
 import { startTradeListener } from "../src/listeners/tradeListener.js";
 import { startSponsorHatListener } from "../src/listeners/sponsorHatListener.js";
 import { startRolloverEventListener } from "../src/listeners/rolloverEventListener.js";
-import { startAccountCreatedListener } from "../src/listeners/accountCreatedListener.js";
 import { startTokenLaunchedListener } from "../src/listeners/tokenLaunchedListener.js";
 import { startLaunchTradeListener } from "../src/listeners/launchTradeListener.js";
 import { startWithRetry } from "../src/lib/startWithRetry.js";
@@ -136,9 +135,9 @@ async function mountRoute(key, importer, opts = {}) {
 
 // ── Route mounts ────────────────────────────────────────────────────
 //
-// Critical mounts (auth, paymaster/sof, paymaster/local) re-throw on
-// failure so a misconfigured deploy fails loudly at boot instead of
-// silently 404ing routes at request time. Everything else logs and
+// The critical mount (auth) re-throws on failure so a misconfigured
+// deploy fails loudly at boot instead of silently 404ing routes at
+// request time. Everything else logs and
 // continues so a single broken diagnostic doesn't take down the
 // platform.
 
@@ -171,24 +170,6 @@ await mountRoute(
 
 await mountRoute("/api/seasons", () => import("./routes/seasonRoutes.js"));
 await mountRoute("/api/gating", () => import("./routes/gatingRoutes.js"));
-await mountRoute("/api/airdrop", () => import("./routes/airdropRoutes.js"));
-await mountRoute("/api/paymaster", () => import("./routes/paymasterProxyRoutes.js"));
-
-// CRITICAL: paymaster/local is the local-dev gasless rail; mount
-// failure there means LOCAL deploys can't submit UserOps.
-await mountRoute("/api/paymaster/local", () => import("./routes/localBundlerRoutes.js"), {
-  critical: true,
-});
-
-// CRITICAL: paymaster/sof is the ERC-7677 paymaster signing service.
-// Mount errors historically came from pickChain() throwing on missing
-// RPC envs (PR #74 incident) — exactly the silent-404 pattern this
-// followup closes.
-await mountRoute("/api/paymaster/sof", () => import("./routes/paymasterServiceRoutes.js"), {
-  critical: true,
-});
-
-await mountRoute("/api/wallet", () => import("./routes/delegationRoutes.js"));
 await mountRoute("/api/rollover", () => import("./routes/rolloverRoutes.js"));
 await mountRoute("/sse", () => import("./routes/sseRoutes.js"));
 await mountRoute("/api/curve", () => import("./routes/curveRoutes.js"));
@@ -258,7 +239,6 @@ let unwatchSeasonCompleted;
 let unwatchSeasonStatusListeners = []; // array returned by startSeasonStatusListener
 let unwatchMarketCreated;
 let unwatchRollover;
-let unwatchAccountCreated;
 let unwatchTokenLaunched; // startWithRetry stop: also cancels a pending start retry
 let unwatchLaunchTrades; // same
 const positionUpdateListeners = new Map(); // Map of seasonId -> unwatch function
@@ -558,32 +538,6 @@ async function startListeners() {
       );
     }
 
-    // Start AccountCreated listener — stamps smart_accounts.deployed_at
-    // when SOFSmartAccountFactory deploys an SMA via UserOp initCode.
-    // Per gasless-rewrite spec §5.5.
-    try {
-      const factoryAddress =
-        getDeployment(NETWORK.toLowerCase()).SOFSmartAccountFactory;
-      if (
-        factoryAddress &&
-        factoryAddress !== "0x0000000000000000000000000000000000000000"
-      ) {
-        unwatchAccountCreated = await startAccountCreatedListener(
-          factoryAddress,
-          app.log,
-        );
-        app.log.info("✅ AccountCreatedListener started");
-      } else {
-        app.log.warn(
-          "⚠️  SOFSmartAccountFactory not in deployments — AccountCreated listener skipped",
-        );
-      }
-    } catch (error) {
-      app.log.error(
-        `❌ Failed to start AccountCreatedListener: ${error.message}`,
-      );
-    }
-
     // Start TokenLaunched listener — indexes launchpad launches into
     // token_launches (migration 023). This listener is the ONLY source for a
     // token's name, symbol and metadata URI: the launchpad emits them but does
@@ -851,8 +805,6 @@ async function shutdown(signal) {
   if (unwatchMarketCreated)
     stops.push(safeStep("MarketCreated listener", unwatchMarketCreated));
   if (unwatchRollover) stops.push(safeStep("Rollover listener", unwatchRollover));
-  if (unwatchAccountCreated)
-    stops.push(safeStep("AccountCreated listener", unwatchAccountCreated));
   if (unwatchTokenLaunched)
     stops.push(safeStep("TokenLaunched listener", unwatchTokenLaunched));
   if (unwatchLaunchTrades)

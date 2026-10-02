@@ -108,7 +108,9 @@ supabase db push --linked                # apply pending migrations
 
 If `migration list` shows the remote has empty history but tables exist (schema applied via SQL editor previously), use `supabase migration repair --status applied <timestamp>` first to mark prior migrations as applied — then push the new ones.
 
-After pushing, sanity-check the affected endpoint with a curl probe (`/api/airdrop/status?eoa=...` should return `{"found": false}` rather than a 500).
+A migration that **drops** something the running backend still reads goes the other way: deploy the backend that no longer reads it first, then push. Such a migration says so in its header (e.g. `027_drop_smart_accounts.sql`).
+
+After pushing, sanity-check the affected endpoint with a curl probe (e.g. `/api/launchpad/tokens` should return JSON rather than a 500).
 
 ## Contract Deploy Checklist
 
@@ -141,12 +143,14 @@ SIWE signature (`AppAuthProvider`, `POST /api/auth/verify method:"wallet"`).
 
 | Context | Primary Auth | Notes |
 |---------|-------------|-------|
-| Base App / Coinbase Smart Wallet | Coinbase Wallet | Connected address is the smart account |
-| Desktop browser | Wallet connect (RainbowKit) | Gameplay transacts from the user's own connected wallet |
+| Base App / Coinbase Smart Wallet | Coinbase Wallet | Connected address (the Coinbase smart wallet) is the user |
+| Desktop browser | Wallet connect (RainbowKit) | Transactions are sent from the connected wallet |
 
 The backend verifies the signature with `publicClient.verifyMessage` (EOA,
 ERC-1271 and ERC-6492 smart-wallet signatures) and issues a JWT. Allowlist,
-access-level and access-group entries are keyed by wallet address only.
+access-level and access-group entries are keyed by wallet address only. There
+is no backend smart account, gas sponsorship or sign-in airdrop: users pay
+their own gas from the wallet they connect.
 
 ## Instruction Files (Living Documents)
 

@@ -6,9 +6,9 @@
  * probe) can spot partial-mount deploys without waiting for user-visible
  * 404s from the broken route.
  *
- * Critical routes (auth, paymaster/sof, paymaster/local) are expected to
- * re-throw at the call site so boot fails loudly. The registry's only
- * job is to *report* — it doesn't decide criticality.
+ * Critical routes (auth) are expected to re-throw at the call site so
+ * boot fails loudly. The registry's only job is to *report* — it doesn't
+ * decide criticality.
  *
  * In-memory, singleton scope, no persistence. State is reset at module
  * load and via `_resetMountStatus()` for tests.

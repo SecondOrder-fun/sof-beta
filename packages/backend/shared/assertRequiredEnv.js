@@ -4,8 +4,8 @@
 //
 // Two classes of vars are checked:
 //   - Always required: SUPABASE/RPC/JWT/wallet basics
-//   - Conditional: when NETWORK !== "LOCAL", paymaster + bundler creds also
-//     required so sponsored UserOps don't silently 503 on testnet/mainnet
+//   - Conditional: when NETWORK !== "LOCAL", the Blockscout creds are also
+//     required; in production, CORS_ORIGINS
 //
 // Trimming: all values are stripped of surrounding whitespace in place.
 // Catches the trailing-newline-from-shell-pipe bug class that previously
@@ -104,22 +104,6 @@ function buildManifest(env) {
         VALID_NETWORKS.includes(v)
           ? null
           : `must be one of ${VALID_NETWORKS.join(", ")}`,
-    },
-    {
-      key: "PAYMASTER_RPC_URL",
-      // Always required: PaymasterService.initialize() throws on first
-      // airdrop-relay / market-creation call without it. Even on LOCAL,
-      // this points at Anvil's RPC (the backend wallet pays its own gas);
-      // on TESTNET/MAINNET it points at the Pimlico bundler that
-      // sponsors the gas via ERC-4337.
-      required: true,
-      validate: (v) => (isUrl(v) ? null : "must be a valid URL"),
-    },
-    {
-      key: "PIMLICO_API_KEY",
-      required: requireOnNonLocal,
-      // Length sanity only — the upstream API will validate the key itself
-      validate: (v) => (v.length >= 10 ? null : "looks too short"),
     },
     {
       key: "CORS_ORIGINS",

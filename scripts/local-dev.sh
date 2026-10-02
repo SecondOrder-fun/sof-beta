@@ -380,7 +380,7 @@ for log in d.get('logs', []):
   # idempotent via `IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS`).
   # Apply them in order on every run so a freshly-cloned checkout or a
   # `supabase db reset` doesn't leave the backend talking to a schema
-  # that's missing tables (e.g. `smart_accounts`, `is_admin` column).
+  # that's missing tables (e.g. `token_launches`, `is_admin` column).
   # Also truncate `listener_block_cursors`: every run gives Anvil a fresh
   # chain at block 0, but cursor rows from prior sessions point past the
   # new chain head — the poller then silently skips events forever.
@@ -420,23 +420,20 @@ for log in d.get('logs', []):
   ok "  ${#ADMIN_WALLETS[@]} admin wallet(s) seeded"
 
   # ------ Step 5: Grant on-chain roles ------
-  # Each admin EOA gets SEASON_CREATOR_ROLE + DEFAULT_ADMIN_ROLE on Raffle.
-  # Post-gasless-rewrite, sponsored admin writes set msg.sender = the EOA's SMA
-  # (factory.getAddress(eoa)), so the SMA also needs these roles or
-  # AccessControl reverts UnauthorizedCaller. The deploy script already grants
-  # the deployer's SMA in 14_ConfigureRoles; this loop covers the remaining
-  # admin wallets (Patrick + Anvil #3-#5) and their SMAs.
+  # Each admin wallet gets SEASON_CREATOR_ROLE + DEFAULT_ADMIN_ROLE on Raffle.
+  # Admin writes are sent from the connected wallet itself, so the wallet is
+  # the msg.sender AccessControl checks. The deployer already has the roles
+  # from deployment; this loop covers the remaining admin wallets
+  # (Patrick + Anvil #3-#5).
   log "Step 6/10: Granting on-chain roles..."
-  local raffle factory_addr
+  local raffle
   raffle=$(get_deployment Raffle)
-  factory_addr=$(get_deployment SOFSmartAccountFactory)
   local creator_role
   creator_role=$(cast keccak "SEASON_CREATOR_ROLE")
   local admin_role="0x0000000000000000000000000000000000000000000000000000000000000000"
 
   for wallet in "${ADMIN_WALLETS_CHECKSUMMED[@]}"; do
-    # Skip deployer — already has roles from deployment (and its SMA was
-    # granted in 14_ConfigureRoles).
+    # Skip deployer — already has roles from deployment.
     if [ "$wallet" = "$DEPLOYER_ADDR" ]; then
       continue
     fi
@@ -445,21 +442,8 @@ for log in d.get('logs', []):
       --private-key "$DEPLOYER_KEY" --rpc-url "$RPC" > /dev/null 2>&1 || true
     cast send "$raffle" "grantRole(bytes32,address)" "$admin_role" "$wallet" \
       --private-key "$DEPLOYER_KEY" --rpc-url "$RPC" > /dev/null 2>&1 || true
-
-    # Mirror the same roles onto the wallet's deterministic SMA so
-    # sponsored admin UserOps from the SMA pass AccessControl.
-    if [ -n "$factory_addr" ] && [ "$factory_addr" != "null" ]; then
-      local wallet_sma
-      wallet_sma=$(cast call "$factory_addr" "getAddress(address)(address)" "$wallet" --rpc-url "$RPC" 2>/dev/null)
-      if [ -n "$wallet_sma" ] && [ "$wallet_sma" != "0x0000000000000000000000000000000000000000" ]; then
-        cast send "$raffle" "grantRole(bytes32,address)" "$creator_role" "$wallet_sma" \
-          --private-key "$DEPLOYER_KEY" --rpc-url "$RPC" > /dev/null 2>&1 || true
-        cast send "$raffle" "grantRole(bytes32,address)" "$admin_role" "$wallet_sma" \
-          --private-key "$DEPLOYER_KEY" --rpc-url "$RPC" > /dev/null 2>&1 || true
-      fi
-    fi
   done
-  ok "  Roles granted (EOAs + SMAs)"
+  ok "  Roles granted"
 
   # ------ Step 6: Treasury approval for RolloverEscrow ------
   log "Step 7/10: Treasury approval for RolloverEscrow..."
@@ -474,38 +458,17 @@ for log in d.get('logs', []):
   fi
 
   # ------ Step 7: Fund dev wallets ------
-  # CRITICAL: post-M3 the SMA is the on-chain identity for gameplay state
-  # (balances, positions, allowances). The dapp reads `balanceOf(sma)` and
-  # writes execute as msg.sender = SMA. Funding the EOA here would leave
-  # the SMA at 0 SOF and the buy/sell button perpetually disabled.
-  #
-  # Per-EOA SMA = factory.getAddress(eoa). On a fresh Anvil instance the
-  # factory's CREATE2-derived addresses change with every redeploy because
-  # the factory's embedded SOFSmartAccount creationCode can vary across
-  # `forge build --force` runs even with bytecode_hash="none". So we derive
-  # the SMA fresh from the just-deployed factory rather than hardcoding.
-  log "Step 8/10: Funding dev SMAs with SOF..."
-  local sof factory
+  # Users transact from the wallet they connect, so SOF goes straight to it.
+  log "Step 8/10: Funding dev wallets with SOF..."
+  local sof
   sof=$(get_deployment SOFToken)
-  factory=$(get_deployment SOFSmartAccountFactory)
-  if [ -z "$factory" ] || [ "$factory" = "null" ]; then
-    err "  SOFSmartAccountFactory not in deployments — cannot derive SMAs"
-    err "  Bump the contracts package or re-run a clean deploy."
-    return 1
-  fi
   for entry in "${FUND_WALLETS[@]}"; do
     local wallet="${entry%%:*}"
     local amount="${entry##*:}"
-    local sma
-    sma=$(cast call "$factory" "getAddress(address)(address)" "$wallet" --rpc-url "$RPC" 2>/dev/null)
-    if [ -z "$sma" ] || [ "$sma" = "0x0000000000000000000000000000000000000000" ]; then
-      warn "  Could not derive SMA for $wallet — skipping"
-      continue
-    fi
-    cast send "$sof" "transfer(address,uint256)" "$sma" "$(cast --to-wei "$amount")" \
+    cast send "$sof" "transfer(address,uint256)" "$wallet" "$(cast --to-wei "$amount")" \
       --private-key "$DEPLOYER_KEY" --rpc-url "$RPC" > /dev/null 2>&1 || true
   done
-  ok "  ${#FUND_WALLETS[@]} SMA(s) funded"
+  ok "  ${#FUND_WALLETS[@]} wallet(s) funded"
 
   # ------ Step 8: Start backend ------
   log "Step 9/10: Starting backend..."
@@ -525,11 +488,9 @@ for log in d.get('logs', []):
   SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY" \
   BACKEND_WALLET_PRIVATE_KEY=$DEPLOYER_KEY \
   BACKEND_WALLET_ADDRESS=$DEPLOYER_ADDR \
-  PAYMASTER_RPC_URL=$RPC \
   JWT_SECRET=local-dev-jwt-secret-must-be-at-least-32-chars \
   JWT_EXPIRES_IN=7d \
   CORS_ORIGINS="http://localhost:5174,http://127.0.0.1:5174" \
-  SOF_AIRDROP_AMOUNT_PER_USER=100 \
   PORT=3000 \
   node fastify/boot.js > "$PID_DIR/backend.log" 2>&1 &
   echo $! > "$PID_DIR/backend.pid"

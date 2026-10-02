@@ -2,7 +2,7 @@ import { publicClient } from "../lib/viemClient.js";
 import { db } from "../../shared/supabaseClient.js";
 import { getChainByKey } from "../config/chain.js";
 import { oracleCallService } from "../services/oracleCallService.js";
-import { getPaymasterService } from "../services/paymasterService.js";
+import { getPositionRelayService } from "../services/positionRelayService.js";
 import { getSSEChannelService } from "../services/sseChannelService.js";
 import { raffleTransactionService } from "../services/raffleTransactionService.js";
 import {
@@ -24,7 +24,7 @@ export async function scanHistoricalPositionUpdateEvents(
   raffleAbi,
   infoFiFactoryAddress,
   maxSupply,
-  paymasterService,
+  positionRelayService,
   sseService,
   logger,
 ) {
@@ -141,7 +141,7 @@ export async function scanHistoricalPositionUpdateEvents(
             );
 
             // Trigger market creation
-            if (paymasterService.initialized && infoFiFactoryAddress) {
+            if (positionRelayService.initialized && infoFiFactoryAddress) {
               sseService.broadcast('infofi', {
                 type: 'MarketCreationStarted',
                 seasonId: seasonIdNum,
@@ -149,7 +149,7 @@ export async function scanHistoricalPositionUpdateEvents(
                 probability: newShareBps,
               });
 
-              const result = await paymasterService.createMarket(
+              const result = await positionRelayService.createMarket(
                 {
                   seasonId: seasonIdNum,
                   player,
@@ -199,7 +199,7 @@ export async function scanHistoricalPositionUpdateEvents(
               }
             } else {
               logger.warn(
-                `   ⚠️  PaymasterService not initialized, cannot create historical market for ${player}`,
+                `   ⚠️  PositionRelayService not initialized, cannot create historical market for ${player}`,
               );
             }
           } catch (err) {
@@ -234,7 +234,7 @@ export async function scanHistoricalPositionUpdateEvents(
  * @param {string} raffleAddress - Raffle contract address
  * @param {object} raffleAbi - Raffle ABI
  * @param {string} raffleTokenAddress - RaffleToken contract address (for max supply)
- * @param {string} infoFiFactoryAddress - InfoFiMarketFactory contract address (for gasless market creation)
+ * @param {string} infoFiFactoryAddress - InfoFiMarketFactory contract address (for relayed market creation)
  * @param {object} logger - Fastify logger instance (app.log)
  * @returns {Promise<() => Promise<void>>} Async unwatch (awaits cursor flush)
  */
@@ -263,16 +263,16 @@ export async function startPositionUpdateListener(
   }
 
   // Initialize services
-  const paymasterService = getPaymasterService(logger);
+  const positionRelayService = getPositionRelayService(logger);
   const sseService = getSSEChannelService(logger);
 
-  // Initialize Paymaster service if not already done
-  if (!paymasterService.initialized) {
+  // Initialize the position relay service if not already done
+  if (!positionRelayService.initialized) {
     try {
-      await paymasterService.initialize();
+      await positionRelayService.initialize();
     } catch (error) {
       logger.warn(
-        `⚠️  PaymasterService initialization failed: ${error.message}`,
+        `⚠️  PositionRelayService initialization failed: ${error.message}`,
       );
       logger.warn(`   Market creation will not be available`);
     }
@@ -308,7 +308,7 @@ export async function startPositionUpdateListener(
     raffleAbi,
     infoFiFactoryAddress,
     maxSupply,
-    paymasterService,
+    positionRelayService,
     sseService,
     logger,
   );
@@ -549,12 +549,12 @@ export async function startPositionUpdateListener(
               probability: newShareBps,
             });
 
-            if (paymasterService.initialized && infoFiFactoryAddress) {
+            if (positionRelayService.initialized && infoFiFactoryAddress) {
               try {
                 logger.info(
-                  "🚀 Submitting gasless market creation via Paymaster...",
+                  "🚀 Relaying onPositionUpdate for market creation...",
                 );
-                const result = await paymasterService.createMarket(
+                const result = await positionRelayService.createMarket(
                   {
                     seasonId: seasonIdNum,
                     player,
@@ -628,7 +628,7 @@ export async function startPositionUpdateListener(
               }
             } else {
               logger.warn(
-                "⚠️  PaymasterService not initialized or InfoFi factory not configured, skipping market creation",
+                "⚠️  PositionRelayService not initialized or InfoFi factory not configured, skipping market creation",
               );
             }
           }

@@ -21,9 +21,7 @@ packages/backend/
 │       ├── seasonRoutes.js
 │       ├── infoFiRoutes.js
 │       ├── raffleTransactionRoutes.js
-│       ├── airdropRoutes.js
 │       ├── sseRoutes.js
-│       ├── paymasterProxyRoutes.js
 │       ├── accessRoutes.js
 │       ├── allowlistRoutes.js
 │       ├── adminRoutes.js
@@ -68,7 +66,7 @@ packages/backend/
 │   │   ├── seasonLifecycleService.js
 │   │   ├── seasonReconciliationService.js
 │   │   ├── sseService.js
-│   │   ├── paymasterService.js
+│   │   ├── positionRelayService.js   # backend wallet → InfoFiMarketFactory.onPositionUpdate
 │   │   ├── oracleCallService.js
 │   │   └── adminAlertService.js
 │   ├── utils/
@@ -129,7 +127,7 @@ fastify.post(
 );
 ```
 
-Tier-1 routes covered as of `@sof/backend@0.20.0`: `accessRoutes.set-access-level`, `allowlistRoutes.add` / `.remove`, `airdropRoutes.claim`, `delegationRoutes.delegate` / `.delegate-shortcut`, `gatingRoutes.signatures`. New mutation routes should follow the same pattern; reuse fragments from `shared/schemas/index.js` or add new ones there.
+Tier-1 routes covered: `accessRoutes.set-access-level`, `allowlistRoutes.add` / `.remove`, `adminRoutes.create-market`, `gatingRoutes.signatures`. New mutation routes should follow the same pattern; reuse fragments from `shared/schemas/index.js` or add new ones there.
 
 Note: Fastify's default Ajv config strips unknown fields silently (`removeAdditional: 'all'`). Schemas declare `additionalProperties: false` for documentation, but the strip-vs-reject behavior is global; toggle the global Ajv config if strict input rejection ever becomes load-bearing.
 
@@ -227,8 +225,10 @@ Environment files live in `packages/backend/env/`. Key variables:
 - `RPC_URL` — Ethereum RPC endpoint
 - `NETWORK` — `LOCAL`, `TESTNET`, or `MAINNET`
 - `CORS_ORIGINS` — comma-separated list (supports regex patterns wrapped in `/`)
-- `BACKEND_WALLET_PRIVATE_KEY` — for signing attestations and relay transactions
-- `PAYMASTER_RPC_URL_TESTNET` — CDP paymaster proxy target
+- `BACKEND_WALLET_PRIVATE_KEY`, `BACKEND_WALLET_ADDRESS` — the backend wallet, which relays `InfoFiMarketFactory.onPositionUpdate` (it holds `PAYMASTER_ROLE` on the factory) and pays its own gas over `RPC_URL`
+
+There is no gas sponsorship: users transact from the wallet they connect, and
+the user identity is that wallet address.
 
 ## Testing
 
@@ -264,16 +264,14 @@ In development (non-production), CORS defaults to `true` (allow all). In product
 
 ### Backend Wallet Funding
 
-The backend wallet (`BACKEND_WALLET_PRIVATE_KEY` in env) must hold enough SOF
-to airdrop `SOF_AIRDROP_AMOUNT_PER_USER` to every new user that authenticates.
-For testnet, after each redeploy, verify the balance:
+The backend wallet (`BACKEND_WALLET_ADDRESS`) pays the gas for every relayed
+`onPositionUpdate`, so it must hold ETH. The admin Services panel
+(`GET /api/admin/backend-wallet`) shows its balance; or check it directly:
 
 ```bash
-cast call $SOF_TOKEN "balanceOf(address)(uint256)" $BACKEND_WALLET_ADDRESS \
-  --rpc-url $RPC
+cast balance $BACKEND_WALLET_ADDRESS --rpc-url $RPC
 ```
 
-If low, transfer from the deployer or treasury wallet. The
-`airdropService.transferToSma` function logs `transferToSma: tx reverted` if
-the balance is insufficient — `funded_at` will stay null and users will see
-the FirstConnectBanner but no SOF balance.
+If low, transfer ETH from the deployer or treasury wallet. When it runs dry the
+relay's transactions fail and the failed market creations are recorded in
+`infofi_failed_markets`.

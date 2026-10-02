@@ -47,30 +47,6 @@ export const setAccessLevelBodySchema = {
   required: ["wallet", "accessLevel"],
 };
 
-/** Body shape for POST /api/wallet/delegate. */
-export const delegateBodySchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    userAddress: addressSchema,
-    // EIP-7702 authorization tuple. Frontend serializes a viem
-    // `signAuthorization` result; downstream code re-parses, so a
-    // permissive shape is acceptable here.
-    authorization: { type: "object" },
-  },
-  required: ["userAddress", "authorization"],
-};
-
-/** Body shape for POST /api/wallet/delegate-shortcut (LOCAL only). */
-export const delegateShortcutBodySchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    userAddress: addressSchema,
-  },
-  required: ["userAddress"],
-};
-
 /**
  * One row in the bulk-signature upload accepted by
  * POST /api/gating/signatures/:seasonId.

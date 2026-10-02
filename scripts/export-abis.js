@@ -59,8 +59,7 @@ const CONTRACTS_TO_EXPORT = [
   { source: 'Hats.sol/Hats.json', name: 'Hats' },
   { source: 'StakingEligibility.sol/StakingEligibility.json', name: 'StakingEligibility' },
 
-  // Exchange (SOFAirdrop deleted in the gasless rewrite — backend relayer
-  // does direct transfers now per spec §5.3)
+  // (SOFAirdrop was deleted; there is no airdrop contract to export.)
 
   // ERC-4337 account abstraction (gasless rewrite)
   { source: 'SOFSmartAccount.sol/SOFSmartAccount.json', name: 'SOFSmartAccount' },

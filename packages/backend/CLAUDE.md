@@ -29,7 +29,7 @@ import { getDeployment } from '@sof/contracts/deployments';
 Never copy ABI JSON files into the backend.
 
 ### Event Listeners
-On-chain event listeners run as long-lived processes started in `server.js` (`startListeners`). The fixed set (SeasonStarted, SeasonCompleted, SeasonStatus — itself 5 event pollers, MarketCreated, Rollover, AccountCreated, SponsorHat) is joined by per-season/per-market pollers (PositionUpdate per season, Trade per FPMM market), so the live poller count grows with active raffles. Each uses a Supabase-backed block cursor for crash recovery and processes events idempotently (check-before-insert).
+On-chain event listeners run as long-lived processes started in `server.js` (`startListeners`). The fixed set (SeasonStarted, SeasonCompleted, SeasonStatus — itself 5 event pollers, MarketCreated, Rollover, SponsorHat) is joined by per-season/per-market pollers (PositionUpdate per season, Trade per FPMM market), so the live poller count grows with active raffles. Each uses a Supabase-backed block cursor for crash recovery and processes events idempotently (check-before-insert).
 
 All pollers share one chain-head source: `startListeners` registers and starts a `blockHead.js` tracker for the `publicClient` singleton **before** any listener, so each `contractEventPolling` tick reads the cached head instead of issuing its own `getBlockNumber`/`getBlock` pair (keeps Tenderly RPC volume flat as raffles scale). The tracker is stopped in the shutdown gather.
 
@@ -164,11 +164,17 @@ Shaping for all of them is pure, in `src/services/activityFeed.js`. Rules they s
 - Validate required env vars at module load time
 
 ### Backend Relay Functions
-For gasless relay transactions (e.g., airdrop attestations), follow the four-layer verification pattern:
-1. Authenticate caller (JWT)
-2. Validate inputs (address format)
-3. Sign with backend wallet (`BACKEND_WALLET_PRIVATE_KEY`)
-4. Return signature for on-chain submission
+There is no gas sponsorship: users transact from the wallet they connect, and the
+user identity is that wallet address. The backend wallet sends only its own
+transactions. The one relay today is `src/services/positionRelayService.js`: the
+backend wallet calls `InfoFiMarketFactory.onPositionUpdate` (gated on-chain by
+`PAYMASTER_ROLE`, granted to `BACKEND_WALLET_ADDRESS` at deploy) and pays the gas
+over `RPC_URL`. Callers are the PositionUpdate listener and the admin-only
+`POST /api/admin/create-market`. A new relay should follow the same pattern:
+1. Authenticate the caller (JWT + admin guard), or trigger it from a listener
+2. Validate inputs (address format, on-chain state) before sending
+3. Send from the backend wallet (`BACKEND_WALLET_PRIVATE_KEY`) through one serial queue, so concurrent calls never reuse a nonce
+4. Record failures where an admin can see and retry them (e.g. `infofi_failed_markets`)
 
 ## Commands
 

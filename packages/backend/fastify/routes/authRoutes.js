@@ -7,15 +7,11 @@
  */
 
 import crypto from "node:crypto";
-import process from "node:process";
 import { redisClient } from "../../shared/redisClient.js";
 import { AuthService } from "../../shared/auth.js";
 import { getUserAccess, ACCESS_LEVEL_NAMES } from "../../shared/accessService.js";
 import { usernameService } from "../../shared/usernameService.js";
-import { ensureSmartAccount } from "../../shared/services/smartAccountService.js";
-import { smartAccountsDb } from "../../shared/services/smartAccountsDb.js";
 import { ensureAdminFlag } from "../../shared/services/adminEoaService.js";
-import { getAirdropService } from "../../shared/services/airdropService.js";
 import { publicClient } from "../../src/lib/viemClient.js";
 
 const NONCE_TTL_SECONDS = 300; // 5 minutes
@@ -38,14 +34,11 @@ export default async function authRoutes(fastify) {
 
   /**
    * POST /verify
-   * Body: { method: "wallet", address, signature, nonce, walletType? }
+   * Body: { method: "wallet", address, signature, nonce }
    *
    * The signed message is `${SIGN_IN_MESSAGE_PREFIX}${nonce}`; the nonce is
-   * single-use (consumed before verification).
-   *
-   * `walletType` routes the SMA resolution: smart-wallet types
-   * ("coinbase-smart") keep sma=eoa so airdrops land where the user
-   * trades. Omitted/unknown values fall back to factory derivation.
+   * single-use (consumed before verification). The user's identity is the
+   * signing wallet address.
    */
   fastify.post("/verify", async (request, reply) => {
     const { method, nonce, signature } = request.body || {};
@@ -81,7 +74,7 @@ export default async function authRoutes(fastify) {
     await redis.del(nonceRedisKey);
 
     // ── Signature verification ──────────────────────────────────────
-    const { address, walletType } = request.body;
+    const { address } = request.body;
 
     if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
       return reply.code(400).send({ error: "Valid Ethereum address required" });
@@ -115,31 +108,10 @@ export default async function authRoutes(fastify) {
     // getUsernameByAddress never throws — it returns null on any failure.
     const username = await usernameService.getUsernameByAddress(walletAddress);
 
-    // ── Smart account + admin flag (gasless rewrite §5.3) ──────────
-    // Resolve the user's SMA (factory-derived for plain EOAs, eoa-as-sma
-    // for smart-wallet types) and persist the row. For new users (or
-    // users whose stored sma disagrees with the walletType-derived
-    // expected value) the airdrop relayer fires next. ADMIN_EOAS-listed
-    // wallets get is_admin flipped to true here on first auth.
-    let sma = null;
+    // ── Admin flag ──────────────────────────────────────────────────
+    // ADMIN_EOAS-listed wallets get is_admin flipped to true here on first
+    // auth.
     let isAdmin = false;
-    try {
-      const sa = await ensureSmartAccount({
-        eoa: walletAddress,
-        db: smartAccountsDb,
-        chain: publicClient,
-        airdrop: getAirdropService(fastify.log),
-        network: (process.env.NETWORK || "LOCAL").toLowerCase(),
-        walletType,
-      });
-      sma = sa.sma;
-    } catch (err) {
-      fastify.log.warn(
-        { err, walletAddress, walletType },
-        "ensureSmartAccount failed during auth — continuing without SMA",
-      );
-    }
-
     try {
       isAdmin = await ensureAdminFlag(walletAddress, fastify.log);
     } catch (err) {
@@ -155,7 +127,6 @@ export default async function authRoutes(fastify) {
       role,
     };
     if (username) tokenPayload.username = username;
-    if (sma) tokenPayload.sma = sma;
     if (isAdmin) tokenPayload.is_admin = true;
 
     const token = await AuthService.generateToken(tokenPayload);
@@ -167,7 +138,6 @@ export default async function authRoutes(fastify) {
         username: username || null,
         accessLevel: accessInfo.level,
         role,
-        sma,
         isAdmin,
       },
     });

@@ -29,7 +29,7 @@ describe("mountStatus registry", () => {
   });
 
   it("records a failure with the error message and surfaces it via getMountFailures", () => {
-    recordMount("/api/paymaster/sof", {
+    recordMount("/api/auth", {
       ok: false,
       critical: true,
       error: "RPC_URL is required",
@@ -38,7 +38,7 @@ describe("mountStatus registry", () => {
     const failures = getMountFailures();
     expect(failures).toHaveLength(1);
     expect(failures[0]).toMatchObject({
-      prefix: "/api/paymaster/sof",
+      prefix: "/api/auth",
       critical: true,
       error: "RPC_URL is required",
     });
@@ -52,10 +52,10 @@ describe("mountStatus registry", () => {
   });
 
   it("re-recording the same prefix overwrites the previous entry (e.g. retry after fix)", () => {
-    recordMount("/api/airdrop", { ok: false, error: "boom" });
+    recordMount("/api/seasons", { ok: false, error: "boom" });
     expect(getMountFailures()).toHaveLength(1);
 
-    recordMount("/api/airdrop", { ok: true });
+    recordMount("/api/seasons", { ok: true });
     expect(getMountFailures()).toEqual([]);
     expect(getMountStatus()).toHaveLength(1);
   });

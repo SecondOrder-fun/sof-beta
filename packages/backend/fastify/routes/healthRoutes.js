@@ -11,9 +11,9 @@ import { getMountFailures } from "../../shared/mountStatus.js";
  * - `mountFailures` lists any route module that failed to mount at
  *   boot (Issue #102). Empty list = healthy. Non-empty = partial-mount
  *   deploy — affected routes silently 404 until restart. Critical
- *   failures (auth, paymaster/sof, paymaster/local) never reach this
- *   endpoint because they fail boot; what shows up here is non-critical
- *   diagnostics / optional integrations.
+ *   failures (auth) never reach this endpoint because they fail boot;
+ *   what shows up here is non-critical diagnostics / optional
+ *   integrations.
  */
 async function healthRoutes(fastify) {
   fastify.get("/health", async (_request, reply) => {

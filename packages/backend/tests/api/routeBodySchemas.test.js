@@ -9,8 +9,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import fastify from "fastify";
 
-// airdropRoutes -> paymasterService -> viemClient throws on import without
-// NETWORK. Tests that touch that route family need it set before import.
+// adminRoutes -> viemClient throws on import without NETWORK.
 process.env.NETWORK = process.env.NETWORK || "LOCAL";
 
 vi.mock("../../src/lib/viemClient.js", () => ({
@@ -18,28 +17,12 @@ vi.mock("../../src/lib/viemClient.js", () => ({
   getWalletClient: () => ({}),
 }));
 
-vi.mock("../../src/services/paymasterService.js", () => ({
-  getPaymasterService: () => ({
+vi.mock("../../src/services/positionRelayService.js", () => ({
+  getPositionRelayService: () => ({
     initialized: true,
     initialize: vi.fn(),
-    claimAirdrop: vi.fn(async () => ({ success: false, error: "mocked" })),
   }),
 }));
-
-// Make signature recovery a no-op so the airdrop "schema accepts" test
-// doesn't get caught by the handler's semantic sig-recovery 400.
-vi.mock("viem", async () => {
-  const actual = await vi.importActual("viem");
-  return {
-    ...actual,
-    recoverMessageAddress: vi.fn(async ({ message }) => {
-      // Recover the address from the message body; route expects this
-      // to equal `address`, which is stable in the test payload.
-      const m = /Claim (?:daily )?SOF airdrop for (0x[0-9a-fA-F]{40})/.exec(message);
-      return m ? m[1] : "0x0000000000000000000000000000000000000000";
-    }),
-  };
-});
 
 // ── Mock supabase + admin guard once for every route under test ───────────
 const mockSupabase = {
@@ -227,93 +210,6 @@ describe("schema: POST /api/allowlist/remove", () => {
       payload: { wallet: VALID_ADDR },
     });
     expect(res.statusCode).toBe(200);
-  });
-});
-
-// ── airdrop /claim ────────────────────────────────────────────────────────
-describe("schema: POST /api/airdrop/transfer-to-sma", () => {
-  // Per gasless-rewrite spec §5.3 the legacy /claim endpoint and its
-  // SOFAirdrop merkle/attestation flow are deleted. The new airdrop route
-  // is admin-only and just kicks an ERC-20 transfer to the user's SMA.
-  let app;
-  beforeAll(async () => {
-    const mod = await import("../../fastify/routes/airdropRoutes.js");
-    app = fastify({ logger: false });
-    // Stub auth so request.user.is_admin is true for these schema-only tests.
-    app.decorateRequest("user", null);
-    app.addHook("preHandler", async (req) => {
-      req.user = { is_admin: true };
-    });
-    await app.register(mod.default, { prefix: "/api/airdrop" });
-    await app.ready();
-  });
-  afterAll(async () => { await app.close(); });
-
-  it("rejects missing sma", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/airdrop/transfer-to-sma",
-      payload: {},
-    });
-    expect(res.statusCode).toBe(400);
-  });
-
-  it("rejects malformed sma", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/airdrop/transfer-to-sma",
-      payload: { sma: "not-an-address" },
-    });
-    expect(res.statusCode).toBe(400);
-  });
-
-  it("returns 403 for non-admin callers", async () => {
-    // Re-build app with a non-admin user so the admin check fires.
-    const mod = await import("../../fastify/routes/airdropRoutes.js");
-    const subApp = fastify({ logger: false });
-    subApp.decorateRequest("user", null);
-    subApp.addHook("preHandler", async (req) => {
-      req.user = { is_admin: false };
-    });
-    await subApp.register(mod.default, { prefix: "/api/airdrop" });
-    await subApp.ready();
-    try {
-      const res = await subApp.inject({
-        method: "POST",
-        url: "/api/airdrop/transfer-to-sma",
-        payload: { sma: VALID_ADDR },
-      });
-      expect(res.statusCode).toBe(403);
-    } finally {
-      await subApp.close();
-    }
-  });
-});
-
-describe("schema: GET /api/airdrop/status", () => {
-  let app;
-  beforeAll(async () => {
-    const mod = await import("../../fastify/routes/airdropRoutes.js");
-    app = fastify({ logger: false });
-    await app.register(mod.default, { prefix: "/api/airdrop" });
-    await app.ready();
-  });
-  afterAll(async () => { await app.close(); });
-
-  it("rejects missing eoa query param", async () => {
-    const res = await app.inject({
-      method: "GET",
-      url: "/api/airdrop/status",
-    });
-    expect(res.statusCode).toBe(400);
-  });
-
-  it("rejects malformed eoa", async () => {
-    const res = await app.inject({
-      method: "GET",
-      url: "/api/airdrop/status?eoa=not-an-address",
-    });
-    expect(res.statusCode).toBe(400);
   });
 });
 
