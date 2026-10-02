@@ -25,7 +25,7 @@
  * whichever insert wins broadcasts TokenLaunched, and it is broadcast once.
  * Name, symbol and metadata URI are made storable first (buildLaunchRow).
  *
- * Pattern mirrors accountCreatedListener.js:
+ * The usual listener pattern:
  *   1. scan for missed historical events on boot
  *   2. start a polling watcher with a persistent block cursor
  *   3. process logs idempotently (insert-if-absent by token address)

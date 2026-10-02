@@ -7,7 +7,7 @@ import { db } from "../../shared/supabaseClient.js";
 import { publicClient } from "../../src/lib/viemClient.js";
 import { getChainByKey } from "../../src/config/chain.js";
 import { RaffleABI as raffleAbi } from '@sof/contracts';
-import { getPaymasterService } from "../../src/services/paymasterService.js";
+import { getPositionRelayService } from "../../src/services/positionRelayService.js";
 import { historicalOddsService } from "../../shared/historicalOddsService.js";
 import { createRequireAdmin } from "../../shared/adminGuard.js";
 import { createMarketBodySchema } from "../../shared/schemas/index.js";
@@ -27,38 +27,15 @@ export default async function adminRoutes(fastify) {
 
   /**
    * GET /api/admin/backend-wallet
-   * Returns the backend/paymaster wallet address, ETH balance, SOF balance, and network info.
+   * Returns the backend wallet address, ETH balance, SOF balance, and network info.
    */
   fastify.get("/backend-wallet", { preHandler: requireAdmin }, async (_request, reply) => {
     try {
       const chain = getChainByKey(NETWORK);
-      const paymasterService = getPaymasterService(fastify.log);
 
-      let walletAddress = null;
+      const walletAddress = process.env.BACKEND_WALLET_ADDRESS || null;
       let balanceEth = 0;
       let sofBalance = 0;
-
-      // Try to get the smart account address from paymaster
-      if (!paymasterService.initialized) {
-        try {
-          await paymasterService.initialize();
-        } catch (_err) {
-          // Will fall back to null address
-        }
-      }
-
-      if (paymasterService.initialized) {
-        try {
-          walletAddress = paymasterService.getWalletAddress();
-        } catch (_err) {
-          // ignore
-        }
-      }
-
-      // If no smart account, try the plain backend wallet from env
-      if (!walletAddress) {
-        walletAddress = process.env.BACKEND_WALLET_ADDRESS || null;
-      }
 
       if (walletAddress) {
         try {
@@ -141,7 +118,7 @@ export default async function adminRoutes(fastify) {
       return reply.send({
         totalCreated,
         successRate,
-        totalGasEth: "0.0000", // Gasless via paymaster
+        totalGasEth: "0.0000", // Relay gas spend is not tracked
         failedAttempts,
         recentMarkets,
       });
@@ -211,8 +188,8 @@ export default async function adminRoutes(fastify) {
   /**
    * POST /api/admin/create-market
    * Manually trigger InfoFi market creation for a given season + player.
-   * Uses the backend CDP smart account via PaymasterService to call
-   * InfoFiMarketFactory.onPositionUpdate gaslessly.
+   * The backend wallet calls InfoFiMarketFactory.onPositionUpdate through
+   * PositionRelayService.
    */
   fastify.post(
     "/create-market",
@@ -308,12 +285,12 @@ export default async function adminRoutes(fastify) {
         });
       }
 
-      const paymasterService = getPaymasterService(fastify.log);
-      if (!paymasterService.initialized) {
-        await paymasterService.initialize();
+      const positionRelayService = getPositionRelayService(fastify.log);
+      if (!positionRelayService.initialized) {
+        await positionRelayService.initialize();
       }
 
-      const result = await paymasterService.createMarket(
+      const result = await positionRelayService.createMarket(
         {
           seasonId: seasonIdNum,
           player: playerAddress,
@@ -388,30 +365,34 @@ export default async function adminRoutes(fastify) {
   });
 
   /**
-   * GET /api/admin/paymaster-status
-   * Returns basic health information for the CDP Paymaster-backed smart account
-   * Shape: { network, isTestnet, entryPointAddress, paymasterUrlConfigured, initialized, smartAccountAddress, initializationError }
+   * GET /api/admin/relay-status
+   * Health of the position relay (the backend wallet that calls
+   * InfoFiMarketFactory.onPositionUpdate), shown by the admin panel's
+   * BackendWalletManager. `rpcConfigured` reports whether the RPC the relay
+   * sends through is configured.
+   * Shape: { network, isTestnet, rpcConfigured, initialized, walletAddress, initializationError }
    */
-  fastify.get("/paymaster-status", { preHandler: requireAdmin }, async (_request, reply) => {
+  fastify.get("/relay-status", { preHandler: requireAdmin }, async (_request, reply) => {
     try {
-      const {
-        PAYMASTER_RPC_URL,
-        ENTRY_POINT_ADDRESS,
-      } = process.env;
-
       const network = NETWORK;
-      const paymasterUrl = PAYMASTER_RPC_URL;
 
-      const paymasterService = getPaymasterService(fastify.log);
+      let rpcConfigured = false;
+      try {
+        rpcConfigured = Boolean(getChainByKey(NETWORK).rpcUrl);
+      } catch (_err) {
+        // getChainByKey throws when RPC_URL is missing off LOCAL
+      }
 
-      let initialized = paymasterService.initialized;
-      let smartAccountAddress = null;
+      const positionRelayService = getPositionRelayService(fastify.log);
+
+      let initialized = positionRelayService.initialized;
+      let walletAddress = null;
       let initializationError = null;
 
       // Try to initialize on-demand if not already initialized
       if (!initialized) {
         try {
-          await paymasterService.initialize();
+          await positionRelayService.initialize();
           initialized = true;
         } catch (err) {
           initializationError = err.message;
@@ -420,7 +401,7 @@ export default async function adminRoutes(fastify) {
 
       if (initialized) {
         try {
-          smartAccountAddress = paymasterService.getWalletAddress();
+          walletAddress = positionRelayService.getWalletAddress();
         } catch (err) {
           initializationError = initializationError || err.message;
         }
@@ -429,16 +410,15 @@ export default async function adminRoutes(fastify) {
       return reply.send({
         network,
         isTestnet,
-        entryPointAddress: ENTRY_POINT_ADDRESS || null,
-        paymasterUrlConfigured: Boolean(paymasterUrl),
+        rpcConfigured,
         initialized,
-        smartAccountAddress,
+        walletAddress,
         initializationError,
       });
     } catch (error) {
-      fastify.log.error({ error }, "Failed to fetch paymaster status");
+      fastify.log.error({ error }, "Failed to fetch position relay status");
       return reply.code(500).send({
-        error: "Failed to fetch paymaster status",
+        error: "Failed to fetch position relay status",
         details: error.message,
       });
     }

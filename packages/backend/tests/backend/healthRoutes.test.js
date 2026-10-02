@@ -66,10 +66,10 @@ describe("healthRoutes /api/health", () => {
   });
 
   it("preserves the critical flag in failure entries so monitoring can prioritise", async () => {
-    recordMount("/api/paymaster/sof", {
+    recordMount("/api/auth", {
       ok: false,
       critical: true,
-      error: "RPC_URL unset",
+      error: "JWT_SECRET unset",
     });
     recordMount("/api/admin", { ok: false, error: "minor" });
 
@@ -78,6 +78,6 @@ describe("healthRoutes /api/health", () => {
 
     const criticals = body.mountFailures.filter((f) => f.critical);
     expect(criticals).toHaveLength(1);
-    expect(criticals[0].prefix).toBe("/api/paymaster/sof");
+    expect(criticals[0].prefix).toBe("/api/auth");
   });
 });

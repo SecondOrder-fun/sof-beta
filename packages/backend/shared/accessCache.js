@@ -8,13 +8,12 @@
 //
 // This module is a thin, access-specific wrapper around the generic
 // read-through helper in redisCache.js. It owns the wallet key derivation
-// and the SMA-pair invalidation surface; the Redis mechanics (try-cache,
+// and the invalidation surface; the Redis mechanics (try-cache,
 // write-through, best-effort invalidation, never-throw) live in
 // redisCache.js.
 
 import { getUserAccess } from "./accessService.js";
 import { cacheRead, cacheInvalidate } from "./redisCache.js";
-import { resolveAddressPair } from "./services/addressPairResolver.js";
 
 // 5-minute TTL. Mutations explicitly invalidate via invalidateUserAccessCache
 // from every admin endpoint that touches allowlist_entries or
@@ -67,9 +66,6 @@ export async function getCachedUserAccess(identifier, logger = console) {
  * the safety net — explicit invalidation makes admin changes reflect
  * immediately instead of after the TTL elapses.
  *
- * The wallet's SMA-paired counterpart (EOA <-> SMA, via smart_accounts) is
- * busted too, so an admin change to either address takes effect for both.
- *
  * @param {{wallet?: string}} identifier
  * @param {{warn: Function}} [logger=console]
  */
@@ -81,20 +77,6 @@ export async function invalidateUserAccessCache(identifier, logger = console) {
 
   if (!wallet) return;
 
-  const keys = [`${KEY_PREFIX}wallet:${wallet}`];
-
-  // Symmetric busting: if this wallet has a paired counterpart in
-  // smart_accounts, invalidate its key too. Resolution is best-effort —
-  // a failure here doesn't block invalidating the primary key.
-  const pair = await resolveAddressPair(wallet, logger);
-  if (pair) {
-    const alt = wallet === pair.eoa ? pair.sma : pair.eoa;
-    if (alt && alt !== wallet) {
-      keys.push(`${KEY_PREFIX}wallet:${alt}`);
-    }
-  }
-
-  // Single DEL covering the wallet + SMA-pair keys; cacheInvalidate is
-  // best-effort and never throws on a Redis hiccup.
-  await cacheInvalidate(keys, logger);
+  // cacheInvalidate is best-effort and never throws on a Redis hiccup.
+  await cacheInvalidate([`${KEY_PREFIX}wallet:${wallet}`], logger);
 }

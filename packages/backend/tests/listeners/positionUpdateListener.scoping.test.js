@@ -26,8 +26,8 @@ vi.mock("../../src/config/chain.js", () => ({
 vi.mock("../../src/services/oracleCallService.js", () => ({
   oracleCallService: {},
 }));
-vi.mock("../../src/services/paymasterService.js", () => ({
-  getPaymasterService: () => ({ initialized: false }),
+vi.mock("../../src/services/positionRelayService.js", () => ({
+  getPositionRelayService: () => ({ initialized: false }),
 }));
 vi.mock("../../src/services/sseChannelService.js", () => ({
   getSSEChannelService: () => ({ broadcast: vi.fn() }),
@@ -80,7 +80,7 @@ describe("scanHistoricalPositionUpdateEvents stamps bonding_curve_address", () =
       {}, // raffleAbi
       "0xFactory",
       1_000_000, // maxSupply
-      { initialized: false }, // paymasterService
+      { initialized: false }, // positionRelayService
       { broadcast: vi.fn() }, // sseService
       logger,
     );

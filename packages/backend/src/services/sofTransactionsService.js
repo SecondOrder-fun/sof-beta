@@ -136,7 +136,7 @@ function rowAmount(tx) {
  * @param {object} deps.blockscoutClient   — createBlockscoutClient result
  * @param {object} deps.db                  — shared/supabaseClient db
  * @param {string} deps.network             — "TESTNET" | "LOCAL" | "MAINNET"
- * @param {string} user                    — user EOA or SMA
+ * @param {string} user                    — user wallet address
  */
 export async function fetchSofTransactions({ blockscoutClient, db, network }, user) {
   if (!user || typeof user !== "string") {
@@ -196,7 +196,7 @@ export async function fetchSofTransactions({ blockscoutClient, db, network }, us
       from: tx.from?.hash || tx.from,
       to: tx.to?.hash || tx.to,
       amount: rowAmount(tx),
-      // origin tag so own-profile views can render EOA/SMA badges.
+      // origin tag: the address whose feed this row came from.
       origin: userLower,
     });
   }

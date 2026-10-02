@@ -1,6 +1,5 @@
 // backend/shared/usernameService.js
 import { redisClient } from './redisClient.js';
-import { getSmartAccountBySma } from './services/smartAccountsDb.js';
 
 /**
  * Username Service
@@ -31,12 +30,6 @@ class UsernameService {
   /**
    * Get username for a wallet address.
    *
-   * If the address has no direct Redis mapping, falls back to the
-   * smart_accounts table: if `address` is an SMA, looks up its owner EOA
-   * and re-queries Redis for that EOA's username. This is what makes
-   * on-chain events (which carry the SMA as the actor) resolve to the
-   * username the user set against their EOA.
-   *
    * @param {string} address - Wallet address (checksummed or lowercase)
    * @returns {Promise<string|null>} Username or null if not set
    */
@@ -44,24 +37,8 @@ class UsernameService {
     try {
       const normalizedAddress = address.toLowerCase();
       const client = redisClient.getClient();
-      const direct = await client.get(`${this.WALLET_PREFIX}${normalizedAddress}`);
-      if (direct) return direct;
-
-      // Reverse lookup: maybe this address is an SMA — find its owner EOA
-      // and return that EOA's username (if any).
-      try {
-        const row = await getSmartAccountBySma(normalizedAddress);
-        if (row?.eoa) {
-          return await client.get(`${this.WALLET_PREFIX}${row.eoa.toLowerCase()}`);
-        }
-      } catch (lookupError) {
-        this.getLogger().warn(
-          { err: lookupError, address: normalizedAddress },
-          '[UsernameService] SMA→EOA fallback failed'
-        );
-      }
-
-      return null;
+      const username = await client.get(`${this.WALLET_PREFIX}${normalizedAddress}`);
+      return username || null;
     } catch (error) {
       this.getLogger().error({ err: error }, '[UsernameService] Error getting username');
       return null;
@@ -189,9 +166,6 @@ class UsernameService {
   /**
    * Get batch usernames for multiple addresses.
    *
-   * Applies the same SMA→EOA fallback as {@link getUsernameByAddress} for
-   * any address whose direct lookup misses.
-   *
    * @param {string[]} addresses - Array of wallet addresses
    * @returns {Promise<Map<string, string|null>>} Map of address -> username
    */
@@ -204,37 +178,9 @@ class UsernameService {
       const usernames = await client.mget(...keys);
 
       const result = new Map();
-      const fallbackQueue = [];
-      addresses.forEach((addr, index) => {
-        const lower = addr.toLowerCase();
-        if (usernames[index]) {
-          result.set(lower, usernames[index]);
-        } else {
-          result.set(lower, null);
-          fallbackQueue.push(lower);
-        }
+      normalizedAddresses.forEach((addr, index) => {
+        result.set(addr, usernames[index] || null);
       });
-
-      // SMA→EOA fallback for any unresolved addresses, in parallel.
-      if (fallbackQueue.length > 0) {
-        await Promise.all(
-          fallbackQueue.map(async (sma) => {
-            try {
-              const row = await getSmartAccountBySma(sma);
-              if (!row?.eoa) return;
-              const username = await client.get(
-                `${this.WALLET_PREFIX}${row.eoa.toLowerCase()}`
-              );
-              if (username) result.set(sma, username);
-            } catch (err) {
-              this.getLogger().warn(
-                { err, address: sma },
-                '[UsernameService] batch SMA→EOA fallback failed'
-              );
-            }
-          })
-        );
-      }
 
       return result;
     } catch (error) {

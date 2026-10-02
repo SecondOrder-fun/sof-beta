@@ -17,11 +17,6 @@ function validLocalEnv() {
     JWT_SECRET: "y".repeat(32),
     JWT_EXPIRES_IN: "7d",
     NETWORK: "LOCAL",
-    // PAYMASTER_RPC_URL is now required on every network (the backend's
-    // PaymasterService initializes lazily on first airdrop relay; without
-    // this it 500s with "PAYMASTER_RPC_URL not configured"). On LOCAL it
-    // just points at Anvil's RPC.
-    PAYMASTER_RPC_URL: "http://127.0.0.1:8545",
   };
 }
 
@@ -29,8 +24,6 @@ function validTestnetEnv() {
   return {
     ...validLocalEnv(),
     NETWORK: "TESTNET",
-    PAYMASTER_RPC_URL: "https://api.pimlico.io/v2/84532/rpc?apikey=stub",
-    PIMLICO_API_KEY: "pim_live_aaaaaaaaaa",
     BLOCKSCOUT_BASE_URL: "https://base-sepolia.blockscout.com",
     BLOCKSCOUT_API_KEY: "abcdef0123456789",
   };
@@ -159,28 +152,10 @@ describe("assertRequiredEnv", () => {
     expect(() => assertRequiredEnv(env)).toThrow(/SUPABASE_URL.*valid URL/);
   });
 
-  it("requires PAYMASTER_RPC_URL on every network (LOCAL included)", () => {
-    const env = validLocalEnv();
-    delete env.PAYMASTER_RPC_URL;
-    expect(() => assertRequiredEnv(env)).toThrow(/PAYMASTER_RPC_URL/);
-  });
-
-  it("rejects a non-URL PAYMASTER_RPC_URL", () => {
-    const env = validLocalEnv();
-    env.PAYMASTER_RPC_URL = "not-a-url";
-    expect(() => assertRequiredEnv(env)).toThrow(/PAYMASTER_RPC_URL.*valid URL/);
-  });
-
-  it("requires PIMLICO_API_KEY when NETWORK=MAINNET", () => {
+  it("does not require the removed sponsorship vars on TESTNET", () => {
     const env = validTestnetEnv();
-    env.NETWORK = "MAINNET";
-    delete env.PIMLICO_API_KEY;
-    expect(() => assertRequiredEnv(env)).toThrow(/PIMLICO_API_KEY/);
-  });
-
-  it("does NOT require PIMLICO_API_KEY on LOCAL (still feature-gated)", () => {
-    const env = validLocalEnv();
-    delete env.PIMLICO_API_KEY;
+    expect(env.PAYMASTER_RPC_URL).toBeUndefined();
+    expect(env.PIMLICO_API_KEY).toBeUndefined();
     expect(() => assertRequiredEnv(env)).not.toThrow();
   });
 

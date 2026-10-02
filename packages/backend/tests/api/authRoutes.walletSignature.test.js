@@ -14,6 +14,7 @@ const NONCE = "abc123";
 
 const mocks = vi.hoisted(() => ({
   verifyMessage: vi.fn(),
+  generateToken: vi.fn(async () => "jwt-token"),
   redis: { get: vi.fn(), del: vi.fn(), set: vi.fn() },
 }));
 
@@ -24,19 +25,14 @@ vi.mock("../../shared/accessService.js", () => ({
 vi.mock("../../shared/usernameService.js", () => ({
   usernameService: { getUsernameByAddress: vi.fn(async () => null) },
 }));
-vi.mock("../../shared/services/smartAccountService.js", () => ({
-  ensureSmartAccount: vi.fn(async () => ({ sma: WALLET })),
-}));
-vi.mock("../../shared/services/smartAccountsDb.js", () => ({ smartAccountsDb: {} }));
 vi.mock("../../shared/services/adminEoaService.js", () => ({
   ensureAdminFlag: vi.fn(async () => false),
 }));
-vi.mock("../../shared/services/airdropService.js", () => ({ getAirdropService: vi.fn(() => ({})) }));
 vi.mock("../../src/lib/viemClient.js", () => ({
   publicClient: { verifyMessage: mocks.verifyMessage },
 }));
 vi.mock("../../shared/auth.js", () => ({
-  AuthService: { generateToken: vi.fn(async () => "jwt-token") },
+  AuthService: { generateToken: mocks.generateToken },
 }));
 vi.mock("../../shared/redisClient.js", () => ({
   redisClient: { getClient: () => mocks.redis },
@@ -107,8 +103,19 @@ describe("POST /verify — wallet signature", () => {
       username: null,
       accessLevel: 1,
       role: "user",
-      sma: WALLET,
       isAdmin: false,
+    });
+  });
+
+  it("signs a token keyed by the wallet address alone", async () => {
+    mocks.verifyMessage.mockResolvedValue(true);
+
+    await signIn();
+
+    expect(mocks.generateToken).toHaveBeenCalledWith({
+      id: "e1",
+      wallet_address: WALLET,
+      role: "user",
     });
   });
 

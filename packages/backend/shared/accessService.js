@@ -1,5 +1,4 @@
 import { supabase } from "./supabaseClient.js";
-import { resolveAddressPair } from "./services/addressPairResolver.js";
 import { cacheRead, ROUTE_CONFIG_KEY_PREFIX } from "./redisCache.js";
 
 // route_access_config rarely mutates (admin-only); cache lookups for 5 min.
@@ -50,73 +49,33 @@ const ACCESS_ENTRY_COLUMNS =
   "id, wallet_address, access_level, is_active, username, source, added_at";
 
 /**
- * Get user's access info by wallet (direct row first, then its SMA pair)
+ * Get user's access info by wallet address
  * @param {object} params - { wallet? }
- * @param {object} [log=console] - logger for resolver warnings
- * @returns {Promise<{level: number, levelName: string, groups: string[], entry: object|null, matchedVia: "direct"|"sma_pair"|null, matchedAddress: string|null}>}
+ * @returns {Promise<{level: number, levelName: string, groups: string[], entry: object|null}>}
  */
-export async function getUserAccess({ wallet } = {}, log = console) {
+export async function getUserAccess({ wallet } = {}) {
+  const publicAccess = {
+    level: ACCESS_LEVELS.PUBLIC,
+    levelName: ACCESS_LEVEL_NAMES[ACCESS_LEVELS.PUBLIC],
+    groups: [],
+    entry: null,
+  };
+
   try {
-    let entry = null;
-    let matchedVia = null;
-    let matchedAddress = null;
+    if (!wallet) return publicAccess;
 
-    // Priority 1: Direct wallet lookup
-    if (wallet) {
-      const { data, error } = await supabase
-        .from("allowlist_entries")
-        .select(ACCESS_ENTRY_COLUMNS)
-        .eq("wallet_address", wallet.toLowerCase())
-        .eq("is_active", true)
-        .single();
-      if (!error && data) {
-        entry = data;
-        matchedVia = "direct";
-      } else if (error && error.code !== "PGRST116") {
-        throw error;
-      }
+    const { data: entry, error } = await supabase
+      .from("allowlist_entries")
+      .select(ACCESS_ENTRY_COLUMNS)
+      .eq("wallet_address", wallet.toLowerCase())
+      .eq("is_active", true)
+      .single();
+    if (error && error.code !== "PGRST116") {
+      throw error;
     }
 
-    // Priority 2: SMA-paired wallet lookup
-    //
-    // When the queried wallet misses but the user has a smart_accounts row,
-    // try the paired address. Both directions: EOA↔SMA. If both addresses
-    // happen to have their own allowlist rows, the direct hit (above) wins —
-    // pair fallback only runs after a direct miss.
-    if (!entry && wallet) {
-      const pair = await resolveAddressPair(wallet, log);
-      if (pair) {
-        const lc = wallet.toLowerCase();
-        const alt = lc === pair.eoa ? pair.sma : pair.eoa;
-        if (alt && alt !== lc) {
-          const { data, error } = await supabase
-            .from("allowlist_entries")
-            .select(ACCESS_ENTRY_COLUMNS)
-            .eq("wallet_address", alt)
-            .eq("is_active", true)
-            .single();
-          if (!error && data) {
-            entry = data;
-            matchedVia = "sma_pair";
-            matchedAddress = alt;
-          } else if (error && error.code !== "PGRST116") {
-            throw error;
-          }
-        }
-      }
-    }
-
-    // Total miss → public default
-    if (!entry) {
-      return {
-        level: ACCESS_LEVELS.PUBLIC,
-        levelName: ACCESS_LEVEL_NAMES[ACCESS_LEVELS.PUBLIC],
-        groups: [],
-        entry: null,
-        matchedVia: null,
-        matchedAddress: null,
-      };
-    }
+    // No active row → public default
+    if (!entry) return publicAccess;
 
     const groups = await getUserGroups({ wallet: entry.wallet_address });
 
@@ -126,19 +85,10 @@ export async function getUserAccess({ wallet } = {}, log = console) {
         ACCESS_LEVEL_NAMES[entry.access_level ?? ACCESS_LEVELS.ALLOWLIST],
       groups,
       entry,
-      matchedVia,
-      matchedAddress,
     };
   } catch (error) {
     if (error.code === "PGRST116") {
-      return {
-        level: ACCESS_LEVELS.PUBLIC,
-        levelName: ACCESS_LEVEL_NAMES[ACCESS_LEVELS.PUBLIC],
-        groups: [],
-        entry: null,
-        matchedVia: null,
-        matchedAddress: null,
-      };
+      return publicAccess;
     }
     console.error("Error getting user access:", error);
     throw error;

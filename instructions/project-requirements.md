@@ -48,8 +48,8 @@ Wallet sign-in only: connect a wallet, then sign a one-time SIWE message.
 
 | Context | Primary Auth | Notes |
 |---------|-------------|-------|
-| Base App / Coinbase Smart Wallet | Coinbase Wallet login | Transacts from the connected wallet |
-| Desktop browser | Wallet connect (RainbowKit) | Gameplay transacts from the user's own connected wallet |
+| Base App / Coinbase Smart Wallet | Coinbase Wallet login | Connected address (the Coinbase smart wallet) is the user |
+| Desktop browser | Wallet connect (RainbowKit) | Transactions are sent from the connected wallet |
 
 ## Smart Contract System
 
