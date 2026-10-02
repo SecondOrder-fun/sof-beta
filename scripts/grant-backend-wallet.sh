@@ -93,10 +93,16 @@ echo "Granting PAYMASTER_ROLE on $FACTORY to $BACKEND_WALLET_ADDRESS ($NETWORK).
       --rpc-url "$RPC_URL" --broadcast --slow
 )
 
-HAS_ROLE="$(cast call "$FACTORY" 'hasRole(bytes32,address)(bool)' "$ROLE" "$BACKEND_WALLET_ADDRESS" --rpc-url "$RPC_URL")"
+# The gateway can answer from a node one block behind the grant, or a read can
+# fail transiently: give the post-check up to 5 reads, 3s apart.
+for attempt in 1 2 3 4 5; do
+  HAS_ROLE="$(cast call "$FACTORY" 'hasRole(bytes32,address)(bool)' "$ROLE" "$BACKEND_WALLET_ADDRESS" --rpc-url "$RPC_URL" 2>/dev/null || true)"
+  [ "$HAS_ROLE" = "true" ] && break
+  [ "$attempt" -lt 5 ] && sleep 3
+done
 if [ "$HAS_ROLE" = "true" ]; then
   echo "✓ Granted. Backend wallet $BACKEND_WALLET_ADDRESS now holds PAYMASTER_ROLE."
 else
-  echo "✗ The role is still missing after the grant. Check the forge output above." >&2
+  echo "✗ The role still reads as missing after the grant. Check the forge output above." >&2
   exit 1
 fi

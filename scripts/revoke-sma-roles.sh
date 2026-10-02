@@ -7,6 +7,7 @@
 #
 # Usage:
 #   scripts/revoke-sma-roles.sh --network testnet --address 0x… --check   # read-only; exit 1 if any role is held
+#                                                                          #   (or, with a "✗ … read failed" line, if a read fails)
 #   scripts/revoke-sma-roles.sh --network testnet --address 0x…           # revoke every role still held
 #
 # The roles §9b granted, all checked here:
@@ -92,19 +93,24 @@ TARGETS=("$RAFFLE" "$RAFFLE" "$RAFFLE" "$SEASON_FACTORY")
 ROLE_NAMES=(SEASON_CREATOR_ROLE EMERGENCY_ROLE DEFAULT_ADMIN_ROLE DEFAULT_ADMIN_ROLE)
 ROLE_HASHES=("$SEASON_CREATOR_ROLE" "$EMERGENCY_ROLE" "$DEFAULT_ADMIN_ROLE" "$DEFAULT_ADMIN_ROLE")
 
-# has_role CONTRACT ROLE ACCOUNT — prints true/false. A failed or odd read
-# returns non-zero: callers assign it on its own line (held="$(has_role ...)")
+# role_state CONTRACT ROLE ACCOUNT — prints true, false or error; never fails.
+role_state() {
+  local out
+  out="$(cast call "$1" 'hasRole(bytes32,address)(bool)' "$2" "$3" --rpc-url "$RPC_URL" 2>/dev/null)" || out=error
+  case "$out" in true|false) printf '%s' "$out" ;; *) printf 'error' ;; esac
+}
+
+# has_role CONTRACT ROLE ACCOUNT — prints true/false; a failed or odd read
+# returns non-zero. Callers assign it on its own line (held="$(has_role ...)")
 # so set -e aborts the run instead of treating a failed read as "not held".
 has_role() {
   local out
-  out="$(cast call "$1" 'hasRole(bytes32,address)(bool)' "$2" "$3" --rpc-url "$RPC_URL")" || {
+  out="$(role_state "$1" "$2" "$3")"
+  if [ "$out" = error ]; then
     echo "✗ hasRole read failed on $1" >&2
     return 1
-  }
-  case "$out" in
-    true|false) printf '%s' "$out" ;;
-    *) echo "✗ unexpected hasRole result on $1: $out" >&2; return 1 ;;
-  esac
+  fi
+  printf '%s' "$out"
 }
 
 echo "Roles held by $TARGET on $NETWORK:"
@@ -154,36 +160,58 @@ for i in "${HELD[@]}"; do
   fi
 done
 
-# Nonces are assigned here, once, instead of letting cast look one up per
-# send: the Tenderly gateway can answer a lookup from a node one block behind
-# right after the previous send confirmed, and the node then rejects the tx
-# with "nonce too low". cast send waits for each receipt, so the sends land in
-# order; any send error stops the run (re-running is safe — it only revokes
-# roles still held).
-NONCE="$(cast nonce "$DEPLOYER" --block pending --rpc-url "$RPC_URL")"
-[[ "$NONCE" =~ ^[0-9]+$ ]] || { echo "✗ could not read the deployer's nonce: $NONCE" >&2; exit 1; }
+# Nonces are assigned here instead of letting cast look one up per send: the
+# Tenderly gateway can answer a lookup from a node one block behind right after
+# the previous send confirmed. If the starting read is itself stale, the node
+# rejects the send with "nonce too low: next nonce N" — that tx never entered
+# the pool, so it is resent once with the node's N (no double send possible).
+# cast send waits for each receipt; any other send error stops the run, and
+# re-running is safe (only roles still held are revoked).
+NONCE="$(cast nonce "$DEPLOYER" --block pending --rpc-url "$RPC_URL")" || {
+  echo "✗ could not read the deployer's nonce from $RPC_URL" >&2; exit 1; }
+[[ "$NONCE" =~ ^[0-9]+$ ]] || { echo "✗ unexpected nonce from $RPC_URL: $NONCE" >&2; exit 1; }
+
+send_revoke() {
+  local i="$1" err next
+  for _ in 1 2; do
+    if err="$(cast send "${TARGETS[$i]}" 'revokeRole(bytes32,address)' "${ROLE_HASHES[$i]}" "$TARGET" \
+        --nonce "$NONCE" --private-key "$PRIVATE_KEY" --rpc-url "$RPC_URL" 2>&1 >/dev/null)"; then
+      NONCE=$((NONCE + 1))
+      return 0
+    fi
+    next="$(printf '%s' "$err" | tr 'A-Z' 'a-z' | sed -nE 's/.*nonce too low[^0-9]*next nonce ([0-9]+).*/\1/p' | head -1)"
+    if [ -z "$next" ] || [ "$next" -le "$NONCE" ]; then
+      echo "$err" >&2
+      return 1
+    fi
+    echo "  the RPC's nonce was stale ($NONCE); the node expects $next, resending"
+    NONCE="$next"
+  done
+  echo "$err" >&2
+  return 1
+}
 
 for i in "${HELD[@]}"; do
   echo "Revoking ${ROLE_NAMES[$i]} on ${LABELS[$i]} (${TARGETS[$i]}) from $TARGET (nonce $NONCE)..."
-  cast send "${TARGETS[$i]}" 'revokeRole(bytes32,address)' "${ROLE_HASHES[$i]}" "$TARGET" \
-    --nonce "$NONCE" --private-key "$PRIVATE_KEY" --rpc-url "$RPC_URL" >/dev/null
-  NONCE=$((NONCE + 1))
+  send_revoke "$i"
 done
 
-# The same lagging node can still report a just-revoked role as held, so give
-# the final check a few chances (up to ~12s) before calling it a failure.
+# The same lagging node can still report a just-revoked role as held, or a read
+# can fail transiently: re-check only the roles not yet confirmed revoked, up to
+# 5 times 3s apart, before calling the run a failure.
+PENDING=("${HELD[@]}")
 for attempt in 1 2 3 4 5; do
-  STILL_HELD=()
-  for i in "${HELD[@]}"; do
-    held="$(has_role "${TARGETS[$i]}" "${ROLE_HASHES[$i]}" "$TARGET")"
-    [ "$held" = "true" ] && STILL_HELD+=("$i")
+  NEXT=()
+  for i in "${PENDING[@]}"; do
+    [ "$(role_state "${TARGETS[$i]}" "${ROLE_HASHES[$i]}" "$TARGET")" = false ] || NEXT+=("$i")
   done
-  [ "${#STILL_HELD[@]}" -eq 0 ] && break
+  PENDING=("${NEXT[@]+"${NEXT[@]}"}")
+  [ "${#PENDING[@]}" -eq 0 ] && break
   [ "$attempt" -lt 5 ] && sleep 3
 done
-if [ "${#STILL_HELD[@]}" -ne 0 ]; then
-  for i in "${STILL_HELD[@]}"; do
-    echo "✗ ${LABELS[$i]} ${ROLE_NAMES[$i]} is still held after the revoke" >&2
+if [ "${#PENDING[@]}" -ne 0 ]; then
+  for i in "${PENDING[@]}"; do
+    echo "✗ ${LABELS[$i]} ${ROLE_NAMES[$i]} still reads as held (or unreadable) after the revoke" >&2
   done
   exit 1
 fi
