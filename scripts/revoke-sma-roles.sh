@@ -141,10 +141,33 @@ for i in "${HELD[@]}"; do
   fi
 done
 
+# revoke_with_retry INDEX — send one revokeRole. The Tenderly gateway can
+# answer the nonce lookup from a node one block behind right after the
+# previous send confirmed, and the node then rejects the tx with "nonce too
+# low". That is retried (up to 3 attempts, re-reading the role first in case
+# the earlier send did land); any other error fails the run.
+revoke_with_retry() {
+  local i="$1" attempt err
+  for attempt in 1 2 3; do
+    if err="$(cast send "${TARGETS[$i]}" 'revokeRole(bytes32,address)' "${ROLE_HASHES[$i]}" "$TARGET" \
+        --private-key "$PRIVATE_KEY" --rpc-url "$RPC_URL" 2>&1 >/dev/null)"; then
+      return 0
+    fi
+    if [[ "$err" != *"nonce too low"* ]] || [ "$attempt" -eq 3 ]; then
+      echo "$err" >&2
+      return 1
+    fi
+    echo "  stale nonce from the RPC (attempt $attempt), retrying..."
+    sleep $((attempt * 3))
+    if [ "$(has_role "${TARGETS[$i]}" "${ROLE_HASHES[$i]}" "$TARGET")" != "true" ]; then
+      return 0
+    fi
+  done
+}
+
 for i in "${HELD[@]}"; do
   echo "Revoking ${ROLE_NAMES[$i]} on ${LABELS[$i]} (${TARGETS[$i]}) from $TARGET..."
-  cast send "${TARGETS[$i]}" 'revokeRole(bytes32,address)' "${ROLE_HASHES[$i]}" "$TARGET" \
-    --private-key "$PRIVATE_KEY" --rpc-url "$RPC_URL" >/dev/null
+  revoke_with_retry "$i"
 done
 
 FAILED=0
