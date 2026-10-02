@@ -19,8 +19,6 @@ struct DeployedAddresses {
     address infoFiFactory;
     address infoFiSettlement;
     address prizeDistributor;
-    address sofSmartAccountFactory;
-    address paymasterAddress;
     address rolloverEscrow;
     address usdc;
     address poolManager;

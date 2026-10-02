@@ -20,11 +20,10 @@ connected wallet, the backend verifies the signature and issues a JWT.
    (ECDSA recovery only), the public-client form also accepts smart-wallet
    signatures: ERC-1271 for deployed accounts and ERC-6492 for counterfactual
    ones (e.g. a Coinbase Smart Wallet that has not deployed yet).
-6. It looks up the wallet's access level (`getUserAccess({ wallet })`), its
-   SoF username, resolves and persists the smart account
-   (`ensureSmartAccount`, routed by `walletType`; `coinbase-smart` keeps
-   sma = eoa), sets the admin flag for `ADMIN_EOAS` wallets
-   (`ensureAdminFlag`), and returns the JWT.
+6. It looks up the wallet's access level (`getUserAccess({ wallet })`) and its
+   SoF username, sets the admin flag for `ADMIN_EOAS` wallets
+   (`ensureAdminFlag`), and returns the JWT. There is no smart account: the
+   user's identity is the wallet address they signed with.
 
 The frontend side is `AppAuthProvider` (`packages/frontend/src/context/`): it
 fires the flow automatically on connect for desktop EOAs and Coinbase Smart
@@ -40,14 +39,12 @@ Wallet and persists the JWT in `localStorage` for those wallet types.
     "username": "alice",
     "accessLevel": 2,
     "role": "allowlist",
-    "sma": "0x…",
     "isAdmin": false
   }
 }
 ```
 
 `username` is the SoF username set via `/api/usernames` (`null` if none).
-`sma` is `null` if smart-account resolution failed (auth still succeeds).
 
 ## JWT
 
@@ -56,7 +53,7 @@ Issued by `AuthService.generateToken()` (`JWT_SECRET`, `JWT_EXPIRES_IN`) with:
 - `id` — allowlist entry id, else the wallet address
 - `wallet_address` — lowercase address
 - `role` — access-level name (`public`, `connected`, `allowlist`, `beta`, `admin`)
-- `username`, `sma`, `is_admin` — when set
+- `username`, `is_admin` — when set
 
 The global Fastify `preHandler` decodes `Authorization: Bearer {token}` into
 `request.user`; public endpoints ignore a missing token.
@@ -65,9 +62,7 @@ The global Fastify `preHandler` decodes `Authorization: Bearer {token}` into
 
 Allowlist entries, access levels and access groups are keyed by wallet
 address (`allowlist_entries.wallet_address`,
-`user_access_groups.wallet_address`, both NOT NULL). A wallet's lookup falls
-back to its EOA ↔ smart-account pair (`smart_accounts`) when the address
-itself has no entry.
+`user_access_groups.wallet_address`, both NOT NULL).
 
 | Level | Name |
 |-------|------|
@@ -80,7 +75,7 @@ itself has no entry.
 `createRequireAdmin()` (`shared/adminGuard.js`) rejects requests whose
 wallet's level is below 4. Lookups go through a 5-minute Redis cache
 (`shared/accessCache.js`, keys `access:wallet:{address}`) that every access
-mutation invalidates, together with the paired address's key.
+mutation invalidates.
 
 ## Key files
 

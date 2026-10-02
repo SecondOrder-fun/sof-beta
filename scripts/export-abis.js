@@ -61,10 +61,8 @@ const CONTRACTS_TO_EXPORT = [
 
   // (SOFAirdrop was deleted; there is no airdrop contract to export.)
 
-  // ERC-4337 account abstraction (gasless rewrite)
-  { source: 'SOFSmartAccount.sol/SOFSmartAccount.json', name: 'SOFSmartAccount' },
-  { source: 'SOFSmartAccountFactory.sol/SOFSmartAccountFactory.json', name: 'SOFSmartAccountFactory' },
-  { source: 'SOFPaymaster.sol/SOFPaymaster.json', name: 'SOFPaymaster' },
+  // (SOFSmartAccount, SOFSmartAccountFactory and SOFPaymaster were deleted: users
+  // transact from their own wallet, with no smart account or paymaster.)
 
   // Rollover Incentives
   { source: 'RolloverEscrow.sol/RolloverEscrow.json', name: 'RolloverEscrow' },

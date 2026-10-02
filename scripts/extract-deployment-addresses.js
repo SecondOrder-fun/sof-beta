@@ -36,7 +36,7 @@ const NETWORKS = {
 // forge contractName → key in deployments/<network>.json. The names
 // diverge in places (ConditionalTokenSOF → ConditionalTokens,
 // InfoFiFPMMV2 → InfoFiFPMM, RafflePrizeDistributor → PrizeDistributor,
-// SOFPaymaster → Paymaster, InfoFiMarketFactory → InfoFiFactory) for
+// InfoFiMarketFactory → InfoFiFactory) for
 // historical reasons in the deployments json shape that the frontend
 // and backend both consume.
 const CONTRACT_NAME_MAP = {
@@ -53,8 +53,6 @@ const CONTRACT_NAME_MAP = {
   InfoFiMarketFactory: "InfoFiFactory",
   InfoFiSettlement: "InfoFiSettlement",
   RafflePrizeDistributor: "PrizeDistributor",
-  SOFSmartAccountFactory: "SOFSmartAccountFactory",
-  SOFPaymaster: "Paymaster",
   RolloverEscrow: "RolloverEscrow",
   // Launchpad. PoolManager only appears as a CREATE on local — elsewhere it is the
   // pre-existing v4 singleton and comes through STATIC / POOL_MANAGER_ADDRESS.
@@ -109,8 +107,6 @@ const KEY_ORDER = [
   "RaffleOracleAdapter",
   "SeasonGating",
   "USDC",
-  "SOFSmartAccountFactory",
-  "Paymaster",
   "RolloverEscrow",
   "PoolManager",
   "TokenLaunchpad",

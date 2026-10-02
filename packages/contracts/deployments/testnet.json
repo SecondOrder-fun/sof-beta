@@ -18,8 +18,6 @@
     "RaffleOracleAdapter": "0xdb9498486a7b048793c34c537a8570f0f4cbc4ae",
     "SeasonGating": "0x0000000000000000000000000000000000000000",
     "USDC": "0x0000000000000000000000000000000000000000",
-    "SOFSmartAccountFactory": "0x846fd3d8335dc57cffe8cb6ae960cf8eb983babd",
-    "Paymaster": "0x7f44a21a03fa1c8203761d51bc3c36f738905fca",
     "RolloverEscrow": "0x2894d0a965a55d60299806c79b7a19980147442a",
     "PoolManager": "0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408",
     "TokenLaunchpad": "0x24c202f41960bd5821261ef3ff9989be796e414c",

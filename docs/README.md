@@ -5,6 +5,6 @@ SecondOrder.fun is a two-tiered speculation platform on Base. Users buy bonding 
 ## Documentation
 
 * [Product](01-product/) — Tokenomics, bonding curves, winner selection
-* [Architecture](02-architecture/) — System design, data schema, authentication, gasless transactions
+* [Architecture](02-architecture/) — System design, data schema, authentication
 * [Features](05-features/) — Arbitrage, consolation, localization, treasury
 * [Technical Analysis](06-technical-analysis/) — Gas optimization analysis

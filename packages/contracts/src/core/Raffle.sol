@@ -81,8 +81,8 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
     uint32 public defaultMaxParticipants = 10000;
     uint32 public constant ABSOLUTE_MAX_PARTICIPANTS = 50000;
 
-    // SOF curve registry — SeasonFactory registers each newly deployed curve
-    // so the gasless paymaster can validate per-season curve targets.
+    // SOF curve registry — SeasonFactory registers each newly deployed curve,
+    // so anyone can check on chain that an address is a genuine season curve.
     // Role declared here (rather than in RaffleStorage) because it is only
     // referenced by Raffle itself; SeasonFactory will be granted this role
     // post-deploy. See spec §3.4.
@@ -108,7 +108,8 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
     event HatsProtocolUpdated(address indexed oldAddress, address indexed newAddress);
 
     /// @dev Emitted on every position change (buy/sell) with post-change totals
-    /// @dev Backend listens to this event and triggers InfoFi market creation via Paymaster
+    /// @dev The backend listens to this event and relays it to
+    ///      InfoFiMarketFactory.onPositionUpdate (market creation at the 1% threshold)
     event PositionUpdate(
         uint256 indexed seasonId, address indexed player, uint256 oldTickets, uint256 newTickets, uint256 totalTickets
     );
@@ -226,9 +227,9 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
 
     /**
      * @notice Register a freshly deployed SOFBondingCurve as a known SOF curve.
-     * @dev Called by SeasonFactory immediately after curve deployment. The
-     *      gasless paymaster reads `isSofCurve` to gate sponsored buy/sell
-     *      transactions to per-season curves. See spec §3.4.
+     * @dev Called by SeasonFactory immediately after curve deployment.
+     *      `isSofCurve` lets off-chain and on-chain consumers tell a genuine
+     *      per-season curve from an arbitrary address. See spec §3.4.
      * @param curve The curve address to register.
      */
     function registerCurve(address curve) external onlyRole(SEASON_FACTORY_ROLE) {
@@ -717,7 +718,7 @@ contract Raffle is RaffleStorage, AccessControl, ReentrancyGuard, VRFConsumerBas
         state.totalTickets = newTotalTickets;
 
         // Emit position update for backend listeners
-        // Backend will listen to this event and trigger InfoFi market creation via Paymaster
+        // The backend relays this event to InfoFiMarketFactory.onPositionUpdate
         emit PositionUpdate(seasonId, participant, oldTickets, newTicketsLocal, state.totalTickets);
     }
 

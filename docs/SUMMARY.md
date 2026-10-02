@@ -18,7 +18,6 @@
 * [Project Structure](02-architecture/structure.md)
 * [Data Schema](02-architecture/data-schema.md)
 * [Authentication](02-architecture/authentication.md)
-* [Gasless Transactions](02-architecture/gasless-transactions.md)
 * [InfoFi Integration](02-architecture/infofi-integration/README.md)
   * [Part 1: Overview](02-architecture/infofi-integration/part-1-overview.md)
   * [Part 2: Contracts](02-architecture/infofi-integration/part-2-contracts.md)

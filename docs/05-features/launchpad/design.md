@@ -267,7 +267,7 @@ than deprecated, and there is no compatibility shim to carry. Current coupling:
 | `exchange/SOFExchange.sol` | mints `$SOF` for ETH/USDC | **Delete** — there is nothing to mint. |
 | `faucet/SOFFaucet.sol` | dispenses `$SOF` | **Delete.** Testnet flow becomes: public Base Sepolia ETH faucet → launch a token → trade it. Nothing protocol-specific to dispense. |
 | `token/SOFToken.sol` | the token itself | **Delete.** |
-| `paymaster/SOFPaymaster.sol` | allowlists *SOF curve* targets | Registry-driven allowlist (§6.6). Gas is ETH — no token coupling. |
+| `paymaster/SOFPaymaster.sol` | allowlists *SOF curve* targets | **Deleted** (contracts 0.40.0): no gas sponsorship, users pay their own gas (§6.6). |
 | `sponsor/SponsorOnboarding.sol` | stake `$SOF` → Hats sponsor hat | Superseded by `SeasonCreationStake` (§5.6). |
 
 Frontend: 96 files mention SOF; 15 reference the token/balance directly
@@ -792,8 +792,8 @@ assumes. This collapses that work from "generalize every calculation over
 arbitrary decimals" to "read the symbol dynamically, keep the 18-dp assumption,
 and assert it at the boundary." It is the single largest risk reduction of the
 decisions made so far.
-- `registerCurve` already exists for paymaster validation; it now registers
-  many curves across many tokens (§6.6).
+- `registerCurve` already exists (a registry of genuine season curves); it now
+  registers many curves across many tokens.
 
 ### 6.4 InfoFi
 
@@ -876,6 +876,10 @@ so either the bonus comes from the creator's allocation or rollover ships withou
 a bonus initially.
 
 ### 6.6 `paymaster/SOFPaymaster.sol`
+
+> **Superseded.** The paymaster, smart accounts and all gas sponsorship were removed
+> (contracts 0.40.0): users transact from their own wallet and pay their own gas. The
+> notes below are kept as the original design record only.
 
 Today it allowlists targets that are "registered as a SOF curve". With N launch
 curves + N ticket curves the static allowlist doesn't scale. Make the check
@@ -1052,8 +1056,7 @@ All new on-chain actions go through `useSmartTransactions.executeBatch` per the
 repo rule — never raw `writeContractAsync`. Natural batches:
 
 - **Launch**: `launch(name, symbol, metadataURI, startPriceWei)` — one call, no
-  value. A single call still goes through `executeBatch`, both for the repo rule
-  and because that is what makes a launch gasless where the paymaster covers it.
+  value. A single call still goes through `executeBatch`, per the repo rule.
 - **Buy the token**: a v4 swap against ETH — one call, no approval
 - **Create season**: `approve(stake)` + `stake()` + `createSeason()` — three calls,
   one confirmation; ideal batch case

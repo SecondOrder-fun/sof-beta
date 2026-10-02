@@ -18,9 +18,7 @@ import {DeployMarketTypeRegistry} from "./08_DeployMarketTypeRegistry.s.sol";
 import {DeployInfoFiFactory} from "./09_DeployInfoFiFactory.s.sol";
 import {DeploySettlement} from "./10_DeploySettlement.s.sol";
 import {DeployDistributor} from "./11_DeployDistributor.s.sol";
-import {DeploySOFSmartAccountFactory} from "./13_DeploySOFSmartAccountFactory.s.sol";
 import {ConfigureRoles} from "./14_ConfigureRoles.s.sol";
-import {DeployPaymaster} from "./15_DeployPaymaster.s.sol";
 import {DeployRolloverEscrow} from "./16_DeployRolloverEscrow.s.sol";
 import {DeployUSDCMock} from "./17_DeployUSDCMock.s.sol";
 import {AddVRFConsumer} from "./19_AddVRFConsumer.s.sol";
@@ -33,7 +31,6 @@ import {Raffle} from "../../src/core/Raffle.sol";
 import {RafflePrizeDistributor} from "../../src/core/RafflePrizeDistributor.sol";
 import {RolloverEscrow} from "../../src/core/RolloverEscrow.sol";
 import {SeasonFactory} from "../../src/core/SeasonFactory.sol";
-import {SOFPaymaster} from "../../src/paymaster/SOFPaymaster.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract DeployAll is Script {
@@ -100,47 +97,17 @@ contract DeployAll is Script {
         console2.log("=== 11: RafflePrizeDistributor ===");
         addrs = new DeployDistributor().run(addrs);
 
-        console2.log("=== 13: SOFSmartAccountFactory ===");
-        addrs = new DeploySOFSmartAccountFactory().run(addrs);
-
         console2.log("=== 14: ConfigureRoles ===");
         addrs = new ConfigureRoles().run(addrs);
 
         console2.log("=== 24: GrantBackendWallet ===");
         addrs = new GrantBackendWallet().run(addrs);
 
-        console2.log("=== 15: SOFPaymaster ===");
-        addrs = new DeployPaymaster().run(addrs);
-
         console2.log("=== 16: RolloverEscrow ===");
         addrs = new DeployRolloverEscrow().run(addrs);
 
         console2.log("=== 17: USDCMock (local only) ===");
         addrs = new DeployUSDCMock().run(addrs);
-
-        // --- 18b: Late-bound paymaster allowlist entries ---
-        // RolloverEscrow (step 16) deploys AFTER the paymaster (step 15), so
-        // 15_DeployPaymaster.s.sol cannot include it in the constructor's
-        // initialAllowlist. Wire it in now via setAllowlisted (deployer holds
-        // ADMIN_ROLE from the paymaster ctor). The defensive prizeDistributor
-        // re-set below is a no-op on fresh deploys but heals paymasters
-        // deployed before the constructor allowlist included it.
-        console2.log("=== 18b: Wire late paymaster allowlist (RolloverEscrow) ===");
-        {
-            SOFPaymaster paymaster = SOFPaymaster(addrs.paymasterAddress);
-            vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
-            if (addrs.rolloverEscrow != address(0)) {
-                paymaster.setAllowlisted(addrs.rolloverEscrow, true);
-                console2.log("Allowlisted RolloverEscrow on Paymaster");
-            }
-            // Defensive: heal existing paymaster deployments that predate the
-            // prizeDistributor allowlist entry (see 15_DeployPaymaster.s.sol).
-            if (addrs.prizeDistributor != address(0)) {
-                paymaster.setAllowlisted(addrs.prizeDistributor, true);
-                console2.log("Allowlisted RafflePrizeDistributor on Paymaster (defensive)");
-            }
-            vm.stopBroadcast();
-        }
 
         console2.log("=== 16b: Wire RolloverEscrow roles ===");
         {
@@ -318,8 +285,6 @@ contract DeployAll is Script {
         json = string.concat(json, '    "InfoFiFactory": "', vm.toString(addrs.infoFiFactory), '",\n');
         json = string.concat(json, '    "InfoFiSettlement": "', vm.toString(addrs.infoFiSettlement), '",\n');
         json = string.concat(json, '    "PrizeDistributor": "', vm.toString(addrs.prizeDistributor), '",\n');
-        json = string.concat(json, '    "SOFSmartAccountFactory": "', vm.toString(addrs.sofSmartAccountFactory), '",\n');
-        json = string.concat(json, '    "Paymaster": "', vm.toString(addrs.paymasterAddress), '",\n');
         json = string.concat(json, '    "RolloverEscrow": "', vm.toString(addrs.rolloverEscrow), '",\n');
         // Newly managed addresses (0.25.0). USDC may be address(0) on
         // non-local until HelperConfig grows a per-network USDC field.

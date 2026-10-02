@@ -24,7 +24,7 @@
 #   docker compose down -v              # tear down compose layer only
 #
 # To bring up just the chain layer for a quick smoke:
-#   docker compose up -d anvil redis    # then `node scripts/setup-local-aa.js` to inject EntryPoint v0.8
+#   docker compose up -d anvil redis
 
 services:
   anvil:
