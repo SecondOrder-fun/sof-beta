@@ -93,21 +93,27 @@ TARGETS=("$RAFFLE" "$RAFFLE" "$RAFFLE" "$SEASON_FACTORY")
 ROLE_NAMES=(SEASON_CREATOR_ROLE EMERGENCY_ROLE DEFAULT_ADMIN_ROLE DEFAULT_ADMIN_ROLE)
 ROLE_HASHES=("$SEASON_CREATOR_ROLE" "$EMERGENCY_ROLE" "$DEFAULT_ADMIN_ROLE" "$DEFAULT_ADMIN_ROLE")
 
-# role_state CONTRACT ROLE ACCOUNT — prints true, false or error; never fails.
+# role_state CONTRACT ROLE ACCOUNT — prints "true", "false" or "error: <cast
+# output>"; never fails.
 role_state() {
   local out
-  out="$(cast call "$1" 'hasRole(bytes32,address)(bool)' "$2" "$3" --rpc-url "$RPC_URL" 2>/dev/null)" || out=error
-  case "$out" in true|false) printf '%s' "$out" ;; *) printf 'error' ;; esac
+  if out="$(cast call "$1" 'hasRole(bytes32,address)(bool)' "$2" "$3" --rpc-url "$RPC_URL" 2>&1)" \
+      && { [ "$out" = true ] || [ "$out" = false ]; }; then
+    printf '%s' "$out"
+  else
+    printf 'error: %s' "$out"
+  fi
 }
 
 # has_role CONTRACT ROLE ACCOUNT — prints true/false; a failed or odd read
-# returns non-zero. Callers assign it on its own line (held="$(has_role ...)")
-# so set -e aborts the run instead of treating a failed read as "not held".
+# prints cast's output and returns non-zero. Callers assign it on its own line
+# (held="$(has_role ...)") so set -e aborts the run instead of treating a
+# failed read as "not held".
 has_role() {
   local out
   out="$(role_state "$1" "$2" "$3")"
-  if [ "$out" = error ]; then
-    echo "✗ hasRole read failed on $1" >&2
+  if [[ "$out" == error:* ]]; then
+    echo "✗ hasRole($2, $3) read failed on $1: ${out#error: }" >&2
     return 1
   fi
   printf '%s' "$out"
@@ -163,32 +169,49 @@ done
 # Nonces are assigned here instead of letting cast look one up per send: the
 # Tenderly gateway can answer a lookup from a node one block behind right after
 # the previous send confirmed. If the starting read is itself stale, the node
-# rejects the send with "nonce too low: next nonce N" — that tx never entered
-# the pool, so it is resent once with the node's N (no double send possible).
-# cast send waits for each receipt; any other send error stops the run, and
-# re-running is safe (only roles still held are revoked).
+# rejects the send with "nonce too low" and names the nonce it expects ("next
+# nonce N", or geth's "state: N"); the script then re-reads the role — so a
+# send that did land is never repeated — and resends with that nonce, at most
+# twice. cast send waits for each receipt; any other send error stops the run,
+# and re-running is safe (only roles still held are revoked). Not covered: a
+# lagging node that accepts a stale-nonce tx it can never mine — cast then
+# times out waiting for the receipt; re-run.
 NONCE="$(cast nonce "$DEPLOYER" --block pending --rpc-url "$RPC_URL")" || {
   echo "✗ could not read the deployer's nonce from $RPC_URL" >&2; exit 1; }
 [[ "$NONCE" =~ ^[0-9]+$ ]] || { echo "✗ unexpected nonce from $RPC_URL: $NONCE" >&2; exit 1; }
 
+# expected_nonce ERROR_TEXT — the nonce a "nonce too low" rejection says the
+# node expects, or nothing. Pure bash (no pipeline for pipefail to trip on).
+expected_nonce() {
+  local lower="${1,,}"
+  [[ "$lower" == *"nonce too low"* ]] || return 0
+  if [[ "$lower" =~ next\ nonce\ ([0-9]+) ]] || [[ "$lower" =~ state:\ ([0-9]+) ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+  fi
+}
+
 send_revoke() {
-  local i="$1" err next
-  for _ in 1 2; do
+  local i="$1" attempt err next
+  for attempt in 1 2 3; do
     if err="$(cast send "${TARGETS[$i]}" 'revokeRole(bytes32,address)' "${ROLE_HASHES[$i]}" "$TARGET" \
         --nonce "$NONCE" --private-key "$PRIVATE_KEY" --rpc-url "$RPC_URL" 2>&1 >/dev/null)"; then
       NONCE=$((NONCE + 1))
       return 0
     fi
-    next="$(printf '%s' "$err" | tr 'A-Z' 'a-z' | sed -nE 's/.*nonce too low[^0-9]*next nonce ([0-9]+).*/\1/p' | head -1)"
-    if [ -z "$next" ] || [ "$next" -le "$NONCE" ]; then
+    next="$(expected_nonce "$err")"
+    if [ "$attempt" -eq 3 ] || [ -z "$next" ] || [ "$next" -le "$NONCE" ]; then
       echo "$err" >&2
       return 1
     fi
-    echo "  the RPC's nonce was stale ($NONCE); the node expects $next, resending"
     NONCE="$next"
+    # A rejection can follow a broadcast that did land (e.g. a client-side
+    # rebroadcast); don't revoke twice.
+    if [ "$(role_state "${TARGETS[$i]}" "${ROLE_HASHES[$i]}" "$TARGET")" = false ]; then
+      echo "  the role is already revoked (an earlier broadcast landed); not resending"
+      return 0
+    fi
+    echo "  the RPC's nonce was stale; the node expects $next, resending"
   done
-  echo "$err" >&2
-  return 1
 }
 
 for i in "${HELD[@]}"; do
