@@ -33,7 +33,9 @@ NETWORK=""
 CHECK_ONLY=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --network) NETWORK="$2"; shift 2 ;;
+    --network)
+      [ $# -ge 2 ] || { echo "--network needs a value" >&2; exit 2; }
+      NETWORK="$2"; shift 2 ;;
     --check) CHECK_ONLY=1; shift ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
   esac

@@ -44,8 +44,10 @@ TARGET=""
 CHECK_ONLY=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --network) NETWORK="${2:-}"; shift 2 ;;
-    --address) TARGET="${2:-}"; shift 2 ;;
+    --network|--address)
+      [ $# -ge 2 ] || { echo "$1 needs a value" >&2; echo "$USAGE" >&2; exit 2; }
+      if [ "$1" = --network ]; then NETWORK="$2"; else TARGET="$2"; fi
+      shift 2 ;;
     --check) CHECK_ONLY=1; shift ;;
     *) echo "Unknown argument: $1" >&2; echo "$USAGE" >&2; exit 2 ;;
   esac
@@ -118,9 +120,8 @@ fi
 # Every revoke must be authorised by the role's admin role: check them all up
 # front so the run is all-or-nothing rather than failing halfway.
 for i in "${HELD[@]}"; do
-  ADMIN_ROLE="$(cast call "${TARGETS[$i]}" 'getRoleAdmin(bytes32)(bytes32)' "${ROLE_HASHES[$i]}" --rpc-url "$RPC_URL")" \
-    && [[ "$ADMIN_ROLE" =~ ^0x[0-9a-fA-F]{64}$ ]] || {
-    echo "✗ could not read the admin role of ${ROLE_NAMES[$i]} on ${LABELS[$i]} (got: ${ADMIN_ROLE:-nothing})" >&2; exit 1; }
+  ADMIN_ROLE="$(role_admin_read_retry "${TARGETS[$i]}" "${ROLE_HASHES[$i]}" "$RPC_URL")" || {
+    echo "✗ could not read the admin role of ${ROLE_NAMES[$i]} on ${LABELS[$i]} (error above)" >&2; exit 3; }
   held="$(role_read_retry "${TARGETS[$i]}" "$ADMIN_ROLE" "$DEPLOYER" "$RPC_URL")" || {
     echo "✗ could not read the deployer's admin role on ${LABELS[$i]} (error above)" >&2; exit 3; }
   if [ "$held" != "true" ]; then

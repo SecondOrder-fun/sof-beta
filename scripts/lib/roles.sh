@@ -73,6 +73,27 @@ role_read_retry() {
   return 1
 }
 
+# role_admin_read_retry CONTRACT ROLE RPC_URL — prints getRoleAdmin(ROLE) as
+# 0x + 64 hex, tried up to 3 times 2s apart like role_read_retry. Returns 1 if
+# no read gives a well-formed value; each failure's reason is on stderr.
+role_admin_read_retry() {
+  local attempt out
+  for attempt in 1 2 3; do
+    if out="$(cast call "$1" 'getRoleAdmin(bytes32)(bytes32)' "$2" --rpc-url "$3")"; then
+      if [[ "$out" =~ ^0x[0-9a-fA-F]{64}$ ]]; then
+        printf '%s' "$out"
+        return 0
+      fi
+      echo "unexpected getRoleAdmin result from $1: $out" >&2
+    fi
+    if [ "$attempt" -lt 3 ]; then
+      echo "  (read failed; retrying)" >&2
+      sleep 2
+    fi
+  done
+  return 1
+}
+
 # role_wait CONTRACT ROLE ACCOUNT RPC_URL WANT [TRIES] — after a send, the
 # gateway can answer from a node one block behind, or a read can fail
 # transiently: read up to TRIES times (default 5), 3s apart, until the role
