@@ -184,14 +184,13 @@ npm test           # Vitest
 npm run lint           # ESLint (zero warnings enforced)
 npm run reset:local-db    # Reset local Supabase
 npm run scan:historical   # Backfill missed events
-npm run migrate:redis-usernames -- --source <url> --target <url> [--apply]
 ```
 
-### Redis contents
+### Redis
+The backend reads `REDIS_URL` only. On Railway it is the reference `${{Redis.REDIS_URL}}` to the
+project's Redis service (private network; every PR environment gets its own copy); locally it is
+`redis://127.0.0.1:6379`. It is not in the deployed env files, and `deploy-env.sh` never pushes it.
 Usernames (`wallet:<address>` → name, `username:<name>` → address, `shared/usernameService.js`) are
-stored **only** in Redis; everything else there is cache or TTL'd (sign-in nonces, access and route
-caches). Moving to a new Redis therefore means copying the usernames:
-`scripts/migrate-redis-usernames.js` (dry run unless `--apply`) copies EOA wallets only, dropping
-smart wallets (contract code on chain, or an `sma` in `smart_accounts` while that table exists),
-rebuilds the reverse keys from the forward ones, skips target conflicts unless `--overwrite`, and
-reads every written key back.
+stored **only** in Redis, so losing that Redis loses them; everything else there is cache or TTL'd
+(sign-in nonces, access and route caches). Sign-in fails without Redis: `GET /api/auth/nonce`
+stores the nonce there.

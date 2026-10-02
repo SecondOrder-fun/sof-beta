@@ -2,7 +2,7 @@
 #
 # Scope: services that mirror the testnet/prod architecture.
 #   - anvil:           local L2 (replaces Base on testnet/mainnet)
-#   - redis:           cache + sign-in nonce store (mirrors Railway/Upstash)
+#   - redis:           cache + sign-in nonce store + usernames (mirrors the Railway Redis service)
 #   - deploy-contracts: one-shot Foundry deploy (no equivalent in prod — runs once
 #                       per fresh Anvil; on testnet/mainnet you run forge from
 #                       the host with the testnet RPC instead)

@@ -12,7 +12,7 @@ export async function userRoutes(fastify, options) {
 
   /**
    * GET /api/users
-   * Return the canonical user list from Redis (Upstash),
+   * Return the canonical user list from Redis,
    * using UsernameService as the source of truth.
    * Shape: { players: [{ address, username }], count }
    */
