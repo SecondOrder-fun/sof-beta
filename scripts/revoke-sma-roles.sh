@@ -92,14 +92,26 @@ TARGETS=("$RAFFLE" "$RAFFLE" "$RAFFLE" "$SEASON_FACTORY")
 ROLE_NAMES=(SEASON_CREATOR_ROLE EMERGENCY_ROLE DEFAULT_ADMIN_ROLE DEFAULT_ADMIN_ROLE)
 ROLE_HASHES=("$SEASON_CREATOR_ROLE" "$EMERGENCY_ROLE" "$DEFAULT_ADMIN_ROLE" "$DEFAULT_ADMIN_ROLE")
 
+# has_role CONTRACT ROLE ACCOUNT — prints true/false. A failed or odd read
+# returns non-zero: callers assign it on its own line (held="$(has_role ...)")
+# so set -e aborts the run instead of treating a failed read as "not held".
 has_role() {
-  cast call "$1" 'hasRole(bytes32,address)(bool)' "$2" "$3" --rpc-url "$RPC_URL"
+  local out
+  out="$(cast call "$1" 'hasRole(bytes32,address)(bool)' "$2" "$3" --rpc-url "$RPC_URL")" || {
+    echo "✗ hasRole read failed on $1" >&2
+    return 1
+  }
+  case "$out" in
+    true|false) printf '%s' "$out" ;;
+    *) echo "✗ unexpected hasRole result on $1: $out" >&2; return 1 ;;
+  esac
 }
 
 echo "Roles held by $TARGET on $NETWORK:"
 HELD=()
 for i in "${!LABELS[@]}"; do
-  if [ "$(has_role "${TARGETS[$i]}" "${ROLE_HASHES[$i]}" "$TARGET")" = "true" ]; then
+  held="$(has_role "${TARGETS[$i]}" "${ROLE_HASHES[$i]}" "$TARGET")"
+  if [ "$held" = "true" ]; then
     echo "  ✗ ${LABELS[$i]} (${TARGETS[$i]}) ${ROLE_NAMES[$i]}"
     HELD+=("$i")
   else
@@ -135,49 +147,44 @@ fi
 # front so the run is all-or-nothing rather than failing halfway.
 for i in "${HELD[@]}"; do
   ADMIN_ROLE="$(cast call "${TARGETS[$i]}" 'getRoleAdmin(bytes32)(bytes32)' "${ROLE_HASHES[$i]}" --rpc-url "$RPC_URL")"
-  if [ "$(has_role "${TARGETS[$i]}" "$ADMIN_ROLE" "$DEPLOYER")" != "true" ]; then
+  held="$(has_role "${TARGETS[$i]}" "$ADMIN_ROLE" "$DEPLOYER")"
+  if [ "$held" != "true" ]; then
     echo "✗ Deployer $DEPLOYER lacks the admin role ($ADMIN_ROLE) for ${ROLE_NAMES[$i]} on ${LABELS[$i]}" >&2
     exit 1
   fi
 done
 
-# revoke_with_retry INDEX — send one revokeRole. The Tenderly gateway can
-# answer the nonce lookup from a node one block behind right after the
-# previous send confirmed, and the node then rejects the tx with "nonce too
-# low". That is retried (up to 3 attempts, re-reading the role first in case
-# the earlier send did land); any other error fails the run.
-revoke_with_retry() {
-  local i="$1" attempt err
-  for attempt in 1 2 3; do
-    if err="$(cast send "${TARGETS[$i]}" 'revokeRole(bytes32,address)' "${ROLE_HASHES[$i]}" "$TARGET" \
-        --private-key "$PRIVATE_KEY" --rpc-url "$RPC_URL" 2>&1 >/dev/null)"; then
-      return 0
-    fi
-    if [[ "$err" != *"nonce too low"* ]] || [ "$attempt" -eq 3 ]; then
-      echo "$err" >&2
-      return 1
-    fi
-    echo "  stale nonce from the RPC (attempt $attempt), retrying..."
-    sleep $((attempt * 3))
-    if [ "$(has_role "${TARGETS[$i]}" "${ROLE_HASHES[$i]}" "$TARGET")" != "true" ]; then
-      return 0
-    fi
+# Nonces are assigned here, once, instead of letting cast look one up per
+# send: the Tenderly gateway can answer a lookup from a node one block behind
+# right after the previous send confirmed, and the node then rejects the tx
+# with "nonce too low". cast send waits for each receipt, so the sends land in
+# order; any send error stops the run (re-running is safe — it only revokes
+# roles still held).
+NONCE="$(cast nonce "$DEPLOYER" --block pending --rpc-url "$RPC_URL")"
+[[ "$NONCE" =~ ^[0-9]+$ ]] || { echo "✗ could not read the deployer's nonce: $NONCE" >&2; exit 1; }
+
+for i in "${HELD[@]}"; do
+  echo "Revoking ${ROLE_NAMES[$i]} on ${LABELS[$i]} (${TARGETS[$i]}) from $TARGET (nonce $NONCE)..."
+  cast send "${TARGETS[$i]}" 'revokeRole(bytes32,address)' "${ROLE_HASHES[$i]}" "$TARGET" \
+    --nonce "$NONCE" --private-key "$PRIVATE_KEY" --rpc-url "$RPC_URL" >/dev/null
+  NONCE=$((NONCE + 1))
+done
+
+# The same lagging node can still report a just-revoked role as held, so give
+# the final check a few chances (up to ~12s) before calling it a failure.
+for attempt in 1 2 3 4 5; do
+  STILL_HELD=()
+  for i in "${HELD[@]}"; do
+    held="$(has_role "${TARGETS[$i]}" "${ROLE_HASHES[$i]}" "$TARGET")"
+    [ "$held" = "true" ] && STILL_HELD+=("$i")
   done
-}
-
-for i in "${HELD[@]}"; do
-  echo "Revoking ${ROLE_NAMES[$i]} on ${LABELS[$i]} (${TARGETS[$i]}) from $TARGET..."
-  revoke_with_retry "$i"
+  [ "${#STILL_HELD[@]}" -eq 0 ] && break
+  [ "$attempt" -lt 5 ] && sleep 3
 done
-
-FAILED=0
-for i in "${HELD[@]}"; do
-  if [ "$(has_role "${TARGETS[$i]}" "${ROLE_HASHES[$i]}" "$TARGET")" = "true" ]; then
+if [ "${#STILL_HELD[@]}" -ne 0 ]; then
+  for i in "${STILL_HELD[@]}"; do
     echo "✗ ${LABELS[$i]} ${ROLE_NAMES[$i]} is still held after the revoke" >&2
-    FAILED=1
-  fi
-done
-if [ "$FAILED" -ne 0 ]; then
+  done
   exit 1
 fi
 echo "✓ Revoked. $TARGET holds none of the mirrored admin roles."
