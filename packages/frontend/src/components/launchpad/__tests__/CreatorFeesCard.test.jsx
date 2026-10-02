@@ -15,15 +15,14 @@ vi.mock("react-i18next", async (importOriginal) => ({
   }),
 }));
 
-const SMA = getAddress("0x5555555555555555555555555555555555555555");
-const EOA = getAddress("0x6666666666666666666666666666666666666666");
+const WALLET = getAddress("0x5555555555555555555555555555555555555555");
 const OTHER = getAddress("0x7777777777777777777777777777777777777777");
 const PLACER = getAddress("0x3000000000000000000000000000000000000003");
 const TOKEN = getAddress("0x1111111111111111111111111111111111111111");
 const E = 10n ** 18n;
 
-const accounts = { current: { eoa: SMA, sma: SMA, walletType: "desktop-eoa" } };
-vi.mock("@/hooks/useRaffleAccount", () => ({ useRaffleAccount: () => accounts.current }));
+const account = { current: { address: WALLET } };
+vi.mock("wagmi", () => ({ useAccount: () => account.current }));
 
 const fees = { current: undefined };
 const write = { send: vi.fn(), reset: vi.fn(), isPending: false, error: null };
@@ -45,12 +44,11 @@ const market = deriveMarketState({
 });
 
 const setFees = ({
-  recipient = SMA,
+  recipient = WALLET,
   eth = {},
   tokens = {},
   uncollectedEth = 0n,
   uncollectedTokens = 0n,
-  isCurrent = true,
 } = {}) => {
   fees.current = {
     launches: [
@@ -63,7 +61,7 @@ const setFees = ({
         uncollectedTokens,
       },
     ],
-    placers: { [PLACER.toLowerCase()]: { address: PLACER, creatorFeeBps: 8800n, claimableEth: eth, isCurrent } },
+    placers: { [PLACER.toLowerCase()]: { address: PLACER, creatorFeeBps: 8800n, claimableEth: eth } },
   };
 };
 
@@ -78,7 +76,7 @@ const setup = () => render(<CreatorFeesCard token={TOKEN} name="Frog Pond" symbo
 
 describe("CreatorFeesCard", () => {
   beforeEach(() => {
-    accounts.current = { eoa: EOA, sma: SMA, walletType: "desktop-eoa" };
+    account.current = { address: WALLET };
     fees.current = undefined;
     write.send = vi.fn().mockResolvedValue("0xhash");
     write.isPending = false;
@@ -91,16 +89,30 @@ describe("CreatorFeesCard", () => {
   });
 
   it("renders nothing for anyone but the fee recipient", () => {
-    setFees({ recipient: OTHER, eth: { [lc(SMA)]: E } });
+    setFees({ recipient: OTHER, eth: { [lc(WALLET)]: E } });
     const { container } = setup();
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("renders nothing with no wallet connected", () => {
+    account.current = { address: undefined };
+    setFees({ eth: { [lc(WALLET)]: E } });
+    const { container } = setup();
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("matches the recipient case-insensitively", () => {
+    account.current = { address: WALLET.toLowerCase() };
+    setFees({ eth: { [lc(WALLET)]: E } });
+    setup();
+    expect(screen.getByRole("region", { name: "creatorFees.title" })).toBeInTheDocument();
   });
 
   it("shows what the recipient earned: credited plus their 88% of what is still in the pool", () => {
     // 0.1 ETH credited + 88% of 0.05 in the pool = 0.144; 1M + 88% of 500K = 1.44M
     setFees({
-      eth: { [lc(SMA)]: E / 10n },
-      tokens: { [lc(SMA)]: 1_000_000n * E },
+      eth: { [lc(WALLET)]: E / 10n },
+      tokens: { [lc(WALLET)]: 1_000_000n * E },
       uncollectedEth: E / 20n,
       uncollectedTokens: 500_000n * E,
     });
@@ -116,52 +128,34 @@ describe("CreatorFeesCard", () => {
     expect(
       screen.getByRole("button", { name: "creatorFees.claimBoth(eth=0.14,tokens=1.44M,symbol=POND)" }),
     ).toBeEnabled();
-    expect(screen.getByText("creatorFees.captionSponsored")).toBeInTheDocument();
+    expect(screen.getByText("creatorFees.captionSent")).toBeInTheDocument();
     expect(screen.getByText("creatorFees.you")).toBeInTheDocument();
   });
 
-  // Coinbase Smart Wallet batches go through other paymasters, optionally; a
-  // replaced placer is not sponsored by SOFPaymaster.
-  it("does not promise a gas-free claim where SOFPaymaster is not known to pay", () => {
-    accounts.current = { eoa: SMA, sma: SMA, walletType: "coinbase-smart" };
-    setFees({ eth: { [lc(SMA)]: E } });
-    const { unmount } = setup();
-    expect(screen.getByText("creatorFees.captionSent")).toBeInTheDocument();
-    unmount();
-
-    accounts.current = { eoa: EOA, sma: SMA, walletType: "desktop-eoa" };
-    setFees({ eth: { [lc(SMA)]: E }, isCurrent: false });
-    setup();
-    expect(screen.getByText("creatorFees.captionSent")).toBeInTheDocument();
-    expect(screen.queryByText("creatorFees.captionSponsored")).not.toBeInTheDocument();
-  });
-
   it("leaves out the pool line when everything is already collected", () => {
-    setFees({ eth: { [lc(SMA)]: E } });
+    setFees({ eth: { [lc(WALLET)]: E } });
     setup();
     expect(screen.queryByText(/creatorFees\.inPool/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "creatorFees.claimEth(eth=1,tokens=0,symbol=POND)" })).toBeEnabled();
   });
 
   it("names only the token when only token fees are earned", () => {
-    setFees({ tokens: { [lc(SMA)]: 2_000n * E } });
+    setFees({ tokens: { [lc(WALLET)]: 2_000n * E } });
     setup();
     expect(screen.getByRole("button", { name: "creatorFees.claimTokens(eth=0,tokens=2K,symbol=POND)" })).toBeEnabled();
   });
 
-  it("claims in one batch from the smart account: collect, claim ETH, claim the token", async () => {
-    setFees({ eth: { [lc(SMA)]: E }, uncollectedTokens: 100n * E });
+  it("claims in one batch from the connected wallet: collect, claim ETH, claim the token", async () => {
+    setFees({ eth: { [lc(WALLET)]: E }, uncollectedTokens: 100n * E });
     setup();
     fireEvent.click(screen.getByRole("button", { name: /^creatorFees\.claimBoth/ }));
 
     await waitFor(() => expect(write.send).toHaveBeenCalledTimes(1));
-    const [[batches]] = write.send.mock.calls;
-    expect(batches).toHaveLength(1);
-    expect(batches[0].sender).toEqual({ account: SMA, mode: "smart" });
-    expect(decode(batches[0].calls)).toEqual([
+    const [[calls]] = write.send.mock.calls;
+    expect(decode(calls)).toEqual([
       ["collectFees", TOKEN],
-      ["claimEth", SMA],
-      ["claimToken", TOKEN, SMA],
+      ["claimEth", WALLET],
+      ["claimToken", TOKEN, WALLET],
     ]);
 
     const status = await screen.findByRole("status");
@@ -170,19 +164,6 @@ describe("CreatorFeesCard", () => {
       "href",
       "https://sepolia.basescan.org/tx/0xhash",
     );
-  });
-
-  // On a desktop wallet executeBatch sends from the smart account; fees credited
-  // to the EOA can only be claimed by the EOA, so it sends (and pays gas) itself.
-  it("claims fees credited to a desktop wallet's EOA from the EOA, and says it pays gas", async () => {
-    setFees({ recipient: EOA, eth: { [lc(EOA)]: E, [lc(SMA)]: 0n } });
-    setup();
-    expect(screen.getByText(`creatorFees.captionEoa(address=0x6666…6666)`)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /^creatorFees\.claimEth/ }));
-    await waitFor(() => expect(write.send).toHaveBeenCalled());
-    const [[[batch]]] = write.send.mock.calls;
-    expect(batch.sender).toEqual({ account: EOA, mode: "eoa" });
-    expect(decode(batch.calls)).toEqual([["claimEth", EOA]]);
   });
 
   it("with no fees yet, says how they are earned and disables the button", () => {
@@ -197,7 +178,7 @@ describe("CreatorFeesCard", () => {
   });
 
   it("reports a failed claim", () => {
-    setFees({ eth: { [lc(SMA)]: E } });
+    setFees({ eth: { [lc(WALLET)]: E } });
     write.error = new Error("user rejected");
     setup();
     expect(screen.getByRole("alert")).toHaveTextContent("creatorFees.failed: user rejected");
@@ -238,7 +219,7 @@ describe("CreatorFeesCard", () => {
       fireEvent.change(field(), { target: { value: `0x${"0".repeat(40)}` } });
       fireEvent.blur(field());
       expect(screen.getByText("creatorFees.transferDialog.errors.zero")).toBeInTheDocument();
-      fireEvent.change(field(), { target: { value: SMA.toLowerCase() } });
+      fireEvent.change(field(), { target: { value: WALLET.toLowerCase() } });
       expect(screen.getByText("creatorFees.transferDialog.errors.same")).toBeInTheDocument();
       expect(submit()).toBeDisabled();
     });
@@ -252,9 +233,8 @@ describe("CreatorFeesCard", () => {
       fireEvent.click(submit());
 
       await waitFor(() => expect(write.send).toHaveBeenCalled());
-      const [[[batch]]] = write.send.mock.calls;
-      expect(batch.sender).toEqual({ account: SMA, mode: "smart" });
-      expect(decode(batch.calls)).toEqual([
+      const [[calls]] = write.send.mock.calls;
+      expect(decode(calls)).toEqual([
         ["collectFees", TOKEN],
         ["setFeeRecipient", TOKEN, OTHER],
       ]);

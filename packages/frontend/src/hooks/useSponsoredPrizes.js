@@ -1,5 +1,5 @@
+import { useAccount } from "wagmi";
 import { useQuery } from "@tanstack/react-query";
-import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import { getStoredNetworkKey } from "@/lib/wagmi";
 import {
   getTierConfigs,
@@ -23,8 +23,7 @@ import {
  */
 export function useSponsoredPrizes(seasonId, { enabled = true } = {}) {
   const netKey = getStoredNetworkKey();
-  // SMA-bound read per spec §4.3 — tier-winner status keyed by SMA.
-  const { sma: address } = useRaffleAccount();
+  const { address } = useAccount();
 
   const baseEnabled = Boolean(enabled) && Boolean(seasonId);
 

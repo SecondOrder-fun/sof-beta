@@ -3,8 +3,8 @@
 // The "Priced in" choice on the create-season forms: which token a new season's
 // tickets, prize pool and InfoFi markets use. It cannot change after creation.
 //
-// Options come in three groups, in order: the connected account's own launches
-// (creator = its EOA or smart account), the tokens the platform has approved
+// Options come in three groups, in order: the connected wallet's own launches
+// (creator = the connected address), the tokens the platform has approved
 // (at least the platform default, contracts.QUOTE_TOKEN), and the newest
 // launches not already listed. Any other token can be pasted by address; a
 // pasted token — or one handed in from `?quoteToken=` — is checked the way the
@@ -18,7 +18,6 @@ import { useAccount } from 'wagmi';
 
 import { getStoredNetworkKey } from '@/lib/wagmi';
 import { getContractAddresses } from '@/config/contracts';
-import { useRaffleAccount } from '@/hooks/useRaffleAccount';
 import { useTokenLaunch, useTokenLaunches } from '@/hooks/useTokenLaunches';
 import { useLaunchMarkets } from '@/hooks/useLaunchMarkets';
 import { useQuoteTokenInfo } from '@/hooks/useQuoteTokenInfo';
@@ -70,7 +69,6 @@ export function useQuoteTokenChoice({ initialToken } = {}) {
   const platformToken = contracts.QUOTE_TOKEN || '';
 
   const { address: connected } = useAccount();
-  const { eoa, sma } = useRaffleAccount();
   // A wider window than the feed's first page, so "Your launches" still finds a
   // creator's older tokens (any token can also be pasted).
   const { launches, isLoading: launchesLoading } = useTokenLaunches({ limit: PICKER_LAUNCH_LIMIT });
@@ -97,7 +95,7 @@ export function useQuoteTokenChoice({ initialToken } = {}) {
   const { markets } = useLaunchMarkets(priceable);
 
   const groups = useMemo(() => {
-    const mine = new Set([connected, eoa, sma].filter(Boolean).map(lower));
+    const mine = lower(connected);
     const launchOption = (l) => {
       const market = markets[lower(l.token)];
       return {
@@ -112,7 +110,7 @@ export function useQuoteTokenChoice({ initialToken } = {}) {
       };
     };
 
-    const yours = launches.filter((l) => mine.has(lower(l.creator))).map(launchOption);
+    const yours = mine ? launches.filter((l) => lower(l.creator) === mine).map(launchOption) : [];
     const listed = new Set(yours.map((o) => lower(o.address)));
     const approved =
       platformToken && !listed.has(lower(platformToken))
@@ -134,7 +132,7 @@ export function useQuoteTokenChoice({ initialToken } = {}) {
       .map(launchOption);
 
     return { yours, approved, newest };
-  }, [launches, markets, connected, eoa, sma, platformToken, platformInfo.data]);
+  }, [launches, markets, connected, platformToken, platformInfo.data]);
 
   const options = useMemo(() => [...groups.yours, ...groups.approved, ...groups.newest], [groups]);
   const findOption = useCallback(

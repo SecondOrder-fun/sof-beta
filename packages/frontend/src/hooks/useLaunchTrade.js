@@ -3,13 +3,12 @@
 // The active launch router, and the trade that goes through it.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { usePublicClient } from 'wagmi';
+import { useAccount, usePublicClient } from 'wagmi';
 
 import { getStoredNetworkKey } from '@/lib/wagmi';
 import { getContractAddresses } from '@/config/contracts';
 import { TokenLaunchpadAbi } from '@/utils/abis';
 import { useSmartTransactions } from '@/hooks/useSmartTransactions';
-import { useRaffleAccount } from '@/hooks/useRaffleAccount';
 import { buildTradeCalls } from '@/lib/launchTrade';
 
 const ZERO = '0x0000000000000000000000000000000000000000';
@@ -44,20 +43,20 @@ export function useLaunchRouter() {
 }
 
 /**
- * Execute a buy or sell through the active router, via executeBatch (ERC-5792,
- * sponsored where the paymaster covers it). Settles to the smart account — the
- * account every in-app balance is read from.
+ * Execute a buy or sell through the active router, via executeBatch. Sent from
+ * and settled to the connected wallet — the account every in-app balance is
+ * read from.
  */
 export function useLaunchTrade() {
   const { executeBatch } = useSmartTransactions();
-  const { sma } = useRaffleAccount();
+  const { address } = useAccount();
   const { router } = useLaunchRouter();
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
     mutationFn: async ({ side, token, amountIn, minOut }) => {
-      if (!sma) throw new Error('Account not ready');
-      const calls = buildTradeCalls({ side, router, token, amountIn, minOut, recipient: sma });
+      if (!address) throw new Error('Account not ready');
+      const calls = buildTradeCalls({ side, router, token, amountIn, minOut, recipient: address });
       return executeBatch(calls);
     },
     onSuccess: () => {
@@ -72,6 +71,6 @@ export function useLaunchTrade() {
     error: mutation.error,
     reset: mutation.reset,
     router,
-    canTrade: Boolean(router && sma),
+    canTrade: Boolean(router && address),
   };
 }

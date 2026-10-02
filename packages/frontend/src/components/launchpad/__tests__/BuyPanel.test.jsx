@@ -8,7 +8,7 @@ vi.mock("react-i18next", async (importOriginal) => ({
   ...(await importOriginal()),
   useTranslation: () => ({ t: (key, opts) => (opts?.symbol ? `${key}:${opts.symbol}` : key) }),
 }));
-const account = { isConnected: true };
+const account = { address: "0x9999999999999999999999999999999999999999", isConnected: true };
 vi.mock("wagmi", async (importOriginal) => ({
   ...(await importOriginal()),
   useBalance: () => ({ data: { value: 2n * 10n ** 18n } }),
@@ -28,9 +28,6 @@ vi.mock("@/hooks/useLaunchTrade", () => ({
 }));
 const openLoginModal = vi.fn();
 vi.mock("@/hooks/useLoginModal", () => ({ useLoginModal: () => ({ openLoginModal }) }));
-vi.mock("@/hooks/useRaffleAccount", () => ({
-  useRaffleAccount: () => ({ sma: "0x9999999999999999999999999999999999999999" }),
-}));
 const tokenBalance = { current: 0n };
 vi.mock("@/hooks/useQuoteBalance", () => ({
   useQuoteBalance: () => ({ balance: tokenBalance.current }),

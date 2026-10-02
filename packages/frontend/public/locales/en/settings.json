@@ -1,8 +1,7 @@
 {
   "account": {
     "section": "Account",
-    "smartAccount": "Smart Account",
-    "signer": "Signer (EOA)",
+    "wallet": "Wallet",
     "copyTooltip": "Copy address"
   }
 }

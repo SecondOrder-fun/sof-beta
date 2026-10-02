@@ -3,8 +3,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-vi.mock("@/hooks/useRaffleAccount", () => ({
-  useRaffleAccount: () => ({ sma: "0xsma" }),
+vi.mock("wagmi", () => ({
+  useAccount: () => ({ address: "0xuser" }),
 }));
 
 import { useUserMarketPosition, useMarketInfo } from "../useUserMarketPosition";

@@ -189,7 +189,7 @@
   "error": "Erreur",
   "market_recent_events": "Événements récents",
   "market_status_idle": "En attente du déclenchement de la création du marché...",
-  "market_status_started": "Création du marché soumise via Paymaster. En attente de confirmation...",
+  "market_status_started": "Création du marché soumise. En attente de confirmation...",
   "market_status_confirmed": "Marché créé avec succès ! Vous pouvez maintenant trader sur ce marché.",
   "market_status_failed": "Échec de la création du marché. Veuillez réessayer ou contacter le support.",
   "market_raffle_probability": "Probabilité du tirage",

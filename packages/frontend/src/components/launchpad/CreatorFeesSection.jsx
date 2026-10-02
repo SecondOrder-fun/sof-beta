@@ -5,7 +5,7 @@
 // from, the ETH total with one "Claim all ETH", and a Table by launch with each
 // token's fees and its own claim.
 //
-// Which launches: those either account (EOA or smart account) created, from the
+// Which launches: those the connected wallet created, from the
 // backend's creator index (useCreatorLaunches) — so a launch whose fees another
 // creator handed TO this account is not listed here (no recipient index yet; its
 // token page still shows the card). A listed launch stays while this account is
@@ -21,6 +21,7 @@
 // Composed from existing primitives: Card, Table, TokenArt (Avatar), Button
 // (primary and outline), plus ClaimedStatus from CreatorFeesCard.
 
+import { useAccount } from "wagmi";
 import { useId, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -38,7 +39,6 @@ import {
 } from "@/components/ui/table";
 import TokenArt from "@/components/launchpad/TokenArt";
 import { ClaimedStatus } from "@/components/launchpad/CreatorFeesCard";
-import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import { useCreatorLaunches } from "@/hooks/useLaunchActivity";
 import { useCreatorFees, useCreatorFeeWrite } from "@/hooks/useCreatorFees";
 import { useLaunchMarkets } from "@/hooks/useLaunchMarkets";
@@ -47,12 +47,11 @@ import { formatFeeTokens, planClaimAllEth, planClaimToken, summarizeCreatorFees 
 
 const CreatorFeesSection = () => {
   const { t } = useTranslation("launchpad");
-  const { eoa, sma } = useRaffleAccount();
-  const accounts = { eoa, sma };
+  const { address } = useAccount();
 
-  const { launches: created } = useCreatorLaunches(accounts);
+  const { launches: created } = useCreatorLaunches(address);
   const hasLaunches = created.length > 0;
-  const { data } = useCreatorFees(created, { accounts, enabled: hasLaunches });
+  const { data } = useCreatorFees(created, { account: address, enabled: hasLaunches });
   const { markets } = useLaunchMarkets(
     created.map((l) => ({ token: l.token, placementId: l.poolId })),
     { enabled: hasLaunches },
@@ -66,20 +65,18 @@ const CreatorFeesSection = () => {
 
   if (!hasLaunches || !data) return null;
 
-  const summary = summarizeCreatorFees(data, accounts);
+  const summary = summarizeCreatorFees(data, address);
   if (!summary.rows.length && summary.eth === 0n) return null;
 
   const meta = Object.fromEntries(created.map((l) => [l.token.toLowerCase(), l]));
-  const ethPlan = planClaimAllEth(data, accounts);
+  const ethPlan = planClaimAllEth(data, address);
 
-  const send = async (key, batches, result) => {
+  const send = async (key, calls, result) => {
     setSending(key);
     setClaimed(null);
     try {
-      const hash = await write.send(batches);
-      // Each batch pays its own sender; name the address only when there is one.
-      const senders = new Set(batches.map((b) => b.sender.account.toLowerCase()));
-      setClaimed({ ...result, hash, to: senders.size === 1 ? batches[0].sender.account : null });
+      const hash = await write.send(calls);
+      setClaimed({ ...result, hash, to: address });
     } catch {
       // Surfaced from write.error below.
     } finally {
@@ -121,10 +118,8 @@ const CreatorFeesSection = () => {
           </div>
           <Button
             type="button"
-            disabled={!ethPlan.length || write.isPending}
-            onClick={() =>
-              send("eth", ethPlan, { kind: "eth", eth: ethPlan.reduce((sum, b) => sum + b.eth, 0n) })
-            }
+            disabled={!ethPlan.calls.length || write.isPending}
+            onClick={() => send("eth", ethPlan.calls, { kind: "eth", eth: ethPlan.eth })}
           >
             {sending === "eth" ? t("creatorFees.claiming") : t("creatorFees.profile.claimAllEth")}
           </Button>
@@ -159,7 +154,7 @@ const CreatorFeesSection = () => {
                 const market = markets[launch.token.toLowerCase()];
                 const tokensEthWei = market?.priceWei != null ? (tokens * market.priceWei) / 10n ** 18n : null;
                 const placerFees = data.placers[launch.placer.toLowerCase()];
-                const plan = planClaimToken(launch, placerFees, accounts);
+                const plan = planClaimToken(launch, placerFees, address);
                 return (
                   <TableRow key={launch.token}>
                     <TableCell className="px-2">
@@ -203,12 +198,12 @@ const CreatorFeesSection = () => {
                         variant="outline"
                         size="sm"
                         className="whitespace-nowrap"
-                        disabled={!plan.length || write.isPending}
-                        onClick={() => send(launch.token, plan, { kind: "tokens", tokens, symbol })}
+                        disabled={!plan.calls.length || write.isPending}
+                        onClick={() => send(launch.token, plan.calls, { kind: "tokens", tokens, symbol })}
                       >
                         {sending === launch.token
                           ? t("creatorFees.claiming")
-                          : plan.length
+                          : plan.calls.length
                             ? t("creatorFees.profile.claimSymbol", { symbol })
                             : t("creatorFees.profile.nothingYet")}
                       </Button>

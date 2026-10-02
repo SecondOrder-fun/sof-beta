@@ -15,15 +15,15 @@ const ZERO = "0x0000000000000000000000000000000000000000";
 const OLD_TOKEN = "0xaaaa00000000000000000000000000000000aaaa";
 const NEW_TOKEN = "0xbbbb00000000000000000000000000000000bbbb";
 const FOREIGN_TOKEN = "0xcccc00000000000000000000000000000000cccc";
-const SMA = "0x5555555555555555555555555555555555555555";
-const EOA = "0x6666666666666666666666666666666666666666";
+const WALLET = "0x5555555555555555555555555555555555555555";
+const OTHER = "0x6666666666666666666666666666666666666666";
 
 const PLACER_OF = { [OLD_TOKEN]: OLD_PLACER, [NEW_TOKEN]: CURRENT_PLACER, [FOREIGN_TOKEN]: ZERO };
 
 // Per placer, per account: credited ETH. Per token, per account: credited tokens.
-const ETH = { [OLD_PLACER]: { [SMA]: 7n, [EOA]: 0n }, [CURRENT_PLACER]: { [SMA]: 3n, [EOA]: 1n } };
-const TOKENS = { [OLD_TOKEN]: { [SMA]: 11n, [EOA]: 0n }, [NEW_TOKEN]: { [SMA]: 0n, [EOA]: 2n } };
-const RECIPIENT = { [OLD_TOKEN]: SMA, [NEW_TOKEN]: EOA };
+const ETH = { [OLD_PLACER]: { [WALLET]: 7n }, [CURRENT_PLACER]: { [WALLET]: 3n } };
+const TOKENS = { [OLD_TOKEN]: { [WALLET]: 11n }, [NEW_TOKEN]: { [WALLET]: 0n } };
+const RECIPIENT = { [OLD_TOKEN]: WALLET, [NEW_TOKEN]: OTHER };
 
 const state = { collect: {}, collectThrows: false };
 const calls = [];
@@ -84,7 +84,7 @@ const launches = [OLD_TOKEN, NEW_TOKEN, FOREIGN_TOKEN].map((token) => ({ token }
 
 describe("useCreatorFees", () => {
   it("reads each launch through the placer that placed it, plus the current placer", async () => {
-    const { result } = renderHook(() => useCreatorFees(launches, { accounts: { eoa: EOA, sma: SMA } }), { wrapper });
+    const { result } = renderHook(() => useCreatorFees(launches, { account: WALLET }), { wrapper });
     await waitFor(() => expect(result.current.data).toBeDefined());
     const { launches: out, placers } = result.current.data;
 
@@ -98,26 +98,24 @@ describe("useCreatorFees", () => {
     expect(placers[OLD_PLACER.toLowerCase()]).toEqual({
       address: OLD_PLACER,
       creatorFeeBps: 8800n,
-      claimableEth: { [SMA]: 7n, [EOA]: 0n },
-      isCurrent: false,
+      claimableEth: { [WALLET]: 7n },
     });
     expect(placers[CURRENT_PLACER.toLowerCase()]).toMatchObject({
-      claimableEth: { [SMA]: 3n, [EOA]: 1n },
-      isCurrent: true,
+      claimableEth: { [WALLET]: 3n },
     });
 
     expect(out[0]).toMatchObject({
-      recipient: SMA,
-      claimableToken: { [SMA]: 11n, [EOA]: 0n },
+      recipient: WALLET,
+      claimableToken: { [WALLET]: 11n },
       uncollectedEth: 100n,
       uncollectedTokens: 200n,
     });
     // A collect that would revert reads as unknown, not zero — and not as a failed query.
-    expect(out[1]).toMatchObject({ recipient: EOA, uncollectedEth: null, uncollectedTokens: null });
+    expect(out[1]).toMatchObject({ recipient: OTHER, uncollectedEth: null, uncollectedTokens: null });
   });
 
   it("uses three multicalls: placers, then the reads and the simulated collects", async () => {
-    const { result } = renderHook(() => useCreatorFees(launches, { accounts: { eoa: EOA, sma: SMA } }), { wrapper });
+    const { result } = renderHook(() => useCreatorFees(launches, { account: WALLET }), { wrapper });
     await waitFor(() => expect(result.current.data).toBeDefined());
     expect(multicall).toHaveBeenCalledTimes(3);
     expect(calls[0].fns).toEqual(["placer", "placerOf", "placerOf", "placerOf"]);
@@ -134,14 +132,21 @@ describe("useCreatorFees", () => {
 
   it("treats a failed collect simulation as unknown for every launch", async () => {
     state.collectThrows = true;
-    const { result } = renderHook(() => useCreatorFees(launches, { accounts: { sma: SMA } }), { wrapper });
+    const { result } = renderHook(() => useCreatorFees(launches, { account: WALLET }), { wrapper });
     await waitFor(() => expect(result.current.data).toBeDefined());
     expect(result.current.data.launches.map((l) => l.uncollectedEth)).toEqual([null, null]);
   });
 
+  it("reads the connected account lower-cased", async () => {
+    const { result } = renderHook(() => useCreatorFees(launches, { account: WALLET.toUpperCase().replace("0X", "0x") }), { wrapper });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    const reads = calls.find((c) => c.fns.includes("claimableEth"));
+    expect(reads.contracts.filter((c) => c.functionName === "claimableEth").map((c) => c.args[0])).toEqual([WALLET, WALLET]);
+  });
+
   it("reads nothing without an account or a launch", async () => {
-    renderHook(() => useCreatorFees(launches, { accounts: {} }), { wrapper });
-    renderHook(() => useCreatorFees([], { accounts: { sma: SMA } }), { wrapper });
+    renderHook(() => useCreatorFees(launches, {}), { wrapper });
+    renderHook(() => useCreatorFees([], { account: WALLET }), { wrapper });
     await new Promise((r) => setTimeout(r, 20));
     expect(multicall).not.toHaveBeenCalled();
   });
@@ -150,46 +155,25 @@ describe("useCreatorFees", () => {
 describe("useCreatorFeeWrite", () => {
   const call = { to: CURRENT_PLACER, data: "0x" };
 
-  it("sends a smart-account batch as a plain executeBatch", async () => {
+  it("sends the calls as one executeBatch from the connected wallet", async () => {
     executeBatch.mockResolvedValue("0xhash");
     const { result } = renderHook(() => useCreatorFeeWrite(), { wrapper });
     let hash;
     await act(async () => {
-      hash = await result.current.send([{ sender: { account: SMA, mode: "smart" }, calls: [call] }]);
+      hash = await result.current.send([call, call]);
     });
     expect(hash).toBe("0xhash");
-    expect(executeBatch).toHaveBeenCalledWith([call], {});
+    expect(executeBatch).toHaveBeenCalledTimes(1);
+    expect(executeBatch).toHaveBeenCalledWith([call, call]);
   });
 
-  // Fees credited to the EOA can only be claimed by the EOA as msg.sender.
-  it("sends an EOA batch from the EOA (bypassSponsorship)", async () => {
-    executeBatch.mockResolvedValue("0xeoa");
-    const { result } = renderHook(() => useCreatorFeeWrite(), { wrapper });
-    await act(async () => {
-      await result.current.send([{ sender: { account: EOA, mode: "eoa" }, calls: [call] }]);
-    });
-    expect(executeBatch).toHaveBeenCalledWith([call], { bypassSponsorship: true });
-  });
-
-  it("sends batches in order and resolves with the last hash", async () => {
-    executeBatch.mockResolvedValueOnce("0x1").mockResolvedValueOnce("0x2");
+  it("sends nothing for an empty batch", async () => {
     const { result } = renderHook(() => useCreatorFeeWrite(), { wrapper });
     let hash;
     await act(async () => {
-      hash = await result.current.send([
-        { sender: { account: SMA, mode: "smart" }, calls: [call] },
-        { sender: { account: EOA, mode: "eoa" }, calls: [call] },
-      ]);
+      hash = await result.current.send([]);
     });
-    expect(executeBatch.mock.calls.map((c) => c[1])).toEqual([{}, { bypassSponsorship: true }]);
-    expect(hash).toBe("0x2");
-  });
-
-  it("refuses a batch with no sender rather than sending it from the wrong account", async () => {
-    const { result } = renderHook(() => useCreatorFeeWrite(), { wrapper });
-    await act(async () => {
-      await expect(result.current.send([{ sender: null, calls: [call] }])).rejects.toThrow();
-    });
+    expect(hash).toBeNull();
     expect(executeBatch).not.toHaveBeenCalled();
   });
 
@@ -198,7 +182,7 @@ describe("useCreatorFeeWrite", () => {
     executeBatch.mockRejectedValueOnce(new Error("user rejected"));
     const { result } = renderHook(() => useCreatorFeeWrite(), { wrapper });
     await act(async () => {
-      await result.current.send([{ sender: { account: SMA, mode: "smart" }, calls: [call] }]).catch(() => {});
+      await result.current.send([call]).catch(() => {});
     });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["creatorFees"] });
   });

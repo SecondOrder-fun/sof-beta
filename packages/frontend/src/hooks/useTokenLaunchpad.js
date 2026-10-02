@@ -153,8 +153,7 @@ export function useLaunchpadReady() {
  * The launch transaction.
  *
  * Single call, but it still goes through `executeBatch` — per the repo rule that
- * all user-facing on-chain operations use the ERC-5792 path, which is also what
- * makes a launch gasless where the paymaster covers it.
+ * all user-facing on-chain operations use that single write path.
  */
 export function useLaunchToken() {
   const { isConnected } = useAccount();

@@ -3,14 +3,14 @@ import { renderHook } from '@testing-library/react';
 import { useConsolationStatus } from '@/hooks/useConsolationStatus';
 
 const mockUseRafflePrizes = vi.fn();
-const mockUseRaffleAccount = vi.fn();
+const mockUseAccount = vi.fn();
 const mockUseUltraFresh = vi.fn();
 
 vi.mock('@/hooks/useRafflePrizes', () => ({
   useRafflePrizes: (...args) => mockUseRafflePrizes(...args),
 }));
-vi.mock('@/hooks/useRaffleAccount', () => ({
-  useRaffleAccount: (...args) => mockUseRaffleAccount(...args),
+vi.mock('wagmi', () => ({
+  useAccount: (...args) => mockUseAccount(...args),
 }));
 vi.mock('@/hooks/chain/useUltraFreshRead', () => ({
   useUltraFreshRead: (...args) => mockUseUltraFresh(...args),
@@ -26,7 +26,7 @@ describe('useConsolationStatus', () => {
   });
 
   it('computes perLoserShareWei as totalPool / (totalParticipants - 1)', () => {
-    mockUseRaffleAccount.mockReturnValue({ sma: '0xviewer' });
+    mockUseAccount.mockReturnValue({ address: '0xviewer' });
     mockUseRafflePrizes.mockReturnValue({
       distributorAddress: '0xdistributor',
       isLoading: false,
@@ -45,7 +45,7 @@ describe('useConsolationStatus', () => {
   });
 
   it('returns viewerEligible=null when wallet disconnected', () => {
-    mockUseRaffleAccount.mockReturnValue({ sma: undefined });
+    mockUseAccount.mockReturnValue({ address: undefined });
     mockUseRafflePrizes.mockReturnValue({
       distributorAddress: '0xdistributor',
       isLoading: false,
@@ -57,7 +57,7 @@ describe('useConsolationStatus', () => {
   });
 
   it('returns perLoserShareWei=0n when pool is zero', () => {
-    mockUseRaffleAccount.mockReturnValue({ sma: '0xviewer' });
+    mockUseAccount.mockReturnValue({ address: '0xviewer' });
     mockUseRafflePrizes.mockReturnValue({
       distributorAddress: '0xdistributor',
       isLoading: false,
@@ -69,7 +69,7 @@ describe('useConsolationStatus', () => {
   });
 
   it('returns perLoserShareWei=0n when totalParticipants is 0 or 1', () => {
-    mockUseRaffleAccount.mockReturnValue({ sma: '0xviewer' });
+    mockUseAccount.mockReturnValue({ address: '0xviewer' });
     mockUseRafflePrizes.mockReturnValue({
       distributorAddress: '0xdistributor',
       isLoading: false,
@@ -81,7 +81,7 @@ describe('useConsolationStatus', () => {
   });
 
   it('forwards viewerEligible and viewerClaimed from distributor reads', () => {
-    mockUseRaffleAccount.mockReturnValue({ sma: '0xviewer' });
+    mockUseAccount.mockReturnValue({ address: '0xviewer' });
     mockUseRafflePrizes.mockReturnValue({
       distributorAddress: '0xdistributor',
       isLoading: false,
@@ -98,7 +98,7 @@ describe('useConsolationStatus', () => {
   });
 
   it('isLoading is true when any of the three reads is in flight', () => {
-    mockUseRaffleAccount.mockReturnValue({ sma: '0xviewer' });
+    mockUseAccount.mockReturnValue({ address: '0xviewer' });
     mockUseRafflePrizes.mockReturnValue({
       distributorAddress: '0xdistributor',
       isLoading: false,

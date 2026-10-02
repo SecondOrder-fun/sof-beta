@@ -6,7 +6,6 @@ import PageTitle from "@/components/layout/PageTitle";
 import { usePlatform } from "@/hooks/usePlatform";
 import MobilePortfolio from "@/components/mobile/MobilePortfolio";
 import ProfileContent from "@/components/account/ProfileContent";
-import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 
 const AccountPage = () => {
   const { isMobile } = usePlatform();
@@ -19,9 +18,7 @@ const AccountPage = () => {
 };
 
 const DesktopAccountPage = () => {
-  const { isConnected } = useAccount();
-  // SMA-bound read per spec §4.3 — gameplay state lives at the SMA.
-  const { sma, isReady } = useRaffleAccount();
+  const { address, isConnected } = useAccount();
   const { t } = useTranslation(["account"]);
 
   if (!isConnected) {
@@ -41,7 +38,7 @@ const DesktopAccountPage = () => {
     );
   }
 
-  if (!isReady || !sma) {
+  if (!address) {
     return (
       <div>
         <PageTitle title={t("account:myAccount")} />
@@ -58,7 +55,7 @@ const DesktopAccountPage = () => {
     );
   }
 
-  return <ProfileContent address={sma} isOwnProfile />;
+  return <ProfileContent address={address} isOwnProfile />;
 };
 
 export default AccountPage;

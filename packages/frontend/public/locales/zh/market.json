@@ -189,7 +189,7 @@
   "error": "错误",
   "market_recent_events": "最近事件",
   "market_status_idle": "等待市场创建触发...",
-  "market_status_started": "已通过Paymaster提交市场创建。等待确认...",
+  "market_status_started": "已提交市场创建。等待确认...",
   "market_status_confirmed": "市场创建成功！您现在可以在此市场交易。",
   "market_status_failed": "市场创建失败。请重试或联系客服。",
   "market_raffle_probability": "抽奖概率",

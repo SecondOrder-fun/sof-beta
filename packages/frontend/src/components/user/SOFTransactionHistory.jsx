@@ -12,12 +12,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
   ArrowDownIcon,
   ArrowUpIcon,
   TrendingUpIcon,
@@ -36,17 +30,11 @@ import { formatTimestamp } from "@/lib/utils";
 /**
  * Component to display comprehensive $SOF transaction history
  * Shows: transfers, bonding curve trades, prize claims, fees collected
- * @param {string} [address] - Single wallet address (legacy / other-user view)
- * @param {string[]} [addresses] - List of addresses to merge (own profile EOA + SMA)
- * @param {Object<string,string>} [originLabels] - Map of lower-case address →
- *   short label for the Origin column (e.g. `{ '0x...eoa': 'EOA', '0x...sma': 'SMA' }`).
- *   Only shown when both an addresses array and a labels map are provided.
+ * @param {string} [address] - Wallet address whose history is shown
  * @param {boolean} embedded - If true, removes Card wrapper and adds fixed height (for tab usage)
  */
 export function SOFTransactionHistory({
   address,
-  addresses,
-  originLabels,
   embedded = false,
 }) {
   const { t } = useTranslation(["account", "portfolio"]);
@@ -54,18 +42,11 @@ export function SOFTransactionHistory({
   const [page, setPage] = useState(0);
   const ITEMS_PER_PAGE = embedded ? 10 : 20; // Fewer items when embedded
 
-  const queryInput = addresses?.length ? addresses : address;
-  const showOriginColumn =
-    Array.isArray(addresses) &&
-    addresses.length > 1 &&
-    originLabels &&
-    Object.keys(originLabels).length > 0;
-
   const {
     data: transactions = [],
     isLoading,
     error,
-  } = useSOFTransactions(queryInput);
+  } = useSOFTransactions(address);
 
   const netKey = getStoredNetworkKey();
   const network = getNetworkByKey(netKey);
@@ -243,11 +224,6 @@ export function SOFTransactionHistory({
                 tx={tx}
                 network={network}
                 compact={embedded}
-                originLabel={
-                  showOriginColumn && tx.origin
-                    ? originLabels?.[tx.origin.toLowerCase()] || null
-                    : null
-                }
               />
             ))}
           </div>
@@ -296,13 +272,11 @@ export function SOFTransactionHistory({
 
 SOFTransactionHistory.propTypes = {
   address: PropTypes.string,
-  addresses: PropTypes.arrayOf(PropTypes.string),
-  originLabels: PropTypes.objectOf(PropTypes.string),
   embedded: PropTypes.bool,
 };
 
 // Individual transaction row component
-function TransactionRow({ tx, network, compact = false, originLabel = null }) {
+function TransactionRow({ tx, network, compact = false }) {
   const { t } = useTranslation(["account", "portfolio"]);
 
   const getTypeIcon = () => {
@@ -382,28 +356,6 @@ function TransactionRow({ tx, network, compact = false, originLabel = null }) {
     ? `${tx.hash.slice(0, 6)}…${tx.hash.slice(-4)}`
     : null;
 
-  // Origin badge — `EOA` (semantic neutral, "outline") or `SMA` (semantic
-  // primary, "default"). Tooltip on hover shows the full address. No hex
-  // colors, no `text-white` per CLAUDE.md theming rule.
-  const originBadge =
-    originLabel && tx.origin ? (
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Badge
-              variant={originLabel === "SMA" ? "default" : "outline"}
-              className="text-[10px] px-1.5 py-0 leading-tight cursor-default"
-            >
-              {originLabel}
-            </Badge>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <span className="font-mono text-xs">{tx.origin}</span>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    ) : null;
-
   return (
     <div className={`border rounded-lg ${compact ? "p-2" : "p-3"} hover:bg-accent/50 transition-colors`}>
       <div className="flex items-start justify-between gap-2">
@@ -412,9 +364,6 @@ function TransactionRow({ tx, network, compact = false, originLabel = null }) {
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-0.5 flex-wrap">
               {getTypeBadge()}
-              {/* On compact (mobile) layouts, the Origin badge stacks
-                  alongside the type badge so the row doesn't overflow. */}
-              {originBadge}
               <span className="text-xs text-muted-foreground">
                 {formatDate(tx.timestamp)}
               </span>
@@ -490,11 +439,9 @@ TransactionRow.propTypes = {
     tokensSold: PropTypes.string,
     from: PropTypes.string,
     to: PropTypes.string,
-    origin: PropTypes.string,
   }).isRequired,
   network: PropTypes.shape({
     explorer: PropTypes.string,
   }),
   compact: PropTypes.bool,
-  originLabel: PropTypes.string,
 };

@@ -4,7 +4,6 @@ import * as wagmi from "wagmi";
 import * as wagmiCore from "@wagmi/core";
 import { AppAuthProvider } from "@/context/AppAuthProvider";
 import { useAppAuth } from "@/hooks/useAppAuth";
-import * as raffleAccountHook from "@/hooks/useRaffleAccount";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 vi.mock("wagmi", () => ({
@@ -54,19 +53,13 @@ const EOA_LC = EOA.toLowerCase();
 const SMA = "0xBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBb";
 const OTHER_EOA = "0xCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCc";
 
-// Default to a connected desktop-EOA. Individual tests override.
-function mockConnected({ address = EOA, walletType = "desktop-eoa" } = {}) {
+// Default to a connected wallet. Individual tests override.
+function mockConnected({ address = EOA } = {}) {
   wagmi.useAccount.mockReturnValue({
     address,
     isConnected: !!address,
     status: address ? "connected" : "disconnected",
     connector: { id: "metaMask" },
-  });
-  vi.spyOn(raffleAccountHook, "useRaffleAccount").mockReturnValue({
-    eoa: address,
-    sma: SMA,
-    walletType,
-    isReady: true,
   });
 }
 
@@ -76,12 +69,6 @@ function mockDisconnected() {
     isConnected: false,
     status: "disconnected",
     connector: undefined,
-  });
-  vi.spyOn(raffleAccountHook, "useRaffleAccount").mockReturnValue({
-    eoa: undefined,
-    sma: undefined,
-    walletType: undefined,
-    isReady: false,
   });
 }
 
@@ -181,10 +168,49 @@ describe("AppAuthProvider", () => {
       expect(sessionStorage.getItem("sof:admin_jwt")).toBeNull();
       expect(sessionStorage.getItem("sof:farcaster_jwt")).toBeNull();
     });
+
+    it("clears retired smart-account welcome dismissals (sof:welcomed:*) on mount", () => {
+      localStorage.setItem(`sof:welcomed:${EOA_LC}`, "1");
+      localStorage.setItem(`sof:welcomed:${OTHER_EOA.toLowerCase()}`, "1");
+      localStorage.setItem("sof:unrelated", "keep");
+      mockDisconnected();
+
+      render(
+        <AppAuthProvider>
+          <StatusProbe />
+        </AppAuthProvider>,
+      );
+
+      expect(localStorage.getItem(`sof:welcomed:${EOA_LC}`)).toBeNull();
+      expect(localStorage.getItem(`sof:welcomed:${OTHER_EOA.toLowerCase()}`)).toBeNull();
+      expect(localStorage.getItem("sof:unrelated")).toBe("keep");
+    });
+
+    it("drops a legacy `sma` field from a rehydrated user", () => {
+      localStorage.setItem("sof:auth_jwt", makeJwt({ walletAddress: EOA_LC }));
+      localStorage.setItem(
+        "sof:auth_user",
+        JSON.stringify({ address: EOA_LC, sma: SMA, isAdmin: false }),
+      );
+      mockConnected({ address: EOA });
+
+      function UserProbe() {
+        const { user } = useAppAuth();
+        return <span data-testid="user">{JSON.stringify(user)}</span>;
+      }
+      render(
+        <AppAuthProvider>
+          <UserProbe />
+        </AppAuthProvider>,
+      );
+
+      const user = JSON.parse(screen.getByTestId("user").textContent);
+      expect(user).toEqual({ address: EOA_LC, isAdmin: false });
+    });
   });
 
   describe("auto-fire on connect", () => {
-    it("auto-fires signIn when desktop-eoa connects without a cached JWT", async () => {
+    it("auto-fires signIn when a wallet connects without a cached JWT", async () => {
       const newToken = makeJwt({ walletAddress: EOA_LC });
       global.fetch = vi
         .fn()
@@ -418,7 +444,7 @@ describe("AppAuthProvider", () => {
   });
 
   describe("storage policy", () => {
-    it("persists to localStorage for desktop-eoa", async () => {
+    it("persists the JWT and the user, without a legacy `sma`, to localStorage", async () => {
       const token = makeJwt({ walletAddress: EOA_LC });
       global.fetch = vi
         .fn()
@@ -431,7 +457,7 @@ describe("AppAuthProvider", () => {
           }),
         });
       wagmiCore.signMessage.mockResolvedValue("0xsig");
-      mockConnected({ address: EOA, walletType: "desktop-eoa" });
+      mockConnected({ address: EOA });
 
       render(
         <AppAuthProvider>
@@ -442,6 +468,40 @@ describe("AppAuthProvider", () => {
       await waitFor(() =>
         expect(localStorage.getItem("sof:auth_jwt")).toBe(token),
       );
+      expect(JSON.parse(localStorage.getItem("sof:auth_user"))).toEqual({
+        address: EOA_LC,
+        isAdmin: false,
+      });
+    });
+
+    it("does not send a walletType to /auth/verify", async () => {
+      global.fetch = vi
+        .fn()
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ nonce: "abc" }) })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            token: makeJwt({ walletAddress: EOA_LC }),
+            user: { address: EOA_LC, isAdmin: false },
+          }),
+        });
+      wagmiCore.signMessage.mockResolvedValue("0xsig");
+      mockConnected({ address: EOA });
+
+      render(
+        <AppAuthProvider>
+          <StatusProbe />
+        </AppAuthProvider>,
+      );
+
+      await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2));
+      const body = JSON.parse(global.fetch.mock.calls[1][1].body);
+      expect(body).toEqual({
+        method: "wallet",
+        address: EOA_LC,
+        signature: "0xsig",
+        nonce: "abc",
+      });
     });
 
   });

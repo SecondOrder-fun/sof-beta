@@ -9,7 +9,6 @@ import { getStoredNetworkKey } from "@/lib/wagmi";
 import { getNetworkByKey } from "@/config/networks";
 import { buildPublicClient } from "@/lib/viemClient";
 import { useAccount } from "wagmi";
-import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import { useSofDecimals } from "@/hooks/useSofDecimals";
 import { useQuoteToken } from "@/hooks/useQuoteToken";
 import { useSeasonQuoteToken } from "@/hooks/useSeasonQuoteToken";
@@ -49,14 +48,9 @@ const BuySellWidget = ({
     typeof sofDecimalsState === "number" && !Number.isNaN(sofDecimalsState);
   const sofDecimals = decimalsReady ? sofDecimalsState : 18;
   const formatSOF = useFormatSOF(sofDecimals);
-  // Connection state comes from the EOA (whether wallet is plugged in).
-  // All ticket/balance reads use the SMA — that's the on-chain identity for
-  // gameplay state per the M3 read-migration. `connectedAddress` (the
-  // address we feed into bondingCurve.playerTickets etc.) MUST be the SMA,
-  // not the EOA, or those reads return 0 for SMA-funded users.
-  const { address: eoaAddress } = useAccount();
-  const { sma: smaAddress } = useRaffleAccount();
-  const connectedAddress = smaAddress;
+  // The connected wallet is both the connection state and the on-chain
+  // identity every ticket/balance read uses.
+  const { address: connectedAddress } = useAccount();
   // Tickets are priced in the season's own quote token, so balance and
   // affordability must be read against that token, not a platform-wide one.
   const { quoteToken: seasonQuoteToken } = useSeasonQuoteToken(bondingCurveAddress);
@@ -316,9 +310,7 @@ const BuySellWidget = ({
   const disabledTip = rpcMissing
     ? "RPC not configured. Set VITE_RPC_URL in env/.env.{network} and restart dev servers."
     : undefined;
-  // "Wallet not connected" means the EOA isn't plugged in. The SMA may take
-  // a moment to resolve after connect — that's covered by isBalanceLoading.
-  const walletNotConnected = !eoaAddress;
+  const walletNotConnected = !connectedAddress;
   const needsVerification = isGated && isVerified !== true;
 
   return (

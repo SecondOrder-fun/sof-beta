@@ -1,19 +1,18 @@
 // src/hooks/useUserPositionsBatch.js
+import { useAccount } from "wagmi";
 import { useQuery } from "@tanstack/react-query";
-import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 
 /**
  * Batch fetch user net positions across multiple markets
  * Replaces N individual useUserMarketPosition() calls with a single batch request
  *
- * Resolves at the user's smart account (spec §4.3) — InfoFi positions are
- * tracked by SMA, not the connected EOA.
+ * Resolves at the connected wallet.
  *
  * @param {string[]} marketIds - Array of market ID strings
  * @returns {{ data: Record<string, { yesAmount: bigint, noAmount: bigint, netPosition: bigint, isHedged: boolean }>, isLoading: boolean }}
  */
 export const useUserPositionsBatch = (marketIds = []) => {
-  const { sma: address } = useRaffleAccount();
+  const { address } = useAccount();
 
   const query = useQuery({
     queryKey: ["userPositionsBatch", address, ...marketIds],

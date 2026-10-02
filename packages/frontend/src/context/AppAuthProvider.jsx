@@ -1,17 +1,15 @@
 /**
  * AppAuthProvider — global JWT lifecycle.
  *
- * Wallet sign-in (SIWE) is the only method. It auto-fires on connect for
- * desktop EOAs and Coinbase Smart Wallet when no valid cached JWT exists:
+ * Wallet sign-in (SIWE) is the only method. It auto-fires once a wallet is
+ * connected and no valid cached JWT exists:
  *   signMessage prompt → POST /api/auth/verify method:"wallet"
- * The backend's /verify response populates user.sma + user.isAdmin via
- * ensureSmartAccount + ensureAdminFlag.
+ * The stored user is the /verify response's user minus `sma`: the connected
+ * wallet is the only identity, so a legacy smart-account field is dropped.
  *
  * Replaces AdminAuthContext (deleted).
  *
- * Storage:
- *  - desktop-eoa, coinbase-smart → localStorage (sof:auth_jwt + sof:auth_user)
- *  - any other wallet type       → in-memory only
+ * Storage: localStorage (sof:auth_jwt + sof:auth_user).
  *
  * See spec: docs/superpowers/specs/2026-05-07-universal-siwe-design.md
  */
@@ -27,22 +25,19 @@ import PropTypes from "prop-types";
 import { useAccount } from "wagmi";
 import { signMessage } from "@wagmi/core";
 import { config } from "@/lib/wagmiConfig";
-import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import { API_BASE } from "@/lib/apiBase";
 import { AppAuthContext } from "@/context/AppAuthContext";
 import i18n from "@/i18n/config";
 
 const STORAGE_JWT_KEY = "sof:auth_jwt";
 const STORAGE_USER_KEY = "sof:auth_user";
-// Keys of retired auth paths (AdminAuthContext, Farcaster sign-in), cleared on
+// Keys of retired features (AdminAuthContext, Farcaster sign-in), cleared on
 // mount. The Farcaster ones can go one release after the Farcaster removal.
 const LEGACY_KEYS = ["sof:admin_jwt", "sof:farcaster_jwt", "sof:farcaster_user"];
+// Per-address key prefixes of retired features, cleared on mount:
+// `sof:welcomed:<address>` was the smart-account welcome banner's dismissal.
+const LEGACY_KEY_PREFIXES = ["sof:welcomed:"];
 const SIGN_IN_MESSAGE_PREFIX = "Sign in to SecondOrder.fun\nNonce: ";
-
-// Wallet types whose JWT should persist across tab/restart.
-const PERSIST_WALLET_TYPES = new Set(["desktop-eoa", "coinbase-smart"]);
-// Wallet types that auto-fire SIWE on connect.
-const AUTO_FIRE_WALLET_TYPES = new Set(["desktop-eoa", "coinbase-smart"]);
 
 export { AppAuthContext };
 
@@ -67,6 +62,24 @@ function clearLegacyKeys() {
     try { localStorage.removeItem(key); } catch { /* noop */ }
     try { sessionStorage.removeItem(key); } catch { /* noop */ }
   }
+  try {
+    const stale = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key && LEGACY_KEY_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+        stale.push(key);
+      }
+    }
+    for (const key of stale) localStorage.removeItem(key);
+  } catch { /* noop */ }
+}
+
+// The connected wallet is the only identity. Older backends still return the
+// retired smart-account address as `user.sma`; never store or expose it.
+function toStoredUser(userObj) {
+  if (!userObj || typeof userObj !== "object") return userObj ?? null;
+  const { sma: _sma, ...rest } = userObj;
+  return rest;
 }
 
 function readPersistedAuth(currentAddressLc) {
@@ -91,7 +104,7 @@ function readPersistedAuth(currentAddressLc) {
     let user = null;
     try {
       const raw = localStorage.getItem(STORAGE_USER_KEY);
-      user = raw ? JSON.parse(raw) : null;
+      user = raw ? toStoredUser(JSON.parse(raw)) : null;
     } catch { /* noop */ }
     return { token, user };
   } catch {
@@ -110,7 +123,6 @@ export function AppAuthProvider({ children }) {
   // connector instance is fully restored.
   const { address, status: walletStatus } = useAccount();
   const isFullyConnected = walletStatus === "connected";
-  const { walletType } = useRaffleAccount();
 
   // Mount: clear legacy keys exactly once.
   const cleanedLegacyOnce = useRef(false);
@@ -137,15 +149,11 @@ export function AppAuthProvider({ children }) {
   const inflightRef = useRef(false);
 
   const persist = useCallback((token, userObj) => {
-    // Only persist for the explicitly-allowed wallet types. Unknown types →
-    // in-memory (safer default than implicitly persisting for whatever new
-    // wallet type classifyWalletType doesn't recognize yet).
-    if (!PERSIST_WALLET_TYPES.has(walletType)) return;
     try {
       localStorage.setItem(STORAGE_JWT_KEY, token);
       if (userObj) localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(userObj));
     } catch { /* noop */ }
-  }, [walletType]);
+  }, []);
 
   const clearStorage = useCallback(() => {
     try { localStorage.removeItem(STORAGE_JWT_KEY); } catch { /* noop */ }
@@ -195,10 +203,6 @@ export function AppAuthProvider({ children }) {
         address: addressLc,
         signature,
         nonce,
-        // Routes backend SMA resolution: smart-wallet types (coinbase-smart)
-        // keep sma=eoa so the airdrop lands in the wallet the user actually
-        // trades from.
-        walletType,
       });
 
       const verifyRes = await fetch(`${API_BASE}/auth/verify`, {
@@ -212,7 +216,8 @@ export function AppAuthProvider({ children }) {
         throw new Error(data.error || `Verification failed (${verifyRes.status})`);
       }
 
-      const { token, user: userObj } = await verifyRes.json();
+      const { token, user: rawUser } = await verifyRes.json();
+      const userObj = toStoredUser(rawUser);
       setAuth({ jwt: token, user: userObj });
       setStatus("authenticated");
       persist(token, userObj);
@@ -224,7 +229,7 @@ export function AppAuthProvider({ children }) {
     } finally {
       inflightRef.current = false;
     }
-  }, [addressLc, persist, walletType]);
+  }, [addressLc, persist]);
 
   const signOut = useCallback(() => {
     setAuth({ jwt: null, user: null });
@@ -275,18 +280,17 @@ export function AppAuthProvider({ children }) {
     }
   }, [addressLc, walletStatus, jwt, user, status, clearStorage]);
 
-  // Effect: auto-fire on connect when no valid JWT and wallet type qualifies.
+  // Effect: auto-fire on connect when no valid JWT.
   // Gated on walletStatus === 'connected' (not isConnected) so we don't try to
   // signMessage during wagmi's reconnecting-hydration window — see comment
   // above the useAccount() call for the failure mode.
   useEffect(() => {
     if (!isFullyConnected || !addressLc) return;
-    if (!walletType || !AUTO_FIRE_WALLET_TYPES.has(walletType)) return;
     if (jwt) return;
     if (status === "signing" || status === "verifying") return;
     if (status === "rejected" || status === "error") return; // don't loop
     void signIn();
-  }, [isFullyConnected, addressLc, walletType, jwt, status, signIn]);
+  }, [isFullyConnected, addressLc, jwt, status, signIn]);
 
   const value = useMemo(
     () => ({

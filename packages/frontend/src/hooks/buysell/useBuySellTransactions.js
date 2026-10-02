@@ -1,10 +1,9 @@
 /**
  * useBuySellTransactions Hook
  *
- * Single-path buy/sell flow. All writes go through useSmartTransactions.executeBatch
- * which routes by wallet type:
- *   - desktop-EOA  → Path A: counterfactual SMA + EntryPoint v0.8 UserOp + paymaster
- *   - Coinbase     → wallet_sendCalls + CDP paymaster
+ * Single-path buy/sell flow. All writes go through useSmartTransactions.executeBatch,
+ * which sends from the connected wallet: one EIP-5792 `wallet_sendCalls` when the
+ * wallet supports atomic batching, otherwise one transaction per call in order.
  *
  * Exposes wagmi-mutation-shaped state so callers can wrap each mutation with
  * useTransactionStatus and feed TransactionModal. Pre-flight validation lives
@@ -142,7 +141,7 @@ export function useBuySellTransactions(bondingCurveAddress, client) {
           }),
         ];
       } else {
-        // Normal buy: SMA approves curve, SMA calls buyTokens.
+        // Normal buy: the wallet approves the curve, then calls buyTokens.
         calls = [
           {
             to: quoteToken,

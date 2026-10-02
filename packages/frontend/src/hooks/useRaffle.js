@@ -7,7 +7,6 @@ import { getContractAddresses } from '@/config/contracts';
 import { getStoredNetworkKey } from '@/lib/wagmi';
 import { RaffleAbi, ERC20Abi, SOFBondingCurveAbi } from '@/utils/abis';
 import { useSmartTransactions } from '@/hooks/useSmartTransactions';
-import { useRaffleAccount } from '@/hooks/useRaffleAccount';
 import { useSeasonQuoteToken } from '@/hooks/useSeasonQuoteToken';
 
 // Create aliases for consistency with code usage
@@ -17,9 +16,7 @@ const CurveAbi = SOFBondingCurveAbi;
  * Hook for interacting with the Raffle contract
  */
 export function useRaffle(seasonId) {
-  const { isConnected } = useAccount();
-  // SMA-bound read per spec §4.3 — user-position state lives at the SMA.
-  const { sma: address } = useRaffleAccount();
+  const { address, isConnected } = useAccount();
   const publicClient = usePublicClient();
   const queryClient = useQueryClient();
   const netKey = getStoredNetworkKey();

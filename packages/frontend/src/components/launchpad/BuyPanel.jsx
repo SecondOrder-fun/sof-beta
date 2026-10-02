@@ -27,7 +27,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ContentBox } from "@/components/ui/content-box";
 import { SlippageSettings } from "@/components/buysell";
-import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import { useQuoteBalance } from "@/hooks/useQuoteBalance";
 import { useLaunchTrade } from "@/hooks/useLaunchTrade";
 import { useLoginModal } from "@/hooks/useLoginModal";
@@ -65,12 +64,11 @@ const BuyPanel = ({ token, symbol, market, className }) => {
 
   const [submitted, setSubmitted] = useState(false);
 
-  // Trades settle from the smart account, like every other in-app balance.
-  const { sma } = useRaffleAccount();
-  const { isConnected } = useAccount();
+  // Trades are sent from and settle to the connected wallet.
+  const { address, isConnected } = useAccount();
   const { openLoginModal } = useLoginModal();
   const { trade, isPending, error, reset, router } = useLaunchTrade();
-  const { data: ethBalance } = useBalance({ address: sma, query: { enabled: Boolean(sma) } });
+  const { data: ethBalance } = useBalance({ address, query: { enabled: Boolean(address) } });
   const { balance: tokenBalance } = useQuoteBalance(token);
 
   const isBuy = side === "buy";
@@ -124,7 +122,7 @@ const BuyPanel = ({ token, symbol, market, className }) => {
   else {
     cta = {
       label: isBuy ? t("trade.buyCta", { symbol }) : t("trade.sellCta", { symbol }),
-      disabled: !sma,
+      disabled: !address,
       onClick: async () => {
         setSubmitted(false);
         try {

@@ -46,9 +46,6 @@ vi.mock('@/hooks/useSeasonGating', () => ({
   useSeasonGating: () => ({ isVerified: true, gates: [], refetch: vi.fn() }),
   GateType: { SIGNATURE: 1 },
 }));
-vi.mock('@/hooks/useRaffleAccount', () => ({
-  useRaffleAccount: () => ({ sma: '0xaaa' }),
-}));
 vi.mock('@/hooks/useLoginModal', () => ({
   useLoginModal: () => ({ openLoginModal: vi.fn() }),
 }));

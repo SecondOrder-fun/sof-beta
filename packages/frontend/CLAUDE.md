@@ -10,11 +10,15 @@ All colors use CSS variables via semantic Tailwind classes. Never hardcode hex c
 ### i18n
 All user-facing text uses `react-i18next`. No hardcoded strings in components. Hooks return data; components handle translation.
 
-### On-Chain Transactions (ERC-5792)
-ALL on-chain operations use `useSmartTransactions.executeBatch` with three-tier fallback:
-1. ERC-5792 batch + ERC-7677 paymaster (gasless)
-2. ERC-2612 permit (signature + single tx)
-3. Traditional approve + tx (two confirmations)
+### On-Chain Transactions
+ALL user-facing on-chain operations go through `useSmartTransactions.executeBatch`,
+sent from the user's own connected wallet (no smart account, no paymaster — the
+user pays gas):
+1. The wallet reports EIP-5792 atomic batching for the current chain
+   (`capabilities[chainId].atomic.status` is `supported` or `ready`) → one
+   `wallet_sendCalls`, resolved to the batch's transaction hash.
+2. Otherwise → one `sendTransaction` per call, in order, each waiting for its
+   receipt; a revert throws and nothing after it is sent.
 
 Never use raw `writeContractAsync` for user-facing transactions.
 
@@ -22,10 +26,12 @@ Never use raw `writeContractAsync` for user-facing transactions.
 Wallet sign-in only: connect a wallet (RainbowKit — `LoginModal` on desktop,
 `MobileLoginSheet` on the mobile layout), then `AppAuthProvider` auto-fires a
 one-time SIWE signature (`POST /api/auth/verify method:"wallet"`).
-- **Base App / Coinbase Smart Wallet**: Coinbase Wallet login; the connected address is the smart account
-- **Desktop browser**: any RainbowKit wallet; gameplay routes through the deterministic smart account
+- **Base App / Coinbase Smart Wallet**: Coinbase Wallet login
+- **Desktop browser**: any RainbowKit wallet
 
-Allowlist, access-group and route-access checks are keyed by wallet address only.
+Either way the connected address (`useAccount().address`) is the user's one
+identity: every balance and position is read at it and every write is sent from
+it. Allowlist, access-group and route-access checks are keyed by wallet address only.
 
 ### Sign-in Gotchas
 - SIWE nonces must be alphanumeric (`[a-zA-Z0-9]{8+}`). Use `crypto.randomUUID().replaceAll('-', '')`.
@@ -147,19 +153,13 @@ call-building and the earned/summary math are pure in `lib/creatorFees.js`.
 - **ETH is pooled per account per placer** (`claimEth` takes all of it), so the
   token page's ETH includes other launches' collected ETH (it says so) and the
   profile shows collected ETH only in the total; its table's ETH column is each
-  pool's uncollected share. Calls are grouped per placer, batches per sender.
+  pool's uncollected share. Calls are grouped per placer.
 - **The claimant is `msg.sender`, so the batch must come from the credited
-  account.** `executeBatch` sends from the smart account on every tier (desktop
-  EOAs via Path A; Coinbase Smart Wallet, where `eoa === sma`), and
-  in-app launches therefore credit the SMA. Fees credited to a desktop wallet's
-  EOA (a launch made outside the app, or a transfer to the EOA) are claimed with
-  `executeBatch(calls, { bypassSponsorship: true })` — sent by the EOA itself, gas
-  paid, one confirmation per call; the card's caption says so (`claimSender`).
-  "No gas to pay" is shown only where SOFPaymaster is known to pay
-  (`isSponsoredClaim`: a desktop wallet's smart account, the launchpad's current
-  placer); Coinbase Smart Wallet batches use other, optional paymasters.
+  account.** `executeBatch` sends from the connected wallet, so the card shows
+  only when that wallet is the current recipient, and every claim plan is built
+  for it.
 - **The profile lists launches by creator** (`useCreatorLaunches`,
-  `/api/launchpad/tokens?creator=`, both accounts). A launch whose fees another
+  `/api/launchpad/tokens?creator=`, the connected wallet). A launch whose fees another
   creator handed to this account does not appear there (no recipient index);
   its token page's card still shows. A listed launch whose fees were handed on
   stays while tokens credited before the transfer remain. The section renders
@@ -171,8 +171,8 @@ Both create-season forms (`components/admin/CreateSeasonForm.jsx`,
 `components/mobile/MobileCreateSeason.jsx`) choose the token a season is priced
 in with `QuoteTokenPicker`, over `useQuoteTokenChoice`. It cannot change after
 creation: tickets, the prize pool and the season's InfoFi markets all use it.
-The picker is Select (groups: the connected account's own launches — creator
-matched case-insensitively against the EOA and the smart account — then tokens
+The picker is Select (groups: the connected wallet's own launches — creator
+matched case-insensitively against the connected address — then tokens
 approved by the platform, at least `QUOTE_TOKEN` as "Platform default", then the
 newest other launches), TokenArt, an Input for pasting any address, and the
 outline Badge.

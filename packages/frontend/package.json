@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package",
   "name": "@sof/frontend",
-  "version": "0.54.0",
+  "version": "0.55.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -60,7 +60,6 @@
     "lucide-react": "^0.539.0",
     "mint.club-v2-sdk": "^1.5.2",
     "motion": "^12.23.26",
-    "permissionless": "^0.3.4",
     "prop-types": "^15.8.1",
     "qrcode.react": "^4.2.0",
     "react": "^18.2.0",

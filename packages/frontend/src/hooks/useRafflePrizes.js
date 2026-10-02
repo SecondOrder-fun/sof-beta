@@ -1,4 +1,4 @@
-import { useReadContract } from "wagmi";
+import { useAccount, useReadContract } from "wagmi";
 import { useWatchContractLogs } from "@/hooks/chain/useWatchContractLogs";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -10,14 +10,12 @@ import { buildClaimCalls } from "@/services/claimService";
 import { useToast } from "@/hooks/useToast";
 import { getNetworkByKey } from "@/config/networks";
 import { useSmartTransactions } from "./useSmartTransactions";
-import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 
 // D11: No backend HTTP endpoint exists for prize distributor data — data lives
 // on-chain only. useReadContract is the appropriate abstraction here.
 export function useRafflePrizes(seasonId) {
   const netKey = getStoredNetworkKey();
-  // SMA-bound read per spec §4.3 — winners are recorded at the SMA.
-  const { sma: address } = useRaffleAccount();
+  const { address } = useAccount();
   const queryClient = useQueryClient();
   const { executeBatch } = useSmartTransactions();
   const [isWinner, setIsWinner] = useState(false);

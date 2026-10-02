@@ -1,5 +1,5 @@
+import { useAccount } from "wagmi";
 import { useRafflePrizes } from "@/hooks/useRafflePrizes";
-import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import { useUltraFreshRead } from "@/hooks/chain/useUltraFreshRead";
 import { RafflePrizeDistributorAbi } from "@/utils/abis";
 
@@ -34,7 +34,7 @@ import { RafflePrizeDistributorAbi } from "@/utils/abis";
  * @returns {ConsolationStatus}
  */
 export function useConsolationStatus(seasonId) {
-  const { sma: viewerAddress } = useRaffleAccount();
+  const { address: viewerAddress } = useAccount();
   const prizes = useRafflePrizes(seasonId);
   const distributorAddress = prizes.distributorAddress;
   const seasonPayouts = prizes.seasonPayouts;

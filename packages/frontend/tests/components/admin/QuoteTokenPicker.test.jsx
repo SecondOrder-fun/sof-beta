@@ -11,7 +11,7 @@ import { useTokenLaunches, useTokenLaunch } from "@/hooks/useTokenLaunches";
 import { useLaunchMarkets } from "@/hooks/useLaunchMarkets";
 import { useQuoteTokenInfo } from "@/hooks/useQuoteTokenInfo";
 
-const MY_SMA = "0x00000000000000000000000000000000000000Ea";
+const ME = "0x00000000000000000000000000000000000000Ea";
 const OTHER = "0x00000000000000000000000000000000000000f0";
 const PLATFORM = "0x5050505050505050505050505050505050505050";
 const APPROVED = "0x7070707070707070707070707070707070707070";
@@ -19,13 +19,7 @@ const NEITHER = "0x9090909090909090909090909090909090909090";
 const SIX_DECIMALS = "0x6060606060606060606060606060606060606060";
 const OLD_LAUNCH = "0x8080808080808080808080808080808080808080";
 
-vi.mock("wagmi", () => ({ useAccount: () => ({ address: "0x00000000000000000000000000000000000000e0" }) }));
-vi.mock("@/hooks/useRaffleAccount", () => ({
-  useRaffleAccount: () => ({
-    eoa: "0x00000000000000000000000000000000000000e0",
-    sma: "0x00000000000000000000000000000000000000Ea",
-  }),
-}));
+vi.mock("wagmi", () => ({ useAccount: () => ({ address: "0x00000000000000000000000000000000000000Ea" }) }));
 vi.mock("@/config/contracts", () => ({
   getContractAddresses: () => ({
     QUOTE_TOKEN: "0x5050505050505050505050505050505050505050",
@@ -60,11 +54,11 @@ const GWEI = 10n ** 9n;
 const NOW = Math.floor(Date.now() / 1000);
 const tokenAt = (i) => `0x${String(i).padStart(2, "0").repeat(20)}`;
 
-/** Newest first, like useTokenLaunches. Launch 2 is mine (by my smart account, in other case). */
+/** Newest first, like useTokenLaunches. Launch 2 is mine (by the connected wallet, in other case). */
 const LAUNCHES = Array.from({ length: 12 }, (_, i) => ({
   launchId: 12 - i,
   token: tokenAt(12 - i),
-  creator: 12 - i === 2 ? MY_SMA.toUpperCase().replace("0X", "0x") : OTHER,
+  creator: 12 - i === 2 ? ME.toUpperCase().replace("0X", "0x") : OTHER,
   launchedAt: BigInt(NOW - (i + 1) * 3600),
   name: `Token ${12 - i}`,
   symbol: `T${12 - i}`,
@@ -116,7 +110,7 @@ const openList = () => {
 describe("useQuoteTokenChoice", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("groups: my launches (EOA or smart account, any case), then the platform's approved tokens, then the newest others", () => {
+  it("groups: my launches (connected wallet, any case), then the platform's approved tokens, then the newest others", () => {
     setupReads();
     const { result } = renderHook(() => useQuoteTokenChoice());
     const { yours, approved, newest } = result.current.groups;

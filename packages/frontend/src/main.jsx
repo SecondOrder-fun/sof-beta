@@ -17,7 +17,6 @@ import { LoginModalProvider } from "./context/LoginModalContext";
 import { SSEProvider } from "./context/SSEProvider";
 import { UsernameProvider } from "./context/UsernameContext";
 import { ThemeProvider } from "./context/ThemeContext";
-import { RaffleAccountProvider } from "./context/RaffleAccountProvider";
 import { AppAuthProvider } from "./context/AppAuthProvider";
 
 // Initialize query client
@@ -275,30 +274,28 @@ import("./i18n").then(() => {
         <ThemeProvider>
           <QueryClientProvider client={queryClient}>
             <WagmiConfigProvider>
-              <RaffleAccountProvider>
-                <AppAuthProvider>
-                  <ProviderErrorBoundary>
-                    <RainbowKitProvider
-                      locale="en"
-                      initialChain={getInitialChain()}
-                      chains={getRainbowKitChains()}
-                    >
-                      <ProviderErrorBoundary>
-                        <LoginModalProvider>
-                          <SSEProvider>
-                            <UsernameProvider>
-                              <RouterProvider router={router} />
-                              {import.meta.env.DEV && (
-                                <ReactQueryDevtools initialIsOpen={false} />
-                              )}
-                            </UsernameProvider>
-                          </SSEProvider>
-                        </LoginModalProvider>
-                      </ProviderErrorBoundary>
-                    </RainbowKitProvider>
-                  </ProviderErrorBoundary>
-                </AppAuthProvider>
-              </RaffleAccountProvider>
+              <AppAuthProvider>
+                <ProviderErrorBoundary>
+                  <RainbowKitProvider
+                    locale="en"
+                    initialChain={getInitialChain()}
+                    chains={getRainbowKitChains()}
+                  >
+                    <ProviderErrorBoundary>
+                      <LoginModalProvider>
+                        <SSEProvider>
+                          <UsernameProvider>
+                            <RouterProvider router={router} />
+                            {import.meta.env.DEV && (
+                              <ReactQueryDevtools initialIsOpen={false} />
+                            )}
+                          </UsernameProvider>
+                        </SSEProvider>
+                      </LoginModalProvider>
+                    </ProviderErrorBoundary>
+                  </RainbowKitProvider>
+                </ProviderErrorBoundary>
+              </AppAuthProvider>
             </WagmiConfigProvider>
           </QueryClientProvider>
         </ThemeProvider>

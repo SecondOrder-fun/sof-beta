@@ -1,14 +1,14 @@
 // src/hooks/usePlayerPosition.js
 // Reads a player's ticket position for a raffle season.
 //
-// Self (connected SMA) → ultra-fresh on-chain reads so post-tx balance
+// Self (connected wallet) → ultra-fresh on-chain reads so post-tx balance
 // updates are instant and always accurate.
 //
 // Others → warm backend index via /api/raffle/positions/:user/:season
 // (avoids hammering the RPC for leaderboard / viewer contexts).
 
+import { useAccount } from "wagmi";
 import { useCallback, useEffect, useState } from "react";
-import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import { useUltraFreshRead } from "@/hooks/chain/useUltraFreshRead";
 import { useWarmRead } from "@/hooks/chain/useWarmRead";
 import { getStoredNetworkKey } from "@/lib/wagmi";
@@ -26,19 +26,18 @@ const erc20Abi = Array.isArray(ERC20Abi)
  * @param {string|undefined} bondingCurveAddress
  * @param {object} [options]
  * @param {object} [options.seasonDetails] — seasonDetailsQuery.data (for ERC20 fallback discovery)
- * @param {string} [options.playerAddress]  — if provided and differs from the connected SMA,
+ * @param {string} [options.playerAddress]  — if provided and differs from the connected wallet,
  *   reads from the warm backend index instead of the chain.
  * @param {string|number} [options.seasonId] — required when playerAddress is an "other" user
  * @returns {{ position: {tickets:bigint, probBps:number, total:bigint}|null, isRefreshing:boolean, refreshNow:()=>Promise<void>, setPosition:(p)=>void }}
  */
 export function usePlayerPosition(bondingCurveAddress, { seasonDetails, playerAddress, seasonId } = {}) {
-  // Position reads resolve at the user's smart account, not the EOA (spec §4.3).
-  const { sma } = useRaffleAccount();
+  const { address: account } = useAccount();
 
   // Determine whether the query is for the connected user's own position.
   const isSelf =
     !playerAddress ||
-    (!!sma && playerAddress.toLowerCase() === sma.toLowerCase());
+    (!!account && playerAddress.toLowerCase() === account.toLowerCase());
 
   // ── Self path: ultra-fresh on-chain via playerTickets() on the curve ──
   const selfUltraFresh = useUltraFreshRead({
@@ -47,9 +46,9 @@ export function usePlayerPosition(bondingCurveAddress, { seasonDetails, playerAd
       abi: curveAbi,
     },
     fn: "playerTickets",
-    args: sma ? [sma] : [],
+    args: account ? [account] : [],
     touches: bondingCurveAddress ? [bondingCurveAddress] : [],
-    enabled: isSelf && !!bondingCurveAddress && !!sma,
+    enabled: isSelf && !!bondingCurveAddress && !!account,
   });
 
   // Also fetch the curve total supply (curveConfig) for probability calculation.
@@ -61,7 +60,7 @@ export function usePlayerPosition(bondingCurveAddress, { seasonDetails, playerAd
     fn: "curveConfig",
     args: [],
     touches: bondingCurveAddress ? [bondingCurveAddress] : [],
-    enabled: isSelf && !!bondingCurveAddress && !!sma,
+    enabled: isSelf && !!bondingCurveAddress && !!account,
   });
 
   // ── Others path: warm backend index ──
@@ -106,7 +105,7 @@ export function usePlayerPosition(bondingCurveAddress, { seasonDetails, playerAd
   // ── Imperative refresh (used by event-driven triggers in RaffleDetails) ──
   // Falls back to the legacy manual viem path; handles ERC20 fallback discovery.
   const refreshNow = useCallback(async () => {
-    if (!isSelf || !sma || !bondingCurveAddress) return;
+    if (!isSelf || !account || !bondingCurveAddress) return;
     try {
       setIsRefreshing(true);
       const netKey = getStoredNetworkKey();
@@ -120,7 +119,7 @@ export function usePlayerPosition(bondingCurveAddress, { seasonDetails, playerAd
             address: bondingCurveAddress,
             abi: curveAbi,
             functionName: "playerTickets",
-            args: [sma],
+            args: [account],
           }),
           client.readContract({
             address: bondingCurveAddress,
@@ -177,7 +176,7 @@ export function usePlayerPosition(bondingCurveAddress, { seasonDetails, playerAd
           address: tokenAddress,
           abi: erc20Abi,
           functionName: "balanceOf",
-          args: [sma],
+          args: [account],
         }),
         client.readContract({
           address: tokenAddress,
@@ -195,7 +194,7 @@ export function usePlayerPosition(bondingCurveAddress, { seasonDetails, playerAd
     } finally {
       setIsRefreshing(false);
     }
-  }, [isSelf, sma, bondingCurveAddress, seasonDetails]);
+  }, [isSelf, account, bondingCurveAddress, seasonDetails]);
 
   // Initial-load auto-call removed. The two useUltraFreshRead queries above
   // (playerTickets + curveConfig) already cover the happy path and feed

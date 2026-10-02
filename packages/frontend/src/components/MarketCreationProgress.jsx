@@ -1,7 +1,7 @@
 /**
  * @file MarketCreationProgress.jsx
  * @description Component for displaying real-time market creation progress
- * Shows status of market creation via Paymaster with SSE updates
+ * Shows status of market creation with SSE updates
  * @author SecondOrder.fun
  */
 

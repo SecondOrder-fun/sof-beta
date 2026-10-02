@@ -7,9 +7,7 @@ import { Toaster } from "@/components/ui/toaster";
 import UsernameDialog from "@/components/user/UsernameDialog";
 import LoginModal from "@/components/auth/LoginModal";
 import MobileLoginSheet from "@/components/auth/MobileLoginSheet";
-import FirstConnectBanner from "@/components/auth/FirstConnectBanner";
 import SignInRetryBanner from "@/components/auth/SignInRetryBanner";
-import SweepBanner from "@/components/auth/SweepBanner";
 import { useUsernameContext } from "@/context/UsernameContext";
 import { ContractAddressValidator } from "@/components/dev/ContractAddressValidator";
 import { usePlatform } from "@/hooks/usePlatform";
@@ -54,9 +52,7 @@ const App = () => {
       >
         <MobileHeader />
         <ActivityTicker compact />
-        <FirstConnectBanner />
         <SignInRetryBanner />
-        <SweepBanner />
         {/* Bottom padding clears the fixed BottomNav, which publishes its height. */}
         <main className="flex-1 overflow-y-auto pb-[var(--bottom-nav-height,6rem)]">
           {fullBleed ? (
@@ -81,9 +77,7 @@ const App = () => {
     <div className="min-h-screen bg-background text-foreground">
       <Header />
       <ActivityTicker />
-      <FirstConnectBanner />
       <SignInRetryBanner />
-      <SweepBanner />
       <main className="container mx-auto px-4 py-8">
         <div>
           <Outlet />

@@ -4,8 +4,7 @@
 // retry the SIWE flow without disconnecting. Hidden in all other states so
 // the dapp doesn't flash a banner during signing/verifying.
 //
-// Mounts in <App /> next to <FirstConnectBanner /> in both desktop and mobile
-// branches.
+// Mounts in <App /> under the header in both desktop and mobile branches.
 
 import { useTranslation } from "react-i18next";
 import { useAppAuth } from "@/hooks/useAppAuth";

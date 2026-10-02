@@ -15,10 +15,7 @@ import { getPrizeDistributor } from "@/services/onchainRaffleDistributor";
  * useProfileData - Consolidates SOF balance, raffle token balances, and winning seasons
  * queries for a given address. Works for both own profile and other users.
  *
- * Per spec §4.3, callers should pass the user's SMA (smart account) address
- * rather than the EOA — gameplay balances live at the SMA.
- *
- * @param {string} address - The smart-account address to fetch data for
+ * @param {string} address - The wallet address to fetch data for
  * @returns {{ sofBalanceQuery, seasonBalancesQuery, winningSeasonsQuery, client, netKey, contracts, seasons, allSeasonsQuery }}
  */
 export function useProfileData(address) {

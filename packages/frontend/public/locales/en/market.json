@@ -192,7 +192,7 @@
   "error": "Error",
   "market_recent_events": "Recent Events",
   "market_status_idle": "Waiting for market creation to be triggered...",
-  "market_status_started": "Market creation submitted via Paymaster. Waiting for confirmation...",
+  "market_status_started": "Market creation submitted. Waiting for confirmation...",
   "market_status_confirmed": "Market successfully created! You can now trade on this market.",
   "market_status_failed": "Market creation failed. Please try again or contact support.",
   "market_raffle_probability": "Raffle Probability",

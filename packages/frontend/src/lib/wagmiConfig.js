@@ -67,7 +67,7 @@ export const config = createConfig({
   // calls fall outside that window and each goes out as its own POST — the
   // Tenderly free-tier 25-rps burst gets blown on initial mount. wait: 50ms
   // ≈ 3 React render passes — large enough to coalesce the chained ultra-
-  // fresh reads (playerTickets → curveConfig once SMA resolves, etc.) into
+  // fresh reads (playerTickets → curveConfig a render later, etc.) into
   // one aggregate3 request without any user-perceptible delay. 16ms was
   // observed leaking into separate POSTs when reads were chained across
   // dependent renders.

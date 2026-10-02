@@ -142,7 +142,7 @@ SIWE signature (`AppAuthProvider`, `POST /api/auth/verify method:"wallet"`).
 | Context | Primary Auth | Notes |
 |---------|-------------|-------|
 | Base App / Coinbase Smart Wallet | Coinbase Wallet | Connected address is the smart account |
-| Desktop browser | Wallet connect (RainbowKit) | Gameplay routes through the deterministic smart account |
+| Desktop browser | Wallet connect (RainbowKit) | Gameplay transacts from the user's own connected wallet |
 
 The backend verifies the signature with `publicClient.verifyMessage` (EOA,
 ERC-1271 and ERC-6492 smart-wallet signatures) and issues a JWT. Allowlist,
@@ -236,7 +236,7 @@ Browser origins are an exact-string match — `https://secondorder.fun` and `htt
 Symptom of getting this wrong: console shows `No 'Access-Control-Allow-Origin' header is present` from the `www` (or apex) variant the user happens to land on, and every API call from that origin 404/errs net::ERR_FAILED.
 
 ### On-Chain Transactions
-All user-facing on-chain operations must use `useSmartTransactions.executeBatch` (ERC-5792 batched flow). Never use raw `writeContractAsync` for user-facing transactions.
+All user-facing on-chain operations go through `useSmartTransactions.executeBatch` (EIP-5792 `wallet_sendCalls` when the wallet supports atomic batching, else sequential `sendTransaction`). Never use raw `writeContractAsync` for user-facing transactions.
 
 ### Contract Addresses
 Validate all contract addresses at system boundary. Never silently pass garbage addresses to contract calls.
