@@ -4,7 +4,7 @@
 
 - **Fastify 5** — main application server (ESM, `"type": "module"`)
 - **Supabase** (PostgreSQL) — primary database via `@supabase/supabase-js` service role client
-- **Redis** (Upstash/IORedis) — caching, rate limiting, real-time state
+- **Redis** (ioredis) — usernames (the only durable data), sign-in nonces, short-TTL response caches
 - **Viem** — Ethereum RPC reads (public client) and transaction signing (wallet client)
 - **JSON Web Tokens** — auth via `jsonwebtoken` (Bearer tokens)
 - **Node.js 20+** — ES module imports throughout
@@ -16,70 +16,58 @@ packages/backend/
 ├── fastify/
 │   ├── server.js              # App entrypoint: plugins, routes, listeners
 │   └── routes/                # Route modules (Fastify plugin pattern)
-│       ├── healthRoutes.js
-│       ├── authRoutes.js
-│       ├── seasonRoutes.js
-│       ├── infoFiRoutes.js
-│       ├── raffleTransactionRoutes.js
+│       ├── healthRoutes.js, authRoutes.js, usernameRoutes.js, userRoutes.js
+│       ├── accessRoutes.js, allowlistRoutes.js, groupRoutes.js, routeConfigRoutes.js, gatingRoutes.js
+│       ├── seasonRoutes.js, curveRoutes.js, raffleTransactionRoutes.js, rolloverRoutes.js
+│       ├── infoFiRoutes.js, sponsorPrizeRoutes.js, nftDropRoutes.js
+│       ├── launchpadRoutes.js       # /api/launchpad: tokens, chart, seasons, raffle badges
+│       ├── activityRoutes.js        # /api/activity: ticker feed
+│       ├── tokenRoutes.js, blockscoutRoutes.js, chainTimeRoutes.js
 │       ├── sseRoutes.js
-│       ├── accessRoutes.js
-│       ├── allowlistRoutes.js
-│       ├── adminRoutes.js
-│       ├── userRoutes.js
-│       ├── usernameRoutes.js
-│       ├── groupRoutes.js
-│       ├── gatingRoutes.js
-│       ├── routeConfigRoutes.js
-│       ├── sponsorPrizeRoutes.js
-│       └── nftDropRoutes.js
+│       └── adminRoutes.js           # incl. GET /relay-status (position relay health)
 ├── shared/                    # Shared services (imported by routes + listeners)
 │   ├── supabaseClient.js      # Supabase singleton + query helpers
 │   ├── redisClient.js         # Redis singleton
+│   ├── redisCache.js          # Read-through cache helpers + key prefixes
 │   ├── auth.js                # JWT AuthService + Fastify auth hook
 │   ├── adminGuard.js          # createRequireAdmin() preHandler
-│   ├── accessService.js       # getUserAccess, ACCESS_LEVELS
-│   ├── allowlistService.js    # Allowlist CRUD (absorbed from sof-allowlist)
-│   ├── historicalOddsService.js
-│   ├── routeConfigService.js
-│   ├── groupService.js
-│   ├── usernameService.js
-│   ├── sponsorPrizeService.js
-│   └── utils.js
+│   ├── accessService.js, accessCache.js  # getUserAccess, ACCESS_LEVELS (wallet-keyed, cached)
+│   ├── allowlistService.js, allowlistCounter.js  # Allowlist CRUD (absorbed from sof-allowlist)
+│   ├── usernameService.js     # wallet ↔ username, stored only in Redis
+│   ├── historicalOddsService.js, routeConfigService.js, groupService.js, sponsorPrizeService.js
+│   ├── assertRequiredEnv.js, mountStatus.js, parseCorsOrigins.js, utils.js
+│   └── services/              # adminEoaService, tokenLaunchesDb, launchpadActivityDb
 ├── src/
 │   ├── config/
 │   │   └── chain.js           # Network config (LOCAL, TESTNET, MAINNET)
 │   ├── lib/
 │   │   ├── viemClient.js      # Public + wallet clients
+│   │   ├── blockHead.js       # Shared chain-head tracker for all pollers
 │   │   ├── blockCursor.js     # Persistent block tracking (Supabase-backed)
 │   │   └── contractEventPolling.js  # Chunked event polling with backoff
 │   ├── listeners/             # On-chain event listeners (long-running)
-│   │   ├── seasonStartedListener.js
-│   │   ├── seasonCompletedListener.js
-│   │   ├── positionUpdateListener.js
-│   │   ├── marketCreatedListener.js
-│   │   ├── tradeListener.js
-│   │   ├── sponsorHatListener.js
-│   │   └── sponsorPrizeListener.js
+│   │   ├── seasonStartedListener.js, seasonCompletedListener.js, seasonStatusListener.js
+│   │   ├── positionUpdateListener.js, marketCreatedListener.js, tradeListener.js
+│   │   ├── rolloverEventListener.js, sponsorHatListener.js, sponsorPrizeListener.js
+│   │   ├── tokenLaunchedListener.js, launchTradeListener.js   # launchpad indexer
+│   │   └── buildLaunchRow.js, buildTradeRow.js, buildConsolationPoolEvent.js  # pure row builders
 │   ├── services/              # Business logic services
-│   │   ├── infoFiPositionService.js
-│   │   ├── raffleTransactionService.js
-│   │   ├── seasonLifecycleService.js
-│   │   ├── seasonReconciliationService.js
-│   │   ├── sseService.js
 │   │   ├── positionRelayService.js   # backend wallet → InfoFiMarketFactory.onPositionUpdate
-│   │   ├── oracleCallService.js
-│   │   └── adminAlertService.js
+│   │   ├── activityFeed.js           # pure shaping for the launchpad + activity APIs
+│   │   ├── infoFiPositionService.js, raffleTransactionService.js, sofTransactionsService.js
+│   │   ├── seasonLifecycleService.js, seasonReconciliationService.js, pokeConsolationEligible.js
+│   │   ├── sseChannelService.js      # multi-channel SSE broadcasts
+│   │   ├── oracleCallService.js, adminAlertService.js, blockscoutClient.js
 │   ├── utils/
 │   │   └── blockRangeQuery.js
 │   └── scripts/
 │       └── backfillMarketTrades.js
 ├── scripts/
-│   ├── reset-local-db.js
-│   └── scan-historical-events.js
-├── migrations/                # Supabase SQL migrations (sequential numbering)
-├── tests/
-│   ├── api/                   # Route tests
-│   └── backend/               # Service + listener tests
+│   ├── reset-local-db.js, run-migration.sh
+│   ├── backfill-positions.js, reconcile-seasons.js
+│   └── migrate-redis-usernames.js   # copy usernames to a new Redis (EOA wallets only)
+├── migrations/                # SQL migrations (sequential numbering; mirrored in root supabase/migrations/)
+├── tests/                     # api/, backend/, listeners/, scripts/, services/
 ├── env/                       # Environment files (gitignored)
 └── package.json
 ```

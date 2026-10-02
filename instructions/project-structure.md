@@ -10,12 +10,17 @@ sof-beta/
 ├── .env.platform                   # Vercel/Railway tokens (gitignored)
 ├── .env.platform.example           # Template for platform tokens
 ├── scripts/
-│   ├── deploy-env.sh               # Push env vars to Vercel/Railway
+│   ├── local-dev.sh                # Local stack: Anvil + contracts + Supabase + backend + frontend
+│   ├── deploy-env.sh               # Push env vars to Vercel/Railway (sync-env-vercel.sh, sync-env-railway.sh; --prune)
 │   ├── export-abis.js              # Build ABIs from Foundry output
+│   ├── extract-deployment-addresses.js  # deployments/<network>.json from the forge broadcast log
+│   ├── grant-backend-wallet.sh     # Backend wallet PAYMASTER_ROLE on InfoFiMarketFactory (--check is read-only)
+│   ├── revoke-sma-roles.sh         # One-off: revoke admin roles held by the retired testnet smart account
 │   └── load-env.sh                 # Load env files for dev
+├── supabase/migrations/            # Supabase CLI copies of the backend migrations (pushed to the remote project)
 ├── .github/
 │   └── workflows/
-│       └── pr-preview.yml          # Paired Vercel + Railway preview orchestration
+│       └── pr-preview-pairing.yml  # Paired Vercel + Railway preview orchestration ([preview] commits)
 ├── instructions/                   # Living documentation
 │   ├── project-requirements.md     # Vision, architecture, tech stack
 │   ├── project-structure.md        # This file
@@ -50,6 +55,8 @@ packages/frontend/
 │   │   ├── auth/                   # LoginModal, MobileLoginSheet, sign-in banners/overlays
 │   │   ├── access/                 # AccessGate, ProtectedRoute, MaintenancePage
 │   │   ├── infofi/                 # InfoFi market cards, charts, trading
+│   │   ├── launchpad/              # Token cards/table, buy panel, price chart, trades, raffle badge/card, creator fees
+│   │   ├── raffle/, raffles/       # Season cards, holdings, list views
 │   │   ├── buysell/                # BuyForm, SellForm, SlippageSettings
 │   │   ├── mint/                   # AllowlistMintCard, GiftClaimCard
 │   │   ├── gating/                 # SignatureGateModal, PasswordGateModal
@@ -57,10 +64,12 @@ packages/frontend/
 │   ├── context/                    # React contexts (auth, SSE, theme, wallet)
 │   ├── features/                   # Feature modules
 │   │   └── admin/                  # Admin panel components
-│   ├── hooks/                      # Custom React hooks
+│   ├── hooks/                      # Custom React hooks (useSmartTransactions.executeBatch is the single write path)
+│   ├── lib/                        # Pure helpers: curve/v4 pool math, creator fees, launch formatting, wagmi config
+│   ├── routes/                     # Route components (RaffleList, Launch, TokensIndex, AccountPage, UserProfile, …)
 │   ├── services/                   # API + business logic services
 │   ├── utils/                      # Utility functions
-│   ├── config/                     # App config (hats, access levels)
+│   ├── config/                     # App config (contract addresses, hats, access levels)
 │   └── test/                       # Test setup
 └── tests/                          # Vitest test files
 ```
@@ -75,18 +84,18 @@ packages/backend/
 ├── env/                            # .env.local, .env.testnet, .env.mainnet (gitignored)
 ├── fastify/
 │   ├── server.js                   # Entrypoint: plugins, routes, listeners
-│   └── routes/                     # 18 route modules (Fastify plugin pattern)
-├── shared/                         # Shared services (supabase, redis, auth, access)
+│   └── routes/                     # Route modules (Fastify plugin pattern)
+├── shared/                         # Shared services (supabase, redis, auth, access, usernames)
 ├── src/
 │   ├── config/chain.js             # Network configuration
-│   ├── lib/                        # Core libraries (viemClient, blockCursor, eventPolling)
-│   ├── listeners/                  # 7 on-chain event listeners
-│   ├── services/                   # 8 business logic services
+│   ├── lib/                        # Core libraries (viemClient, blockHead, blockCursor, contractEventPolling)
+│   ├── listeners/                  # On-chain event listeners (seasons, InfoFi, rollover, sponsors, launches, launch trades)
+│   ├── services/                   # Business logic (positionRelayService, activityFeed, season lifecycle, …)
 │   ├── utils/                      # Utility functions
 │   └── scripts/                    # One-off scripts
-├── scripts/                        # Operational scripts (reset-local-db, scan-historical)
-├── migrations/                     # 15 Supabase SQL migrations
-├── tests/                          # Vitest tests (api/ + backend/)
+├── scripts/                        # Operational scripts (reset-local-db, backfill-positions, reconcile-seasons, migrate-redis-usernames)
+├── migrations/                     # Numbered SQL migrations (mirrored in root supabase/migrations/)
+├── tests/                          # Vitest tests (api/, backend/, listeners/, scripts/, services/)
 └── supabase/                       # Supabase config
 ```
 
@@ -102,17 +111,15 @@ packages/contracts/
 ├── src/
 │   ├── core/                       # Raffle.sol, SeasonFactory.sol, RaffleStorage.sol, RafflePrizeDistributor.sol
 │   ├── curve/                      # SOFBondingCurve.sol, IRaffleToken.sol
-│   ├── token/                      # SOFToken.sol, RaffleToken.sol
+│   ├── token/                      # RaffleToken.sol
 │   ├── infofi/                     # InfoFiMarketFactory, InfoFiFPMMV2, InfoFiPriceOracle, InfoFiSettlement, ConditionalTokenSOF, MarketTypeRegistry, RaffleOracleAdapter
-│   ├── exchange/                   # SOFExchange.sol
-│   ├── airdrop/                    # SOFAirdrop.sol
-│   ├── faucet/                     # SOFFaucet.sol
 │   ├── gating/                     # SeasonGating.sol, SeasonGatingStorage.sol
 │   ├── sponsor/                    # SponsorOnboarding.sol
+│   ├── launchpad/                  # TokenLaunchpad, LaunchToken, UniV4LiquidityPlacer, LaunchPoolGate, HookMiner, UniV4LaunchRouter (+ interfaces)
 │   ├── lib/                        # Interfaces (IRaffle, ISeasonFactory, etc.) + RaffleTypes, RaffleLogic
-│   └── test-helpers/               # MockUSDC.sol
-├── test/                           # 24 Forge test files + invariant/ + integration/
-├── script/                         # Forge deploy scripts
+│   └── test-helpers/               # MockERC20.sol (placeholder quote token), MockUSDC.sol
+├── test/                           # Forge tests + helpers/ + invariant/ + integration/
+├── script/deploy/                  # Numbered deploy steps chained by DeployAll.s.sol
 ├── abi/                            # Exported ABIs (generated by export-abis.js)
 │   └── index.js                    # Named ABI exports
 ├── deployments/                    # Version-controlled contract addresses
@@ -120,7 +127,7 @@ packages/contracts/
 │   ├── testnet.json
 │   ├── mainnet.json
 │   └── index.js                    # getDeployment(network) helper
-└── lib/                            # Foundry dependencies (forge-std, openzeppelin, chainlink)
+└── lib/                            # Foundry dependencies (forge-std, openzeppelin, chainlink, Uniswap v4)
 ```
 
 ### ABI Pipeline
@@ -192,11 +199,22 @@ Access levels: 0=public, 1=connected, 2=allowlist, 3=beta, 4=admin.
 
 ### Redis Keys
 
+Usernames are the only durable data in Redis (no database copy); everything else is a cache or a TTL'd token. Moving to a new Redis means copying the usernames with `packages/backend/scripts/migrate-redis-usernames.js`.
+
 | Key Pattern | Purpose | TTL |
 |------------|---------|-----|
-| `sse:connections:{userId}` | Active SSE connection tracking | Session |
-| `rate:{ip}:{endpoint}` | Rate limit counters | Window-based |
-| `cache:season:{seasonId}` | Season data cache | 30s |
+| `wallet:{address}` | Username for a wallet (display case) | none (durable) |
+| `username:{name}` | Reverse lookup: lowercase username → wallet | none (durable) |
+| `auth:nonce:{nonce}` | Single-use sign-in nonce | 5 min |
+| `access:wallet:{address}` | Access level/groups cache | 5 min |
+| `route_config:*` | Route access config cache | 5 min |
+| `allowlist:count:*` | Allowlist entry counts | 1 h |
+| `season_contracts:*` | Season rows cache | 5 min |
+| `markets:*`, `market_info:{marketId}` | InfoFi market caches | 30 s |
+| `positions:net:{marketId}:{user}` | InfoFi net position cache | 20 s |
+| `raffle_tx:{seasonId}:…` | Raffle transaction list cache | 30 s |
+
+Rate limiting (`@fastify/rate-limit`, 100 req/min) uses its in-memory store, not Redis.
 
 ### Contract Storage (On-chain, Not in Database)
 
@@ -226,4 +244,3 @@ YES/NO pool balances per market
 
 1. Two migration files share prefix `011` (`011_fix_service_role_permissions.sql` and `011_infofi_odds_history.sql`)
 2. Core tables (`players`, `infofi_markets`, `infofi_positions`, `season_contracts`) have no migration files
-3. `nft_drops` table referenced by `nftDropRoutes.js` but table does not exist yet
