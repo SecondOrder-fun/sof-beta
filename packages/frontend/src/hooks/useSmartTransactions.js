@@ -1,26 +1,17 @@
-import { useMemo, useCallback, useRef } from 'react';
+import { useMemo, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useAccount, useChainId, useCapabilities, useSendCalls, useCallsStatus, usePublicClient, useWalletClient } from 'wagmi';
+import { useAccount, useChainId, useCapabilities, useSendCalls, usePublicClient, useWalletClient } from 'wagmi';
 import { waitForCallsStatus } from '@wagmi/core';
-import { http } from 'viem';
-import { createBundlerClient, createPaymasterClient } from 'viem/account-abstraction';
-import { getContractAddresses } from '@/config/contracts';
-import { getStoredNetworkKey } from '@/lib/wagmi';
 import { config as wagmiConfig } from '@/lib/wagmiConfig';
-import { useAppAuth } from '@/hooks/useAppAuth';
-import { toSofSmartAccount } from '@/lib/sofSmartAccount';
-import { useRaffleAccount } from '@/hooks/useRaffleAccount';
 
-/**
- * Canonical EntryPoint v0.8 address — same on every chain.
- * Matches the address the contracts package's deploy scripts use.
- */
-const ENTRY_POINT_V08 = '0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108';
-
-// Upper bound for waiting on an ERC-5792 batch to land on chain after the
+// Upper bound for waiting on an EIP-5792 batch to land on chain after the
 // wallet prompt is accepted. Local Anvil confirms within seconds; 120s is
 // enough headroom for a congested testnet without hanging the UI forever.
 const BATCH_CONFIRM_TIMEOUT_MS = 120_000;
+
+// Race the wallet's `wallet_sendCalls` prompt against this timeout so wallets
+// that never resolve don't hang the UI forever.
+const BATCH_PROMPT_TIMEOUT_MS = 30_000;
 
 /**
  * Resolve whatever `sendCallsAsync` returned into a plain transaction hash
@@ -32,8 +23,8 @@ const BATCH_CONFIRM_TIMEOUT_MS = 120_000;
  * confirms. We block here until the batch has status ≥ 200 (CONFIRMED) and
  * return the first receipt's `transactionHash`.
  *
- * If the result already looks like a hash (path A userOpHash, or a wallet
- * that returns the hash directly), it passes through unchanged.
+ * If the result already looks like a hash (a wallet that returns the hash
+ * directly), it passes through unchanged.
  *
  * IMPORTANT: every failure mode must throw. Returning `null`/`undefined`
  * silently leaves the caller's mutation in `isSuccess` state with
@@ -101,50 +92,21 @@ export function invalidateUltraFreshTouching(queryClient, callTargets) {
   });
 }
 
-export async function fetchPaymasterSession(apiBase, jwt) {
-  try {
-    const res = await fetch(`${apiBase}/paymaster/session`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${jwt}`,
-      },
-      body: '{}',
-    });
-    if (!res.ok) return null;
-    const { sessionToken } = await res.json();
-    return sessionToken;
-  } catch {
-    return null;
-  }
-}
-
+/**
+ * The single write path for user-facing transactions. Every call is sent from
+ * the connected wallet itself — there is no smart account, bundler or
+ * paymaster in between, so the user pays their own gas.
+ */
 export function useSmartTransactions() {
   const queryClient = useQueryClient();
-  const { address, connector } = useAccount();
+  const { address } = useAccount();
   const chainId = useChainId();
   const { data: capabilities } = useCapabilities({ account: address });
-  const { sendCallsAsync, data: batchId } = useSendCalls();
+  const { sendCallsAsync } = useSendCalls();
   const publicClient = usePublicClient();
   const { data: walletClient } = useWalletClient();
-  const { walletType } = useRaffleAccount();
-  // JWT from AppAuthProvider — SIWE-on-connect (desktop EOA / Coinbase Smart
-  // Wallet). Legacy storage keys are cleared on AppAuthProvider mount, so
-  // localStorage fallbacks here are dead code.
-  const { jwt: backendJwt } = useAppAuth();
-  const sessionCacheRef = useRef({ token: null, expiresAt: 0 });
-  const apiBase = import.meta.env.VITE_API_BASE_URL || '';
 
-  const { data: callsStatus } = useCallsStatus({
-    id: batchId,
-    query: {
-      enabled: !!batchId,
-      refetchInterval: (data) =>
-        data?.state?.data?.status === 'CONFIRMED' ? false : 1000,
-    },
-  });
-
-  const chainCaps = useMemo(() => {
+  const hasAtomicBatching = useMemo(() => {
     // wagmi v2's useCapabilities (called here without `chainId`) returns the
     // full multi-chain result keyed by DECIMAL chain id — viem core rebuilds
     // the response via `capabilities[Number(chainId2)] = ...` and only
@@ -152,218 +114,84 @@ export function useSmartTransactions() {
     // current chain's caps via `capabilities[chainId]` (chainId is a number
     // from useChainId).
     const caps = capabilities && chainId ? capabilities[chainId] : null;
-    const atomicStatus = caps?.atomic?.status || null;
-    const hasPaymaster = !!caps?.paymasterService?.supported;
-    const hasBatch = !!atomicStatus;
-    return { hasBatch, hasPaymaster, atomicStatus };
+    const atomicStatus = caps?.atomic?.status;
+    return atomicStatus === 'supported' || atomicStatus === 'ready';
   }, [capabilities, chainId]);
 
   /**
-   * Execute a batch of calls via ERC-5792 with automatic paymaster sponsorship.
-   * Routes to Coinbase CDP paymaster for Coinbase wallets, or Pimlico (session-gated)
-   * for all other wallets. If the paymaster attempt fails, retries the batch without
-   * sponsorship so batching is preserved.
+   * Send a list of calls from the connected wallet and resolve to a
+   * transaction hash once they have landed.
    *
-   * @param {Array<{to: string, data: string, value?: bigint}>} calls - Raw calls to batch
-   * @param {object} options - Additional options for sendCalls
+   * - The wallet reports EIP-5792 atomic batching for the current chain
+   *   (`atomic.status` is `supported` or `ready`): one `wallet_sendCalls`
+   *   prompt for the whole list, resolved to the batch's first receipt hash.
+   * - Otherwise: one `sendTransaction` per call, in order, each waiting for its
+   *   receipt before the next is sent. A reverted receipt throws and nothing
+   *   after it is sent. Resolves to the last call's hash.
+   *
+   * Either way, ultra-fresh reads that touch a call target are invalidated
+   * once calls land.
+   *
+   * @param {Array<{to: string, data: string, value?: bigint}>} calls - Raw calls to send
+   * @param {object} options - Additional options forwarded to `sendCalls`
    * @param {bigint} [options.sofAmount] - Deprecated and ignored. The client-side
    *   0.05% fee transfer was removed with SOFExchange, which was its recipient;
    *   protocol fees are charged on-chain by the curve instead. Still destructured
    *   so it is not forwarded to the wallet as an unknown option.
-   * @param {boolean} [options.bypassSponsorship] - **Use sparingly.** Forces the
-   *   per-call EOA-direct send path (skips Path A counterfactual SMA + UserOp).
-   *   Only needed when the target contract specifically checks an EOA signature
-   *   *and* the EOA's SMA cannot satisfy that check (i.e. role grants on the SMA
-   *   are infeasible). Default `false` — admin writes route through Path A now
-   *   that 14_ConfigureRoles grants admin roles to admin SMAs. Its one product
-   *   caller is a creator-fee claim or transfer whose fee recipient is the EOA
-   *   itself (lib/creatorFees.claimSender): the placer keys credits by
-   *   msg.sender, so a batch sent from the SMA would find nothing to claim.
+   * @returns {Promise<`0x${string}`>} transaction hash
    */
   const executeBatch = useCallback(async (calls, options = {}) => {
-    const { sofAmount: _sofAmount, bypassSponsorship, ...sendOptions } = options;
+    const { sofAmount: _sofAmount, ...sendOptions } = options;
 
-    const isCoinbaseWallet = connector?.id === 'coinbaseWalletSDK';
-    const hasAtomic = chainCaps.atomicStatus === 'ready' || chainCaps.atomicStatus === 'supported';
+    if (hasAtomicBatching) {
+      const sendResult = await Promise.race([
+        sendCallsAsync({
+          account: address,
+          calls,
+          ...sendOptions,
+        }),
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error('Batch execution timeout — wallet did not respond')),
+            BATCH_PROMPT_TIMEOUT_MS,
+          ),
+        ),
+      ]);
 
-    // ─── Path A: desktop-EOA → counterfactual SMA + ERC-4337 UserOp ───
-    //
-    // Wallets without native atomic batching (e.g. MetaMask) drive a
-    // SOFSmartAccount via the local bundler+paymaster proxy. Owner EOA
-    // signs the EntryPoint v0.8 typed-data userOpHash; the bundler relays.
-    //
-    // The factory address is per-network — when it isn't deployed (or the
-    // paymaster URL is unset for the target chain), we fall through to the
-    // per-call sendTransaction guard at the bottom of this branch.
-    //
-    // `bypassSponsorship` opts a call out of Path A entirely. Reserved for
-    // edge cases where the contract specifically checks an EOA signature (or
-    // msg.sender) and the EOA's SMA cannot stand in for it (e.g. one-off ownership
-    // proofs, migrations from contracts whose role admins can't be reached, or
-    // creator fees credited to the EOA itself). Admin writes no longer use
-    // this — 14_ConfigureRoles grants admin roles to admin SMAs, so they route
-    // through Path A like every other user.
-    if (!bypassSponsorship && walletType === 'desktop-eoa' && !isCoinbaseWallet) {
-      // Hard requirements for Path A. Loud failure beats silent EOA fallback.
-      if (!walletClient) throw new Error('Wallet client not ready');
-      if (!publicClient) throw new Error('Public client not ready');
-
-      const contracts = getContractAddresses(getStoredNetworkKey());
-      const factoryAddr = contracts.SOF_SMART_ACCOUNT_FACTORY;
-      if (!factoryAddr || !/^0x[0-9a-fA-F]{40}$/.test(factoryAddr)) {
-        throw new Error('SOFSmartAccountFactory address missing — sponsored writes unavailable on this network');
-      }
-
-      // Bundler + paymaster routing differs by chain.
-      //
-      //   LOCAL (chainId 31337):
-      //     Backend serves both bundler RPC and paymaster RPC at
-      //     /api/paymaster/local. `paymaster: true` tells viem to call
-      //     pm_getPaymasterStubData / pm_getPaymasterData against the
-      //     same URL as the bundler.
-      //
-      //   TESTNET / MAINNET:
-      //     Bundler RPC goes through the backend's session-gated Pimlico
-      //     proxy (/api/paymaster/pimlico?session=...). Paymaster signing
-      //     uses the backend's SOFPaymaster ERC-7677 service
-      //     (/api/paymaster/sof). Two separate URLs, two separate clients.
-      //
-      // We require an apiBase regardless. Without a backend, the SMA path
-      // can't function — the alternative would be exposing API keys to
-      // the client, which we won't do.
-      if (!apiBase) {
-        throw new Error('Paymaster URL not configured — set VITE_API_BASE_URL');
-      }
-
-      const isLocalChain = chainId === 31337;
-      let bundlerTransport;
-      let paymasterArg;
-
-      if (isLocalChain) {
-        bundlerTransport = http(`${apiBase}/paymaster/local`);
-        paymasterArg = true;
-      } else {
-        if (!backendJwt) {
-          throw new Error('Sign in required for sponsored writes — please reconnect your wallet so SIWE can fire');
-        }
-        const sessionToken = await fetchPaymasterSession(apiBase, backendJwt);
-        if (!sessionToken) {
-          throw new Error('Paymaster session token unavailable — backend may be down or rate-limiting');
-        }
-        bundlerTransport = http(`${apiBase}/paymaster/pimlico?session=${sessionToken}`);
-        paymasterArg = createPaymasterClient({
-          transport: http(`${apiBase}/paymaster/sof`),
-        });
-      }
-
-      const account = await toSofSmartAccount({
-        client: publicClient,
-        owner: walletClient,
-        factory: factoryAddr,
-        entryPoint: { address: ENTRY_POINT_V08, version: '0.8' },
-      });
-
-      const bundlerClient = createBundlerClient({
-        account,
-        client: publicClient,
-        transport: bundlerTransport,
-        paymaster: paymasterArg,
-      });
-
-      const userOpHash = await bundlerClient.sendUserOperation({ calls });
-      const receipt = await bundlerClient.waitForUserOperationReceipt({ hash: userOpHash });
+      // sendCallsAsync resolves with { id } in wagmi v2 — resolve to a tx hash
+      // before returning so callers can feed the value to useWaitForTransactionReceipt
+      // and render it in the UI.
+      const finalHash = await normalizeBatchResult(sendResult);
       invalidateUltraFreshTouching(queryClient, calls.map((c) => c.to));
-      return receipt.receipt.transactionHash;
+      return finalHash;
     }
 
-    // ─── Per-call fallback (escape hatch OR non-desktop-eoa, non-Coinbase) ───
-    // Reached when:
-    //   - bypassSponsorship: true (rare; see comment above), OR
-    //   - walletType is not 'desktop-eoa' AND not Coinbase (e.g. unknown injected
-    //     wallet that doesn't advertise atomic batching).
-    // Never reached for desktop-eoa users — that path either succeeds via
-    // Path A or throws above. Silent EOA-direct send for desktop-eoa would
-    // bypass the whole SMA architecture (read SMA, spend EOA) and is exactly
-    // the bug we're guarding against.
-    if (bypassSponsorship || (!isCoinbaseWallet && !hasAtomic)) {
-      if (!walletClient) {
-        throw new Error('Wallet client not ready');
-      }
-      let lastHash = null;
+    if (!walletClient) throw new Error('Wallet client not ready');
+    if (!publicClient) throw new Error('Public client not ready');
+
+    let lastHash = null;
+    const landed = [];
+    try {
       for (const call of calls) {
-        lastHash = await walletClient.sendTransaction({
+        const hash = await walletClient.sendTransaction({
           account: address,
           to: call.to,
           data: call.data,
           value: call.value ?? 0n,
         });
-        if (publicClient) {
-          await publicClient.waitForTransactionReceipt({ hash: lastHash });
+        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        if (receipt?.status === 'reverted') {
+          throw new Error(`Transaction ${hash.slice(0, 10)}… reverted on chain.`);
         }
+        landed.push(call.to);
+        lastHash = hash;
       }
-      invalidateUltraFreshTouching(queryClient, calls.map((c) => c.to));
-      return lastHash;
+    } finally {
+      // Earlier calls in a failed sequence did land, so their reads are stale too.
+      invalidateUltraFreshTouching(queryClient, landed);
     }
+    return lastHash;
+  }, [address, hasAtomicBatching, sendCallsAsync, walletClient, publicClient, queryClient]);
 
-    // ─── Path B: Coinbase Wallet → ERC-5792 + CDP paymaster (unchanged) ───
-    const batchCapabilities = {};
-    let finalCalls = calls;
-
-    if (isCoinbaseWallet && apiBase) {
-      batchCapabilities.paymasterService = {
-        url: `${apiBase}/paymaster/coinbase`,
-        optional: true,
-      };
-    } else if (!isCoinbaseWallet && apiBase && backendJwt) {
-      const now = Date.now();
-      let sessionToken;
-      if (sessionCacheRef.current.token && sessionCacheRef.current.expiresAt > now) {
-        sessionToken = sessionCacheRef.current.token;
-      } else {
-        sessionToken = await fetchPaymasterSession(apiBase, backendJwt);
-        if (sessionToken) {
-          sessionCacheRef.current = { token: sessionToken, expiresAt: now + 4 * 60 * 1000 };
-        }
-      }
-      if (sessionToken) {
-        batchCapabilities.paymasterService = {
-          url: `${apiBase}/paymaster/pimlico?session=${sessionToken}`,
-          optional: true,
-        };
-      }
-    }
-
-    // Race the wallet prompt against a 30s timeout so wallets that never
-    // resolve don't hang the UI forever.
-    const BATCH_TIMEOUT_MS = 30_000;
-    const sendResult = await Promise.race([
-      sendCallsAsync({
-        account: address,
-        calls: finalCalls,
-        capabilities: batchCapabilities,
-        ...sendOptions,
-      }),
-      new Promise((_, reject) =>
-        setTimeout(
-          () => reject(new Error('Batch execution timeout — wallet did not respond')),
-          BATCH_TIMEOUT_MS,
-        ),
-      ),
-    ]);
-
-    // sendCallsAsync resolves with { id } in wagmi v2 — resolve to a tx hash
-    // before returning so callers can feed the value to useWaitForTransactionReceipt
-    // and render it in the UI.
-    const finalHash = await normalizeBatchResult(sendResult);
-    invalidateUltraFreshTouching(queryClient, finalCalls.map((c) => c.to));
-    return finalHash;
-  }, [address, apiBase, backendJwt, chainId, connector, sendCallsAsync, chainCaps.atomicStatus, walletClient, publicClient, walletType, queryClient]);
-
-  return {
-    ...chainCaps,
-    executeBatch,
-    batchId,
-    callsStatus,
-    needsSmartAccountUpgrade: chainCaps.atomicStatus === 'ready',
-  };
+  return { executeBatch };
 }

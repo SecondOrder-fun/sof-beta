@@ -17,13 +17,6 @@ import {
   AccordionTrigger,
   AccordionContent,
 } from "@/components/ui/accordion";
-import { Badge } from "@/components/ui/badge";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   Select,
   SelectContent,
@@ -32,25 +25,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-const InfoFiPositionsTab = ({ address, addresses, originLabels }) => {
+const InfoFiPositionsTab = ({ address }) => {
   const { t } = useTranslation(["account", "portfolio"]);
   const netKey = getStoredNetworkKey();
   const contracts = getContractAddresses(netKey);
 
-  // Normalize input — single address or addresses array. Sorted lower-case
-  // for cache-key stability (so `[eoa, sma]` and `[sma, eoa]` collide).
-  const queryAddresses = useMemo(() => {
-    const raw = addresses?.length ? addresses : address ? [address] : [];
-    return Array.from(
-      new Set(raw.filter(Boolean).map((a) => a.toLowerCase()))
-    ).sort();
-  }, [address, addresses]);
+  // Lower-cased for cache-key stability across checksum casings.
+  const queryAddresses = useMemo(
+    () => (address ? [address.toLowerCase()] : []),
+    [address]
+  );
 
-  const showOriginColumn =
-    Array.isArray(addresses) &&
-    addresses.length > 1 &&
-    originLabels &&
-    Object.keys(originLabels).length > 0;
   const seasonsQry = useAllSeasons();
   const seasonsArr = useMemo(
     () => {
@@ -82,9 +67,8 @@ const InfoFiPositionsTab = ({ address, addresses, originLabels }) => {
     [seasonsArr, selectedSeasonId]
   );
 
-  // Fetch trade history — fan out across each address, tag with origin,
-  // dedupe by `(tx_hash, log_index)` so a tx that touches both EOA + SMA
-  // counts once. Sort by block desc, then log desc for deterministic order.
+  // Fetch trade history, dedupe by `(tx_hash, log_index)`, and sort by block
+  // desc, then log desc for deterministic order.
   const tradesQuery = useQuery({
     queryKey: ["infofiTrades", queryAddresses],
     enabled: queryAddresses.length > 0,
@@ -99,10 +83,7 @@ const InfoFiPositionsTab = ({ address, addresses, originLabels }) => {
             throw new Error("Failed to fetch trade history");
           }
           const data = await response.json();
-          return (data.positions || []).map((row) => ({
-            ...row,
-            origin: addr,
-          }));
+          return data.positions || [];
         })
       );
 
@@ -206,7 +187,6 @@ const InfoFiPositionsTab = ({ address, addresses, originLabels }) => {
                 fpmmAddress,
                 yesAmount: yesAmt,
                 noAmount: noAmt,
-                origin: addr,
               });
             }
           }
@@ -305,8 +285,7 @@ const InfoFiPositionsTab = ({ address, addresses, originLabels }) => {
                   <Accordion type="multiple" className="space-y-2">
                     {Object.entries(tradesByMarket).map(
                       ([marketId, marketTrades]) => {
-                        // When merged across EOA + SMA, multiple positions
-                        // can exist per market — sum Yes/No across them.
+                        // Sum Yes/No across this market's position rows.
                         const marketPositions = (
                           positionsQuery.data?.positions || []
                         ).filter((p) => p.marketId === parseInt(marketId));
@@ -342,29 +321,6 @@ const InfoFiPositionsTab = ({ address, addresses, originLabels }) => {
                                 0
                               );
 
-                        // Distinct origins across this market's positions +
-                        // trades, deduped, render as badges.
-                        const originsForMarket = showOriginColumn
-                          ? Array.from(
-                              new Set(
-                                [
-                                  ...marketPositions
-                                    .map((p) => p.origin?.toLowerCase())
-                                    .filter(Boolean),
-                                  ...marketTrades
-                                    .map((tr) =>
-                                      (
-                                        tr.origin ||
-                                        tr.user_address ||
-                                        ""
-                                      ).toLowerCase()
-                                    )
-                                    .filter(Boolean),
-                                ]
-                              )
-                            )
-                          : [];
-
                         return (
                           <AccordionItem
                             key={`market-${marketId}`}
@@ -376,34 +332,6 @@ const InfoFiPositionsTab = ({ address, addresses, originLabels }) => {
                                   <span className="font-medium text-foreground truncate">
                                     #{marketId} - {pos?.marketName || "Market"}
                                   </span>
-                                  {originsForMarket.map((origin) => {
-                                    const label =
-                                      originLabels?.[origin] || null;
-                                    if (!label) return null;
-                                    return (
-                                      <TooltipProvider key={origin}>
-                                        <Tooltip>
-                                          <TooltipTrigger asChild>
-                                            <Badge
-                                              variant={
-                                                label === "SMA"
-                                                  ? "default"
-                                                  : "outline"
-                                              }
-                                              className="text-[10px] px-1.5 py-0 leading-tight cursor-default"
-                                            >
-                                              {label}
-                                            </Badge>
-                                          </TooltipTrigger>
-                                          <TooltipContent side="top">
-                                            <span className="font-mono text-xs">
-                                              {origin}
-                                            </span>
-                                          </TooltipContent>
-                                        </Tooltip>
-                                      </TooltipProvider>
-                                    );
-                                  })}
                                 </div>
                                 <div className="text-right shrink-0 flex items-center gap-2">
                                   <span className="font-bold text-green-600">
@@ -485,8 +413,6 @@ const InfoFiPositionsTab = ({ address, addresses, originLabels }) => {
 
 InfoFiPositionsTab.propTypes = {
   address: PropTypes.string,
-  addresses: PropTypes.arrayOf(PropTypes.string),
-  originLabels: PropTypes.objectOf(PropTypes.string),
 };
 
 export default InfoFiPositionsTab;

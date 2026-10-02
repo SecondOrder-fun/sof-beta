@@ -29,15 +29,6 @@ vi.mock("wagmi", () => ({
   })),
 }));
 
-vi.mock("@/hooks/useRaffleAccount", () => ({
-  useRaffleAccount: vi.fn(() => ({
-    eoa: TEST_ADDRESS,
-    sma: TEST_ADDRESS,
-    walletType: "desktop-eoa",
-    isReady: true,
-  })),
-}));
-
 vi.mock("@/lib/wagmi", () => ({
   getStoredNetworkKey: () => "TESTNET",
 }));
@@ -74,17 +65,6 @@ describe("usePlayerPosition", () => {
       address: TEST_ADDRESS,
       isConnected: true,
       ...overrides,
-    });
-
-    const { useRaffleAccount } = await import("@/hooks/useRaffleAccount");
-    // When overrides.address is explicitly undefined (not-connected case),
-    // reflect that in sma + isReady so the hook skips its initial load.
-    const effectiveAddress = "address" in overrides ? overrides.address : TEST_ADDRESS;
-    useRaffleAccount.mockReturnValue({
-      eoa: effectiveAddress,
-      sma: effectiveAddress,
-      walletType: "desktop-eoa",
-      isReady: !!effectiveAddress,
     });
 
     vi.doMock("@/lib/viemClient", () => ({

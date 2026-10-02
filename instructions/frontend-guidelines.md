@@ -231,4 +231,6 @@ second breakpoint hook for layout decisions; use `isMobile`.
 
 ## On-Chain Transactions (Critical)
 
-ALL on-chain operations MUST use the ERC-5792 batched transaction flow via `useSmartTransactions.executeBatch`. Never use raw `writeContractAsync` for user-facing transactions. See `instructions/project-requirements.md` for the three-tier fallback details.
+ALL user-facing on-chain operations MUST go through `useSmartTransactions.executeBatch`. It sends from the user's own connected wallet — there is no smart account and no gas sponsorship — as one EIP-5792 `wallet_sendCalls` when the wallet reports atomic batching for the current chain (`capabilities[chainId].atomic.status` is `supported` or `ready`), otherwise as one `sendTransaction` per call in order, waiting for each receipt and stopping on a revert. It resolves to a transaction hash either way. Never use raw `writeContractAsync` for user-facing transactions.
+
+The connected address (`useAccount().address`) is the user's only identity: read balances and positions at it, and never derive another account from it.

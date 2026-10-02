@@ -189,7 +189,7 @@
   "error": "エラー",
   "market_recent_events": "最近のイベント",
   "market_status_idle": "マーケット作成のトリガーを待っています...",
-  "market_status_started": "Paymasterを通じてマーケット作成が送信されました。確認を待っています...",
+  "market_status_started": "マーケット作成が送信されました。確認を待っています...",
   "market_status_confirmed": "マーケットが正常に作成されました！このマーケットで取引できます。",
   "market_status_failed": "マーケットの作成に失敗しました。再試行するかサポートにお問い合わせください。",
   "market_raffle_probability": "ラッフル確率",

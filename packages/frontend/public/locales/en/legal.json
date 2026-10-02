@@ -366,8 +366,8 @@
         "answer": "You connect a wallet through RainbowKit: MetaMask, Rabby, Coinbase Wallet (including Coinbase Smart Wallet), and other standard wallets. In the Base App, you use Coinbase Wallet. After connecting, you sign a one-time login message; it proves you own the address and does not move funds or cost gas."
       },
       {
-        "question": "What is a smart account (SMA)?",
-        "answer": "A smart account, sometimes shown as your SMA, is a smart-contract wallet powered by account abstraction (ERC-4337 / ERC-5792). The practical benefit is batched transactions: actions that would normally take several separate approvals, like approving a token and then buying tickets, can be bundled into a single confirmation. It's smoother than a traditional wallet, and it's still fully under your control."
+        "question": "Why do some actions ask me to confirm more than once?",
+        "answer": "Every transaction is sent from the wallet you connected, and you pay its network gas. If your wallet supports batched calls (EIP-5792, as Coinbase Smart Wallet does), a multi-step action like approving a token and then buying tickets is bundled into a single confirmation. Otherwise your wallet asks you to confirm each step in turn."
       },
       {
         "question": "Is this gambling?",
@@ -402,7 +402,7 @@
           "- Make sure your wallet is set to the Base Sepolia testnet. The app will prompt you to switch networks if you are on the wrong one.",
           "Base App:",
           "- Open SecondOrder.fun inside the Base App and connect with Coinbase Wallet.",
-          "Behind the scenes the app uses a smart account (also called your SMA) so that multi-step actions can be batched into a single confirmation. You do not need to set anything up for this; it just makes transactions smoother."
+          "Transactions are sent from the wallet you connect. If it supports batched calls, a multi-step action like approving a token and then buying tickets takes a single confirmation; otherwise your wallet asks you to confirm each step in turn."
         ]
       },
       {

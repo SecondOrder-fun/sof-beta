@@ -8,9 +8,9 @@ import React from "react";
 
 // The hook now reads the warm-tier /api/token/sof/transactions/:user
 // endpoint instead of running an in-browser ERC-20 transfer indexer.
-// These tests cover: (1) single-address fetch, (2) multi-address merge
-// with dedup-by-(hash,logIndex), (3) origin tagging, (4) HTTP errors
-// surface via react-query.
+// These tests cover: (1) single-address fetch, (2) newest-first ordering,
+// (3) checksum casing sharing one cache entry, (4) HTTP errors surface via
+// react-query.
 
 vi.mock("@/hooks/chain/internal", () => ({
   API_BASE: "http://test/api",
@@ -19,7 +19,7 @@ vi.mock("@/hooks/chain/internal", () => ({
 import { useSOFTransactions } from "@/hooks/useSOFTransactions";
 
 const EOA = "0x1111111111111111111111111111111111111111";
-const SMA = "0x2222222222222222222222222222222222222222";
+const CHECKSUM = "0xAbCdEf0000000000000000000000000000000001";
 
 function wrapper(client) {
   return function W({ children }) {
@@ -75,7 +75,6 @@ describe("useSOFTransactions", () => {
     expect(result.current.data[0]).toMatchObject({
       type: "BONDING_CURVE_BUY",
       seasonId: 1,
-      origin: EOA.toLowerCase(),
     });
     expect(fetch).toHaveBeenCalledWith(
       expect.stringContaining(`/api/token/sof/transactions/${EOA.toLowerCase()}`),
@@ -83,61 +82,41 @@ describe("useSOFTransactions", () => {
     );
   });
 
-  it("merges two addresses and dedupes by (hash, logIndex)", async () => {
-    // EOA→SMA transfer shows up in BOTH per-address feeds; the merge
-    // must keep it exactly once.
-    const sharedRow = {
-      type: "TRANSFER_OUT",
-      direction: "OUT",
-      description: "Sent SOF",
-      hash: "0xshared",
-      logIndex: 2,
-      blockNumber: 50,
+  it("returns rows newest first", async () => {
+    const row = {
+      type: "TRANSFER_IN",
+      direction: "IN",
+      description: "Received SOF",
       timestamp: 100,
-      from: EOA,
-      to: SMA,
+      from: "0xother",
+      to: EOA,
       amount: "1.0",
     };
-    fetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          transactions: [
-            sharedRow,
-            { ...sharedRow, hash: "0xeoaonly", logIndex: 3, blockNumber: 49 },
-          ],
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          transactions: [
-            sharedRow,
-            { ...sharedRow, hash: "0xsmaonly", logIndex: 5, blockNumber: 60 },
-          ],
-        }),
-      });
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        transactions: [
+          { ...row, hash: "0xold", logIndex: 3, blockNumber: 49 },
+          { ...row, hash: "0xnew", logIndex: 5, blockNumber: 60 },
+          { ...row, hash: "0xsameblock", logIndex: 7, blockNumber: 60 },
+        ],
+      }),
+    });
 
     const client = makeClient();
-    const { result } = renderHook(() => useSOFTransactions([EOA, SMA]), {
+    const { result } = renderHook(() => useSOFTransactions(EOA), {
       wrapper: wrapper(client),
     });
 
-    await waitFor(() => expect(result.current.data?.length).toBeGreaterThan(0));
-    const hashes = result.current.data.map((r) => r.hash);
-    expect(hashes).toHaveLength(3);
-    expect(new Set(hashes)).toEqual(
-      new Set(["0xshared", "0xeoaonly", "0xsmaonly"]),
-    );
-    // Newest-first ordering.
-    expect(result.current.data[0].blockNumber).toBe(60);
-    expect(result.current.data[2].blockNumber).toBe(49);
+    await waitFor(() => expect(result.current.data?.length).toBe(3));
+    expect(result.current.data.map((r) => r.hash)).toEqual([
+      "0xsameblock",
+      "0xnew",
+      "0xold",
+    ]);
   });
 
-  it("address-list ordering does not split the cache", async () => {
-    // Equivalent calls with the same address set must hit the same cache
-    // key. We can verify by re-rendering with reversed order and asserting
-    // fetch was NOT called again.
+  it("checksum casing does not split the cache", async () => {
     fetch.mockResolvedValue({
       ok: true,
       json: async () => ({ transactions: [] }),
@@ -145,17 +124,21 @@ describe("useSOFTransactions", () => {
 
     const client = makeClient();
     const { rerender } = renderHook(
-      ({ addrs }) => useSOFTransactions(addrs),
+      ({ addr }) => useSOFTransactions(addr),
       {
         wrapper: wrapper(client),
-        initialProps: { addrs: [EOA, SMA] },
+        initialProps: { addr: CHECKSUM },
       },
     );
-    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
-    rerender({ addrs: [SMA, EOA] });
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining(`/transactions/${CHECKSUM.toLowerCase()}`),
+      expect.any(Object),
+    );
+    rerender({ addr: CHECKSUM.toLowerCase() });
     // Give the query observer a tick to settle on the cached entry.
     await new Promise((r) => setTimeout(r, 10));
-    expect(fetch).toHaveBeenCalledTimes(2); // unchanged
+    expect(fetch).toHaveBeenCalledTimes(1); // unchanged
   });
 
   it("surfaces HTTP errors via react-query error state", async () => {

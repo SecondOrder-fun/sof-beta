@@ -7,16 +7,15 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 
-const SMA = "0x1111111111111111111111111111111111111111";
+const WALLET = "0x1111111111111111111111111111111111111111";
 const SEASON_TOKEN = "0x2222222222222222222222222222222222222222";
 
 const readContract = vi.fn(async ({ functionName }) => (functionName === "balanceOf" ? 5n * 10n ** 18n : "X"));
 
 vi.mock("wagmi", () => ({
-  useAccount: () => ({ isConnected: true }),
+  useAccount: () => ({ address: WALLET, isConnected: true }),
   usePublicClient: () => ({ readContract }),
 }));
-vi.mock("@/hooks/useRaffleAccount", () => ({ useRaffleAccount: () => ({ sma: SMA, isReady: true }) }));
 vi.mock("@/hooks/useSmartTransactions", () => ({ useSmartTransactions: () => ({ executeBatch: vi.fn() }) }));
 vi.mock("@/utils/abis", () => ({ ERC20Abi: [] }));
 

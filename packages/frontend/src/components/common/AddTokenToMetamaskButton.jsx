@@ -1,21 +1,19 @@
 // src/components/common/AddTokenToMetamaskButton.jsx
+import { useAccount } from "wagmi";
 import PropTypes from "prop-types";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle, CheckCircle2, Wallet } from "lucide-react";
-import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 
 /**
- * Wallet types where the MetaMask-specific `wallet_watchAsset` RPC
- * doesn't apply: the connected wallet is a smart account (Coinbase Smart
- * Wallet), not an injected MetaMask EOA. Showing the button in these contexts is misleading — the click
- * would either no-op or surface a "MetaMask not installed" error.
- *
- * Pattern mirrors PR #112's walletType-gated surface suppression.
- * See Issue #118.
+ * Connectors where the MetaMask-specific `wallet_watchAsset` RPC doesn't
+ * apply: the connected wallet is Coinbase Wallet (including Coinbase Smart
+ * Wallet), not an injected MetaMask EOA. Showing the button in these contexts
+ * is misleading — the click would either no-op or surface a "MetaMask not
+ * installed" error. See Issue #118.
  */
-const NON_METAMASK_WALLET_TYPES = new Set(["coinbase-smart"]);
+const NON_METAMASK_CONNECTOR_IDS = new Set(["coinbaseWalletSDK"]);
 
 const AddTokenToMetamaskButton = ({
   address,
@@ -34,11 +32,11 @@ const AddTokenToMetamaskButton = ({
   const [message, setMessage] = useState(null);
   const [messageType, setMessageType] = useState(null); // 'success' or 'error'
 
-  // Hide entirely for smart-wallet connectors. Returning null also
+  // Hide entirely for Coinbase Wallet connectors. Returning null also
   // collapses the parent grid cell in SofTokenInfo's
   // `grid-cols-[1fr,auto]` layout, so no orphan whitespace.
-  const { walletType } = useRaffleAccount();
-  if (NON_METAMASK_WALLET_TYPES.has(walletType)) {
+  const { connector } = useAccount();
+  if (NON_METAMASK_CONNECTOR_IDS.has(connector?.id)) {
     return null;
   }
 

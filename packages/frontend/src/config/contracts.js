@@ -16,7 +16,6 @@
  * @property {`0x${string}` | string} VRF_COORDINATOR
  * @property {`0x${string}` | string} PRIZE_DISTRIBUTOR
  * @property {`0x${string}` | string} USDC
- * @property {`0x${string}` | string} SOF_SMART_ACCOUNT_FACTORY
  * @property {`0x${string}` | string} ROLLOVER_ESCROW
  * @property {`0x${string}` | string} TOKEN_LAUNCHPAD
  * @property {`0x${string}` | string} LIQUIDITY_PLACER
@@ -84,7 +83,6 @@ export function getContractAddresses(key) {
     USDC: s(deployment.USDC),
     MARKET_TYPE_REGISTRY: s(deployment.MarketTypeRegistry),
     RAFFLE_ORACLE_ADAPTER: s(deployment.RaffleOracleAdapter),
-    SOF_SMART_ACCOUNT_FACTORY: s(deployment.SOFSmartAccountFactory),
     ROLLOVER_ESCROW: s(deployment.RolloverEscrow),
     // Launchpad. Empty on any deployment made before contracts 0.35.0 — the
     // launch routes treat that as "not available on this network" rather than

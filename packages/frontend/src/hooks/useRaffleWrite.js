@@ -87,10 +87,9 @@ function useContractWriteWithFeedback(mutationOptions) {
 
       try {
         // Admin writes (createSeason, startSeason, requestSeasonEnd,
-        // requestSeasonEndEarly) flow through Path A like any other user.
-        // The deploy script (14_ConfigureRoles) grants the same on-chain
-        // roles to each admin's deterministic SMA so msg.sender == SMA
-        // satisfies AccessControl.
+        // requestSeasonEndEarly) go through executeBatch like any other user,
+        // so msg.sender is the admin's connected wallet, which must hold the
+        // on-chain role AccessControl checks.
         return await executeBatch([{
           to: config.address,
           data: encodeFunctionData({

@@ -4,11 +4,11 @@
 // the write that claims or hands them on. Shaping and call-building live in
 // lib/creatorFees.js; this file only reads and sends.
 //
-// Three multicalls for any number of launches, whatever the accounts:
+// Three multicalls for any number of launches:
 //   1. TokenLaunchpad.placerOf(token) for each launch, plus placer() — the
 //      current placer, so ETH already credited there counts even for a launch
 //      not in the list (fees handed to this account by another creator)
-//   2. per placer: CREATOR_FEE_BPS and claimableEth(account) for each account;
+//   2. per placer: CREATOR_FEE_BPS and claimableEth(account);
 //      per launch: feeRecipientOf(token) and claimableToken(token, account)
 //   3. collectFees(token) on its placer, SIMULATED (an eth_call through
 //      Multicall3, nothing is sent): what a collection would pay out right now.
@@ -25,25 +25,25 @@ import { getStoredNetworkKey } from '@/lib/wagmi';
 import { getContractAddresses } from '@/config/contracts';
 import { TokenLaunchpadAbi, UniV4LiquidityPlacerAbi } from '@/utils/abis';
 import { useSmartTransactions } from '@/hooks/useSmartTransactions';
-import { sendOptions } from '@/lib/creatorFees';
 
 const ZERO_ADDRESS = /^0x0{40}$/i;
 const lc = (a) => String(a).toLowerCase();
 
 /**
  * @param {{ token: string }[]} launches
- * @param {{ accounts: { eoa?: string, sma?: string }, enabled?: boolean }} options
+ * @param {{ account?: string, enabled?: boolean }} options  `account`: the
+ *   connected wallet, whose credits are read
  * @returns {{ data: { launches: import('@/lib/creatorFees').LaunchFees[],
  *   placers: Record<string, import('@/lib/creatorFees').PlacerFees> } | undefined,
  *   isLoading: boolean, isError: boolean }}
  *   launches keep the input order; placers are keyed by lowercased address
  */
-export function useCreatorFees(launches, { accounts = {}, enabled = true } = {}) {
+export function useCreatorFees(launches, { account, enabled = true } = {}) {
   const client = usePublicClient();
   const launchpad = getContractAddresses(getStoredNetworkKey()).TOKEN_LAUNCHPAD;
 
   const tokens = [...new Set((launches || []).filter((l) => l?.token).map((l) => lc(l.token)))];
-  const accountList = [...new Set([accounts.sma, accounts.eoa].filter(Boolean).map(lc))];
+  const accountList = account ? [lc(account)] : [];
 
   const query = useQuery({
     queryKey: ['creatorFees', launchpad, tokens.join(','), accountList.join(',')],
@@ -77,20 +77,20 @@ export function useCreatorFees(launches, { accounts = {}, enabled = true } = {})
 
       const placerReads = placerAddresses.flatMap((placer) => [
         { address: placer, abi: UniV4LiquidityPlacerAbi, functionName: 'CREATOR_FEE_BPS' },
-        ...accountList.map((account) => ({
+        ...accountList.map((a) => ({
           address: placer,
           abi: UniV4LiquidityPlacerAbi,
           functionName: 'claimableEth',
-          args: [account],
+          args: [a],
         })),
       ]);
       const launchReads = placed.flatMap(({ token, placer }) => [
         { address: placer, abi: UniV4LiquidityPlacerAbi, functionName: 'feeRecipientOf', args: [token] },
-        ...accountList.map((account) => ({
+        ...accountList.map((a) => ({
           address: placer,
           abi: UniV4LiquidityPlacerAbi,
           functionName: 'claimableToken',
-          args: [token, account],
+          args: [token, a],
         })),
       ]);
 
@@ -117,17 +117,14 @@ export function useCreatorFees(launches, { accounts = {}, enabled = true } = {})
       for (const address of placerAddresses) {
         const creatorFeeBps = reads[at++];
         const claimableEth = {};
-        for (const account of accountList) claimableEth[account] = reads[at++];
-        // SOFPaymaster sponsors only the launchpad's current placer (an older one
-        // needs setAllowlisted), so callers promise gasless claims only on this.
-        const isCurrent = lc(address) === lc(currentPlacer);
-        placers[lc(address)] = { address, creatorFeeBps, claimableEth, isCurrent };
+        for (const a of accountList) claimableEth[a] = reads[at++];
+        placers[lc(address)] = { address, creatorFeeBps, claimableEth };
       }
 
       const out = placed.map(({ token, placer }, i) => {
         const recipient = reads[at++];
         const claimableToken = {};
-        for (const account of accountList) claimableToken[account] = reads[at++];
+        for (const a of accountList) claimableToken[a] = reads[at++];
         const collected = collects[i]?.status === 'success' ? collects[i].result : null;
         return {
           token: (launches.find((l) => lc(l.token) === token) ?? {}).token ?? token,
@@ -147,29 +144,23 @@ export function useCreatorFees(launches, { accounts = {}, enabled = true } = {})
 }
 
 /**
- * Send claim or transfer batches from lib/creatorFees (`{ sender, calls }[]`),
- * one executeBatch each, in order. A sender in 'eoa' mode goes out with
- * `bypassSponsorship` — the only way executeBatch sends from the EOA, which is
- * the claimant there (see claimSender). Re-reads the fees however it ends: a
- * failure partway may still have landed the batches before it.
+ * Send a claim or transfer batch from lib/creatorFees through executeBatch,
+ * from the connected wallet (the claimant). Re-reads the fees however it ends:
+ * a failure partway through a sequential send may still have landed the calls
+ * before it.
  *
- * @returns {{ send: (batches: object[]) => Promise<string | null>, isPending: boolean,
+ * @returns {{ send: (calls: object[]) => Promise<string | null>, isPending: boolean,
  *   error: Error | null, reset: () => void }}
- *   send resolves with the last batch's transaction hash
+ *   send resolves with the transaction hash, or null for an empty batch
  */
 export function useCreatorFeeWrite() {
   const { executeBatch } = useSmartTransactions();
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
-    mutationFn: async (batches) => {
-      let hash = null;
-      for (const { sender, calls } of batches) {
-        if (!sender) throw new Error('This account cannot send for that fee recipient');
-        if (!calls?.length) continue;
-        hash = await executeBatch(calls, sendOptions(sender));
-      }
-      return hash;
+    mutationFn: async (calls) => {
+      if (!calls?.length) return null;
+      return executeBatch(calls);
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['creatorFees'] }),
   });

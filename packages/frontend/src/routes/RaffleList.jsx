@@ -17,7 +17,6 @@ import { useSeasonGating, GateType } from "@/hooks/useSeasonGating";
 import PasswordGateModal from "@/components/gating/PasswordGateModal";
 import SignatureGateModal from "@/components/gating/SignatureGateModal";
 import { useProfileData } from "@/hooks/useProfileData";
-import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import { SeasonCard } from "@/components/raffles/SeasonCard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFirstViewGateBatch } from "@/hooks/useFirstViewGate";
@@ -44,7 +43,6 @@ const RaffleList = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { address, isConnected, chainId } = useAccount();
-  const { sma } = useRaffleAccount();
   const chains = useChains();
   const { openLoginModal } = useLoginModal();
   const allSeasonsQuery = useAllSeasons();
@@ -80,8 +78,7 @@ const RaffleList = () => {
   const [showMineOnly, setShowMineOnly] = useState(
     searchParams.get("filter") === "mine",
   );
-  // Profile/balance reads resolve at the user's smart account, not the EOA.
-  const { seasonBalancesQuery } = useProfileData(sma);
+  const { seasonBalancesQuery } = useProfileData(address);
   const ownedSeasonIds = useMemo(() => {
     const ids = new Set();
     if (seasonBalancesQuery.data) {
@@ -217,7 +214,7 @@ const RaffleList = () => {
                 address: bondingCurveAddress,
                 abi: SOFBondingCurveAbi,
                 functionName: "playerTickets",
-                args: [sma],
+                args: [address],
               }),
               positionClient.readContract({
                 address: bondingCurveAddress,
@@ -239,7 +236,7 @@ const RaffleList = () => {
     await new Promise((resolve) => setTimeout(resolve, 200));
     setSheetMode("sell");
     setSheetOpen(true);
-  }, [chainId, chains, sma]);
+  }, [address, chainId, chains]);
 
   // Called after successful password verification
   const handleGateVerified = useCallback(async () => {

@@ -1,8 +1,7 @@
 import { useCallback } from "react";
-import { usePublicClient } from "wagmi";
+import { useAccount, usePublicClient } from "wagmi";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSmartTransactions } from "./useSmartTransactions";
-import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import { useLiveSubscription } from "@/hooks/chain/useLiveSubscription";
 import { getStoredNetworkKey } from "@/lib/wagmi";
 import { getContractAddresses } from "@/config/contracts";
@@ -16,8 +15,7 @@ import {
 import { buildClaimConsolationCall } from "@/services/onchainRaffleDistributor";
 
 export function useRollover(seasonId) {
-  // SMA-bound read per spec §4.3 — rollover deposits live at the SMA.
-  const { sma: address } = useRaffleAccount();
+  const { address } = useAccount();
   const publicClient = usePublicClient();
   const { executeBatch } = useSmartTransactions();
   const qc = useQueryClient();

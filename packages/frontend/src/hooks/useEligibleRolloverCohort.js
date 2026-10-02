@@ -1,7 +1,6 @@
 import { useCallback } from "react";
-import { usePublicClient } from "wagmi";
+import { useAccount, usePublicClient } from "wagmi";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import { useLiveSubscription } from "@/hooks/chain/useLiveSubscription";
 import { getStoredNetworkKey } from "@/lib/wagmi";
 import { getContractAddresses } from "@/config/contracts";
@@ -38,7 +37,7 @@ export function useEligibleRolloverCohort(currentSeasonId) {
     );
   }
 
-  const { sma } = useRaffleAccount();
+  const { address } = useAccount();
   const publicClient = usePublicClient();
   const qc = useQueryClient();
   const netKey = getStoredNetworkKey();
@@ -47,10 +46,10 @@ export function useEligibleRolloverCohort(currentSeasonId) {
   const candidate = currentSeasonId > 1n ? currentSeasonId - 1n : null;
 
   const enabled = Boolean(
-    sma && publicClient && candidate && contracts.ROLLOVER_ESCROW
+    address && publicClient && candidate && contracts.ROLLOVER_ESCROW
   );
 
-  const rolloverEligibleKey = ["rollover-eligible", sma, String(currentSeasonId), netKey];
+  const rolloverEligibleKey = ["rollover-eligible", address, String(currentSeasonId), netKey];
 
   const { data, isLoading, error } = useQuery({
     queryKey: rolloverEligibleKey,
@@ -60,7 +59,7 @@ export function useEligibleRolloverCohort(currentSeasonId) {
         readAvailableBalance({
           publicClient,
           seasonId: candidate,
-          address: sma,
+          address: address,
           networkKey: netKey,
         }),
       ]);
@@ -70,12 +69,12 @@ export function useEligibleRolloverCohort(currentSeasonId) {
     staleTime: 30_000,
   });
 
-  // Invalidate cohort eligibility when the backend sees a rollover event for this SMA.
+  // Invalidate cohort eligibility when the backend sees a rollover event for this account.
   useLiveSubscription({
     channel: "rollover",
-    enabled: !!sma,
+    enabled: !!address,
     filter: (e) =>
-      e.user?.toLowerCase() === sma?.toLowerCase() ||
+      e.user?.toLowerCase() === address?.toLowerCase() ||
       e.type === "ConsolationFunded",
     onEvent: () => qc.invalidateQueries({ queryKey: rolloverEligibleKey }),
   });

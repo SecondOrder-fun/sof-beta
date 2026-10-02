@@ -72,40 +72,34 @@ export function useRaffleBadges(tokens) {
 /** Launches per creator read; the route's own cap. */
 export const CREATOR_LAUNCHES_LIMIT = 100;
 
+const EMPTY_LAUNCHES = [];
+
 /**
- * The launches either of the connected user's accounts created, newest first —
- * the profile's creator-fees list. One request per distinct account (a desktop
- * EOA and its smart account differ; elsewhere they are the same address).
+ * The launches the connected wallet created, newest first — the profile's
+ * creator-fees list.
  *
  * Indexed by creator, so it misses a launch whose fees another creator handed to
  * this account (setFeeRecipient): the placer records no index of recipients and
  * the backend does not index FeeRecipientUpdated yet. That launch's fees still
- * show on its token page. Also capped at CREATOR_LAUNCHES_LIMIT per account.
+ * show on its token page. Also capped at CREATOR_LAUNCHES_LIMIT.
  *
- * @param {{ eoa?: string, sma?: string }} accounts
+ * @param {string | undefined} creator  the connected wallet address
  * @returns {{ launches: object[], isLoading: boolean, isError: boolean }}
  *   launches in the backend's API shape (token, name, symbol, poolId, creator…)
  */
-export function useCreatorLaunches({ eoa, sma } = {}) {
-  const first = (sma || eoa)?.toLowerCase();
-  const second = sma && eoa && eoa.toLowerCase() !== sma.toLowerCase() ? eoa.toLowerCase() : undefined;
-  const read = (creator) => ({
+export function useCreatorLaunches(creator) {
+  const creatorLc = creator ? creator.toLowerCase() : undefined;
+  const read = useWarmRead({
     path: '/launchpad/tokens',
-    params: { creator: creator ?? '', limit: CREATOR_LAUNCHES_LIMIT },
-    enabled: Boolean(creator),
+    params: { creator: creatorLc ?? '', limit: CREATOR_LAUNCHES_LIMIT },
+    enabled: Boolean(creatorLc),
     refetchInterval: 60_000,
     staleTime: 30_000,
   });
-  const a = useWarmRead(read(first));
-  const b = useWarmRead(read(second));
 
-  const launches = [];
-  for (const launch of [...(a.data?.launches ?? []), ...(b.data?.launches ?? [])]) {
-    if (!launches.some((l) => l.token.toLowerCase() === launch.token.toLowerCase())) launches.push(launch);
-  }
   return {
-    launches,
-    isLoading: a.isLoading || (Boolean(second) && b.isLoading),
-    isError: a.isError || (Boolean(second) && b.isError),
+    launches: read.data?.launches ?? EMPTY_LAUNCHES,
+    isLoading: read.isLoading,
+    isError: read.isError,
   };
 }

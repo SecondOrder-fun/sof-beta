@@ -74,7 +74,6 @@ vi.mock('wagmi', () => ({
   useChains: () => [],
 }));
 vi.mock('@/hooks/useLoginModal', () => ({ useLoginModal: () => ({ openLoginModal: () => {} }) }));
-vi.mock('@/hooks/useRaffleAccount', () => ({ useRaffleAccount: () => ({ sma: undefined }) }));
 vi.mock('@/hooks/useProfileData', () => ({ useProfileData: () => ({ seasonBalancesQuery: { data: undefined } }) }));
 vi.mock('@/hooks/useSeasonGating', () => ({
   useSeasonGating: () => ({ isVerified: undefined, verifyPassword: () => {}, verifySignature: () => {}, gates: [], refetch: () => {} }),

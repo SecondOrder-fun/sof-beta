@@ -48,8 +48,8 @@ Wallet sign-in only: connect a wallet, then sign a one-time SIWE message.
 
 | Context | Primary Auth | Notes |
 |---------|-------------|-------|
-| Base App / Coinbase Smart Wallet | Coinbase Wallet login | Connected address is the smart account |
-| Desktop browser | Wallet connect (RainbowKit) | Gameplay routes through the deterministic smart account |
+| Base App / Coinbase Smart Wallet | Coinbase Wallet login | Transacts from the connected wallet |
+| Desktop browser | Wallet connect (RainbowKit) | Gameplay transacts from the user's own connected wallet |
 
 ## Smart Contract System
 
@@ -87,12 +87,11 @@ Wallet sign-in only: connect a wallet, then sign a one-time SIWE message.
 2. **InfoFi market fees**: 2% on net winnings
 3. **Arbitrage execution fees**: 0.5% on executed arbitrage opportunities
 
-## On-Chain Transaction Flow (ERC-5792)
+## On-Chain Transaction Flow
 
-All user-facing on-chain operations use the ERC-5792 batched transaction flow via `useSmartTransactions.executeBatch` with three-tier fallback:
+All user-facing on-chain operations go through `useSmartTransactions.executeBatch`, sent from the user's own connected wallet (the user pays gas; there is no smart account or paymaster):
 
-1. **Tier 1**: ERC-5792 batch + ERC-7677 paymaster (single gasless confirmation)
-2. **Tier 2**: ERC-2612 permit (signature + single tx)
-3. **Tier 3**: Traditional approve + tx (two confirmations)
+1. **Atomic batching supported** (EIP-5792 `atomic.status` is `supported` or `ready` for the current chain): one `wallet_sendCalls`, a single confirmation
+2. **Otherwise**: one `sendTransaction` per call, in order (e.g. approve, then buy), each confirmed before the next
 
 Applies to: ticket buy/sell, InfoFi market trades, airdrop claims, token swaps, and all future on-chain operations.

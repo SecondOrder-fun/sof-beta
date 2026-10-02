@@ -1,9 +1,9 @@
 // src/components/launchpad/CreatorFeesCard.jsx
 //
 // "Your creator fees" on a token's page, per the approved design. Renders only
-// for the launch's current fee recipient — when that is the connected EOA or
-// smart account — and nothing while loading, on a failed read, or for anyone
-// else (a skeleton would flash on every visitor's page).
+// for the launch's current fee recipient — when that is the connected wallet —
+// and nothing while loading, on a failed read, or for anyone else (a skeleton
+// would flash on every visitor's page).
 //
 // States:
 //   fees      — ETH (from buys) and the launch token (from sells) the recipient
@@ -19,14 +19,13 @@
 //               would otherwise vanish mid-sentence)
 // Every state but "handed on" ends with the fee recipient row and Transfer.
 //
-// Claims go from whichever account the fees are credited to (claimSender): the
-// smart account through executeBatch, or a desktop wallet's EOA with
-// bypassSponsorship — then the user pays gas, and the caption says so. "No gas
-// to pay" is promised only where SOFPaymaster is known to pay (isSponsoredClaim).
+// Claims go through executeBatch from the connected wallet, which is the
+// claimant (the placer pays credits to msg.sender).
 //
 // Composed from existing primitives: Card, the outline Badge, Button (primary
 // and outline), Separator, and Dialog + Input in TransferFeesDialog.
 
+import { useAccount } from "wagmi";
 import { useId, useState } from "react";
 import PropTypes from "prop-types";
 import { useTranslation } from "react-i18next";
@@ -37,7 +36,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import TransferFeesDialog from "@/components/launchpad/TransferFeesDialog";
-import { useRaffleAccount } from "@/hooks/useRaffleAccount";
 import { useCreatorFees, useCreatorFeeWrite } from "@/hooks/useCreatorFees";
 import { getNetworkByKey } from "@/config/networks";
 import { getStoredNetworkKey } from "@/lib/wagmi";
@@ -46,10 +44,9 @@ import { formatEthAmount } from "@/lib/launchFormat";
 import {
   buildLaunchClaimCalls,
   buildTransferCalls,
-  claimSender,
   formatFeeTokens,
-  isSponsoredClaim,
   launchEarnings,
+  sameAddress,
 } from "@/lib/creatorFees";
 
 /** The explorer page for a transaction, or null where the network has none (local). */
@@ -93,9 +90,7 @@ export const ClaimedStatus = ({ title, address, hash }) => {
         {title}
       </p>
       <p className="text-sm text-muted-foreground">
-        {address
-          ? t("creatorFees.claimedBody", { address: shortAddress(address) })
-          : t("creatorFees.claimedBodyAccounts")}
+        {t("creatorFees.claimedBody", { address: shortAddress(address) })}
       </p>
       {url ? (
         <a href={url} target="_blank" rel="noopener noreferrer" className="text-sm">
@@ -108,15 +103,15 @@ export const ClaimedStatus = ({ title, address, hash }) => {
 
 ClaimedStatus.propTypes = {
   title: PropTypes.string.isRequired,
-  /** Where the claim was paid; null when it went to both of the user's accounts. */
-  address: PropTypes.string,
+  /** Where the claim was paid. */
+  address: PropTypes.string.isRequired,
   hash: PropTypes.string,
 };
 
 const CreatorFeesCard = ({ token, name, symbol, market }) => {
   const { t } = useTranslation("launchpad");
-  const { eoa, sma, walletType } = useRaffleAccount();
-  const { data } = useCreatorFees([{ token }], { accounts: { eoa, sma }, enabled: Boolean(eoa || sma) });
+  const { address } = useAccount();
+  const { data } = useCreatorFees([{ token }], { account: address, enabled: Boolean(address) });
   const claim = useCreatorFeeWrite();
   const transfer = useCreatorFeeWrite();
 
@@ -139,10 +134,9 @@ const CreatorFeesCard = ({ token, name, symbol, market }) => {
 
   const launch = data?.launches?.[0];
   const placerFees = launch ? data.placers[launch.placer.toLowerCase()] : null;
-  const sender = launch ? claimSender(launch.recipient, { eoa, sma }) : null;
-  if (!launch || !placerFees || !sender) return null;
+  if (!launch || !placerFees || !sameAddress(launch.recipient, address)) return null;
 
-  const earned = launchEarnings(launch, placerFees, sender.account);
+  const earned = launchEarnings(launch, placerFees, address);
   const share = Number(placerFees.creatorFeeBps) / 100;
   const fee = market?.lpFee != null ? Number(market.lpFee) / 10_000 : null;
   const tokensEthWei = market?.priceWei != null ? (earned.tokens * market.priceWei) / 10n ** 18n : null;
@@ -154,17 +148,17 @@ const CreatorFeesCard = ({ token, name, symbol, market }) => {
   };
 
   const onClaim = async () => {
-    const { calls, eth, tokens } = buildLaunchClaimCalls(launch, placerFees, sender.account);
+    const { calls, eth, tokens } = buildLaunchClaimCalls(launch, placerFees, address);
     try {
-      const hash = await claim.send([{ sender, calls }]);
-      setClaimed({ eth, tokens, hash, to: sender.account });
+      const hash = await claim.send(calls);
+      setClaimed({ eth, tokens, hash, to: address });
     } catch {
       // Surfaced from claim.error below.
     }
   };
 
   const onTransfer = async (newRecipient) => {
-    await transfer.send([{ sender, calls: buildTransferCalls(launch, newRecipient) }]);
+    await transfer.send(buildTransferCalls(launch, newRecipient));
     setHandedTo(newRecipient);
   };
 
@@ -221,13 +215,7 @@ const CreatorFeesCard = ({ token, name, symbol, market }) => {
                   ? t("creatorFees.claiming")
                   : t(amountsKey("creatorFees.claim", earned.eth, earned.tokens), amounts)}
               </Button>
-              <p className="text-center text-xs text-muted-foreground">
-                {sender.mode === "eoa"
-                  ? t("creatorFees.captionEoa", { address: shortAddress(sender.account) })
-                  : isSponsoredClaim(sender, walletType, placerFees)
-                    ? t("creatorFees.captionSponsored")
-                    : t("creatorFees.captionSent")}
-              </p>
+              <p className="text-center text-xs text-muted-foreground">{t("creatorFees.captionSent")}</p>
             </div>
           </>
         ) : claimed ? null : (

@@ -189,7 +189,7 @@
   "error": "Fehler",
   "market_recent_events": "Aktuelle Ereignisse",
   "market_status_idle": "Warte auf Auslösung der Markterstellung...",
-  "market_status_started": "Markterstellung über Paymaster eingereicht. Warte auf Bestätigung...",
+  "market_status_started": "Markterstellung eingereicht. Warte auf Bestätigung...",
   "market_status_confirmed": "Markt erfolgreich erstellt! Sie können jetzt auf diesem Markt handeln.",
   "market_status_failed": "Markterstellung fehlgeschlagen. Bitte erneut versuchen oder Support kontaktieren.",
   "market_raffle_probability": "Raffle-Wahrscheinlichkeit",

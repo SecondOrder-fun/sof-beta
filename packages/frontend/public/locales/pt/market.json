@@ -189,7 +189,7 @@
   "error": "Erro",
   "market_recent_events": "Eventos recentes",
   "market_status_idle": "Aguardando a criação do mercado ser acionada...",
-  "market_status_started": "Criação do mercado enviada via Paymaster. Aguardando confirmação...",
+  "market_status_started": "Criação do mercado enviada. Aguardando confirmação...",
   "market_status_confirmed": "Mercado criado com sucesso! Você já pode negociar neste mercado.",
   "market_status_failed": "A criação do mercado falhou. Por favor, tente novamente ou entre em contato com o suporte.",
   "market_raffle_probability": "Probabilidade do sorteio",

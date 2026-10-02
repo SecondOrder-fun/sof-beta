@@ -5,15 +5,12 @@ import { UniV4LiquidityPlacerAbi } from "@/utils/abis";
 import {
   buildLaunchClaimCalls,
   buildTransferCalls,
-  claimSender,
   formatFeeTokens,
-  isSponsoredClaim,
   launchEarnings,
   planClaimAllEth,
   planClaimToken,
   recipientShare,
   sameAddress,
-  sendOptions,
   summarizeCreatorFees,
   validateNewRecipient,
 } from "@/lib/creatorFees";
@@ -23,8 +20,8 @@ const OLD_PLACER = getAddress("0x4000000000000000000000000000000000000004");
 const TOKEN = getAddress("0xaaaa00000000000000000000000000000000aaaa");
 const TOKEN_B = getAddress("0xbbbb00000000000000000000000000000000bbbb");
 const TOKEN_C = getAddress("0xcccc00000000000000000000000000000000cccc");
-const SMA = getAddress("0x5555555555555555555555555555555555555555");
-const EOA = getAddress("0x6666666666666666666666666666666666666666");
+const WALLET = getAddress("0x5555555555555555555555555555555555555555");
+const SECOND = getAddress("0x6666666666666666666666666666666666666666");
 const OTHER = getAddress("0x7777777777777777777777777777777777777777");
 const BPS = 8800n;
 const E = 10n ** 18n;
@@ -39,7 +36,7 @@ const decode = (calls) =>
 const launch = (over = {}) => ({
   token: TOKEN,
   placer: PLACER,
-  recipient: SMA,
+  recipient: WALLET,
   claimableToken: {},
   uncollectedEth: 0n,
   uncollectedTokens: 0n,
@@ -62,67 +59,12 @@ describe("recipientShare", () => {
   });
 });
 
-describe("claimSender", () => {
-  it("claims from the smart account when the fees are credited to it", () => {
-    expect(claimSender(SMA.toUpperCase().replace("0X", "0x"), { eoa: EOA, sma: SMA })).toEqual({
-      account: SMA,
-      mode: "smart",
-    });
-  });
-
-  // executeBatch sends from the SMA on a desktop wallet; only bypassSponsorship
-  // sends from the EOA, whose credit it is.
-  it("claims from the EOA itself when the fees are credited to the EOA", () => {
-    const sender = claimSender(EOA, { eoa: EOA, sma: SMA });
-    expect(sender).toEqual({ account: EOA, mode: "eoa" });
-    expect(sendOptions(sender)).toEqual({ bypassSponsorship: true });
-  });
-
-  it("treats a wallet whose connected address is the smart account as one account", () => {
-    expect(claimSender(SMA, { eoa: SMA, sma: SMA })).toEqual({ account: SMA, mode: "smart" });
-    expect(sendOptions({ account: SMA, mode: "smart" })).toEqual({});
-  });
-
-  it("returns null for someone else, or with nobody connected", () => {
-    expect(claimSender(OTHER, { eoa: EOA, sma: SMA })).toBeNull();
-    expect(claimSender(SMA, {})).toBeNull();
-    expect(claimSender(null, { eoa: EOA, sma: SMA })).toBeNull();
-  });
-
-  it("still finds the EOA while the smart account address is loading", () => {
-    expect(claimSender(EOA, { eoa: EOA })).toEqual({ account: EOA, mode: "eoa" });
-  });
-});
-
-describe("isSponsoredClaim", () => {
-  const current = { isCurrent: true };
-  const smart = { account: SMA, mode: "smart" };
-
-  it("is gas-free only from a desktop wallet's smart account to the current placer", () => {
-    expect(isSponsoredClaim(smart, "desktop-eoa", current)).toBe(true);
-  });
-
-  // SOFPaymaster sponsors the launchpad's current placer only.
-  it("promises nothing on a placer the launchpad has replaced", () => {
-    expect(isSponsoredClaim(smart, "desktop-eoa", { isCurrent: false })).toBe(false);
-  });
-
-  // Those batches go through other paymasters, optionally.
-  it("promises nothing on Coinbase Smart Wallet", () => {
-    expect(isSponsoredClaim(smart, "coinbase-smart", current)).toBe(false);
-  });
-
-  it("is never gas-free from the EOA", () => {
-    expect(isSponsoredClaim({ account: EOA, mode: "eoa" }, "desktop-eoa", current)).toBe(false);
-  });
-});
-
 describe("launchEarnings", () => {
   it("adds the recipient's share of what is still in the pool to what is credited", () => {
     const e = launchEarnings(
-      launch({ claimableToken: { [lc(SMA)]: 5n * E }, uncollectedEth: 10n * E, uncollectedTokens: 100n * E }),
-      placer({ [lc(SMA)]: 1n * E }),
-      SMA,
+      launch({ claimableToken: { [lc(WALLET)]: 5n * E }, uncollectedEth: 10n * E, uncollectedTokens: 100n * E }),
+      placer({ [lc(WALLET)]: 1n * E }),
+      WALLET,
     );
     expect(e).toMatchObject({
       isRecipient: true,
@@ -138,41 +80,41 @@ describe("launchEarnings", () => {
   // collectFees credits whoever is the recipient AT collection.
   it("counts uncollected fees only for the current recipient", () => {
     const e = launchEarnings(
-      launch({ recipient: OTHER, claimableToken: { [lc(SMA)]: 5n }, uncollectedEth: 10n * E, uncollectedTokens: 10n * E }),
-      placer({ [lc(SMA)]: 7n }),
-      SMA,
+      launch({ recipient: OTHER, claimableToken: { [lc(WALLET)]: 5n }, uncollectedEth: 10n * E, uncollectedTokens: 10n * E }),
+      placer({ [lc(WALLET)]: 7n }),
+      WALLET,
     );
     expect(e).toMatchObject({ isRecipient: false, eth: 7n, tokens: 5n, ethInPool: 0n, tokensInPool: 0n });
   });
 
   it("treats an unknown uncollected amount (collect would revert) as nothing in the pool", () => {
-    const e = launchEarnings(launch({ uncollectedEth: null, uncollectedTokens: null }), placer({ [lc(SMA)]: 3n }), SMA);
+    const e = launchEarnings(launch({ uncollectedEth: null, uncollectedTokens: null }), placer({ [lc(WALLET)]: 3n }), WALLET);
     expect(e).toMatchObject({ eth: 3n, tokens: 0n, ethInPool: 0n });
   });
 });
 
 describe("buildLaunchClaimCalls (token page)", () => {
-  const build = (l, credits = {}) => buildLaunchClaimCalls(launch(l), placer(credits), SMA);
+  const build = (l, credits = {}) => buildLaunchClaimCalls(launch(l), placer(credits), WALLET);
 
   it("collects, then claims both sides, when the pool holds both", () => {
     const { calls, eth, tokens } = build({ uncollectedEth: 100n, uncollectedTokens: 1000n });
     expect(decode(calls)).toEqual([
       [PLACER, "collectFees", TOKEN],
-      [PLACER, "claimEth", SMA],
-      [PLACER, "claimToken", TOKEN, SMA],
+      [PLACER, "claimEth", WALLET],
+      [PLACER, "claimToken", TOKEN, WALLET],
     ]);
     expect(eth).toBe(88n);
     expect(tokens).toBe(880n);
   });
 
   it("claims credited fees without a collect when the pool holds nothing", () => {
-    const { calls } = build({}, { [lc(SMA)]: 5n });
-    expect(decode(calls)).toEqual([[PLACER, "claimEth", SMA]]);
+    const { calls } = build({}, { [lc(WALLET)]: 5n });
+    expect(decode(calls)).toEqual([[PLACER, "claimEth", WALLET]]);
   });
 
   it("claims only tokens when only tokens are earned", () => {
-    const { calls } = build({ claimableToken: { [lc(SMA)]: 9n } });
-    expect(decode(calls)).toEqual([[PLACER, "claimToken", TOKEN, SMA]]);
+    const { calls } = build({ claimableToken: { [lc(WALLET)]: 9n } });
+    expect(decode(calls)).toEqual([[PLACER, "claimToken", TOKEN, WALLET]]);
   });
 
   it("collects ETH only, then claims ETH but not the token", () => {
@@ -197,19 +139,19 @@ describe("buildLaunchClaimCalls (token page)", () => {
   });
 
   it("skips the collect when it could not be simulated, and claims what is credited", () => {
-    const { calls } = build({ uncollectedEth: null, uncollectedTokens: null, claimableToken: { [lc(SMA)]: 4n } }, { [lc(SMA)]: 2n });
+    const { calls } = build({ uncollectedEth: null, uncollectedTokens: null, claimableToken: { [lc(WALLET)]: 4n } }, { [lc(WALLET)]: 2n });
     expect(decode(calls).map((c) => c[1])).toEqual(["claimEth", "claimToken"]);
   });
 
-  it("sends the claim to the claimant: an EOA recipient claims to the EOA", () => {
+  it("sends the claim to the claimant", () => {
     const { calls } = buildLaunchClaimCalls(
-      launch({ recipient: EOA, uncollectedEth: 100n }),
+      launch({ recipient: SECOND, uncollectedEth: 100n }),
       placer({}),
-      EOA,
+      SECOND,
     );
     expect(decode(calls)).toEqual([
       [PLACER, "collectFees", TOKEN],
-      [PLACER, "claimEth", EOA],
+      [PLACER, "claimEth", SECOND],
     ]);
   });
 });
@@ -238,102 +180,85 @@ describe("planClaimAllEth (profile)", () => {
       launch({ token: TOKEN_B, uncollectedEth: 0n, uncollectedTokens: 50n }),
       launch({ token: TOKEN_C, placer: OLD_PLACER, uncollectedEth: 200n }),
     ],
-    placers: { [lc(PLACER)]: placer({ [lc(SMA)]: 10n }), [lc(OLD_PLACER)]: placer({}, OLD_PLACER) },
+    placers: { [lc(PLACER)]: placer({ [lc(WALLET)]: 10n }), [lc(OLD_PLACER)]: placer({}, OLD_PLACER) },
   };
 
   it("groups by placer: each placer's collects, then its claimEth, in one batch", () => {
-    const batches = planClaimAllEth(fees, { eoa: SMA, sma: SMA });
-    expect(batches).toHaveLength(1);
-    expect(batches[0].sender).toEqual({ account: SMA, mode: "smart" });
-    expect(decode(batches[0].calls)).toEqual([
+    const plan = planClaimAllEth(fees, WALLET);
+    expect(decode(plan.calls)).toEqual([
       [PLACER, "collectFees", TOKEN],
-      [PLACER, "claimEth", SMA],
+      [PLACER, "claimEth", WALLET],
       [OLD_PLACER, "collectFees", TOKEN_C],
-      [OLD_PLACER, "claimEth", SMA],
+      [OLD_PLACER, "claimEth", WALLET],
     ]);
     // 10 credited + 88 + 176
-    expect(batches[0].eth).toBe(274n);
+    expect(plan.eth).toBe(274n);
   });
 
   it("does not collect a launch whose pool holds no ETH", () => {
-    const calls = decode(planClaimAllEth(fees, { sma: SMA })[0].calls);
+    const calls = decode(planClaimAllEth(fees, WALLET).calls);
     expect(calls).not.toContainEqual([PLACER, "collectFees", TOKEN_B]);
   });
 
   it("claims a placer's pooled ETH even with no listed launch on it", () => {
-    const batches = planClaimAllEth(
-      { launches: [], placers: { [lc(PLACER)]: placer({ [lc(SMA)]: 3n }) } },
-      { sma: SMA },
+    const plan = planClaimAllEth(
+      { launches: [], placers: { [lc(PLACER)]: placer({ [lc(WALLET)]: 3n }) } },
+      WALLET,
     );
-    expect(decode(batches[0].calls)).toEqual([[PLACER, "claimEth", SMA]]);
+    expect(decode(plan.calls)).toEqual([[PLACER, "claimEth", WALLET]]);
   });
 
   it("skips a placer with nothing for the account — no NothingToClaim", () => {
-    const batches = planClaimAllEth(
+    const plan = planClaimAllEth(
       { launches: [launch({ uncollectedEth: 1n })], placers: { [lc(PLACER)]: placer({}) } },
-      { sma: SMA },
+      WALLET,
     );
-    expect(batches).toEqual([]);
+    expect(plan).toEqual({ calls: [], eth: 0n });
   });
 
   it("does not collect a launch whose fees now go to someone else", () => {
-    const batches = planClaimAllEth(
-      { launches: [launch({ recipient: OTHER, uncollectedEth: 100n })], placers: { [lc(PLACER)]: placer({ [lc(SMA)]: 1n }) } },
-      { sma: SMA },
+    const plan = planClaimAllEth(
+      { launches: [launch({ recipient: OTHER, uncollectedEth: 100n })], placers: { [lc(PLACER)]: placer({ [lc(WALLET)]: 1n }) } },
+      WALLET,
     );
-    expect(decode(batches[0].calls)).toEqual([[PLACER, "claimEth", SMA]]);
+    expect(decode(plan.calls)).toEqual([[PLACER, "claimEth", WALLET]]);
   });
 
-  it("makes one batch per account, each from its own claimant", () => {
-    const batches = planClaimAllEth(
-      {
-        launches: [launch({ recipient: EOA, uncollectedEth: 100n })],
-        placers: { [lc(PLACER)]: placer({ [lc(SMA)]: 5n }) },
-      },
-      { eoa: EOA, sma: SMA },
-    );
-    expect(batches.map((b) => b.sender)).toEqual([
-      { account: SMA, mode: "smart" },
-      { account: EOA, mode: "eoa" },
-    ]);
-    expect(decode(batches[0].calls)).toEqual([[PLACER, "claimEth", SMA]]);
-    expect(decode(batches[1].calls)).toEqual([
-      [PLACER, "collectFees", TOKEN],
-      [PLACER, "claimEth", EOA],
-    ]);
+  it("plans nothing with nobody connected", () => {
+    expect(planClaimAllEth(fees, undefined)).toEqual({ calls: [], eth: 0n });
   });
 });
 
 describe("planClaimToken (profile row)", () => {
   it("collects when the pool holds tokens, then claims the token", () => {
-    const batches = planClaimToken(launch({ uncollectedTokens: 100n }), placer(), { sma: SMA });
-    expect(decode(batches[0].calls)).toEqual([
+    const plan = planClaimToken(launch({ uncollectedTokens: 100n }), placer(), WALLET);
+    expect(decode(plan.calls)).toEqual([
       [PLACER, "collectFees", TOKEN],
-      [PLACER, "claimToken", TOKEN, SMA],
+      [PLACER, "claimToken", TOKEN, WALLET],
     ]);
-    expect(batches[0].tokens).toBe(88n);
+    expect(plan.tokens).toBe(88n);
   });
 
   it("does not collect for ETH alone — the row claims tokens", () => {
-    const batches = planClaimToken(
-      launch({ uncollectedEth: 100n, claimableToken: { [lc(SMA)]: 4n } }),
+    const plan = planClaimToken(
+      launch({ uncollectedEth: 100n, claimableToken: { [lc(WALLET)]: 4n } }),
       placer(),
-      { sma: SMA },
+      WALLET,
     );
-    expect(decode(batches[0].calls)).toEqual([[PLACER, "claimToken", TOKEN, SMA]]);
+    expect(decode(plan.calls)).toEqual([[PLACER, "claimToken", TOKEN, WALLET]]);
   });
 
   it("claims tokens credited before the fees were handed on, without collecting for the new recipient", () => {
-    const batches = planClaimToken(
-      launch({ recipient: OTHER, uncollectedTokens: 100n, claimableToken: { [lc(SMA)]: 4n } }),
+    const plan = planClaimToken(
+      launch({ recipient: OTHER, uncollectedTokens: 100n, claimableToken: { [lc(WALLET)]: 4n } }),
       placer(),
-      { sma: SMA },
+      WALLET,
     );
-    expect(decode(batches[0].calls)).toEqual([[PLACER, "claimToken", TOKEN, SMA]]);
+    expect(decode(plan.calls)).toEqual([[PLACER, "claimToken", TOKEN, WALLET]]);
   });
 
   it("plans nothing when no tokens are earned", () => {
-    expect(planClaimToken(launch({ uncollectedTokens: 1n }), placer(), { sma: SMA })).toEqual([]);
+    expect(planClaimToken(launch({ uncollectedTokens: 1n }), placer(), WALLET)).toEqual({ calls: [], tokens: 0n });
   });
 });
 
@@ -345,13 +270,13 @@ describe("summarizeCreatorFees", () => {
           launch({ token: TOKEN, uncollectedEth: 100n, uncollectedTokens: 1000n }),
           launch({ token: TOKEN_B }),
           // handed on, but tokens credited before still claimable: listed
-          launch({ token: TOKEN_C, recipient: OTHER, uncollectedEth: 999n, claimableToken: { [lc(SMA)]: 7n } }),
+          launch({ token: TOKEN_C, recipient: OTHER, uncollectedEth: 999n, claimableToken: { [lc(WALLET)]: 7n } }),
           // handed on with nothing left: dropped
           launch({ token: getAddress("0xdddd00000000000000000000000000000000dddd"), recipient: OTHER, uncollectedEth: 999n }),
         ],
-        placers: { [lc(PLACER)]: placer({ [lc(SMA)]: 12n }) },
+        placers: { [lc(PLACER)]: placer({ [lc(WALLET)]: 12n }) },
       },
-      { sma: SMA },
+      WALLET,
     );
     expect(summary.rows.map((r) => [r.launch.token, r.isRecipient, r.ethInPool, r.tokens])).toEqual([
       [TOKEN, true, 88n, 880n],
@@ -361,39 +286,38 @@ describe("summarizeCreatorFees", () => {
     expect(summary).toMatchObject({ ethCollected: 12n, ethInPool: 88n, eth: 100n });
   });
 
-  it("counts both accounts once each", () => {
+  it("is empty with nobody connected", () => {
     const summary = summarizeCreatorFees(
-      { launches: [launch({ recipient: EOA, claimableToken: { [lc(SMA)]: 1n, [lc(EOA)]: 2n } })], placers: { [lc(PLACER)]: placer({ [lc(SMA)]: 1n, [lc(EOA)]: 2n }) } },
-      { eoa: EOA, sma: SMA },
+      { launches: [launch({ claimableToken: { [lc(WALLET)]: 1n } })], placers: { [lc(PLACER)]: placer({ [lc(WALLET)]: 1n }) } },
+      undefined,
     );
-    expect(summary.rows[0].tokens).toBe(3n);
-    expect(summary.eth).toBe(3n);
+    expect(summary).toEqual({ rows: [], ethCollected: 0n, ethInPool: 0n, eth: 0n });
   });
 });
 
 describe("validateNewRecipient", () => {
   it("accepts a different, well-formed address", () => {
-    expect(validateNewRecipient(` ${OTHER} `, SMA)).toBeNull();
+    expect(validateNewRecipient(` ${OTHER} `, WALLET)).toBeNull();
   });
 
   it("rejects text that is not an address, or a bad checksum", () => {
-    expect(validateNewRecipient("", SMA)).toBe("invalid");
-    expect(validateNewRecipient("0x1234", SMA)).toBe("invalid");
-    expect(validateNewRecipient("0x7a3c…05d1", SMA)).toBe("invalid");
+    expect(validateNewRecipient("", WALLET)).toBe("invalid");
+    expect(validateNewRecipient("0x1234", WALLET)).toBe("invalid");
+    expect(validateNewRecipient("0x7a3c…05d1", WALLET)).toBe("invalid");
     // A checksummed address with one letter's case flipped.
     const good = getAddress(TOKEN);
     const i = good.search(/[a-fA-F]/);
     const flipped = good.slice(0, i) + (good[i] === good[i].toUpperCase() ? good[i].toLowerCase() : good[i].toUpperCase()) + good.slice(i + 1);
-    expect(validateNewRecipient(good, SMA)).toBeNull();
-    expect(validateNewRecipient(flipped, SMA)).toBe("invalid");
+    expect(validateNewRecipient(good, WALLET)).toBeNull();
+    expect(validateNewRecipient(flipped, WALLET)).toBe("invalid");
   });
 
   it("rejects the zero address (setFeeRecipient reverts ZeroAddress)", () => {
-    expect(validateNewRecipient(`0x${"0".repeat(40)}`, SMA)).toBe("zero");
+    expect(validateNewRecipient(`0x${"0".repeat(40)}`, WALLET)).toBe("zero");
   });
 
   it("rejects the current recipient, in any case", () => {
-    expect(validateNewRecipient(SMA.toLowerCase(), SMA)).toBe("same");
+    expect(validateNewRecipient(WALLET.toLowerCase(), WALLET)).toBe("same");
   });
 });
 
@@ -405,7 +329,7 @@ describe("formatting", () => {
   });
 
   it("compares addresses case-insensitively", () => {
-    expect(sameAddress(SMA.toUpperCase(), SMA)).toBe(true);
+    expect(sameAddress(WALLET.toUpperCase(), WALLET)).toBe(true);
     expect(sameAddress(undefined, undefined)).toBe(false);
   });
 });

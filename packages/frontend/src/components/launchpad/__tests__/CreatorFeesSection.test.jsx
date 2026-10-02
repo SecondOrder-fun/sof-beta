@@ -14,7 +14,7 @@ vi.mock("react-i18next", async (importOriginal) => ({
   }),
 }));
 
-const SMA = getAddress("0x5555555555555555555555555555555555555555");
+const WALLET = getAddress("0x5555555555555555555555555555555555555555");
 const OTHER = getAddress("0x7777777777777777777777777777777777777777");
 const PLACER = getAddress("0x3000000000000000000000000000000000000003");
 const POND = getAddress("0xaaaa00000000000000000000000000000000aaaa");
@@ -24,8 +24,8 @@ const GONE = getAddress("0xdddd00000000000000000000000000000000dddd");
 const E = 10n ** 18n;
 const lc = (a) => a.toLowerCase();
 
-const accounts = { current: { eoa: SMA, sma: SMA } };
-vi.mock("@/hooks/useRaffleAccount", () => ({ useRaffleAccount: () => accounts.current }));
+const account = { current: { address: WALLET } };
+vi.mock("wagmi", () => ({ useAccount: () => account.current }));
 
 const created = { current: [] };
 vi.mock("@/hooks/useLaunchActivity", () => ({
@@ -44,11 +44,11 @@ vi.mock("@/hooks/useLaunchMarkets", () => ({
 vi.mock("@/lib/wagmi", () => ({ getStoredNetworkKey: () => "TESTNET" }));
 vi.mock("@/config/networks", () => ({ getNetworkByKey: () => ({ explorer: "https://sepolia.basescan.org" }) }));
 
-const meta = (token, name, symbol) => ({ token, name, symbol, poolId: `0x${"ab".repeat(32)}`, creator: lc(SMA) });
+const meta = (token, name, symbol) => ({ token, name, symbol, poolId: `0x${"ab".repeat(32)}`, creator: lc(WALLET) });
 const launchFees = (token, over = {}) => ({
   token,
   placer: PLACER,
-  recipient: SMA,
+  recipient: WALLET,
   claimableToken: {},
   uncollectedEth: 0n,
   uncollectedTokens: 0n,
@@ -70,7 +70,7 @@ const setup = () =>
 
 describe("CreatorFeesSection", () => {
   beforeEach(() => {
-    accounts.current = { eoa: SMA, sma: SMA };
+    account.current = { address: WALLET };
     created.current = [
       meta(POND, "Frog Pond", "POND"),
       meta(LAMP, "Night Lamp", "LAMP"),
@@ -79,14 +79,14 @@ describe("CreatorFeesSection", () => {
     ];
     fees.current = {
       launches: [
-        launchFees(POND, { uncollectedEth: E / 10n, claimableToken: { [lc(SMA)]: 1_000_000n * E }, uncollectedTokens: 500_000n * E }),
+        launchFees(POND, { uncollectedEth: E / 10n, claimableToken: { [lc(WALLET)]: 1_000_000n * E }, uncollectedTokens: 500_000n * E }),
         // handed on, but tokens credited before the transfer are still here
-        launchFees(LAMP, { recipient: OTHER, uncollectedEth: E, claimableToken: { [lc(SMA)]: 880_000n * E } }),
+        launchFees(LAMP, { recipient: OTHER, uncollectedEth: E, claimableToken: { [lc(WALLET)]: 880_000n * E } }),
         launchFees(MOSS),
         // handed on with nothing left: not listed
         launchFees(GONE, { recipient: OTHER, uncollectedEth: E }),
       ],
-      placers: { [lc(PLACER)]: { address: PLACER, creatorFeeBps: 8800n, claimableEth: { [lc(SMA)]: E / 2n } } },
+      placers: { [lc(PLACER)]: { address: PLACER, creatorFeeBps: 8800n, claimableEth: { [lc(WALLET)]: E / 2n } } },
     };
     write.send = vi.fn().mockResolvedValue("0xhash");
     write.isPending = false;
@@ -153,24 +153,23 @@ describe("CreatorFeesSection", () => {
     setup();
     fireEvent.click(screen.getByRole("button", { name: "creatorFees.profile.claimAllEth" }));
     await waitFor(() => expect(write.send).toHaveBeenCalled());
-    const [[batches]] = write.send.mock.calls;
-    expect(batches).toHaveLength(1);
-    expect(batches[0].sender).toEqual({ account: SMA, mode: "smart" });
+    const [[calls]] = write.send.mock.calls;
     // LAMP's pool ETH now belongs to another recipient: not collected here.
-    expect(decode(batches[0].calls)).toEqual([
+    expect(decode(calls)).toEqual([
       ["collectFees", POND],
-      ["claimEth", SMA],
+      ["claimEth", WALLET],
     ]);
     const status = await screen.findByRole("status");
     expect(within(status).getByText("creatorFees.claimedEth(eth=0.58)")).toBeInTheDocument();
+    expect(within(status).getByText("creatorFees.claimedBody(address=0x5555…5555)")).toBeInTheDocument();
   });
 
   it("claims one launch's token fees from its row", async () => {
     setup();
     fireEvent.click(screen.getByRole("button", { name: "creatorFees.profile.claimSymbol(symbol=LAMP)" }));
     await waitFor(() => expect(write.send).toHaveBeenCalled());
-    const [[batches]] = write.send.mock.calls;
-    expect(decode(batches[0].calls)).toEqual([["claimToken", LAMP, SMA]]);
+    const [[calls]] = write.send.mock.calls;
+    expect(decode(calls)).toEqual([["claimToken", LAMP, WALLET]]);
     expect(await screen.findByText("creatorFees.claimedTokens(tokens=880K,symbol=LAMP)")).toBeInTheDocument();
   });
 
@@ -178,24 +177,11 @@ describe("CreatorFeesSection", () => {
     setup();
     fireEvent.click(screen.getByRole("button", { name: "creatorFees.profile.claimSymbol(symbol=POND)" }));
     await waitFor(() => expect(write.send).toHaveBeenCalled());
-    const [[batches]] = write.send.mock.calls;
-    expect(decode(batches[0].calls)).toEqual([
+    const [[calls]] = write.send.mock.calls;
+    expect(decode(calls)).toEqual([
       ["collectFees", POND],
-      ["claimToken", POND, SMA],
+      ["claimToken", POND, WALLET],
     ]);
-  });
-
-  it("names no single address when Claim all ETH pays both accounts", async () => {
-    const EOA = getAddress("0x6666666666666666666666666666666666666666");
-    accounts.current = { eoa: EOA, sma: SMA };
-    fees.current.placers[lc(PLACER)].claimableEth = { [lc(SMA)]: E / 2n, [lc(EOA)]: E / 4n };
-    setup();
-    fireEvent.click(screen.getByRole("button", { name: "creatorFees.profile.claimAllEth" }));
-    await waitFor(() => expect(write.send).toHaveBeenCalled());
-    const [[batches]] = write.send.mock.calls;
-    expect(batches.map((b) => b.sender.account)).toEqual([SMA, EOA]);
-    const status = await screen.findByRole("status");
-    expect(within(status).getByText("creatorFees.claimedBodyAccounts")).toBeInTheDocument();
   });
 
   it("disables Claim all ETH with no ETH to claim", () => {

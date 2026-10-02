@@ -182,7 +182,7 @@ export function buildPublicClient(networkKey) {
   // does not, so set it explicitly. wait: 50ms covers ~3 React render passes
   // — initial mount + first dependent re-renders typically land within that
   // envelope (e.g. usePlayerPosition's playerTickets fires on mount, then
-  // curveConfig fires once SMA resolves a tick later). Smaller windows
+  // curveConfig fires a render later). Smaller windows
   // (16ms) leaked into separate POSTs and tripped 429s.
   const client = createPublicClient({
     chain,

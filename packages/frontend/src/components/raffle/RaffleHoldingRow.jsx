@@ -2,7 +2,6 @@
 import PropTypes from "prop-types";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Badge } from "@/components/ui/badge";
 import ExplorerLink from "@/components/common/ExplorerLink";
 import {
   AccordionItem,
@@ -14,56 +13,29 @@ import {
  * RaffleHoldingRow - Displays a raffle ticket holding as an AccordionItem.
  * Must be used inside an <Accordion> wrapper.
  *
- * @param {string} [address] - Single wallet address (legacy / other-user view).
- * @param {string[]} [addresses] - List of addresses to merge (own-profile EOA + SMA).
- *   When provided, transactions are fetched for each and merged.
- * @param {Object<string,string>} [originLabels] - Lower-cased address → short
- *   label (e.g. `{ '0x...eoa': 'EOA', '0x...sma': 'SMA' }`). Renders a per-row
- *   Origin badge when both `addresses` and `originLabels` are provided.
+ * @param {string} [address] - Wallet address whose transactions are listed.
  */
 const RaffleHoldingRow = ({
   row,
   address,
-  addresses,
-  originLabels,
   showViewLink = true,
 }) => {
   const seasonKey = `season-${row.seasonId}`;
 
-  const queryAddresses = (addresses?.length ? addresses : address ? [address] : [])
-    .filter(Boolean)
-    .map((a) => a.toLowerCase());
-
-  const showOriginBadge =
-    Array.isArray(addresses) &&
-    addresses.length > 1 &&
-    originLabels &&
-    Object.keys(originLabels).length > 0;
+  const queryAddress = address ? address.toLowerCase() : null;
 
   const transactionsQuery = useQuery({
-    queryKey: ["raffleTransactions", queryAddresses, row?.seasonId],
-    enabled: queryAddresses.length > 0 && !!row?.seasonId,
+    queryKey: ["raffleTransactions", queryAddress, row?.seasonId],
+    enabled: !!queryAddress && !!row?.seasonId,
     queryFn: async () => {
       const base = import.meta.env.VITE_API_BASE_URL;
-      const results = await Promise.all(
-        queryAddresses.map(async (addr) => {
-          const url = `${base}/raffle/transactions/${addr}/${row.seasonId}`;
-          const response = await fetch(url);
-          if (!response.ok) {
-            throw new Error("Failed to fetch transactions");
-          }
-          const data = await response.json();
-          return (data.transactions || []).map((t) => ({ ...t, origin: addr }));
-        })
-      );
-      const merged = results.flat();
-      // Dedupe (same tx surfaced for both addresses).
-      const seen = new Map();
-      for (const t of merged) {
-        const key = `${t.tx_hash}-${t.block_number ?? ""}`;
-        if (!seen.has(key)) seen.set(key, t);
+      const url = `${base}/raffle/transactions/${queryAddress}/${row.seasonId}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error("Failed to fetch transactions");
       }
-      return Array.from(seen.values());
+      const data = await response.json();
+      return data.transactions || [];
     },
     staleTime: 15000,
   });
@@ -123,10 +95,6 @@ const RaffleHoldingRow = ({
                     new Date(b.created_at || 0) - new Date(a.created_at || 0)
                 )
                 .map((t) => {
-                  const originLabel =
-                    showOriginBadge && t.origin
-                      ? originLabels?.[t.origin.toLowerCase()] || null
-                      : null;
                   return (
                     <div
                       key={t.tx_hash + String(t.block_number)}
@@ -143,14 +111,6 @@ const RaffleHoldingRow = ({
                         {t.ticket_amount} tickets
                       </span>
                       <div className="flex items-center gap-2">
-                        {originLabel && (
-                          <Badge
-                            variant={originLabel === "SMA" ? "default" : "outline"}
-                            className="text-[10px] px-1.5 py-0"
-                          >
-                            {originLabel}
-                          </Badge>
-                        )}
                         <ExplorerLink
                           value={t.tx_hash}
                           type="tx"
@@ -179,8 +139,6 @@ RaffleHoldingRow.propTypes = {
     name: PropTypes.string,
   }).isRequired,
   address: PropTypes.string,
-  addresses: PropTypes.arrayOf(PropTypes.string),
-  originLabels: PropTypes.objectOf(PropTypes.string),
   showViewLink: PropTypes.bool,
 };
 

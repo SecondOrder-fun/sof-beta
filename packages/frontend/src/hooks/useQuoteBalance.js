@@ -1,8 +1,8 @@
 // src/hooks/useQuoteBalance.js
+import { useAccount } from 'wagmi';
 import { ERC20Abi } from '@/utils/abis';
 import { getContractAddresses } from '@/config/contracts';
 import { getStoredNetworkKey } from '@/lib/wagmi';
-import { useRaffleAccount } from '@/hooks/useRaffleAccount';
 import { useUltraFreshRead } from '@/hooks/chain/useUltraFreshRead';
 
 /**
@@ -13,9 +13,6 @@ import { useUltraFreshRead } from '@/hooks/chain/useUltraFreshRead';
  * Callers that are not season-scoped — the profile page, sponsor staking —
  * fall back to the platform-level placeholder quote token.
  *
- * Resolves at the user's smart account (spec §4.3) — gameplay balances
- * live at the SMA, not the connected EOA.
- *
  * Uses ultra-fresh reads so balances auto-update after any tx that
  * touches the token contract.
  *
@@ -24,7 +21,7 @@ import { useUltraFreshRead } from '@/hooks/chain/useUltraFreshRead';
  * @returns {{ balance: bigint, balanceRaw: bigint, isLoading: boolean, refetch: function }}
  */
 export function useQuoteBalance(tokenAddress) {
-  const { sma: address, isReady } = useRaffleAccount();
+  const { address } = useAccount();
   const contracts = getContractAddresses(getStoredNetworkKey());
   const token = tokenAddress || contracts?.QUOTE_TOKEN;
 
@@ -33,7 +30,7 @@ export function useQuoteBalance(tokenAddress) {
     fn: 'balanceOf',
     args: address ? [address] : [],
     touches: token ? [token] : [],
-    enabled: !!(isReady && address && token),
+    enabled: !!(address && token),
   });
 
   const raw = query.data ?? 0n;

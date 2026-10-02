@@ -4,7 +4,7 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const mockReadContract = vi.fn();
-const mockSma = vi.fn();
+const mockAddress = vi.fn();
 
 // Stub out SSE so useLiveSubscription doesn't call EventSource in jsdom
 vi.mock("@/hooks/chain/useLiveSubscription", () => ({
@@ -12,10 +12,8 @@ vi.mock("@/hooks/chain/useLiveSubscription", () => ({
 }));
 
 vi.mock("wagmi", () => ({
+  useAccount: () => ({ address: mockAddress() }),
   usePublicClient: () => ({ readContract: mockReadContract }),
-}));
-vi.mock("@/hooks/useRaffleAccount", () => ({
-  useRaffleAccount: () => ({ sma: mockSma() }),
 }));
 vi.mock("@/lib/wagmi", () => ({ getStoredNetworkKey: () => "TESTNET" }));
 vi.mock("@/config/contracts", () => ({
@@ -40,7 +38,7 @@ describe("useEligibleRolloverCohort", () => {
       defaultOptions: { queries: { retry: false } },
     });
     vi.clearAllMocks();
-    mockSma.mockReturnValue("0xsma");
+    mockAddress.mockReturnValue("0xuser");
     readCohortState.mockResolvedValue({
       phase: "active",
       nextSeasonId: 2n,
@@ -88,8 +86,8 @@ describe("useEligibleRolloverCohort", () => {
     expect(result.current.isEligible).toBe(false);
   });
 
-  it("returns isEligible=false without any reads when sma is missing", async () => {
-    mockSma.mockReturnValue(null);
+  it("returns isEligible=false without any reads when no wallet is connected", async () => {
+    mockAddress.mockReturnValue(undefined);
     const { result } = renderHook(() => useEligibleRolloverCohort(2n), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.isEligible).toBe(false);
