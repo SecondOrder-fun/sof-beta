@@ -23,6 +23,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTRACTS_DIR="$ROOT_DIR/packages/contracts"
+# shellcheck source=lib/roles.sh
+. "$ROOT_DIR/scripts/lib/roles.sh"
 
 NETWORK=""
 CHECK_ONLY=""
@@ -39,13 +41,6 @@ case "$NETWORK" in
   mainnet) DEFAULT_RPC="https://mainnet.base.org" ;;
   *) echo "Usage: scripts/grant-backend-wallet.sh --network <testnet|mainnet> [--check]" >&2; exit 2 ;;
 esac
-
-# Read one KEY=value from an env file without sourcing the rest of it.
-read_env_value() {
-  local file="$1" key="$2"
-  [ -f "$file" ] || return 0
-  { grep -E "^${key}=" "$file" || true; } | tail -1 | cut -d= -f2- | tr -d "\"' \r\n"
-}
 
 CONTRACTS_ENV="$CONTRACTS_DIR/env/.env.$NETWORK"
 BACKEND_ENV="$ROOT_DIR/packages/backend/env/.env.$NETWORK"
@@ -66,19 +61,12 @@ fi
 RPC_URL="${RPC_URL:-$DEFAULT_RPC}"
 ROLE="$(cast keccak PAYMASTER_ROLE)"
 
-# read_role — prints true/false, or exits with cast's error: a failed read must
-# never be reported as "missing" (that would send an unneeded grant).
-read_role() {
-  local out
-  if ! out="$(cast call "$FACTORY" 'hasRole(bytes32,address)(bool)' "$ROLE" "$BACKEND_WALLET_ADDRESS" --rpc-url "$RPC_URL" 2>&1)" \
-      || { [ "$out" != true ] && [ "$out" != false ]; }; then
-    echo "✗ Could not read PAYMASTER_ROLE on $FACTORY from $RPC_URL: $out" >&2
-    return 1
-  fi
-  printf '%s' "$out"
+# A failed read must never be reported as "missing" (that would also send an
+# unneeded grant): abort with cast's error instead.
+HAS_ROLE="$(role_read "$FACTORY" "$ROLE" "$BACKEND_WALLET_ADDRESS" "$RPC_URL")" || {
+  echo "✗ Could not read PAYMASTER_ROLE on $FACTORY from $RPC_URL (error above)" >&2
+  exit 1
 }
-
-HAS_ROLE="$(read_role)"
 
 if [ "$HAS_ROLE" = "true" ]; then
   echo "✓ Backend wallet $BACKEND_WALLET_ADDRESS holds PAYMASTER_ROLE on InfoFiMarketFactory $FACTORY"
@@ -106,18 +94,12 @@ echo "Granting PAYMASTER_ROLE on $FACTORY to $BACKEND_WALLET_ADDRESS ($NETWORK).
       --rpc-url "$RPC_URL" --broadcast --slow
 )
 
-# The gateway can answer from a node one block behind the grant, or a read can
-# fail transiently: give the post-check up to 5 reads, 3s apart.
-for attempt in 1 2 3 4 5; do
-  HAS_ROLE="$(read_role 2>/dev/null)" || HAS_ROLE=unreadable
-  [ "$HAS_ROLE" = "true" ] && break
-  [ "$attempt" -lt 5 ] && sleep 3
-done
-case "$HAS_ROLE" in
-  true) echo "✓ Granted. Backend wallet $BACKEND_WALLET_ADDRESS now holds PAYMASTER_ROLE." ;;
-  unreadable)
-    read_role >/dev/null || true   # print the read error
-    echo "✗ Could not confirm the grant: the role could not be read after 5 tries. Check the forge output above and re-run with --check." >&2
-    exit 1 ;;
-  *) echo "✗ The role still reads as missing after the grant. Check the forge output above." >&2; exit 1 ;;
-esac
+ERRF="$(mktemp)"
+if role_wait "$FACTORY" "$ROLE" "$BACKEND_WALLET_ADDRESS" "$RPC_URL" true 2>"$ERRF"; then
+  rm -f "$ERRF"
+  echo "✓ Granted. Backend wallet $BACKEND_WALLET_ADDRESS now holds PAYMASTER_ROLE."
+else
+  echo "✗ Could not confirm the grant: PAYMASTER_ROLE $(cat "$ERRF"). Check the forge output above." >&2
+  rm -f "$ERRF"
+  exit 1
+fi

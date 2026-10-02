@@ -7,7 +7,7 @@
 #
 # Usage:
 #   scripts/revoke-sma-roles.sh --network testnet --address 0x… --check   # read-only; exit 1 if any role is held
-#                                                                          #   (or, with a "✗ … read failed" line, if a read fails)
+#                                                                          #   (or, with a "✗ could not read" line, if a read fails)
 #   scripts/revoke-sma-roles.sh --network testnet --address 0x…           # revoke every role still held
 #
 # The roles §9b granted, all checked here:
@@ -24,12 +24,16 @@
 #   - RPC_URL: optional override. Defaults: testnet → Tenderly gateway (the public
 #     Base Sepolia RPC 502s under load, see the root CLAUDE.md), mainnet → mainnet.base.org.
 #
+# The revokes are sent by packages/contracts/script/ops/RevokeSmaRoles.s.sol (forge,
+# --broadcast --slow); role reads and the post-send check use scripts/lib/roles.sh.
 # Idempotent: a role the address no longer holds is skipped.
 
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTRACTS_DIR="$ROOT_DIR/packages/contracts"
+# shellcheck source=lib/roles.sh
+. "$ROOT_DIR/scripts/lib/roles.sh"
 
 USAGE="Usage: scripts/revoke-sma-roles.sh --network <testnet|mainnet> --address <0x…> [--check]"
 
@@ -61,13 +65,6 @@ if [ "$(echo "$TARGET" | tr 'A-F' 'a-f')" = "0x000000000000000000000000000000000
   exit 2
 fi
 
-# Read one KEY=value from an env file without sourcing the rest of it.
-read_env_value() {
-  local file="$1" key="$2"
-  [ -f "$file" ] || return 0
-  { grep -E "^${key}=" "$file" || true; } | tail -1 | cut -d= -f2- | tr -d "\"' \r\n"
-}
-
 # One address from deployments/<network>.json, validated.
 deployment_address() {
   local key="$1" addr
@@ -93,36 +90,11 @@ TARGETS=("$RAFFLE" "$RAFFLE" "$RAFFLE" "$SEASON_FACTORY")
 ROLE_NAMES=(SEASON_CREATOR_ROLE EMERGENCY_ROLE DEFAULT_ADMIN_ROLE DEFAULT_ADMIN_ROLE)
 ROLE_HASHES=("$SEASON_CREATOR_ROLE" "$EMERGENCY_ROLE" "$DEFAULT_ADMIN_ROLE" "$DEFAULT_ADMIN_ROLE")
 
-# role_state CONTRACT ROLE ACCOUNT — prints "true", "false" or "error: <cast
-# output>"; never fails.
-role_state() {
-  local out
-  if out="$(cast call "$1" 'hasRole(bytes32,address)(bool)' "$2" "$3" --rpc-url "$RPC_URL" 2>&1)" \
-      && { [ "$out" = true ] || [ "$out" = false ]; }; then
-    printf '%s' "$out"
-  else
-    printf 'error: %s' "$out"
-  fi
-}
-
-# has_role CONTRACT ROLE ACCOUNT — prints true/false; a failed or odd read
-# prints cast's output and returns non-zero. Callers assign it on its own line
-# (held="$(has_role ...)") so set -e aborts the run instead of treating a
-# failed read as "not held".
-has_role() {
-  local out
-  out="$(role_state "$1" "$2" "$3")"
-  if [[ "$out" == error:* ]]; then
-    echo "✗ hasRole($2, $3) read failed on $1: ${out#error: }" >&2
-    return 1
-  fi
-  printf '%s' "$out"
-}
-
 echo "Roles held by $TARGET on $NETWORK:"
 HELD=()
 for i in "${!LABELS[@]}"; do
-  held="$(has_role "${TARGETS[$i]}" "${ROLE_HASHES[$i]}" "$TARGET")"
+  held="$(role_read "${TARGETS[$i]}" "${ROLE_HASHES[$i]}" "$TARGET" "$RPC_URL")" || {
+    echo "✗ could not read ${LABELS[$i]} ${ROLE_NAMES[$i]} for $TARGET (error above)" >&2; exit 1; }
   if [ "$held" = "true" ]; then
     echo "  ✗ ${LABELS[$i]} (${TARGETS[$i]}) ${ROLE_NAMES[$i]}"
     HELD+=("$i")
@@ -159,83 +131,35 @@ fi
 # front so the run is all-or-nothing rather than failing halfway.
 for i in "${HELD[@]}"; do
   ADMIN_ROLE="$(cast call "${TARGETS[$i]}" 'getRoleAdmin(bytes32)(bytes32)' "${ROLE_HASHES[$i]}" --rpc-url "$RPC_URL")"
-  held="$(has_role "${TARGETS[$i]}" "$ADMIN_ROLE" "$DEPLOYER")"
+  held="$(role_read "${TARGETS[$i]}" "$ADMIN_ROLE" "$DEPLOYER" "$RPC_URL")" || {
+    echo "✗ could not read the deployer's admin role on ${LABELS[$i]} (error above)" >&2; exit 1; }
   if [ "$held" != "true" ]; then
     echo "✗ Deployer $DEPLOYER lacks the admin role ($ADMIN_ROLE) for ${ROLE_NAMES[$i]} on ${LABELS[$i]}" >&2
     exit 1
   fi
 done
 
-# Nonces are assigned here instead of letting cast look one up per send: the
-# Tenderly gateway can answer a lookup from a node one block behind right after
-# the previous send confirmed. If the starting read is itself stale, the node
-# rejects the send with "nonce too low" and names the nonce it expects ("next
-# nonce N", or geth's "state: N"); the script then re-reads the role — so a
-# send that did land is never repeated — and resends with that nonce, at most
-# twice. cast send waits for each receipt; any other send error stops the run,
-# and re-running is safe (only roles still held are revoked). Not covered: a
-# lagging node that accepts a stale-nonce tx it can never mine — cast then
-# times out waiting for the receipt; re-run.
-NONCE="$(cast nonce "$DEPLOYER" --block pending --rpc-url "$RPC_URL")" || {
-  echo "✗ could not read the deployer's nonce from $RPC_URL" >&2; exit 1; }
-[[ "$NONCE" =~ ^[0-9]+$ ]] || { echo "✗ unexpected nonce from $RPC_URL: $NONCE" >&2; exit 1; }
+# The revokes go through a forge script (--broadcast --slow), like
+# grant-backend-wallet.sh: forge assigns the nonces locally from one read and
+# waits for each receipt, so there is no per-send nonce lookup on the
+# load-balanced gateway to go stale. The script re-checks each role on-chain
+# and skips any no longer held, so re-running is safe.
+echo "Revoking ${#HELD[@]} role(s) from $TARGET through script/ops/RevokeSmaRoles.s.sol..."
+(
+  cd "$CONTRACTS_DIR"
+  PRIVATE_KEY="$PRIVATE_KEY" RAFFLE_ADDRESS="$RAFFLE" SEASON_FACTORY_ADDRESS="$SEASON_FACTORY" REVOKE_TARGET="$TARGET" \
+    forge script script/ops/RevokeSmaRoles.s.sol:RevokeSmaRoles \
+      --rpc-url "$RPC_URL" --broadcast --slow
+)
 
-# expected_nonce ERROR_TEXT — the nonce a "nonce too low" rejection says the
-# node expects, or nothing. Pure bash (no pipeline for pipefail to trip on).
-expected_nonce() {
-  local lower="${1,,}"
-  [[ "$lower" == *"nonce too low"* ]] || return 0
-  if [[ "$lower" =~ next\ nonce\ ([0-9]+) ]] || [[ "$lower" =~ state:\ ([0-9]+) ]]; then
-    printf '%s' "${BASH_REMATCH[1]}"
-  fi
-}
-
-send_revoke() {
-  local i="$1" attempt err next
-  for attempt in 1 2 3; do
-    if err="$(cast send "${TARGETS[$i]}" 'revokeRole(bytes32,address)' "${ROLE_HASHES[$i]}" "$TARGET" \
-        --nonce "$NONCE" --private-key "$PRIVATE_KEY" --rpc-url "$RPC_URL" 2>&1 >/dev/null)"; then
-      NONCE=$((NONCE + 1))
-      return 0
-    fi
-    next="$(expected_nonce "$err")"
-    if [ "$attempt" -eq 3 ] || [ -z "$next" ] || [ "$next" -le "$NONCE" ]; then
-      echo "$err" >&2
-      return 1
-    fi
-    NONCE="$next"
-    # A rejection can follow a broadcast that did land (e.g. a client-side
-    # rebroadcast); don't revoke twice.
-    if [ "$(role_state "${TARGETS[$i]}" "${ROLE_HASHES[$i]}" "$TARGET")" = false ]; then
-      echo "  the role is already revoked (an earlier broadcast landed); not resending"
-      return 0
-    fi
-    echo "  the RPC's nonce was stale; the node expects $next, resending"
-  done
-}
-
+FAILED=0
+ERRF="$(mktemp)"
 for i in "${HELD[@]}"; do
-  echo "Revoking ${ROLE_NAMES[$i]} on ${LABELS[$i]} (${TARGETS[$i]}) from $TARGET (nonce $NONCE)..."
-  send_revoke "$i"
+  if ! role_wait "${TARGETS[$i]}" "${ROLE_HASHES[$i]}" "$TARGET" "$RPC_URL" false 2>"$ERRF"; then
+    echo "✗ ${LABELS[$i]} ${ROLE_NAMES[$i]} $(cat "$ERRF")" >&2
+    FAILED=1
+  fi
 done
-
-# The same lagging node can still report a just-revoked role as held, or a read
-# can fail transiently: re-check only the roles not yet confirmed revoked, up to
-# 5 times 3s apart, before calling the run a failure.
-PENDING=("${HELD[@]}")
-for attempt in 1 2 3 4 5; do
-  NEXT=()
-  for i in "${PENDING[@]}"; do
-    [ "$(role_state "${TARGETS[$i]}" "${ROLE_HASHES[$i]}" "$TARGET")" = false ] || NEXT+=("$i")
-  done
-  PENDING=("${NEXT[@]+"${NEXT[@]}"}")
-  [ "${#PENDING[@]}" -eq 0 ] && break
-  [ "$attempt" -lt 5 ] && sleep 3
-done
-if [ "${#PENDING[@]}" -ne 0 ]; then
-  for i in "${PENDING[@]}"; do
-    echo "✗ ${LABELS[$i]} ${ROLE_NAMES[$i]} still reads as held (or unreadable) after the revoke" >&2
-  done
-  exit 1
-fi
+rm -f "$ERRF"
+[ "$FAILED" -eq 0 ] || exit 1
 echo "✓ Revoked. $TARGET holds none of the mirrored admin roles."
