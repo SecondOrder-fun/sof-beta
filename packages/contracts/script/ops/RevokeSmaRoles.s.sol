@@ -27,6 +27,8 @@ contract RevokeSmaRoles is Script {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
 
         require(contracts_.length == roles.length, "RevokeSmaRoles: REVOKE_CONTRACTS/REVOKE_ROLES length mismatch");
+        // These two guards are repeated in scripts/revoke-sma-roles.sh (which
+        // checks before sending); keep the two in step.
         require(target != address(0), "RevokeSmaRoles: REVOKE_TARGET is the zero address");
         require(target != vm.addr(deployerKey), "RevokeSmaRoles: refusing to revoke the deployer's own roles");
 
