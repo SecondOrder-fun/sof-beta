@@ -79,10 +79,12 @@ The sync only adds and updates; a variable removed from an env file stays on
 Railway until pruned. Each run lists the Railway service variables that are not
 in the env files. `--prune` deletes them (production and every PR environment);
 with `--dry-run` it prints what it would delete. Railway-managed variables
-(`RAILWAY_*`, `PORT`, database/Redis plugin URLs) are never pruned — that list
-is `PRUNE_KEEP_PREFIXES` / `PRUNE_KEEP_VARS` at the top of
-`scripts/sync-env-railway.sh`; add a variable there before pruning if it is set
-in the dashboard on purpose. Vercel ignores `--prune`.
+(`RAILWAY_*`, `PORT`, database/Redis plugin URLs) are never pruned and never
+pushed: a copy in an env file is skipped with a warning, so it cannot overwrite
+the Railway reference (`REDIS_URL` is `${{Redis.REDIS_URL}}`, the project's
+Redis service, set in the dashboard). That list is `PRUNE_KEEP_PREFIXES` /
+`PRUNE_KEEP_VARS` at the top of `scripts/sync-env-railway.sh`; add a variable
+there if it is set in the dashboard on purpose. Vercel ignores `--prune`.
 
 ```bash
 ./scripts/deploy-env.sh --network testnet --dry-run --prune   # review the deletions

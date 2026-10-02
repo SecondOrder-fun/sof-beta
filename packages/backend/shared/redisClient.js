@@ -4,7 +4,8 @@ import process from "node:process";
 
 /**
  * Redis Client Singleton
- * Supports both local development (redis://localhost:6379) and production (Upstash)
+ * Connects to REDIS_URL: redis://127.0.0.1:6379 locally (local-dev.sh), and on
+ * Railway the Redis service, referenced as ${{Redis.REDIS_URL}}.
  */
 class RedisClient {
   constructor() {
@@ -27,23 +28,8 @@ class RedisClient {
     return this.logger || console;
   }
 
-  /**
-   * Resolve Redis URL based on environment
-   */
   getRedisUrl() {
-    // Prefer REDIS_URL when set — single-Redis-per-deploy is the common
-    // case (one Railway env = one Redis instance). REDIS_ENV-prefixed
-    // variants are only consulted as a fallback for setups that pack
-    // multiple Redis URLs into one env file.
-    if (process.env.REDIS_URL) {
-      return process.env.REDIS_URL;
-    }
-
-    const env = process.env.REDIS_ENV || process.env.NODE_ENV || "local";
-    if (env === "prod")    return process.env.REDIS_URL_PROD;
-    if (env === "staging") return process.env.REDIS_URL_STAGING;
-    if (env === "dev")     return process.env.REDIS_URL_DEV;
-    return undefined;
+    return process.env.REDIS_URL || undefined;
   }
 
   /**
@@ -61,7 +47,7 @@ class RedisClient {
 
     try {
       this.client = new Redis(redisUrl, {
-        // Enable TLS for production (Upstash uses rediss://)
+        // TLS only for rediss:// URLs (Railway's Redis is plain redis://)
         tls: redisUrl.startsWith("rediss://") ? {} : undefined,
         maxRetriesPerRequest: 3,
         retryStrategy(times) {

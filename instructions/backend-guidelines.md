@@ -64,8 +64,7 @@ packages/backend/
 │       └── backfillMarketTrades.js
 ├── scripts/
 │   ├── reset-local-db.js, run-migration.sh
-│   ├── backfill-positions.js, reconcile-seasons.js
-│   └── migrate-redis-usernames.js   # copy usernames to a new Redis (EOA wallets only)
+│   └── backfill-positions.js, reconcile-seasons.js
 ├── migrations/                # SQL migrations (sequential numbering; mirrored in root supabase/migrations/)
 ├── tests/                     # api/, backend/, listeners/, scripts/, services/
 ├── env/                       # Environment files (gitignored)
@@ -208,7 +207,7 @@ Never copy ABI JSON files into the backend. The contracts package is the single 
 
 Environment files live in `packages/backend/env/`. Key variables:
 - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` — database
-- `REDIS_URL` (or `REDIS_URL_PROD`, `REDIS_URL_STAGING`, `REDIS_URL_DEV`) — cache
+- `REDIS_URL` — Redis (usernames, sign-in nonces, caches). On Railway it is the reference `${{Redis.REDIS_URL}}`, set in the dashboard and never in the deployed env files
 - `JWT_SECRET`, `JWT_EXPIRES_IN` — auth tokens
 - `RPC_URL` — Ethereum RPC endpoint
 - `NETWORK` — `LOCAL`, `TESTNET`, or `MAINNET`

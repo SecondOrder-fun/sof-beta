@@ -93,7 +93,7 @@ packages/backend/
 │   ├── services/                   # Business logic (positionRelayService, activityFeed, season lifecycle, …)
 │   ├── utils/                      # Utility functions
 │   └── scripts/                    # One-off scripts
-├── scripts/                        # Operational scripts (reset-local-db, backfill-positions, reconcile-seasons, migrate-redis-usernames)
+├── scripts/                        # Operational scripts (reset-local-db, backfill-positions, reconcile-seasons)
 ├── migrations/                     # Numbered SQL migrations (mirrored in root supabase/migrations/)
 ├── tests/                          # Vitest tests (api/, backend/, listeners/, scripts/, services/)
 └── supabase/                       # Supabase config
@@ -199,7 +199,7 @@ Access levels: 0=public, 1=connected, 2=allowlist, 3=beta, 4=admin.
 
 ### Redis Keys
 
-Usernames are the only durable data in Redis (no database copy); everything else is a cache or a TTL'd token. Moving to a new Redis means copying the usernames with `packages/backend/scripts/migrate-redis-usernames.js`.
+The Redis is the Railway Redis service (`REDIS_URL` = `${{Redis.REDIS_URL}}`). Usernames are the only durable data in it (no database copy); everything else is a cache or a TTL'd token.
 
 | Key Pattern | Purpose | TTL |
 |------------|---------|-----|

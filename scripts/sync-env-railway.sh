@@ -15,6 +15,9 @@
 # Behavior:
 #   - Validates Railway token by hitting the API (supports both Account
 #     and Workspace tokens — both use Authorization: Bearer)
+#   - Never pushes the Railway-managed variables on the keep-list below
+#     (REDIS_URL, DATABASE_URL, RAILWAY_*, PORT); a file copy is skipped
+#     with a warning so it cannot overwrite the Railway reference
 #   - Pushes all changed vars in ONE variableCollectionUpsert call with
 #     skipDeploys=true (avoids the per-var-redeploy storm that triggers
 #     Railway's deploy rate limit; user triggers a single redeploy after)
@@ -30,11 +33,11 @@
 set -euo pipefail
 
 # ── Prune keep-list ──────────────────────────────────────────────────
-# Variables --prune never deletes, even though they are absent from the env
-# files: Railway injects them itself (RAILWAY_* system variables, PORT) or
-# they are wired in as references to a Railway database/Redis plugin rather
-# than pushed from an env file. Add a name here before pruning if a variable
-# is managed in the Railway dashboard on purpose.
+# Railway-managed variables: --prune never deletes them, and the sync never
+# pushes them from the env files. Railway injects them itself (RAILWAY_*
+# system variables, PORT) or they are references to a Railway database/Redis
+# plugin (REDIS_URL = ${{Redis.REDIS_URL}}) set in the dashboard. Add a name
+# here if a variable is managed in the Railway dashboard on purpose.
 PRUNE_KEEP_PREFIXES=(RAILWAY_)
 PRUNE_KEEP_VARS=(
   PORT
@@ -224,6 +227,16 @@ while IFS='=' read -r key value; do
   value="$(echo -n "$value" | tr -d '\n\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
   ENV_VARS["$key"]="$value"
 done < "$PKG_ENV_FILE"
+
+# Railway-managed variables (the keep-list above) are references to a Railway
+# plugin or system values; pushing a file's copy would overwrite the reference
+# (e.g. a stale REDIS_URL replacing ${{Redis.REDIS_URL}}). Never push them.
+for key in "${!ENV_VARS[@]}"; do
+  if is_prune_kept "$key"; then
+    echo "[railway] WARN: skipping $key from the env files — Railway manages it"
+    unset 'ENV_VARS[$key]'
+  fi
+done
 
 if [ "$PRUNE" = true ] && [ "${#ENV_VARS[@]}" -eq 0 ]; then
   # An empty desired set would prune every non-managed variable.
