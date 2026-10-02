@@ -183,7 +183,6 @@ npm run dev            # Dev server with env loading
 npm test           # Vitest
 npm run lint           # ESLint (zero warnings enforced)
 npm run reset:local-db    # Reset local Supabase
-npm run scan:historical   # Backfill missed events
 ```
 
 ### Redis
