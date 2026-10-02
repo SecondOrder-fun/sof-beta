@@ -94,6 +94,13 @@ describe('useCurveState — isPriceLoading', () => {
     expect(result.current.curveReserves).toBe(9000n);
   });
 
+  it('reads reserves under the pre-#206 name from an older backend', async () => {
+    mockFetch({ state: { currentSupply: '1532', sofReserves: '7000' }, steps: [] });
+    const { result } = renderHook(() => useCurveState(ADDR), { wrapper: makeWrapper() });
+    await waitFor(() => expect(result.current.hasState).toBe(true));
+    expect(result.current.curveReserves).toBe(7000n);
+  });
+
   it('is not loading when no bonding curve address is provided', () => {
     mockFetch({ state: null, steps: [] });
     const { result } = renderHook(() => useCurveState(undefined), {

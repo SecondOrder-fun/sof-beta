@@ -45,9 +45,10 @@ export function useTreasury(seasonId, bondingCurveAddress) {
   const accumulatedFees = treasuryQuery.data?.accumulatedFees
     ? BigInt(treasuryQuery.data.accumulatedFees)
     : 0n;
-  const reserves = treasuryQuery.data?.reserves
-    ? BigInt(treasuryQuery.data.reserves)
-    : 0n;
+  // `sofReserves`: the pre-#206 name, from a backend deployed before the
+  // rename. Remove the fallback next release.
+  const reservesWei = treasuryQuery.data?.reserves ?? treasuryQuery.data?.sofReserves;
+  const reserves = reservesWei ? BigInt(reservesWei) : 0n;
   const treasuryAddress = treasuryQuery.data?.treasuryAddress ?? null;
   const hasManagerRole = !!roleQuery.data;
 

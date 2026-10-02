@@ -76,6 +76,17 @@ describe('useTreasury', () => {
       expect(result.current.reserves).toBe('10');
     });
 
+    it('reads reserves under the pre-#206 name from an older backend', () => {
+      useWarmRead.mockReturnValue({
+        data: { accumulatedFees: '0', sofReserves: '2000000000000000000', treasuryAddress: mockTreasury },
+        refetch: vi.fn(),
+        isLoading: false,
+      });
+      const { result } = renderHook(() => useTreasury('1', mockBondingCurve), { wrapper });
+      expect(result.current.reserves).toBe('2');
+      expect(result.current.reservesRaw).toBe(2000000000000000000n);
+    });
+
     it('surfaces the curve treasury address for display', () => {
       mockWarm({ treasuryAddress: mockTreasury });
       const { result } = renderHook(() => useTreasury('1', mockBondingCurve), { wrapper });

@@ -9,10 +9,16 @@
 -- RELEASE ORDER: in lockstep with the backend from the same PR, which reads
 -- and writes `reserves` only. Merge, wait for its Railway deploy to go live,
 -- then push this migration at once (`supabase db push --linked`). Until the
--- push, the curve routes and the launchpad seasons list fail on the missing
--- column, and curve_state writes are skipped (each is logged); the next trade
--- on a curve rewrites its row. A season created in that window is seeded by
--- scripts/reconcile-seasons.js (packages/backend; usage in its header).
+-- push:
+--   - every /api/curve/:address route, and the launchpad seasons and
+--     raffles routes while a season is live, return 500 on the missing column
+--     (the frontend falls back to RPC for curve state and bond steps);
+--   - curve_state writes that include reserves are skipped (each is logged);
+--     the next trade on a curve rewrites its row, and a season created in
+--     the window is re-seeded by scripts/reconcile-seasons.js (packages/backend;
+--     usage in its header).
+-- Frontend skew is covered for one release: the curve routes also return the
+-- old `sofReserves` key, and the frontend reads `reserves ?? sofReserves`.
 --
 -- Mirrored by supabase/migrations/20261002000001_rename_curve_state_reserves.sql
 -- (same SQL). Idempotent: scripts/local-dev.sh re-applies every file in this

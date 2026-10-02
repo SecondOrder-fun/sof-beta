@@ -33,6 +33,7 @@ describe('curveRoutes', () => {
     const body = JSON.parse(res.body);
     expect(body.accumulatedFees).toBe('100');
     expect(body.reserves).toBe('200');
+    expect(body.sofReserves).toBe('200'); // deprecated alias for pre-#206 bundles
     expect(body.currentSupply).toBe('300');
     expect(body.currentStep).toEqual({ index: 2, price: '50', rangeTo: '1000' });
   });
@@ -67,6 +68,7 @@ describe('curveRoutes', () => {
     expect(JSON.parse(res.body)).toEqual({
       accumulatedFees: '500',
       reserves: '1000',
+      sofReserves: '1000',
       treasuryAddress: '0xdef',
     });
   });
