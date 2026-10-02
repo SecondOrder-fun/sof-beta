@@ -191,6 +191,8 @@ The backend reads `REDIS_URL` only. On Railway it is the reference `${{Redis.RED
 project's Redis service (private network; every PR environment gets its own copy); locally it is
 `redis://127.0.0.1:6379`. It is not in the deployed env files, and `deploy-env.sh` never pushes it.
 Usernames (`wallet:<address>` → name, `username:<name>` → address, `shared/usernameService.js`) are
-stored **only** in Redis, so losing that Redis loses them; everything else there is cache or TTL'd
+stored **only** in Redis, so losing that Redis loses them. Setting one (`POST /api/usernames`) requires
+sign-in and only writes the JWT's own wallet (401 `SIGN_IN_REQUIRED`, 403 `NOT_YOUR_WALLET`);
+`GET /api/usernames/all` is admin-only. Everything else in Redis is cache or TTL'd
 (sign-in nonces, access and route caches). Sign-in fails without Redis: `GET /api/auth/nonce`
 stores the nonce there.

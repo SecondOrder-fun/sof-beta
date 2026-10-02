@@ -121,7 +121,9 @@
     "USERNAME_RESERVED": "Questo nome utente è riservato",
     "USERNAME_TAKEN": "Questo nome utente è già in uso",
     "INTERNAL_ERROR": "Si è verificato un errore. Riprova.",
-    "UNKNOWN_ERROR": "Si è verificato un errore sconosciuto"
+    "UNKNOWN_ERROR": "Si è verificato un errore sconosciuto",
+    "SIGN_IN_REQUIRED": "Accedi con il tuo wallet per impostare un nome utente.",
+    "NOT_YOUR_WALLET": "Puoi impostare solo il nome utente del tuo wallet."
   },
   "finish": "Termina",
   "processing": "Elaborazione...",

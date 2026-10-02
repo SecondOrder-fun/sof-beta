@@ -32,7 +32,9 @@
     "USERNAME_RESERVED": "This username is reserved",
     "USERNAME_TAKEN": "Username is already taken",
     "INTERNAL_ERROR": "An error occurred. Please try again.",
-    "UNKNOWN_ERROR": "An unknown error occurred"
+    "UNKNOWN_ERROR": "An unknown error occurred",
+    "SIGN_IN_REQUIRED": "Sign in with your wallet to set a username.",
+    "NOT_YOUR_WALLET": "You can only set the username of your own wallet."
   },
   "sofBalanceTitle": "$SOF Balance",
   "sofBalanceDescription": "Wallet's current $SOF holdings.",

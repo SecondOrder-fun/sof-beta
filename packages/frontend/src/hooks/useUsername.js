@@ -1,6 +1,8 @@
 // src/hooks/useUsername.js
+import { useContext } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
+import { AppAuthContext } from "@/context/AppAuthContext";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
@@ -23,17 +25,25 @@ export const useUsername = (address) => {
 };
 
 /**
- * Set username for a wallet address
+ * Set the signed-in wallet's username.
+ *
+ * The backend takes the wallet from the sign-in JWT and only accepts `address`
+ * if it is that same wallet, so the request carries the Authorization header;
+ * without a sign-in it is rejected with 401.
  */
 export const useSetUsername = () => {
   const queryClient = useQueryClient();
+  // Read the context directly: outside AppAuthProvider there are no headers.
+  const auth = useContext(AppAuthContext);
 
   return useMutation({
     mutationFn: async ({ address, username }) => {
-      const response = await axios.post(`${API_BASE}/usernames`, {
-        address,
-        username,
-      });
+      const headers = auth?.getAuthHeaders?.() ?? {};
+      const response = await axios.post(
+        `${API_BASE}/usernames`,
+        { address, username },
+        { headers },
+      );
       return response.data;
     },
     onSuccess: (data, variables) => {

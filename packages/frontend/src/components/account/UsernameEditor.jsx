@@ -43,7 +43,9 @@ const UsernameEditor = ({ address, currentUsername, onSuccess }) => {
       });
       onSuccess();
     } catch (error) {
-      alert(t('username_error_setting', { message: error.message }));
+      const fallback = t('username_error_setting', { message: error.message });
+      const code = error.response?.data?.error;
+      alert(code ? t(`usernameError.${code}`, { defaultValue: fallback }) : fallback);
     }
   };
 

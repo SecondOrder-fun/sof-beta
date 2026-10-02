@@ -121,7 +121,9 @@
     "USERNAME_RESERVED": "Este nombre de usuario está reservado",
     "USERNAME_TAKEN": "Este nombre de usuario ya está en uso",
     "INTERNAL_ERROR": "Ocurrió un error. Por favor, inténtalo de nuevo.",
-    "UNKNOWN_ERROR": "Ocurrió un error desconocido"
+    "UNKNOWN_ERROR": "Ocurrió un error desconocido",
+    "SIGN_IN_REQUIRED": "Inicia sesión con tu billetera para establecer un nombre de usuario.",
+    "NOT_YOUR_WALLET": "Solo puedes establecer el nombre de usuario de tu propia billetera."
   },
   "finish": "Finalizar",
   "processing": "Procesando...",

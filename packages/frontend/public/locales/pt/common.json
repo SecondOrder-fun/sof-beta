@@ -121,7 +121,9 @@
     "USERNAME_RESERVED": "Este nome de usuário é reservado",
     "USERNAME_TAKEN": "Este nome de usuário já está em uso",
     "INTERNAL_ERROR": "Ocorreu um erro. Tente novamente.",
-    "UNKNOWN_ERROR": "Ocorreu um erro desconhecido"
+    "UNKNOWN_ERROR": "Ocorreu um erro desconhecido",
+    "SIGN_IN_REQUIRED": "Entre com sua carteira para definir um nome de usuário.",
+    "NOT_YOUR_WALLET": "Você só pode definir o nome de usuário da sua própria carteira."
   },
   "finish": "Finalizar",
   "processing": "Processando...",
