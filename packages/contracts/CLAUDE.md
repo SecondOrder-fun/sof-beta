@@ -179,9 +179,10 @@ Version-controlled in `deployments/`:
 - **`PAYMASTER_ROLE` on InfoFiMarketFactory is unrelated and stays.** The name is historical: it
   gates `onPositionUpdate` and is held by the backend wallet (step 24, `setPaymasterAccount`).
 - `Raffle.registerCurve` / `isSofCurve` stay as a general registry of genuine season curves.
-- The testnet deployer's old smart account still holds admin roles from the retired
-  ConfigureRoles §9b; `scripts/revoke-sma-roles.sh --network testnet --address <sma> [--check]`
-  lists and revokes them.
+- ConfigureRoles §9b used to mirror the deployer's admin roles onto its smart account.
+  `scripts/revoke-sma-roles.sh --network <net> --address <sma> [--check]` lists and revokes
+  them (sending through `script/ops/RevokeSmaRoles.s.sol`); on Base Sepolia this is done —
+  `0xE0bDdb3B2bA1f707D8cc994757389168A2D1Dc96` holds none of them (2026-10-02).
 
 ## Quote tokens and InfoFi collateral
 

@@ -6,8 +6,11 @@
 # who can administer Raffle and SeasonFactory.
 #
 # Usage:
-#   scripts/revoke-sma-roles.sh --network testnet --address 0x… --check   # read-only; exit 1 if any role is held
+#   scripts/revoke-sma-roles.sh --network testnet --address 0x… --check   # read-only
 #   scripts/revoke-sma-roles.sh --network testnet --address 0x…           # revoke every role still held
+#
+# Exit codes: 0 = no role held (or all revoked); 1 = a role is still held, or a
+# precondition failed; 2 = bad arguments; 3 = a role could not be read.
 #
 # The roles §9b granted, all checked here:
 #   - Raffle:        DEFAULT_ADMIN_ROLE, SEASON_CREATOR_ROLE, EMERGENCY_ROLE
@@ -23,12 +26,16 @@
 #   - RPC_URL: optional override. Defaults: testnet → Tenderly gateway (the public
 #     Base Sepolia RPC 502s under load, see the root CLAUDE.md), mainnet → mainnet.base.org.
 #
+# The revokes are sent by packages/contracts/script/ops/RevokeSmaRoles.s.sol (forge,
+# --broadcast --slow); role reads and the post-send check use scripts/lib/roles.sh.
 # Idempotent: a role the address no longer holds is skipped.
 
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTRACTS_DIR="$ROOT_DIR/packages/contracts"
+# shellcheck source=lib/roles.sh
+. "$ROOT_DIR/scripts/lib/roles.sh"
 
 USAGE="Usage: scripts/revoke-sma-roles.sh --network <testnet|mainnet> --address <0x…> [--check]"
 
@@ -37,8 +44,10 @@ TARGET=""
 CHECK_ONLY=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --network) NETWORK="${2:-}"; shift 2 ;;
-    --address) TARGET="${2:-}"; shift 2 ;;
+    --network|--address)
+      [ $# -ge 2 ] || { echo "$1 needs a value" >&2; echo "$USAGE" >&2; exit 2; }
+      if [ "$1" = --network ]; then NETWORK="$2"; else TARGET="$2"; fi
+      shift 2 ;;
     --check) CHECK_ONLY=1; shift ;;
     *) echo "Unknown argument: $1" >&2; echo "$USAGE" >&2; exit 2 ;;
   esac
@@ -55,31 +64,16 @@ if [[ ! "$TARGET" =~ ^0x[0-9a-fA-F]{40}$ ]]; then
   echo "$USAGE" >&2
   exit 2
 fi
-if [ "$(echo "$TARGET" | tr 'A-F' 'a-f')" = "0x0000000000000000000000000000000000000000" ]; then
+# The zero-address and deployer guards are repeated in RevokeSmaRoles.s.sol,
+# which can be run on its own; keep the two in step.
+if [ "$(lower "$TARGET")" = "$ZERO_ADDRESS" ]; then
   echo "✗ --address is the zero address" >&2
   exit 2
 fi
 
-# Read one KEY=value from an env file without sourcing the rest of it.
-read_env_value() {
-  local file="$1" key="$2"
-  [ -f "$file" ] || return 0
-  { grep -E "^${key}=" "$file" || true; } | tail -1 | cut -d= -f2- | tr -d "\"' \r\n"
-}
-
-# One address from deployments/<network>.json, validated.
-deployment_address() {
-  local key="$1" addr
-  addr="$(node -e "const d=require('$CONTRACTS_DIR/deployments/$NETWORK.json'); process.stdout.write((d.contracts||{})['$key']||'')")"
-  if [[ ! "$addr" =~ ^0x[0-9a-fA-F]{40}$ ]] || [ "$addr" = "0x0000000000000000000000000000000000000000" ]; then
-    echo "✗ No $key address in deployments/$NETWORK.json" >&2
-    exit 1
-  fi
-  printf '%s' "$addr"
-}
-
-RAFFLE="$(deployment_address Raffle)"
-SEASON_FACTORY="$(deployment_address SeasonFactory)"
+DEPLOYMENTS="$CONTRACTS_DIR/deployments/$NETWORK.json"
+RAFFLE="$(deployment_address "$DEPLOYMENTS" Raffle)" || exit 1
+SEASON_FACTORY="$(deployment_address "$DEPLOYMENTS" SeasonFactory)" || exit 1
 RPC_URL="${RPC_URL:-$DEFAULT_RPC}"
 
 DEFAULT_ADMIN_ROLE="0x0000000000000000000000000000000000000000000000000000000000000000"
@@ -92,14 +86,12 @@ TARGETS=("$RAFFLE" "$RAFFLE" "$RAFFLE" "$SEASON_FACTORY")
 ROLE_NAMES=(SEASON_CREATOR_ROLE EMERGENCY_ROLE DEFAULT_ADMIN_ROLE DEFAULT_ADMIN_ROLE)
 ROLE_HASHES=("$SEASON_CREATOR_ROLE" "$EMERGENCY_ROLE" "$DEFAULT_ADMIN_ROLE" "$DEFAULT_ADMIN_ROLE")
 
-has_role() {
-  cast call "$1" 'hasRole(bytes32,address)(bool)' "$2" "$3" --rpc-url "$RPC_URL"
-}
-
 echo "Roles held by $TARGET on $NETWORK:"
 HELD=()
 for i in "${!LABELS[@]}"; do
-  if [ "$(has_role "${TARGETS[$i]}" "${ROLE_HASHES[$i]}" "$TARGET")" = "true" ]; then
+  held="$(role_read_retry "${TARGETS[$i]}" "${ROLE_HASHES[$i]}" "$TARGET" "$RPC_URL")" || {
+    echo "✗ could not read ${LABELS[$i]} ${ROLE_NAMES[$i]} for $TARGET (error above)" >&2; exit 3; }
+  if [ "$held" = "true" ]; then
     echo "  ✗ ${LABELS[$i]} (${TARGETS[$i]}) ${ROLE_NAMES[$i]}"
     HELD+=("$i")
   else
@@ -117,16 +109,10 @@ if [ -n "$CHECK_ONLY" ]; then
   exit 1
 fi
 
-CONTRACTS_ENV="$CONTRACTS_DIR/env/.env.$NETWORK"
-PRIVATE_KEY="${PRIVATE_KEY:-$(read_env_value "$CONTRACTS_ENV" PRIVATE_KEY)}"
-if [ -z "$PRIVATE_KEY" ]; then
-  echo "✗ PRIVATE_KEY (deployer) not set and not found in $CONTRACTS_ENV" >&2
-  exit 1
-fi
-[[ "$PRIVATE_KEY" != 0x* ]] && PRIVATE_KEY="0x$PRIVATE_KEY"
+load_private_key "$CONTRACTS_DIR/env/.env.$NETWORK" || exit 1
 
 DEPLOYER="$(cast wallet address --private-key "$PRIVATE_KEY")"
-if [ "$(echo "$DEPLOYER" | tr 'A-F' 'a-f')" = "$(echo "$TARGET" | tr 'A-F' 'a-f')" ]; then
+if [ "$(lower "$DEPLOYER")" = "$(lower "$TARGET")" ]; then
   echo "✗ --address is the deployer ($DEPLOYER) itself; refusing to revoke its own roles" >&2
   exit 1
 fi
@@ -134,27 +120,59 @@ fi
 # Every revoke must be authorised by the role's admin role: check them all up
 # front so the run is all-or-nothing rather than failing halfway.
 for i in "${HELD[@]}"; do
-  ADMIN_ROLE="$(cast call "${TARGETS[$i]}" 'getRoleAdmin(bytes32)(bytes32)' "${ROLE_HASHES[$i]}" --rpc-url "$RPC_URL")"
-  if [ "$(has_role "${TARGETS[$i]}" "$ADMIN_ROLE" "$DEPLOYER")" != "true" ]; then
+  ADMIN_ROLE="$(role_admin_read_retry "${TARGETS[$i]}" "${ROLE_HASHES[$i]}" "$RPC_URL")" || {
+    echo "✗ could not read the admin role of ${ROLE_NAMES[$i]} on ${LABELS[$i]} (error above)" >&2; exit 3; }
+  held="$(role_read_retry "${TARGETS[$i]}" "$ADMIN_ROLE" "$DEPLOYER" "$RPC_URL")" || {
+    echo "✗ could not read the deployer's admin role on ${LABELS[$i]} (error above)" >&2; exit 3; }
+  if [ "$held" != "true" ]; then
     echo "✗ Deployer $DEPLOYER lacks the admin role ($ADMIN_ROLE) for ${ROLE_NAMES[$i]} on ${LABELS[$i]}" >&2
     exit 1
   fi
 done
 
+# The revokes go through a forge script (--broadcast --slow), like
+# grant-backend-wallet.sh: forge assigns the nonces locally from one read and
+# waits for each receipt, so there is no per-send nonce lookup on the
+# load-balanced gateway to go stale. (Forge's single starting read can still
+# hit a lagging node right after another deployer tx; the send then fails with
+# "nonce too low" — re-run.) The held (contract, role) pairs are passed in, so
+# this script's list is the only list; the forge script re-checks each on-chain
+# and skips any no longer held, so re-running is safe.
+REVOKE_CONTRACTS=""; REVOKE_ROLES=""
 for i in "${HELD[@]}"; do
-  echo "Revoking ${ROLE_NAMES[$i]} on ${LABELS[$i]} (${TARGETS[$i]}) from $TARGET..."
-  cast send "${TARGETS[$i]}" 'revokeRole(bytes32,address)' "${ROLE_HASHES[$i]}" "$TARGET" \
-    --private-key "$PRIVATE_KEY" --rpc-url "$RPC_URL" >/dev/null
+  REVOKE_CONTRACTS="${REVOKE_CONTRACTS:+$REVOKE_CONTRACTS,}${TARGETS[$i]}"
+  REVOKE_ROLES="${REVOKE_ROLES:+$REVOKE_ROLES,}${ROLE_HASHES[$i]}"
 done
+echo "Revoking ${#HELD[@]} role(s) from $TARGET through script/ops/RevokeSmaRoles.s.sol..."
+FORGE_FAILED=0
+(
+  cd "$CONTRACTS_DIR"
+  PRIVATE_KEY="$PRIVATE_KEY" REVOKE_TARGET="$TARGET" \
+    REVOKE_CONTRACTS="$REVOKE_CONTRACTS" REVOKE_ROLES="$REVOKE_ROLES" \
+    forge script script/ops/RevokeSmaRoles.s.sol:RevokeSmaRoles \
+      --rpc-url "$RPC_URL" --broadcast --slow
+) || FORGE_FAILED=1
 
-FAILED=0
+# Check every role even if forge failed partway: the roles decide the result,
+# and the report says which are still held. After a forge failure nothing more
+# is on its way, so one read each is enough; after a clean run, wait out the
+# gateway lag.
+TRIES=5
+[ "$FORGE_FAILED" -eq 0 ] || TRIES=1
+FAILED=0   # 1 if a role is still held, else 3 if one could not be read
 for i in "${HELD[@]}"; do
-  if [ "$(has_role "${TARGETS[$i]}" "${ROLE_HASHES[$i]}" "$TARGET")" = "true" ]; then
-    echo "✗ ${LABELS[$i]} ${ROLE_NAMES[$i]} is still held after the revoke" >&2
-    FAILED=1
+  rc=0
+  why="$(role_wait "${TARGETS[$i]}" "${ROLE_HASHES[$i]}" "$TARGET" "$RPC_URL" false "$TRIES" 2>&1)" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "✗ ${LABELS[$i]} ${ROLE_NAMES[$i]} $why" >&2
+    if [ "$rc" -eq 1 ] || [ "$FAILED" -eq 0 ]; then FAILED=$rc; fi
   fi
 done
 if [ "$FAILED" -ne 0 ]; then
-  exit 1
+  if [ "$FORGE_FAILED" -ne 0 ]; then
+    echo "✗ The forge broadcast failed (see its output above). Re-run to revoke what is left." >&2
+  fi
+  exit "$FAILED"
 fi
+[ "$FORGE_FAILED" -eq 0 ] || echo "  (forge reported an error, but every role reads as revoked)"
 echo "✓ Revoked. $TARGET holds none of the mirrored admin roles."
