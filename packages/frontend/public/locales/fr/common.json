@@ -121,7 +121,9 @@
     "USERNAME_RESERVED": "Ce nom d'utilisateur est réservé",
     "USERNAME_TAKEN": "Ce nom d'utilisateur est déjà pris",
     "INTERNAL_ERROR": "Une erreur s'est produite. Veuillez réessayer.",
-    "UNKNOWN_ERROR": "Une erreur inconnue s'est produite"
+    "UNKNOWN_ERROR": "Une erreur inconnue s'est produite",
+    "SIGN_IN_REQUIRED": "Connectez-vous avec votre portefeuille pour définir un nom d'utilisateur.",
+    "NOT_YOUR_WALLET": "Vous ne pouvez définir que le nom d'utilisateur de votre propre portefeuille."
   },
   "finish": "Terminer",
   "processing": "Traitement...",

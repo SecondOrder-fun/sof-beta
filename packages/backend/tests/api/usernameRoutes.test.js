@@ -31,6 +31,18 @@ vi.mock("../../shared/redisClient.js", () => ({
   },
 }));
 
+// Admin check behind createRequireAdmin: level 4 for the admin test wallet.
+const ADMIN_WALLET = "0x" + "a".repeat(40);
+vi.mock("../../shared/accessCache.js", () => ({
+  getCachedUserAccess: vi.fn(async ({ wallet }) => ({
+    level: wallet?.toLowerCase() === "0x" + "a".repeat(40) ? 4 : 1,
+  })),
+}));
+
+// Stands in for the app-wide JWT hook (shared/auth.js): the x-test-wallet
+// header plays the role of a verified Bearer token's wallet_address.
+const asWallet = (wallet) => ({ "x-test-wallet": wallet });
+
 describe("Username Routes", () => {
   let app;
   let usernameRoutes;
@@ -48,6 +60,11 @@ describe("Username Routes", () => {
       .default;
 
     app = fastify({ logger: false });
+    app.decorateRequest("user", null);
+    app.addHook("preHandler", async (request) => {
+      const wallet = request.headers["x-test-wallet"];
+      if (wallet) request.user = { wallet_address: wallet };
+    });
     await app.register(usernameRoutes, { prefix: "/api/usernames" });
     await app.ready();
   });
@@ -94,73 +111,104 @@ describe("Username Routes", () => {
   });
 
   describe("POST /api/usernames", () => {
-    it("should set username for valid address", async () => {
-      const testAddress = "0x" + "1".repeat(40);
-      const testUsername = "testuser" + (Date.now() % 10000); // Keep under 20 chars
+    const WALLET = "0x" + "1".repeat(40);
+    const post = (payload, headers = asWallet(WALLET)) =>
+      app.inject({ method: "POST", url: "/api/usernames", payload, headers });
 
-      // Mock Redis to return null for reverse lookup (username available)
-      mockGet.mockResolvedValueOnce(null); // getAddressByUsername returns null
-      mockGet.mockResolvedValueOnce(null); // getUsernameByAddress returns null
-      mockExec.mockResolvedValueOnce([["OK"], ["OK"]]); // pipeline exec succeeds
+    it("rejects a request without a signed-in wallet", async () => {
+      mockSet.mockClear();
+      const response = await post({ address: WALLET, username: "nobody1" }, {});
 
-      const response = await app.inject({
-        method: "POST",
-        url: "/api/usernames",
-        payload: {
-          address: testAddress,
-          username: testUsername,
-        },
-      });
+      expect(response.statusCode).toBe(401);
+      expect(JSON.parse(response.body).error).toBe("SIGN_IN_REQUIRED");
+      expect(mockSet).not.toHaveBeenCalled();
+    });
 
-      const body = JSON.parse(response.body);
+    it("sets the signed-in wallet's username without a body address", async () => {
+      mockGet.mockResolvedValueOnce(null); // username free
+      mockGet.mockResolvedValueOnce(null); // wallet has no previous name
+      mockExec.mockResolvedValueOnce([["OK"], ["OK"]]);
+      mockSet.mockClear();
 
-      // Debug: log response if not 200
-      if (response.statusCode !== 200) {
-        console.log("POST username failed:", body);
-      }
+      const response = await post({ username: "alice1" });
 
       expect(response.statusCode).toBe(200);
-      expect(body.success).toBe(true);
-      expect(body.username).toBe(testUsername);
+      const body = JSON.parse(response.body);
+      expect(body).toMatchObject({ success: true, address: WALLET, username: "alice1" });
+      expect(mockSet).toHaveBeenCalledWith(`wallet:${WALLET}`, "alice1");
+      expect(mockSet).toHaveBeenCalledWith("username:alice1", WALLET);
+    });
+
+    it("accepts a body address that matches the signed-in wallet in any case", async () => {
+      const mixed = "0x" + "AbC1".repeat(10);
+      mockGet.mockResolvedValueOnce(null);
+      mockGet.mockResolvedValueOnce(null);
+      mockExec.mockResolvedValueOnce([["OK"], ["OK"]]);
+
+      const response = await post({ address: mixed.toLowerCase(), username: "bob1" }, asWallet(mixed));
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.body).address).toBe(mixed.toLowerCase());
+    });
+
+    it("refuses to set another wallet's username", async () => {
+      mockSet.mockClear();
+      const response = await post({ address: "0x" + "9".repeat(40), username: "squatter" });
+
+      expect(response.statusCode).toBe(403);
+      expect(JSON.parse(response.body).error).toBe("NOT_YOUR_WALLET");
+      expect(mockSet).not.toHaveBeenCalled();
+    });
+
+    it("returns 409 when the name belongs to another wallet", async () => {
+      mockGet.mockResolvedValueOnce("0x" + "8".repeat(40)); // username:taken → someone else
+
+      const response = await post({ username: "taken1" });
+
+      expect(response.statusCode).toBe(409);
+      expect(JSON.parse(response.body).error).toBe("USERNAME_TAKEN");
     });
 
     it("should reject username that is too short", async () => {
-      const response = await app.inject({
-        method: "POST",
-        url: "/api/usernames",
-        payload: {
-          address: "0x" + "2".repeat(40),
-          username: "ab",
-        },
-      });
-
+      const response = await post({ username: "ab" });
       expect(response.statusCode).toBe(400);
     });
 
     it("should reject username that is too long", async () => {
-      const response = await app.inject({
-        method: "POST",
-        url: "/api/usernames",
-        payload: {
-          address: "0x" + "3".repeat(40),
-          username: "a".repeat(21),
-        },
-      });
-
+      const response = await post({ username: "a".repeat(21) });
       expect(response.statusCode).toBe(400);
     });
 
     it("should reject username with invalid characters", async () => {
-      const response = await app.inject({
-        method: "POST",
-        url: "/api/usernames",
-        payload: {
-          address: "0x" + "4".repeat(40),
-          username: "test@user",
-        },
-      });
-
+      const response = await post({ username: "test@user" });
       expect(response.statusCode).toBe(400);
+    });
+  });
+
+  describe("GET /api/usernames/all", () => {
+    it("requires a signed-in wallet", async () => {
+      const response = await app.inject({ method: "GET", url: "/api/usernames/all" });
+      expect(response.statusCode).toBe(401);
+    });
+
+    it("refuses non-admin wallets", async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/usernames/all",
+        headers: asWallet("0x" + "1".repeat(40)),
+      });
+      expect(response.statusCode).toBe(403);
+    });
+
+    it("lists usernames for an admin", async () => {
+      mockKeys.mockResolvedValueOnce([]);
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/usernames/all",
+        headers: asWallet(ADMIN_WALLET),
+      });
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({ count: 0, usernames: [] });
     });
   });
 

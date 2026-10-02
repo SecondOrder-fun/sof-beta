@@ -121,7 +121,9 @@
     "USERNAME_RESERVED": "このユーザー名は予約されています",
     "USERNAME_TAKEN": "このユーザー名は既に使用されています",
     "INTERNAL_ERROR": "エラーが発生しました。もう一度お試しください。",
-    "UNKNOWN_ERROR": "不明なエラーが発生しました"
+    "UNKNOWN_ERROR": "不明なエラーが発生しました",
+    "SIGN_IN_REQUIRED": "ユーザー名を設定するにはウォレットでサインインしてください。",
+    "NOT_YOUR_WALLET": "自分のウォレットのユーザー名のみ設定できます。"
   },
   "finish": "完了",
   "processing": "処理中...",

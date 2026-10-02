@@ -121,7 +121,9 @@
     "USERNAME_RESERVED": "此用户名已被保留",
     "USERNAME_TAKEN": "此用户名已被使用",
     "INTERNAL_ERROR": "发生错误。请重试。",
-    "UNKNOWN_ERROR": "发生未知错误"
+    "UNKNOWN_ERROR": "发生未知错误",
+    "SIGN_IN_REQUIRED": "请使用钱包登录以设置用户名。",
+    "NOT_YOUR_WALLET": "您只能设置自己钱包的用户名。"
   },
   "finish": "完成",
   "processing": "处理中...",

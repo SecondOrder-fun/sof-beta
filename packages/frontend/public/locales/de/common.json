@@ -121,7 +121,9 @@
     "USERNAME_RESERVED": "Dieser Benutzername ist reserviert",
     "USERNAME_TAKEN": "Dieser Benutzername ist bereits vergeben",
     "INTERNAL_ERROR": "Ein Fehler ist aufgetreten. Bitte versuchen Sie es erneut.",
-    "UNKNOWN_ERROR": "Ein unbekannter Fehler ist aufgetreten"
+    "UNKNOWN_ERROR": "Ein unbekannter Fehler ist aufgetreten",
+    "SIGN_IN_REQUIRED": "Melde dich mit deiner Wallet an, um einen Benutzernamen festzulegen.",
+    "NOT_YOUR_WALLET": "Du kannst nur den Benutzernamen deiner eigenen Wallet festlegen."
   },
   "finish": "Abschließen",
   "processing": "Verarbeitung...",
