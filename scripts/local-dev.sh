@@ -10,7 +10,7 @@
 #
 # What it does:
 #   1. Starts chain + cache (Anvil + Redis) via docker-compose
-#   2. Injects EntryPoint v0.8 + runs forge DeployAll
+#   2. Runs forge DeployAll
 #   3. Starts Supabase local (single source of truth for the DB layer —
 #      same role the managed Supabase project plays on testnet/prod)
 #   4. Seeds admin wallets in Supabase
@@ -204,10 +204,8 @@ do_start() {
   mkdir -p "$PID_DIR"
 
   # ------ Step 1: Docker infrastructure ------
-  # Two-phase startup: bring up anvil first so we can inject EntryPoint v0.8
-  # at the canonical address before the forge deploy script runs. The paymaster
-  # deploy step checks for code at 0x4337...f108 and falls back to StubEntryPoint
-  # only if empty, so we need to inject before deploy-contracts starts.
+  # Two-phase startup: bring up anvil first and wait until it answers before
+  # the forge deploy container starts.
   log "Step 1/10: Starting Anvil + Redis..."
   docker compose up -d anvil redis 2>&1 | grep -v "^$" || true
 
@@ -222,12 +220,6 @@ do_start() {
     sleep 1
   done
   ok "  Anvil healthy (block $(cast block-number --rpc-url $RPC))"
-
-  log "  Injecting EntryPoint v0.8 at canonical address..."
-  if ! node "$ROOT_DIR/scripts/setup-local-aa.js" "$RPC" 2>&1; then
-    err "EntryPoint injection failed"
-    exit 1
-  fi
 
   log "  Starting contract deployment..."
   docker compose up -d deploy-contracts 2>&1 | grep -v "^$" || true
@@ -259,10 +251,9 @@ do_start() {
   # broadcast log on every deploy but the in-script JSON writer was disabled
   # (per a comment in DeployAll.s.sol — it produced wrong addresses on
   # --resume). Without this step, the JSON stays at whatever a previous
-  # deploy run wrote, so the backend + frontend would read stale paymaster
-  # / curve addresses on every fresh stack and every userOp would fail with
-  # AA33 (paymaster has no code at the cached address). Bug surfaced during
-  # M5 live verification — fix in the script makes future runs deterministic.
+  # deploy run wrote, so the backend + frontend would read stale contract
+  # addresses on every fresh stack and every call would hit an address with
+  # no code. Regenerating it here makes every run deterministic.
   log "  Refreshing deployments/local.json from broadcast log..."
   if ! node "$ROOT_DIR/scripts/extract-deployment-addresses.js" --network local 2>&1 | sed 's/^/    /'; then
     err "  Failed to extract deployment addresses"
@@ -276,34 +267,6 @@ do_start() {
     warn "  RolloverEscrow not in local.json — rollover features will be disabled"
   else
     ok "  RolloverEscrow at $escrow"
-  fi
-
-  # ------ Step 2a: SOFPaymaster EntryPoint deposit ------
-  # Forge's local simulation EVM doesn't see the EntryPoint we injected via
-  # anvil_setCode, so the paymaster contract can't deposit during the deploy
-  # script (it would call into "code-less" canonical address from the
-  # simulator's perspective and abort). We fund it from cast, which talks to
-  # the real chain that has the real EntryPoint code at 0x4337....
-  #
-  # Canonical pattern: EntryPoint.depositTo(paymaster) {value: X}. The new
-  # SOFPaymaster (gasless rewrite) has no `receive()` — direct ETH transfers
-  # to the paymaster would be trapped, so the only funded path is via the
-  # EntryPoint's deposit ledger.
-  local paymaster
-  paymaster=$(get_deployment Paymaster) || true
-  if [ -n "$paymaster" ] && [ "$paymaster" != "null" ]; then
-    log "Step 2a/10: Funding SOFPaymaster EntryPoint deposit (100 ETH)..."
-    if cast send 0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108 \
-        "depositTo(address)" "$paymaster" \
-        --value 100ether \
-        --private-key "$DEPLOYER_KEY" \
-        --rpc-url "$RPC" >/dev/null 2>&1; then
-      ok "  Paymaster funded with 100 ETH on EntryPoint"
-    else
-      warn "  Paymaster deposit failed — sponsored UserOps will revert until funded"
-    fi
-  else
-    warn "  Paymaster not in local.json — sponsored UserOps will not work"
   fi
 
   # ------ Step 2b: VRF subscription setup ------

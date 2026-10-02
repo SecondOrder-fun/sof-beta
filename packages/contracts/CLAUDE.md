@@ -21,7 +21,6 @@ src/
 ├── curve/      # SOFBondingCurve (ticket curve, quoted in the season's quoteToken), IRaffleToken
 ├── token/      # RaffleToken (per-season tickets, 0 decimals)
 ├── infofi/     # InfoFiMarketFactory, InfoFiFPMMV2, InfoFiPriceOracle, InfoFiSettlement, ConditionalTokenSOF, MarketTypeRegistry, RaffleOracleAdapter
-├── airdrop/    # SOFAirdrop
 ├── gating/     # SeasonGating, SeasonGatingStorage
 ├── sponsor/    # SponsorOnboarding
 ├── launchpad/  # TokenLaunchpad, LaunchToken, ILiquidityPlacer, UniV4LiquidityPlacer, LaunchPoolGate, HookMiner, ILaunchRouter, UniV4LaunchRouter
@@ -43,7 +42,6 @@ Test files covering:
 - Bonding curve operations (`SellAllTickets.t.sol`, `BondingCurvePermit.t.sol`)
 - Pricing invariants (`invariant/HybridPricingInvariant.t.sol`)
 - InfoFi FPMM (`InfoFiFPMM.t.sol`, `FPMMPermit.t.sol`)
-- Airdrop (`SOFAirdrop.t.sol`)
 - Per-season quote tokens (`SeasonQuoteToken.t.sol`)
 - LP fee collection and the 88/12 split (`LaunchLpFees.t.sol`, real `PoolManager`, trades through the router)
 - Launchpad (`TokenLaunchpad.t.sol`, `UniV4LiquidityPlacer.t.sol` — against a real v4
@@ -74,7 +72,9 @@ Modular numbered scripts in `script/deploy/`:
   18-decimal ERC-20) wins when set and is **required** off local/Base Sepolia; otherwise it
   deploys the anyone-can-mint MockERC20 placeholder, which it refuses to do on any other
   chain. Replaced `01_DeploySOFToken`. `02_DeployRaffle` allowlists it as a quote token.
-- `01-13` — one contract each, in dependency order
+- `01-11`, `16-17` — one contract each, in dependency order. Gaps in the numbering are
+  retired steps (13 was the smart-account factory, 15 the paymaster; both deleted in 0.40.0)
+- `19_AddVRFConsumer` — non-local: registers Raffle as a consumer on the VRF subscription
 - `14_ConfigureRoles` — role grants and wiring between contracts
 - `24_GrantBackendWallet` — runs right after 14: grants `BACKEND_WALLET_ADDRESS` (the backend
   wallet) `PAYMASTER_ROLE` on InfoFiMarketFactory, which gates `onPositionUpdate`. Required off
@@ -107,7 +107,7 @@ Modular numbered scripts in `script/deploy/`:
   earlier ones stay tradeable. The app never hardcodes a router: it reads
   `TokenLaunchpad.router()` and encodes against `ILaunchRouter`, so **replacing the router is this step plus one `setRouter`** — no client
   release. `setRouter(address(0))` turns in-app trading off (pools stay tradeable elsewhere).
-- `DeployAll.s.sol` — orchestrator that chains 00-23. It does NOT write `deployments/{network}.json`:
+- `DeployAll.s.sol` — orchestrator that chains 00-24. It does NOT write `deployments/{network}.json`:
   `scripts/extract-deployment-addresses.js` builds it from the broadcast log (required post-step)
 
 ```bash
@@ -131,9 +131,10 @@ forge script script/deploy/DeployAll.s.sol:DeployAll \
 # REQUIRED post-step: regenerate deployments/testnet.json from broadcast log
 node ../../scripts/extract-deployment-addresses.js --network testnet
 
-# Individual contract (e.g., just the smart account)
-PRIVATE_KEY="0x..." forge script script/deploy/13_DeploySOFSmartAccount.s.sol:DeploySOFSmartAccount \
-  --rpc-url http://127.0.0.1:8545 --broadcast --force
+# Standalone step on an existing deploy (e.g., grant the backend wallet its role)
+PRIVATE_KEY="0x..." BACKEND_WALLET_ADDRESS="0x..." \
+  forge script script/deploy/24_GrantBackendWallet.s.sol:GrantBackendWallet --sig "run()" \
+  --rpc-url http://127.0.0.1:8545 --broadcast
 ```
 
 After deployment:
@@ -170,13 +171,20 @@ Version-controlled in `deployments/`:
   current recipient can hand it on (`setFeeRecipient`). `sweepDust` never touches unclaimed
   fees (`totalClaimableToken`). Fees accrue per placer: collect through `launchpad.placerOf`.
 
+## No smart accounts or paymaster
+
+- **Users transact from their own wallet and pay their own gas.** There is no ERC-4337 smart
+  account, factory, paymaster or EntryPoint in this package any more (removed in 0.40.0; the
+  instances already on Base Sepolia are simply no longer used). Don't reintroduce one.
+- **`PAYMASTER_ROLE` on InfoFiMarketFactory is unrelated and stays.** The name is historical: it
+  gates `onPositionUpdate` and is held by the backend wallet (step 24, `setPaymasterAccount`).
+- `Raffle.registerCurve` / `isSofCurve` stay as a general registry of genuine season curves.
+- The testnet deployer's old smart account still holds admin roles from the retired
+  ConfigureRoles §9b; `scripts/revoke-sma-roles.sh --network testnet --address <sma> [--check]`
+  lists and revokes them.
+
 ## Quote tokens and InfoFi collateral
 
-- **The paymaster needs no per-token or per-router wiring.** `SOFPaymaster` sponsors, besides
-  its static allowlist and SOF curves, any `raffle.isAllowedQuoteToken` target (launch tokens
-  and allowlisted quote tokens — ticket and sell approvals) and the Raffle's launchpad plus
-  the router and placer it currently has (LP fee collection and claims), all read live. A
-  placer replaced by `setPlacer` that still holds fees needs `setAllowlisted` to stay sponsored.
 - **A season's `quoteToken` must be a launch token or admin-allowlisted.** `Raffle.isAllowedQuoteToken`
   accepts `launchpad.isLaunchToken(token)` (set via `setLaunchpad`) or
   `allowedQuoteTokens[token]` (`setQuoteTokenAllowed`). An arbitrary ERC-20 could be

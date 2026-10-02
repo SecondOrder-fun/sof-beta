@@ -46,6 +46,7 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
     bytes32 public constant ADMIN_ROLE = DEFAULT_ADMIN_ROLE;
     bytes32 public constant TREASURY_ROLE = keccak256("TREASURY_ROLE");
     bytes32 public constant RAFFLE_ROLE = keccak256("RAFFLE_ROLE");
+    /// @dev Gates `onPositionUpdate`; held by the backend wallet. The name is historical.
     bytes32 public constant PAYMASTER_ROLE = keccak256("PAYMASTER_ROLE");
 
     // Market creation status tracking
@@ -256,9 +257,11 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
     // ============ ADMIN FUNCTIONS ============
 
     /**
-     * @notice Sets the Paymaster Smart Account address
-     * @dev Only callable by admin. Grants PAYMASTER_ROLE to the account.
-     * @param paymasterAccount The address of the backend Smart Account controlled by Paymaster
+     * @notice Authorises an account to call `onPositionUpdate`
+     * @dev Only callable by admin. Grants PAYMASTER_ROLE to the account — in practice the
+     *      backend wallet (`BACKEND_WALLET_ADDRESS`, deploy step 24). The role and function
+     *      names are historical and kept for ABI stability; no paymaster is involved.
+     * @param paymasterAccount The account that relays position updates (the backend wallet)
      */
     function setPaymasterAccount(address paymasterAccount) external onlyRole(ADMIN_ROLE) {
         if (paymasterAccount == address(0)) revert InvalidAddress();
@@ -268,8 +271,9 @@ contract InfoFiMarketFactory is AccessControl, ReentrancyGuard {
     // ============ MAIN FUNCTIONS ============
 
     /**
-     * @notice Called by Backend Paymaster Service when a participant's position changes
-     * @dev This function is now called via gasless transaction sponsored by Base Paymaster
+     * @notice Called by the backend wallet when a participant's position changes
+     * @dev The backend relays Raffle's PositionUpdate event here in an ordinary
+     *      transaction from the wallet holding PAYMASTER_ROLE, paying its own gas
      * @dev Automatically creates InfoFi markets when player crosses 1% threshold
      * @dev Monitors the treasury balance of this season's quote token and emits a
      *      warning if depleted

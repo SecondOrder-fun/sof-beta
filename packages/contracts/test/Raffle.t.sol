@@ -317,7 +317,7 @@ contract MockERC20 {
 // Covers Raffle.registerCurve / Raffle.isSofCurve added in Task 1.8
 // (spec §3.4). The SEASON_FACTORY_ROLE is a distinct role from the existing
 // SEASON_CREATOR_ROLE / BONDING_CURVE_ROLE — only the SeasonFactory may
-// register a deployed bonding curve so the SOFPaymaster can validate it.
+// register a deployed bonding curve.
 contract RaffleSofCurveRegistryTest is Test {
     /// @dev Mirrors the event Task 1.8 will declare on Raffle. Test-local
     ///      declaration suffices for vm.expectEmit's selector lookup.
@@ -357,7 +357,7 @@ contract RaffleSofCurveRegistryTest is Test {
         address curve = address(0xC0);
 
         // Pin both the storage flip AND the event emission. Off-chain
-        // consumers (paymaster proxies, indexers) subscribe to
+        // consumers (indexers) subscribe to
         // SofCurveRegistered to track curve liveness; if the impl drops
         // the emit, no other test catches it.
         vm.expectEmit(true, false, false, true, address(raffle));
