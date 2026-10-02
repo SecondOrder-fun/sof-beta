@@ -29,7 +29,7 @@ export function TreasuryControls({ seasonId, bondingCurveAddress }) {
   const {
     accumulatedFees,
     accumulatedFeesRaw,
-    sofReserves,
+    reserves,
     treasuryAddress,
     hasManagerRole,
     extractFees,
@@ -55,8 +55,8 @@ export function TreasuryControls({ seasonId, bondingCurveAddress }) {
     if (curveReserves && curveReserves > 0n) {
       return Number(curveReserves) / 1e18;
     }
-    return parseFloat(sofReserves);
-  }, [curveReserves, sofReserves]);
+    return parseFloat(reserves);
+  }, [curveReserves, reserves]);
 
   const pendingFeesRaw = accumulatedFeesRaw ?? 0n;
   const hasExtractPermission = Boolean(hasManagerRole);

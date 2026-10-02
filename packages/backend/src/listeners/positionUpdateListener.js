@@ -712,7 +712,7 @@ export async function startPositionUpdateListener(
               current_step_index: step ? Number(step[0]) : null,
               current_step_price: step ? step[1].toString() : null,
               current_step_range_to: step ? step[2].toString() : null,
-              sof_reserves: cfg ? cfg[1].toString() : '0',
+              reserves: cfg ? cfg[1].toString() : '0',
               accumulated_fees: fees != null ? fees.toString() : '0',
             });
           } catch (e) {

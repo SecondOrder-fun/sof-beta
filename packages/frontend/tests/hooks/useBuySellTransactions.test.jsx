@@ -299,8 +299,8 @@ describe("useBuySellTransactions.sellMutation — pre-flight reserves check", ()
     return result;
   }
 
-  it("throws Insufficient curve reserves when curveConfig sofReserves < minSofAmount", async () => {
-    // curveConfig returns [totalSupply, sofReserves, ...]; mock with sofReserves=100
+  it("throws Insufficient curve reserves when curveConfig reserves < minSofAmount", async () => {
+    // curveConfig returns [totalSupply, reserves, ...]; mock with reserves=100
     mockClient.readContract.mockResolvedValue([0n, 100n]);
     const result = setup();
     let caught;

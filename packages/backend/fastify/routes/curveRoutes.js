@@ -13,7 +13,7 @@ export default async function curveRoutes(fastify) {
       return {
         bondingCurveAddress: row.bonding_curve_address,
         accumulatedFees: row.accumulated_fees,
-        sofReserves: row.sof_reserves,
+        reserves: row.reserves,
         currentSupply: row.current_supply,
         currentStep: row.current_step_index == null
           ? null
@@ -52,7 +52,7 @@ export default async function curveRoutes(fastify) {
       if (!row) return reply.status(404).send({ error: 'curve_state not found' });
       return {
         accumulatedFees: row.accumulated_fees,
-        sofReserves: row.sof_reserves,
+        reserves: row.reserves,
         treasuryAddress: row.treasury_address,
       };
     } catch (err) {

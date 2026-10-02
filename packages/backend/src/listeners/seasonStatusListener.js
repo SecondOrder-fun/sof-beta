@@ -143,7 +143,7 @@ export async function processSeasonCreated(log, raffleAddress, raffleAbi, logger
 
         await db.upsertCurveState(bondingCurve, {
           current_supply: curveCfg ? (curveCfg[0]?.toString?.() ?? '0') : '0',
-          sof_reserves: curveCfg ? (curveCfg[1]?.toString?.() ?? '0') : '0',
+          reserves: curveCfg ? (curveCfg[1]?.toString?.() ?? '0') : '0',
           accumulated_fees: accumulatedFees != null ? accumulatedFees.toString() : '0',
           current_step_index: currentStep ? Number(currentStep[0]) : null,
           current_step_price: currentStep ? currentStep[1].toString() : null,

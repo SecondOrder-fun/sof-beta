@@ -237,7 +237,7 @@ export async function hiddenTokens(tokens) {
 
 /**
  * Current quote-token reserves of each bonding curve, from curve_state
- * (migration 018; the column is still named sof_reserves), which
+ * (migration 018; column renamed to reserves in 028), which
  * positionUpdateListener refreshes on every trade. A live season's prize pool
  * is its curve's reserves — Raffle copies curve.getReserves() into
  * totalPrizePool when the season ends — while season_contracts only records
@@ -249,13 +249,13 @@ export async function curveReserves(curves) {
   if (!hasSupabase || !curves?.length) return new Map();
   const { data, error } = await supabase
     .from("curve_state")
-    .select("bonding_curve_address, sof_reserves")
+    .select("bonding_curve_address, reserves")
     .in("bonding_curve_address", [...new Set(curves.map(lc))]);
   if (error) fail("curveReserves", error);
   return new Map(
     (data || [])
-      .filter((r) => r.sof_reserves != null)
-      .map((r) => [lc(r.bonding_curve_address), String(r.sof_reserves)]),
+      .filter((r) => r.reserves != null)
+      .map((r) => [lc(r.bonding_curve_address), String(r.reserves)]),
   );
 }
 

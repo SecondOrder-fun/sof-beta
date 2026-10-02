@@ -135,7 +135,7 @@ export function useCurveState(
     // evidence of an empty curve — callers with another source fall back to it.
     hasState: Boolean(state),
     curveSupply: state?.currentSupply ? BigInt(state.currentSupply) : 0n,
-    curveReserves: state?.sofReserves ? BigInt(state.sofReserves) : 0n,
+    curveReserves: state?.reserves ? BigInt(state.reserves) : 0n,
     curveFees: includeFees && state?.accumulatedFees ? BigInt(state.accumulatedFees) : 0n,
     curveStep: state?.currentStep
       ? {

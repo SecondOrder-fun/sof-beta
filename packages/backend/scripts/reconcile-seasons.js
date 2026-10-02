@@ -125,15 +125,15 @@ async function reconcileSeason(client, raffleAddress, seasonId) {
       }))
     : null;
 
-  // curveConfig returns: [totalSupply, sofReserves, currentStep, buyFee, sellFee,
+  // curveConfig returns: [totalSupply, reserves, currentStep, buyFee, sellFee,
   // tradingPaused, initialized, initialPrice]
   const currentSupply = curveCfg ? (curveCfg[0]?.toString?.() ?? '0') : '0';
-  const sofReserves = curveCfg ? (curveCfg[1]?.toString?.() ?? '0') : '0';
+  const reserves = curveCfg ? (curveCfg[1]?.toString?.() ?? '0') : '0';
 
   try {
     await db.upsertCurveState(bondingCurve, {
       current_supply: currentSupply,
-      sof_reserves: sofReserves,
+      reserves,
       accumulated_fees: accumulatedFees != null ? accumulatedFees.toString() : '0',
       current_step_index: currentStep ? Number(currentStep[0]) : null,
       current_step_price: currentStep ? currentStep[1].toString() : null,
@@ -144,7 +144,7 @@ async function reconcileSeason(client, raffleAddress, seasonId) {
     curveOk = true;
   } catch (err) {
     console.error(`  [season ${seasonIdNum}] db.upsertCurveState threw: ${err.message}`);
-    console.error(`    bondingCurve=${bondingCurve} supply=${currentSupply} sof=${sofReserves}`);
+    console.error(`    bondingCurve=${bondingCurve} supply=${currentSupply} reserves=${reserves}`);
   }
 
   const statusLabel = ['NotStarted', 'Active', 'EndRequested', 'VRFPending', 'Distributing', 'Completed', 'Cancelled'][status] ?? `status=${status}`;

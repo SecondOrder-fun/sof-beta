@@ -85,7 +85,7 @@ describe('useCurveState — isPriceLoading', () => {
   });
 
   it('says whether the live state has been read, so a 0n placeholder is not mistaken for an empty curve', async () => {
-    mockFetch({ state: { currentSupply: '1532', sofReserves: '9000' }, steps: [] });
+    mockFetch({ state: { currentSupply: '1532', reserves: '9000' }, steps: [] });
     const { result } = renderHook(() => useCurveState(ADDR), { wrapper: makeWrapper() });
     expect(result.current.hasState).toBe(false);
     expect(result.current.curveReserves).toBe(0n);

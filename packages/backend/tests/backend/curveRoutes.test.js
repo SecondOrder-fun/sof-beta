@@ -22,7 +22,7 @@ describe('curveRoutes', () => {
     db.getCurveState.mockResolvedValue({
       bonding_curve_address: '0xabc',
       accumulated_fees: '100',
-      sof_reserves: '200',
+      reserves: '200',
       current_supply: '300',
       current_step_index: 2,
       current_step_price: '50',
@@ -32,7 +32,7 @@ describe('curveRoutes', () => {
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
     expect(body.accumulatedFees).toBe('100');
-    expect(body.sofReserves).toBe('200');
+    expect(body.reserves).toBe('200');
     expect(body.currentSupply).toBe('300');
     expect(body.currentStep).toEqual({ index: 2, price: '50', rangeTo: '1000' });
   });
@@ -59,14 +59,14 @@ describe('curveRoutes', () => {
   it('GET /:addr/treasury returns the treasury slice', async () => {
     db.getCurveState.mockResolvedValue({
       accumulated_fees: '500',
-      sof_reserves: '1000',
+      reserves: '1000',
       treasury_address: '0xdef',
     });
     const res = await app.inject({ method: 'GET', url: '/api/curve/0xabc/treasury' });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
       accumulatedFees: '500',
-      sofReserves: '1000',
+      reserves: '1000',
       treasuryAddress: '0xdef',
     });
   });

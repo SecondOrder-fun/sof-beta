@@ -29,8 +29,8 @@ describe("TreasuryControls", () => {
   const defaultTreasuryState = {
     accumulatedFees: "10.5",
     accumulatedFeesRaw: 10500000000000000000n,
-    sofReserves: "100.0",
-    sofReservesRaw: 100000000000000000000n,
+    reserves: "100.0",
+    reservesRaw: 100000000000000000000n,
     treasuryAddress: mockTreasury,
     hasManagerRole: true,
     canExtractFees: true,

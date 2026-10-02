@@ -51,7 +51,7 @@ describe('useCurveState — warm-read + SSE pattern', () => {
   it('returns BigInt fields from /api/curve/:addr/state response', async () => {
     const statePayload = {
       currentSupply: '500',
-      sofReserves: '1000',
+      reserves: '1000',
       accumulatedFees: '50',
       currentStep: { index: '2', price: '1500000000000000000', rangeTo: '1000' },
     };
@@ -194,7 +194,7 @@ describe('useCurveState — warm-read + SSE pattern', () => {
       json: () =>
         Promise.resolve({
           currentSupply: '42',
-          sofReserves: '0',
+          reserves: '0',
           accumulatedFees: '0',
           currentStep: { index: '0', price: '0', rangeTo: '0' },
         }),

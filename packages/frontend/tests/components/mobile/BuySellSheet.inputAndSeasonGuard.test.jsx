@@ -53,7 +53,7 @@ vi.mock("@/config/networks", () => ({
 
 const readContractMock = vi.fn(async ({ functionName }) => {
   if (functionName === "curveConfig") {
-    // [totalSupply, sofReserves, currentStep, buyFee, sellFee, tradingLocked, initialized]
+    // [totalSupply, reserves, currentStep, buyFee, sellFee, tradingLocked, initialized]
     return [0n, 0n, 0n, 0n, 0n, false, true];
   }
   if (functionName === "getBondSteps") {

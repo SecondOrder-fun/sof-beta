@@ -142,7 +142,7 @@ describe("listRecentTrades hides hidden tokens in the query", () => {
 
 describe("curveReserves", () => {
   it("reads every curve's reserves in one query, keyed lowercase", async () => {
-    result = { data: [{ bonding_curve_address: "0xabc", sof_reserves: "123" }], error: null };
+    result = { data: [{ bonding_curve_address: "0xabc", reserves: "123" }], error: null };
     const reserves = await curveReserves(["0xABC", "0xdef", "0xabc"]);
     expect(queries).toHaveLength(1);
     expect(calls).toContainEqual(["from", "curve_state"]);
