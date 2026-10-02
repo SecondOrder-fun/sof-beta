@@ -1,6 +1,6 @@
 {
   "name": "@sof/backend",
-  "version": "0.37.0",
+  "version": "0.37.1",
   "private": true,
   "type": "module",
   "description": "SecondOrder.fun Backend API Server",
@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "lint": "eslint . --max-warnings 0",
     "reset:local-db": "node scripts/reset-local-db.js",
-    "scan:historical": "node scripts/scan-historical-events.js"
+    "scan:historical": "node scripts/scan-historical-events.js",
+    "migrate:redis-usernames": "node scripts/migrate-redis-usernames.js"
   },
   "dependencies": {
     "@fastify/cors": "^11.1.0",

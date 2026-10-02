@@ -178,4 +178,14 @@ npm test           # Vitest
 npm run lint           # ESLint (zero warnings enforced)
 npm run reset:local-db    # Reset local Supabase
 npm run scan:historical   # Backfill missed events
+npm run migrate:redis-usernames -- --source <url> --target <url> [--apply]
 ```
+
+### Redis contents
+Usernames (`wallet:<address>` → name, `username:<name>` → address, `shared/usernameService.js`) are
+stored **only** in Redis; everything else there is cache or TTL'd (sign-in nonces, access and route
+caches). Moving to a new Redis therefore means copying the usernames:
+`scripts/migrate-redis-usernames.js` (dry run unless `--apply`) copies EOA wallets only, dropping
+smart wallets (contract code on chain, or an `sma` in `smart_accounts` while that table exists),
+rebuilds the reverse keys from the forward ones, skips target conflicts unless `--overwrite`, and
+reads every written key back.
