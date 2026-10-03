@@ -135,7 +135,11 @@ export function useCurveState(
     // evidence of an empty curve — callers with another source fall back to it.
     hasState: Boolean(state),
     curveSupply: state?.currentSupply ? BigInt(state.currentSupply) : 0n,
-    curveReserves: state?.sofReserves ? BigInt(state.sofReserves) : 0n,
+    // `sofReserves` is the pre-#206 name, still served by a backend deployed
+    // before the rename. Remove the fallback next release.
+    curveReserves: (state?.reserves ?? state?.sofReserves)
+      ? BigInt(state.reserves ?? state.sofReserves)
+      : 0n,
     curveFees: includeFees && state?.accumulatedFees ? BigInt(state.accumulatedFees) : 0n,
     curveStep: state?.currentStep
       ? {

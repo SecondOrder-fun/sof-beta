@@ -135,7 +135,7 @@ Shaping for all of them is pure, in `src/services/activityFeed.js`. Rules they s
   `is_hidden = false`), so a heavily traded hidden token cannot use up the row's limit.
   That query's `(block_number DESC, log_index DESC)` order is served by
   `launch_trades_recent_idx` (migration 025).
-- **A live season's prize pool is its curve's reserves** (`curve_state.sof_reserves`,
+- **A live season's prize pool is its curve's reserves** (`curve_state.reserves`,
   one batched query per request via `launchpadActivityDb.curveReserves`):
   `season_contracts` records `total_prize_pool` only at start, status changes and
   completion. Participants stay as `season_contracts` last recorded them — nothing the

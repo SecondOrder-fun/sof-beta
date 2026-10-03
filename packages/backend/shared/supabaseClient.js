@@ -984,7 +984,7 @@ export class DatabaseService {
       // /treasury) maps into its responses — each field is read explicitly,
       // not spread, so this set is the full contract.
       .select(
-        "bonding_curve_address, accumulated_fees, sof_reserves, current_supply, " +
+        "bonding_curve_address, accumulated_fees, reserves, current_supply, " +
           "current_step_index, current_step_price, current_step_range_to, " +
           "last_updated_block, updated_at, bond_steps, treasury_address",
       )

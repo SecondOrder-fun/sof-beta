@@ -13,7 +13,7 @@ const MANAGER_ROLE_HASH =
 /**
  * Hook for treasury management operations.
  *
- * Treasury state (accumulated fees, SOF reserves, treasury address) comes
+ * Treasury state (accumulated fees, curve reserves, treasury address) comes
  * from the backend warm cache populated by tradeListener.
  * Manager-role check is ultra-fresh (RPC), invalidated by executeBatch
  * touching the curve.
@@ -45,9 +45,10 @@ export function useTreasury(seasonId, bondingCurveAddress) {
   const accumulatedFees = treasuryQuery.data?.accumulatedFees
     ? BigInt(treasuryQuery.data.accumulatedFees)
     : 0n;
-  const sofReserves = treasuryQuery.data?.sofReserves
-    ? BigInt(treasuryQuery.data.sofReserves)
-    : 0n;
+  // `sofReserves`: the pre-#206 name, from a backend deployed before the
+  // rename. Remove the fallback next release.
+  const reservesWei = treasuryQuery.data?.reserves ?? treasuryQuery.data?.sofReserves;
+  const reserves = reservesWei ? BigInt(reservesWei) : 0n;
   const treasuryAddress = treasuryQuery.data?.treasuryAddress ?? null;
   const hasManagerRole = !!roleQuery.data;
 
@@ -83,17 +84,17 @@ export function useTreasury(seasonId, bondingCurveAddress) {
       console.debug('[Treasury] season', seasonId, {
         bondingCurveAddress,
         accumulatedFees: accumulatedFees.toString(),
-        sofReserves: sofReserves.toString(),
+        reserves: reserves.toString(),
         treasuryAddress,
       });
     }
-  }, [seasonId, bondingCurveAddress, accumulatedFees, sofReserves, treasuryAddress]);
+  }, [seasonId, bondingCurveAddress, accumulatedFees, reserves, treasuryAddress]);
 
   return {
     accumulatedFees: formatEther(accumulatedFees),
     accumulatedFeesRaw: accumulatedFees,
-    sofReserves: formatEther(sofReserves),
-    sofReservesRaw: sofReserves,
+    reserves: formatEther(reserves),
+    reservesRaw: reserves,
     treasuryAddress,
     hasManagerRole,
     canExtractFees: hasManagerRole && accumulatedFees > 0n,

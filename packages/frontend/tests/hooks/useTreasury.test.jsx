@@ -35,7 +35,7 @@ const mockTreasury = '0x5555555555555555555555555555555555555555';
 function mockWarm(overrides = {}) {
   const data = {
     accumulatedFees: (overrides.accumulatedFees ?? 0n).toString(),
-    sofReserves: (overrides.sofReserves ?? 0n).toString(),
+    reserves: (overrides.reserves ?? 0n).toString(),
     treasuryAddress: overrides.treasuryAddress ?? mockTreasury,
   };
   useWarmRead.mockReturnValue({ data, refetch: vi.fn(), isLoading: false });
@@ -70,10 +70,21 @@ describe('useTreasury', () => {
       expect(result.current.accumulatedFees).toBe('1');
     });
 
-    it('returns SOF reserves from bonding curve', () => {
-      mockWarm({ sofReserves: 10000000000000000000n });
+    it('returns the curve reserves', () => {
+      mockWarm({ reserves: 10000000000000000000n });
       const { result } = renderHook(() => useTreasury('1', mockBondingCurve), { wrapper });
-      expect(result.current.sofReserves).toBe('10');
+      expect(result.current.reserves).toBe('10');
+    });
+
+    it('reads reserves under the pre-#206 name from an older backend', () => {
+      useWarmRead.mockReturnValue({
+        data: { accumulatedFees: '0', sofReserves: '2000000000000000000', treasuryAddress: mockTreasury },
+        refetch: vi.fn(),
+        isLoading: false,
+      });
+      const { result } = renderHook(() => useTreasury('1', mockBondingCurve), { wrapper });
+      expect(result.current.reserves).toBe('2');
+      expect(result.current.reservesRaw).toBe(2000000000000000000n);
     });
 
     it('surfaces the curve treasury address for display', () => {
@@ -176,10 +187,10 @@ describe('useTreasury', () => {
     });
 
     it('returns zero for null balances', () => {
-      mockWarm({ accumulatedFees: 0n, sofReserves: 0n });
+      mockWarm({ accumulatedFees: 0n, reserves: 0n });
       const { result } = renderHook(() => useTreasury('1', mockBondingCurve), { wrapper });
       expect(result.current.accumulatedFees).toBe('0');
-      expect(result.current.sofReserves).toBe('0');
+      expect(result.current.reserves).toBe('0');
     });
   });
 });

@@ -13,7 +13,10 @@ export default async function curveRoutes(fastify) {
       return {
         bondingCurveAddress: row.bonding_curve_address,
         accumulatedFees: row.accumulated_fees,
-        sofReserves: row.sof_reserves,
+        reserves: row.reserves,
+        // Deprecated alias (#206) for frontend bundles built before the
+        // rename, e.g. a tab left open across the deploy. Remove next release.
+        sofReserves: row.reserves,
         currentSupply: row.current_supply,
         currentStep: row.current_step_index == null
           ? null
@@ -52,7 +55,8 @@ export default async function curveRoutes(fastify) {
       if (!row) return reply.status(404).send({ error: 'curve_state not found' });
       return {
         accumulatedFees: row.accumulated_fees,
-        sofReserves: row.sof_reserves,
+        reserves: row.reserves,
+        sofReserves: row.reserves, // deprecated alias, see /:address/state
         treasuryAddress: row.treasury_address,
       };
     } catch (err) {

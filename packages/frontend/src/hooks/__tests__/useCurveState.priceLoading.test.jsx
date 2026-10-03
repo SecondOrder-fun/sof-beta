@@ -85,13 +85,20 @@ describe('useCurveState — isPriceLoading', () => {
   });
 
   it('says whether the live state has been read, so a 0n placeholder is not mistaken for an empty curve', async () => {
-    mockFetch({ state: { currentSupply: '1532', sofReserves: '9000' }, steps: [] });
+    mockFetch({ state: { currentSupply: '1532', reserves: '9000' }, steps: [] });
     const { result } = renderHook(() => useCurveState(ADDR), { wrapper: makeWrapper() });
     expect(result.current.hasState).toBe(false);
     expect(result.current.curveReserves).toBe(0n);
     await waitFor(() => expect(result.current.hasState).toBe(true));
     expect(result.current.curveSupply).toBe(1532n);
     expect(result.current.curveReserves).toBe(9000n);
+  });
+
+  it('reads reserves under the pre-#206 name from an older backend', async () => {
+    mockFetch({ state: { currentSupply: '1532', sofReserves: '7000' }, steps: [] });
+    const { result } = renderHook(() => useCurveState(ADDR), { wrapper: makeWrapper() });
+    await waitFor(() => expect(result.current.hasState).toBe(true));
+    expect(result.current.curveReserves).toBe(7000n);
   });
 
   it('is not loading when no bonding curve address is provided', () => {
