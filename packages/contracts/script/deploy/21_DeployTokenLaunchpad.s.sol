@@ -8,7 +8,9 @@ import {TokenLaunchpad} from "../../src/launchpad/TokenLaunchpad.sol";
 import {Raffle} from "../../src/core/Raffle.sol";
 
 /**
- * @notice Deploys the TokenLaunchpad with its starting-price bounds.
+ * @notice Deploys the TokenLaunchpad with native ETH as its default quote token and
+ *         ETH's starting-valuation bounds. ERC-20 quote tokens are allowlisted afterwards,
+ *         each with bounds in its own units: script/ops/SetLaunchQuoteToken.s.sol.
  *
  * @dev The launchpad is deployed with `placer = address(0)` and wired afterwards by
  *      22_DeployLiquidityPlacer. The dependency is circular — the placer needs the
@@ -17,18 +19,17 @@ import {Raffle} from "../../src/core/Raffle.sol";
  *      launchpad goes first and accepts its half by setter. `launch()` reverts with
  *      `PlacerNotSet` in between, so a half-finished deploy cannot be used.
  *
- *      ## The bounds are set as FDV, not as a price
+ *      ## The bounds are valuations
  *
- *      Every launch mints the same 1e9 tokens, so a starting price is only meaningful
- *      multiplied by that supply: `startPriceWei * 1e9` is the implied fully-diluted
- *      valuation in wei. Price and FDV are nine orders of magnitude apart, which is a very
- *      easy factor to lose. So the numbers below are written as valuations and converted,
- *      rather than written as prices and hoped about.
+ *      A launch opens at a creator-chosen fully-diluted valuation (`startFdv`), and the
+ *      launchpad bounds it per quote token. Every launch mints the same 1e9 tokens, so a
+ *      per-token price is nine orders of magnitude smaller than the valuation — a very
+ *      easy factor to lose — which is why the contract takes the valuation directly.
  *
- *      That is not a theoretical tidiness. At 1e6 wei/token — a plausible-looking
- *      "small" price — the implied FDV is 0.001 ETH, and one 0.1 ETH buy consumes the
- *      entire position and drives the pool to MIN_TICK. The launch would be over before a
- *      second buyer arrived. The floor exists to make that unreachable.
+ *      The floor is not a theoretical tidiness. At a 0.001 ETH valuation (1e6 wei per
+ *      token, a plausible-looking "small" price) one 0.1 ETH buy consumes the entire
+ *      position and drives the pool to MIN_TICK. The launch would be over before a second
+ *      buyer arrived. The floor exists to make that unreachable.
  */
 contract DeployTokenLaunchpad is Script {
     /// @dev Whole tokens minted per launch. Asserted against the deployed constant below,
@@ -52,13 +53,10 @@ contract DeployTokenLaunchpad is Script {
     function run(DeployedAddresses memory addrs) public returns (DeployedAddresses memory) {
         address admin = vm.addr(vm.envUint("PRIVATE_KEY"));
 
-        uint256 minStartPriceWei = MIN_FDV_WEI / WHOLE_SUPPLY;
-        uint256 maxStartPriceWei = MAX_FDV_WEI / WHOLE_SUPPLY;
-
         vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
 
         // placer left unset — 22_DeployLiquidityPlacer calls setPlacer once it exists.
-        TokenLaunchpad launchpad = new TokenLaunchpad(admin, address(0), minStartPriceWei, maxStartPriceWei);
+        TokenLaunchpad launchpad = new TokenLaunchpad(admin, address(0), MIN_FDV_WEI, MAX_FDV_WEI);
 
         // Launched tokens may price raffle seasons without allowlisting.
         if (addrs.raffle != address(0)) Raffle(addrs.raffle).setLaunchpad(address(launchpad));
@@ -73,9 +71,7 @@ contract DeployTokenLaunchpad is Script {
         addrs.tokenLaunchpad = address(launchpad);
 
         console2.log("TokenLaunchpad:", address(launchpad));
-        console2.log("  min start price (wei/token):", minStartPriceWei);
-        console2.log("  max start price (wei/token):", maxStartPriceWei);
-        console2.log("  => implied FDV range (wei):", MIN_FDV_WEI, "..", MAX_FDV_WEI);
+        console2.log("  ETH start-FDV range (wei):", MIN_FDV_WEI, "..", MAX_FDV_WEI);
 
         return addrs;
     }

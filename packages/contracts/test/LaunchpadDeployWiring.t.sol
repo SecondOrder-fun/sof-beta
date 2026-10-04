@@ -9,7 +9,7 @@ import {DeployTokenLaunchpad} from "../script/deploy/21_DeployTokenLaunchpad.s.s
 import {DeployLiquidityPlacer} from "../script/deploy/22_DeployLiquidityPlacer.s.sol";
 import {DeployLaunchRouter} from "../script/deploy/23_DeployLaunchRouter.s.sol";
 import {ILaunchRouter} from "../src/launchpad/ILaunchRouter.sol";
-import {TokenLaunchpad, PlacerNotSet, StartPriceOutOfRange} from "../src/launchpad/TokenLaunchpad.sol";
+import {TokenLaunchpad, PlacerNotSet, StartFdvOutOfRange} from "../src/launchpad/TokenLaunchpad.sol";
 import {UniV4LiquidityPlacer} from "../src/launchpad/UniV4LiquidityPlacer.sol";
 
 /// @notice The launchpad deploy steps, run as the orchestrator runs them.
@@ -34,6 +34,10 @@ contract LaunchpadDeployWiringTest is Test {
         deployer = vm.addr(DEPLOYER_KEY);
         vm.setEnv("PRIVATE_KEY", vm.toString(DEPLOYER_KEY));
         vm.chainId(31337);
+    }
+
+    function _ethFdvBounds(TokenLaunchpad launchpad) internal view returns (uint256 minFdv, uint256 maxFdv) {
+        (, minFdv, maxFdv) = launchpad.quoteConfig(address(0));
     }
 
     /// Runs steps 20-22 in order, as DeployAll does on a local chain.
@@ -81,8 +85,9 @@ contract LaunchpadDeployWiringTest is Test {
         DeployedAddresses memory addrs = _runLocalLaunchpadDeploy();
         TokenLaunchpad launchpad = TokenLaunchpad(addrs.tokenLaunchpad);
 
+        (uint256 minFdv,) = _ethFdvBounds(launchpad);
         vm.prank(buyer);
-        (, address token) = launchpad.launch("Deployed", "DPLY", "ipfs://m", launchpad.minStartPriceWei());
+        (, address token) = launchpad.launch("Deployed", "DPLY", "ipfs://m", address(0), minFdv);
 
         assertGt(IERC20(token).balanceOf(addrs.poolManager), 0, "supply reached the pool");
         assertEq(IERC20(token).balanceOf(addrs.tokenLaunchpad), 0, "launchpad kept nothing");
@@ -96,13 +101,13 @@ contract LaunchpadDeployWiringTest is Test {
         TokenLaunchpad launchpad = TokenLaunchpad(addrs.tokenLaunchpad);
         assertEq(address(launchpad.router()), addrs.launchRouter, "launchpad advertises the router");
 
-        uint256 minPrice = launchpad.minStartPriceWei();
+        (uint256 minFdv,) = _ethFdvBounds(launchpad);
         vm.prank(buyer);
-        (, address token) = launchpad.launch("Routed", "RTD", "", minPrice);
+        (, address token) = launchpad.launch("Routed", "RTD", "", address(0), minFdv);
 
         vm.deal(buyer, 1 ether);
         vm.prank(buyer);
-        uint256 out = ILaunchRouter(address(launchpad.router())).buy{value: 0.1 ether}(token, 1, buyer, block.timestamp);
+        uint256 out = ILaunchRouter(address(launchpad.router())).buy{value: 0.1 ether}(token, 0.1 ether, 1, buyer, block.timestamp);
         assertGt(out, 0);
         assertEq(IERC20(token).balanceOf(buyer), out);
     }
@@ -116,27 +121,24 @@ contract LaunchpadDeployWiringTest is Test {
         DeployedAddresses memory addrs = _runLocalLaunchpadDeploy();
         TokenLaunchpad launchpad = TokenLaunchpad(addrs.tokenLaunchpad);
 
-        (uint256 minFdv, uint256 maxFdv) = launchpad.startPriceBoundsAsFdvWei();
+        (bool allowed, uint256 minFdv, uint256 maxFdv) = launchpad.quoteConfig(address(0));
+        assertTrue(allowed, "ETH is the default quote token");
         assertEq(minFdv, EXPECTED_MIN_FDV, "floor is a 1 ETH valuation");
         assertEq(maxFdv, EXPECTED_MAX_FDV, "ceiling is a 1000 ETH valuation");
     }
 
-    /// The failure the floor exists to prevent: 1e6 wei/token is an FDV of 0.001 ETH, where
+    /// The failure the floor exists to prevent: an FDV of 0.001 ETH (1e6 wei/token), where
     /// a single 0.1 ETH buy consumes the entire position. The deployed floor must exclude it.
     function test_theFdvThatBreaksPlacementIsBelowTheFloor() public {
         DeployedAddresses memory addrs = _runLocalLaunchpadDeploy();
         TokenLaunchpad launchpad = TokenLaunchpad(addrs.tokenLaunchpad);
 
-        uint256 pathological = 1_000_000; // 1e6 wei/token
-        assertEq(launchpad.impliedFdvWei(pathological), 0.001 ether, "the FDV that broke the placer test");
+        uint256 pathological = 0.001 ether;
+        (uint256 minFdv, uint256 maxFdv) = _ethFdvBounds(launchpad);
 
         vm.prank(buyer);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                StartPriceOutOfRange.selector, pathological, launchpad.minStartPriceWei(), launchpad.maxStartPriceWei()
-            )
-        );
-        launchpad.launch("TooCheap", "CHEAP", "", pathological);
+        vm.expectRevert(abi.encodeWithSelector(StartFdvOutOfRange.selector, pathological, minFdv, maxFdv));
+        launchpad.launch("TooCheap", "CHEAP", "", address(0), pathological);
     }
 
     /// Both bounds are reachable: a price exactly at each end must place successfully. A
@@ -145,9 +147,10 @@ contract LaunchpadDeployWiringTest is Test {
         DeployedAddresses memory addrs = _runLocalLaunchpadDeploy();
         TokenLaunchpad launchpad = TokenLaunchpad(addrs.tokenLaunchpad);
 
+        (uint256 minFdv, uint256 maxFdv) = _ethFdvBounds(launchpad);
         vm.startPrank(buyer);
-        (, address atFloor) = launchpad.launch("Floor", "FLR", "", launchpad.minStartPriceWei());
-        (, address atCeiling) = launchpad.launch("Ceiling", "CEIL", "", launchpad.maxStartPriceWei());
+        (, address atFloor) = launchpad.launch("Floor", "FLR", "", address(0), minFdv);
+        (, address atCeiling) = launchpad.launch("Ceiling", "CEIL", "", address(0), maxFdv);
         vm.stopPrank();
 
         assertGt(IERC20(atFloor).balanceOf(addrs.poolManager), 0);
@@ -174,13 +177,13 @@ contract LaunchpadDeployWiringTest is Test {
         TokenLaunchpad launchpad = TokenLaunchpad(addrs.tokenLaunchpad);
         assertEq(address(launchpad.placer()), address(0));
 
-        // Read the price up front: expectRevert applies to the very next call, and an
+        // Read the bound up front: expectRevert applies to the very next call, and an
         // argument that is itself a call would swallow it.
-        uint256 minPrice = launchpad.minStartPriceWei();
+        (uint256 minFdv,) = _ethFdvBounds(launchpad);
 
         vm.prank(buyer);
         vm.expectRevert(PlacerNotSet.selector);
-        launchpad.launch("Unusable", "UNUS", "", minPrice);
+        launchpad.launch("Unusable", "UNUS", "", address(0), minFdv);
     }
 
     /// POOL_MANAGER_ADDRESS is how a new chain is brought up, so it must be the thing the

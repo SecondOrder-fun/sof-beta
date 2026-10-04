@@ -26,11 +26,13 @@ error NoPool(address token);
 error InsufficientOutput(uint256 received, uint256 minimum);
 error OnlyPoolManager();
 error RefundFailed();
+error EthAmountMismatch(uint256 sent, uint256 quoteIn);
 
 /**
  * @title UniV4LaunchRouter
- * @notice The launchpad's own ILaunchRouter: exact-input ETH <-> token swaps on the
- *         Uniswap v4 pools UniV4LiquidityPlacer created, with minimum-out and deadline.
+ * @notice The launchpad's own ILaunchRouter: exact-input swaps between a launched token
+ *         and its quote token (native ETH or an allowlisted ERC-20) on the Uniswap v4
+ *         pools UniV4LiquidityPlacer created, with minimum-out and deadline.
  *
  * @dev Deliberately narrow. It routes only launchpad tokens, only through the one pool
  *      the placer made for each, and only exact-input — the shape the buy panel quotes.
@@ -39,13 +41,19 @@ error RefundFailed();
  *      trade into a pool of its choosing, and replacing the launchpad's placer does not
  *      strand earlier launches. A launch whose placer is not a v4 placer reverts NoPool.
  *
+ *      Direction follows the placement's orientation (`Placement.tokenIsCurrency0`, see
+ *      UniV4LiquidityPlacer): with the quote as currency0 a buy is zeroForOne and walks
+ *      the price down to the range floor; with the token as currency0 a buy is oneForZero
+ *      and walks it up to the range ceiling. Sells mirror both.
+ *
  *      Partial fills are real. Each pool is a single concentrated range; a buy large
  *      enough to exhaust it (or a sell pushing back past launch) fills only in part.
- *      The router then refunds unspent ETH and pulls only the tokens actually sold, and
- *      `minOut` decides whether the partial result is acceptable.
+ *      The router then refunds unspent ETH, or pulls only the ERC-20 quote and launch
+ *      tokens actually spent, and `minOut` decides whether the partial result is
+ *      acceptable.
  *
  *      It holds nothing between calls. ETH arrives with `buy` and leaves in the same
- *      transaction; tokens move payer -> PoolManager -> recipient without resting here.
+ *      transaction; ERC-20s move payer -> PoolManager -> recipient without resting here.
  *      There is no `receive`, so stray ETH sent to it reverts.
  */
 contract UniV4LaunchRouter is ILaunchRouter, IUnlockCallback, ReentrancyGuard {
@@ -57,19 +65,25 @@ contract UniV4LaunchRouter is ILaunchRouter, IUnlockCallback, ReentrancyGuard {
     uint8 private constant BUY = 1;
     uint8 private constant SELL = 2;
 
-    event Bought(address indexed token, address indexed payer, address indexed recipient, uint256 ethIn, uint256 tokensOut);
-    event Sold(address indexed token, address indexed payer, address indexed recipient, uint256 tokensIn, uint256 ethOut);
+    event Bought(
+        address indexed token, address indexed payer, address indexed recipient, uint256 quoteIn, uint256 tokensOut
+    );
+    event Sold(
+        address indexed token, address indexed payer, address indexed recipient, uint256 tokensIn, uint256 quoteOut
+    );
 
     struct Swap {
         uint8 action;
         PoolKey key;
+        bool tokenIsCurrency0;
         uint256 amountIn;
         address payer;
         address recipient;
-        /// @dev The edge of the launch position the swap may not cross: its floor for a buy,
-        ///      its ceiling for a sell. Outside the range the pool has no liquidity, so a swap
-        ///      allowed past it would strand the price at MIN/MAX_SQRT_PRICE — where quoting
-        ///      reads zero liquidity and the token shows an absurd price — for no extra fill.
+        /// @dev The edge of the launch position the swap may not cross: where the range
+        ///      runs out of tokens for a buy, back at the launch price for a sell. Outside
+        ///      the range the pool has no liquidity, so a swap allowed past it would strand
+        ///      the price at MIN/MAX_SQRT_PRICE — where quoting reads zero liquidity and the
+        ///      token shows an absurd price — for no extra fill.
         uint160 priceLimit;
     }
 
@@ -84,45 +98,57 @@ contract UniV4LaunchRouter is ILaunchRouter, IUnlockCallback, ReentrancyGuard {
     // ------------------------------------------------------------------
 
     /// @inheritdoc ILaunchRouter
-    function buy(address token, uint256 minTokensOut, address recipient, uint256 deadline)
+    function buy(address token, uint256 quoteIn, uint256 minTokensOut, address recipient, uint256 deadline)
         external
         payable
         nonReentrant
         returns (uint256 tokensOut)
     {
-        if (msg.value == 0) revert RouterZeroAmount();
-        (PoolKey memory key, uint160 floor,) = _checkedKey(token, recipient, deadline);
+        if (quoteIn == 0) revert RouterZeroAmount();
+        (UniV4LiquidityPlacer.Placement memory p, address quote) = _checkedPlacement(token, recipient, deadline);
+        // ETH-paired: the ETH is the amount. ERC-20-paired: no ETH at all, so none can be
+        // stranded here.
+        uint256 expectedValue = quote == address(0) ? quoteIn : 0;
+        if (msg.value != expectedValue) revert EthAmountMismatch(msg.value, quoteIn);
 
-        (uint256 out, uint256 ethSpent) = abi.decode(
-            poolManager.unlock(abi.encode(Swap(BUY, key, msg.value, msg.sender, recipient, floor))), (uint256, uint256)
+        uint160 limit = TickMath.getSqrtPriceAtTick(p.tokenIsCurrency0 ? p.tickUpper : p.tickLower);
+        (uint256 out, uint256 quoteSpent) = abi.decode(
+            poolManager.unlock(abi.encode(Swap(BUY, p.key, p.tokenIsCurrency0, quoteIn, msg.sender, recipient, limit))),
+            (uint256, uint256)
         );
         if (out < minTokensOut) revert InsufficientOutput(out, minTokensOut);
 
-        // A buy that exhausts the range spends less than it was sent. Return the rest.
-        uint256 refund = msg.value - ethSpent;
-        if (refund != 0) {
-            (bool ok,) = msg.sender.call{value: refund}("");
-            if (!ok) revert RefundFailed();
+        // A buy that exhausts the range spends less than it was sent. Return unspent ETH;
+        // an ERC-20 quote was only ever pulled for what the pool took.
+        if (quote == address(0)) {
+            uint256 refund = msg.value - quoteSpent;
+            if (refund != 0) {
+                (bool ok,) = msg.sender.call{value: refund}("");
+                if (!ok) revert RefundFailed();
+            }
         }
 
-        emit Bought(token, msg.sender, recipient, ethSpent, out);
+        emit Bought(token, msg.sender, recipient, quoteSpent, out);
         return out;
     }
 
     /// @inheritdoc ILaunchRouter
-    function sell(address token, uint256 tokensIn, uint256 minEthOut, address recipient, uint256 deadline)
+    function sell(address token, uint256 tokensIn, uint256 minQuoteOut, address recipient, uint256 deadline)
         external
         nonReentrant
-        returns (uint256 ethOut)
+        returns (uint256 quoteOut)
     {
         if (tokensIn == 0) revert RouterZeroAmount();
-        (PoolKey memory key,, uint160 ceiling) = _checkedKey(token, recipient, deadline);
+        (UniV4LiquidityPlacer.Placement memory p,) = _checkedPlacement(token, recipient, deadline);
 
+        uint160 limit = TickMath.getSqrtPriceAtTick(p.tokenIsCurrency0 ? p.tickLower : p.tickUpper);
         (uint256 out, uint256 tokensSpent) = abi.decode(
-            poolManager.unlock(abi.encode(Swap(SELL, key, tokensIn, msg.sender, recipient, ceiling))),
+            poolManager.unlock(
+                abi.encode(Swap(SELL, p.key, p.tokenIsCurrency0, tokensIn, msg.sender, recipient, limit))
+            ),
             (uint256, uint256)
         );
-        if (out < minEthOut) revert InsufficientOutput(out, minEthOut);
+        if (out < minQuoteOut) revert InsufficientOutput(out, minQuoteOut);
 
         emit Sold(token, msg.sender, recipient, tokensSpent, out);
         return out;
@@ -136,71 +162,55 @@ contract UniV4LaunchRouter is ILaunchRouter, IUnlockCallback, ReentrancyGuard {
     function unlockCallback(bytes calldata data) external override returns (bytes memory) {
         if (msg.sender != address(poolManager)) revert OnlyPoolManager();
         Swap memory s = abi.decode(data, (Swap));
-        return s.action == BUY ? _buy(s) : _sell(s);
-    }
 
-    /// ETH (currency0) in, token (currency1) out: zeroForOne, exact input.
-    function _buy(Swap memory s) private returns (bytes memory) {
+        // Buying spends the quote side; selling spends the token side. The quote is
+        // currency0 exactly when the token is not.
+        bool spendCurrency0 = (s.action == BUY) != s.tokenIsCurrency0;
         BalanceDelta delta = poolManager.swap(
             s.key,
             IPoolManager.SwapParams({
-                zeroForOne: true,
+                zeroForOne: spendCurrency0,
                 amountSpecified: -int256(s.amountIn),
                 sqrtPriceLimitX96: s.priceLimit
             }),
             ""
         );
+
+        (Currency inCurrency, int128 inDelta, Currency outCurrency, int128 outDelta) = spendCurrency0
+            ? (s.key.currency0, delta.amount0(), s.key.currency1, delta.amount1())
+            : (s.key.currency1, delta.amount1(), s.key.currency0, delta.amount0());
 
         // What the pool actually took — less than amountIn on a partial fill.
-        uint256 ethSpent = uint256(uint128(-delta.amount0()));
-        poolManager.sync(s.key.currency0);
-        poolManager.settle{value: ethSpent}();
+        uint256 spent = uint256(uint128(-inDelta));
+        poolManager.sync(inCurrency);
+        if (inCurrency.isAddressZero()) {
+            poolManager.settle{value: spent}();
+        } else {
+            // Pull only what the pool filled, straight from the payer into the PoolManager.
+            IERC20(Currency.unwrap(inCurrency)).safeTransferFrom(s.payer, address(poolManager), spent);
+            poolManager.settle();
+        }
 
-        uint256 tokensOut = uint256(uint128(delta.amount1()));
-        poolManager.take(s.key.currency1, s.recipient, tokensOut);
-        return abi.encode(tokensOut, ethSpent);
-    }
-
-    /// Token (currency1) in, ETH (currency0) out: oneForZero, exact input.
-    function _sell(Swap memory s) private returns (bytes memory) {
-        BalanceDelta delta = poolManager.swap(
-            s.key,
-            IPoolManager.SwapParams({
-                zeroForOne: false,
-                amountSpecified: -int256(s.amountIn),
-                sqrtPriceLimitX96: s.priceLimit
-            }),
-            ""
-        );
-
-        // Pull only what the pool filled, straight from the payer into the PoolManager.
-        uint256 tokensSpent = uint256(uint128(-delta.amount1()));
-        poolManager.sync(s.key.currency1);
-        IERC20(Currency.unwrap(s.key.currency1)).safeTransferFrom(s.payer, address(poolManager), tokensSpent);
-        poolManager.settle();
-
-        uint256 ethOut = uint256(uint128(delta.amount0()));
-        poolManager.take(s.key.currency0, s.recipient, ethOut);
-        return abi.encode(ethOut, tokensSpent);
+        uint256 received = uint256(uint128(outDelta));
+        poolManager.take(outCurrency, s.recipient, received);
+        return abi.encode(received, spent);
     }
 
     // ------------------------------------------------------------------
     // Internals
     // ------------------------------------------------------------------
 
-    /// @return key     The launch pool's key.
-    /// @return floor   sqrtPrice at the position's lower tick — the furthest a buy may move.
-    /// @return ceiling sqrtPrice at the position's upper tick — the furthest a sell may move.
-    function _checkedKey(address token, address recipient, uint256 deadline)
+    /// @return p     The launch's placement: pool key, range and orientation.
+    /// @return quote What it trades against (`address(0)` = ETH).
+    function _checkedPlacement(address token, address recipient, uint256 deadline)
         private
         view
-        returns (PoolKey memory key, uint160 floor, uint160 ceiling)
+        returns (UniV4LiquidityPlacer.Placement memory p, address quote)
     {
         if (block.timestamp > deadline) revert Expired(deadline);
         if (recipient == address(0)) revert RouterZeroAddress();
         if (!launchpad.isLaunchToken(token)) revert NotALaunchToken(token);
 
-        UniV4LiquidityPlacer.Placement memory p;
         try UniV4LiquidityPlacer(payable(launchpad.placerOf(token))).getPlacement(token) returns (
             UniV4LiquidityPlacer.Placement memory found
         ) {
@@ -208,9 +218,10 @@ contract UniV4LaunchRouter is ILaunchRouter, IUnlockCallback, ReentrancyGuard {
         } catch {
             revert NoPool(token);
         }
-        key = p.key;
-        if (Currency.unwrap(key.currency1) != token) revert NoPool(token);
-        floor = TickMath.getSqrtPriceAtTick(p.tickLower);
-        ceiling = TickMath.getSqrtPriceAtTick(p.tickUpper);
+        (address tokenSide, address quoteSide) = p.tokenIsCurrency0
+            ? (Currency.unwrap(p.key.currency0), Currency.unwrap(p.key.currency1))
+            : (Currency.unwrap(p.key.currency1), Currency.unwrap(p.key.currency0));
+        if (p.liquidity == 0 || tokenSide != token) revert NoPool(token);
+        quote = quoteSide;
     }
 }

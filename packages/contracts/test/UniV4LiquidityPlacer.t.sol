@@ -55,7 +55,7 @@ contract UniV4LiquidityPlacerTest is Test, LaunchPoolGateDeployer {
     function setUp() public {
         manager = new PoolManager(admin);
 
-        launchpad = new TokenLaunchpad(admin, address(0), MIN_PRICE, MAX_PRICE);
+        launchpad = new TokenLaunchpad(admin, address(0), MIN_PRICE * 1e9, MAX_PRICE * 1e9);
         placer = new UniV4LiquidityPlacer(
             address(manager), address(launchpad), admin, FEE, SPACING, RANGE_WIDTH
         );
@@ -65,7 +65,7 @@ contract UniV4LiquidityPlacerTest is Test, LaunchPoolGateDeployer {
 
     function _launch(uint256 startPriceWei) internal returns (address token) {
         vm.prank(creator);
-        (, token) = launchpad.launch("Launched", "LNCH", "ipfs://m", startPriceWei);
+        (, token) = launchpad.launch("Launched", "LNCH", "ipfs://m", address(0), startPriceWei * 1e9);
     }
 
     // ------------------------------------------------------------------
@@ -142,7 +142,7 @@ contract UniV4LiquidityPlacerTest is Test, LaunchPoolGateDeployer {
     function test_cheaperStartPriceGivesHigherTick() public {
         address cheap = _launch(1_000_000_000); // FDV 1 ETH
         vm.prank(creator);
-        (, address dear) = launchpad.launch("Dear", "DEAR", "", 100_000_000_000); // FDV 100 ETH
+        (, address dear) = launchpad.launch("Dear", "DEAR", "", address(0), 100_000_000_000 * 1e9); // FDV 100 ETH
 
         int24 cheapTick = placer.getPlacement(cheap).tickUpper;
         int24 dearTick = placer.getPlacement(dear).tickUpper;
@@ -285,7 +285,7 @@ contract UniV4LiquidityPlacerTest is Test, LaunchPoolGateDeployer {
     function test_onlyLaunchpadCanPlace() public {
         vm.prank(address(0xBAD));
         vm.expectRevert(OnlyLaunchpad.selector);
-        placer.place(address(0x1234), 1e18, PRICE);
+        placer.place(address(0x1234), 1e18, address(0), PRICE * 1e9);
     }
 
     function test_unlockCallbackRejectsNonPoolManager() public {
@@ -297,7 +297,7 @@ contract UniV4LiquidityPlacerTest is Test, LaunchPoolGateDeployer {
     function test_twoLaunchesGetSeparatePools() public {
         address a = _launch(PRICE);
         vm.prank(creator);
-        (, address b) = launchpad.launch("Second", "SEC", "", PRICE);
+        (, address b) = launchpad.launch("Second", "SEC", "", address(0), PRICE * 1e9);
 
         assertTrue(placer.poolIdOf(a) != placer.poolIdOf(b), "distinct pools");
         assertGt(IERC20(a).balanceOf(address(manager)), 0);
@@ -355,7 +355,7 @@ contract UniV4LiquidityPlacerTest is Test, LaunchPoolGateDeployer {
         launchpad.setPlacer(address(fresh));
         vm.prank(creator);
         vm.expectRevert(GateNotSet.selector);
-        launchpad.launch("Launched", "LNCH", "ipfs://m", PRICE);
+        launchpad.launch("Launched", "LNCH", "ipfs://m", address(0), PRICE * 1e9);
     }
 
     function test_setGateRejectsAnAddressWithoutExactlyTheInitializeBit() public {

@@ -48,7 +48,10 @@ Test files covering:
   `PoolManager`, not a mock — and `LaunchpadDeployWiring.t.sol`, which runs deploy steps
   20-23 and asserts the FDV bounds, the circular wiring and a trade through the advertised
   router), `UniV4LaunchRouter.t.sol` (the router delivers exactly the amounts the frontend
-  quotes — pinned to `test_fixture_quoteMathForFrontend` — plus minOut, deadline, refunds)
+  quotes — pinned to `test_fixture_quoteMathForFrontend` — plus minOut, deadline, refunds),
+  `LaunchQuoteTokens.t.sol` (ERC-20 quote tokens on BOTH sides of the pool — a quote pinned at
+  a very low and a very high address — through placement, the opening valuation, trades,
+  partial fills and fees, plus a valuation fuzz test)
 - Season gating (`SeasonGating.t.sol`, `SeasonGatingSignature.t.sol`)
 - Prize sponsorship (`PrizeSponsorship.t.sol`, `TreasurySystem.t.sol`)
 
@@ -88,10 +91,11 @@ Modular numbered scripts in `script/deploy/`:
   `.contracts.PoolManager` in the deployments file) — never hardcoded, since it is per-chain
   and the launchpad is meant to move chains.
 - `21_DeployTokenLaunchpad` — launchpad with `placer = address(0)`, then
-  `raffle.setLaunchpad(...)` so launched tokens may price seasons. Starting-price bounds are
-  chosen as **implied FDV** (1 ETH floor, 1000 ETH ceiling) and converted, because a price
-  means nothing without the supply: at 1e6 wei/token the FDV is 0.001 ETH and one 0.1 ETH buy
-  empties the pool. Use `impliedFdvWei` when changing them.
+  `raffle.setLaunchpad(...)` so launched tokens may price seasons. Allows native ETH as the
+  default quote token with **opening-valuation (FDV) bounds** of 1 to 1000 ETH: a launch takes
+  `startFdv`, not a per-token price (at a 0.001 ETH valuation one 0.1 ETH buy empties the
+  pool). ERC-20 quote tokens are added afterwards with `script/ops/SetLaunchQuoteToken.s.sol`
+  (`QUOTE_TOKEN`, `MIN_FDV`, `MAX_FDV` in its raw units; `REMOVE=true` to delist).
 - `22_DeployLiquidityPlacer` — the v4 placer, then `launchpad.setPlacer(...)`. Closes the
   circular dependency (the placer takes the launchpad immutably, so the launchpad goes first
   and accepts its half by setter). Skips with a log — it does not fail the deploy — if no
@@ -160,16 +164,35 @@ Version-controlled in `deployments/`:
 - Hash-and-extend retry for winner deduplication (MAX_RETRIES=20)
 - Lock snapshot for off-chain verification of participant state
 
+## Launch quote tokens
+
+- **A launch pairs with native ETH (`address(0)`, the default) or an allowlisted ERC-20.**
+  `TokenLaunchpad.launch(name, symbol, metadataURI, quoteToken, startFdv)`; `quoteConfig(quote)`
+  holds each allowed quote's FDV bounds in its raw units (`setQuoteToken` / `removeQuoteToken`,
+  CONFIG_ROLE). `quoteTokenOf(token)` and `Launch.quoteToken` record the pairing. List only
+  plain ERC-20s (no fee-on-transfer, rebasing or callback tokens), and never WETH next to ETH.
+- **Either side of the pool.** v4 sorts currencies by address, so an ERC-20 quote above the
+  launch token makes the TOKEN currency0: the position is `[tickLower, tickLower + width]`, the
+  pool starts at `tickLower` and buys move the tick UP. `Placement.tokenIsCurrency0` records it
+  and the router reads it for swap direction and price limits. ETH is always currency0.
+- **Router:** `buy(token, quoteIn, minTokensOut, recipient, deadline)` — ETH pairs send `quoteIn`
+  as `msg.value` (anything else reverts `EthAmountMismatch`); ERC-20 pairs send no ETH and
+  approve the router, which pulls only what filled. `sell(...)` pays out the launch's quote.
+- **Pool params are capped:** `setPoolParams` refuses a fee above `MAX_FEE` (3%, so never v4's
+  dynamic-fee flag) and a tick spacing v4 would reject.
+
 ## Launch LP fees
 
-- **The placer owns every launch position, so it earns the pools' 1% swap fee** in ETH (buys)
-  and the launch token (sells). `UniV4LiquidityPlacer.collectFees(token)` is permissionless: a
-  zero-liquidity `modifyLiquidity` pays out the accrued fees, which are credited 88%
-  (`CREATOR_FEE_BPS`) to the launch's fee recipient and 12% to `feeTreasury`, on both sides.
-  Payouts are pulls (`claimEth(to)`, `claimToken(token, to)`), so no recipient can block a
-  collection. The recipient starts as the creator (`TokenLaunchpad.creatorOf`) and only the
-  current recipient can hand it on (`setFeeRecipient`). `sweepDust` never touches unclaimed
-  fees (`totalClaimableToken`). Fees accrue per placer: collect through `launchpad.placerOf`.
+- **The placer owns every launch position, so it earns the pools' 1% swap fee** in the quote
+  token (buys) and the launch token (sells). `UniV4LiquidityPlacer.collectFees(token)` is
+  permissionless: a zero-liquidity `modifyLiquidity` pays out the accrued fees, which are
+  credited 88% (`CREATOR_FEE_BPS`) to the launch's fee recipient and 12% to `feeTreasury`, on
+  both sides. Credits are per currency (`claimable(currency, account)`, `address(0)` = ETH), so
+  one `claim(currency, to)` pays a quote currency from every launch paired with it, while each
+  launch token claims on its own. Payouts are pulls, so no recipient can block a collection.
+  The recipient starts as the creator (`TokenLaunchpad.creatorOf`) and only the current
+  recipient can hand it on (`setFeeRecipient`). `sweepDust` never touches unclaimed fees
+  (`totalClaimable`). Fees accrue per placer: collect through `launchpad.placerOf`.
 
 ## No smart accounts or paymaster
 

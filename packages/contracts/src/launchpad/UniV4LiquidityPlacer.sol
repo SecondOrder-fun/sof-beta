@@ -27,9 +27,10 @@ error OnlyLaunchpad();
 error NotPoolManager();
 error ZeroAddress();
 error ZeroAmount();
-error StartPriceUnreachable(uint256 startPriceWei);
+error StartFdvUnreachable(uint256 startFdv);
+error PoolParamsOutOfRange(uint24 fee, int24 tickSpacing);
 error RangeWidthNotPositive();
-error PlacementWouldCostEth(int128 ethDelta);
+error PlacementWouldCostQuote(int128 quoteDelta);
 error LiquidityIsZero();
 error GateNotSet();
 error InvalidGate(address gate);
@@ -38,11 +39,14 @@ error FeeTreasuryNotSet();
 error NotFeeRecipient(address caller);
 error NothingToClaim();
 error EthTransferFailed();
+error QuoteIsLaunchToken(address token);
+error LiquidityOverflow(uint256 liquidity);
 
 /**
  * @title UniV4LiquidityPlacer
  * @notice Places a launched token's whole supply as single-sided concentrated liquidity
- *         in a Uniswap v4 pool, paired against native ETH.
+ *         in a Uniswap v4 pool, paired against its quote token: native ETH or an ERC-20
+ *         on the launchpad's allowlist.
  *
  * @dev There is no bonding curve and no graduation event: the pool is the token's market
  *      from block one (design.md §1.2). Buyers walk the token up through the position's
@@ -51,20 +55,26 @@ error EthTransferFailed();
  *
  *      ## Orientation (the part that is easy to get backwards)
  *
- *      ETH is `address(0)`, which is numerically smaller than every token address, so
- *      **ETH is always `currency0` and the launch token is always `currency1`.** v4 prices
- *      are `currency1/currency0`, i.e. *token per ETH*. Therefore:
+ *      v4 sorts a pool's two currencies by address and prices it as `currency1/currency0`
+ *      in raw units. Which side the launch token lands on depends on its quote token:
  *
- *      - A HIGH tick means many tokens per ETH — the token is CHEAP.
- *      - Buying the token (ETH in, token out) raises `currency0` and lowers `currency1`,
- *        so it moves the price DOWN and the tick DOWN.
- *      - "Token price goes up" is therefore a FALLING tick.
+ *      **Quote is currency0** — always for ETH (`address(0)` sorts below every token), and
+ *      for an ERC-20 whose address is below the launch token's. Price is *token per
+ *      quote*, so a HIGH tick means a CHEAP token, and buying (quote in, token out) moves
+ *      the tick DOWN. A position holds only `currency1` (the token) when the current tick
+ *      is at or above its upper tick, so the position is `[tickUpper - width, tickUpper]`
+ *      and the pool starts AT `tickUpper`. Buyers walk the tick down to `tickLower`.
  *
- *      A position holds only `currency1` when the current tick is at or above its upper
- *      tick. So the position occupies `[tickUpper - width, tickUpper]` and the pool is
- *      initialised exactly AT `tickUpper`. Buyers then walk the tick down through the
- *      range, paying progressively more ETH per token, until at `tickLower` the position
- *      is entirely ETH and every token has been sold.
+ *      **Token is currency0** — an ERC-20 quote whose address is above the launch token's.
+ *      Price is *quote per token*, so a HIGH tick means an EXPENSIVE token and buying
+ *      moves the tick UP. A position holds only `currency0` (the token) when the current
+ *      tick is at or below its lower tick, so the position is `[tickLower, tickLower +
+ *      width]` and the pool starts AT `tickLower`. Buyers walk the tick up to `tickUpper`.
+ *
+ *      Either way the token's price climbs the same ~`rangeWidthTicks` before the position
+ *      sells out, and the pool starts exactly at the edge where it owes no quote token.
+ *      `Placement.tokenIsCurrency0` records the case; the router reads it to pick the
+ *      swap direction and the edge a swap may not cross.
  *
  *      ## Why one range rather than a staircase of bands
  *
@@ -86,24 +96,25 @@ error EthTransferFailed();
  *      ## LP fees
  *
  *      This contract owns every launch position, so the pool's swap fees accrue to it, in
- *      both ETH and the launch token. `collectFees(token)` is permissionless: it pulls a
- *      position's accrued fees out of the pool (a zero-liquidity `modifyLiquidity`, which
- *      v4 pays out as the fees owed) and credits them `CREATOR_FEE_BPS` (88%) to the
- *      launch's fee recipient and the rest to `feeTreasury`, on both sides alike. Credits
- *      are claimed with `claimEth` / `claimToken`, a pull the claimant makes to an address
- *      they choose, so no payout can block a collection and a failed transfer simply
- *      reverts that claim for a retry. The fee recipient starts as the launch's creator
- *      and only the current recipient can hand it on (`setFeeRecipient`). Shares are fixed
- *      when fees are collected: changing the recipient or the treasury later does not
- *      move fees already credited.
+ *      both the quote token and the launch token. `collectFees(token)` is permissionless:
+ *      it pulls a position's accrued fees out of the pool (a zero-liquidity
+ *      `modifyLiquidity`, which v4 pays out as the fees owed) and credits them
+ *      `CREATOR_FEE_BPS` (88%) to the launch's fee recipient and the rest to `feeTreasury`,
+ *      on both sides alike. Credits are kept per currency (`claimable[currency][account]`,
+ *      `address(0)` = ETH), so a recipient's ETH from every ETH-paired launch claims in one
+ *      call, as does each ERC-20 quote token, while each launch token claims on its own.
+ *      `claim` is a pull the claimant makes to an address they choose, so no payout can
+ *      block a collection and a failed transfer simply reverts that claim for a retry. The
+ *      fee recipient starts as the launch's creator and only the current recipient can
+ *      hand it on (`setFeeRecipient`). Shares are fixed when fees are collected: changing
+ *      the recipient or the treasury later does not move fees already credited.
  *
  *      ## Dust
  *
- *      Liquidity is an integer, so flooring it leaves a token remainder of at most
- *      `(sqrtB - sqrtA) / 2**96` raw units — around 1e-12 whole tokens at realistic
- *      prices. That remainder stays in this contract. It is genuinely dust, and
- *      `sweepDust` exists so it is recoverable rather than silently stuck. It never
- *      touches collected fees that are still unclaimed.
+ *      Liquidity is an integer, so flooring it leaves a token remainder of a few raw units
+ *      — around 1e-12 whole tokens at realistic prices. That remainder stays in this
+ *      contract. It is genuinely dust, and `sweepDust` exists so it is recoverable rather
+ *      than silently stuck. It never touches collected fees that are still unclaimed.
  */
 contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessControl, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -111,17 +122,23 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
     bytes32 public constant CONFIG_ROLE = keccak256("CONFIG_ROLE");
 
     uint256 private constant Q96 = 0x1000000000000000000000000;
-    /// @dev A whole token, in raw units. Launch tokens are always 18 decimals.
-    uint256 private constant WAD = 1e18;
+    /// @dev The currency address v4 uses for native ETH.
+    address private constant NATIVE = address(0);
 
     IPoolManager public immutable poolManager;
     address public immutable launchpad;
+
+    /// @notice The highest pool fee CONFIG_ROLE may set: 3%. Compiled in, so no
+    ///         configuration change can make new launches' markets punitive.
+    uint24 public constant MAX_FEE = 30_000;
+    /// @notice The widest tick spacing CONFIG_ROLE may set (v4's own maximum).
+    int24 public constant MAX_TICK_SPACING = TickMath.MAX_TICK_SPACING;
 
     /// @notice Pool fee in hundredths of a bip (10_000 = 1%).
     uint24 public fee;
     /// @notice Tick spacing. Must divide the position's ticks.
     int24 public tickSpacing;
-    /// @notice How far below the start price the position extends, in ticks. Sets how far
+    /// @notice How far the position extends from the start price, in ticks. Sets how far
     ///         the token price can climb before the position is fully sold out.
     ///         ~46_050 ticks is roughly a 100x climb (1.0001**46050).
     int24 public rangeWidthTicks;
@@ -134,6 +151,8 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         int24 tickLower;
         int24 tickUpper;
         uint128 liquidity;
+        /// @dev True when the launch token sorts below its quote token. See "Orientation".
+        bool tokenIsCurrency0;
     }
 
     mapping(address token => Placement) private _placements;
@@ -148,31 +167,35 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
     /// @dev token => fee recipient; zero means the launch's creator.
     mapping(address token => address) private _feeRecipients;
 
-    /// @notice Collected fees not yet claimed. ETH is pooled per account across launches;
-    ///         tokens are per launch token.
-    mapping(address account => uint256) public claimableEth;
-    mapping(address token => mapping(address account => uint256)) public claimableToken;
-    /// @notice Unclaimed fees held here in `token` — what `sweepDust` must leave alone.
-    mapping(address token => uint256) public totalClaimableToken;
+    /// @notice Collected fees not yet claimed, per currency (`address(0)` = ETH) and account.
+    ///         Quote-token fees pool across every launch paired with that currency; launch
+    ///         token fees are per launch token, since each is its own currency.
+    mapping(address currency => mapping(address account => uint256)) public claimable;
+    /// @notice Unclaimed fees held here in each ERC-20 currency — what `sweepDust` must
+    ///         leave alone.
+    mapping(address currency => uint256) public totalClaimable;
 
     event LiquidityPlaced(
         address indexed token,
         PoolId indexed poolId,
+        address indexed quoteToken,
         uint256 amount,
-        uint256 requestedStartPriceWei,
+        uint256 requestedStartFdv,
         int24 tickLower,
         int24 tickUpper,
-        uint128 liquidity
+        uint128 liquidity,
+        bool tokenIsCurrency0
     );
     event PoolParamsUpdated(uint24 fee, int24 tickSpacing, int24 rangeWidthTicks);
     event GateUpdated(address indexed gate);
-    event DustSwept(address indexed token, address indexed to, uint256 amount);
+    event DustSwept(address indexed currency, address indexed to, uint256 amount);
     event FeesCollected(
         address indexed token,
         address indexed recipient,
-        uint256 ethFees,
+        address indexed quoteToken,
+        uint256 quoteFees,
         uint256 tokenFees,
-        uint256 recipientEth,
+        uint256 recipientQuote,
         uint256 recipientTokens
     );
     event FeeRecipientUpdated(address indexed token, address indexed previous, address indexed current);
@@ -190,6 +213,7 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         int24 tickUpper;
         uint128 liquidity;
         address token;
+        bool tokenIsCurrency0;
     }
 
     constructor(
@@ -202,6 +226,7 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
     ) {
         if (_poolManager == address(0) || _launchpad == address(0) || admin == address(0)) revert ZeroAddress();
         if (_rangeWidthTicks <= 0) revert RangeWidthNotPositive();
+        _checkPoolParams(_fee, _tickSpacing);
 
         poolManager = IPoolManager(_poolManager);
         launchpad = _launchpad;
@@ -218,48 +243,85 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
     // ------------------------------------------------------------------
 
     /// @inheritdoc ILiquidityPlacer
-    function place(address token, uint256 amount, uint256 startPriceWei)
+    function place(address token, uint256 amount, address quoteToken, uint256 startFdv)
         external
         override
         returns (bytes32 placementId)
     {
         if (msg.sender != launchpad) revert OnlyLaunchpad();
         if (token == address(0)) revert ZeroAddress();
+        if (quoteToken == token) revert QuoteIsLaunchToken(token);
         if (amount == 0) revert ZeroAmount();
         IHooks hooks = gate;
         if (address(hooks) == address(0)) revert GateNotSet();
 
         int24 spacing = tickSpacing;
+        int24 width = _alignUp(rangeWidthTicks, spacing);
+        bool tokenIsCurrency0 = token < quoteToken;
 
-        // Ticks are discrete, so the effective start price is the creator's price snapped
-        // to the nearest usable tick. `LiquidityPlaced` carries the requested price so the
-        // difference is visible off-chain rather than silent.
-        int24 tickUpper = _alignedTickForStartPrice(startPriceWei, spacing);
-        int24 tickLower = tickUpper - _alignUp(rangeWidthTicks, spacing);
+        // Ticks are discrete, so the effective start price is the creator's valuation
+        // snapped to a usable tick, rounding toward the dearer side: the token opens at or
+        // slightly above the requested valuation (within one tick spacing, ~2%), never
+        // cheaper than its creator chose. `LiquidityPlaced` carries the requested
+        // valuation so the difference is visible off-chain rather than silent.
+        int24 tickLower;
+        int24 tickUpper;
+        uint160 startSqrtPrice;
+        uint128 liquidity;
+        if (tokenIsCurrency0) {
+            // Price is quote per token here, so dearer is a HIGHER tick: round up.
+            uint256 sqrtStart = _sqrtPriceQuotePerToken(startFdv, amount);
+            int24 tick = _tickForSqrtPrice(sqrtStart, startFdv);
+            if (TickMath.getSqrtPriceAtTick(tick) < sqrtStart) tick += 1;
+            tickLower = _alignUpTick(tick, spacing);
+            tickUpper = tickLower + width;
+            int24 maxTick = TickMath.maxUsableTick(spacing);
+            if (tickUpper > maxTick) tickUpper = maxTick;
+            uint160 sqrtLower = TickMath.getSqrtPriceAtTick(tickLower);
+            uint160 sqrtUpper = TickMath.getSqrtPriceAtTick(tickUpper);
+            // amount0 = L * Q96 * (sqrtB - sqrtA) / (sqrtA * sqrtB), so
+            // L = (amount0 * sqrtA / Q96) * sqrtB / (sqrtB - sqrtA). Both steps floor, so L
+            // never asks for more than `amount`; scaling `amount` first keeps the dust to a
+            // few raw units rather than flooring the small `sqrtA * sqrtB / Q96` factor.
+            liquidity = _toLiquidity(
+                FullMath.mulDiv(FullMath.mulDiv(amount, sqrtLower, Q96), sqrtUpper, uint256(sqrtUpper - sqrtLower))
+            );
+            startSqrtPrice = sqrtLower;
+        } else {
+            // Price is token per quote here, so dearer is a LOWER tick. getTickAtSqrtPrice
+            // already floors; aligning down keeps rounding that way.
+            tickUpper = _alignDown(_tickForSqrtPrice(_sqrtPriceTokenPerQuote(startFdv, amount), startFdv), spacing);
+            tickLower = tickUpper - width;
+            int24 minTick = TickMath.minUsableTick(spacing);
+            if (tickLower < minTick) tickLower = minTick;
+            uint160 sqrtLower = TickMath.getSqrtPriceAtTick(tickLower);
+            uint160 sqrtUpper = TickMath.getSqrtPriceAtTick(tickUpper);
+            // amount1 = L * (sqrtB - sqrtA) / Q96, so L = amount1 * Q96 / (sqrtB - sqrtA).
+            // Floors, leaving dust — see the contract docs.
+            liquidity = _toLiquidity(FullMath.mulDiv(amount, Q96, uint256(sqrtUpper - sqrtLower)));
+            startSqrtPrice = sqrtUpper;
+        }
+        if (tickLower >= tickUpper) revert StartFdvUnreachable(startFdv);
 
-        int24 minTick = TickMath.minUsableTick(spacing);
-        if (tickLower < minTick) tickLower = minTick;
+        PoolKey memory key = tokenIsCurrency0
+            ? PoolKey({
+                currency0: Currency.wrap(token),
+                currency1: Currency.wrap(quoteToken),
+                fee: fee,
+                tickSpacing: spacing,
+                hooks: hooks
+            })
+            : PoolKey({
+                currency0: Currency.wrap(quoteToken),
+                currency1: Currency.wrap(token),
+                fee: fee,
+                tickSpacing: spacing,
+                hooks: hooks
+            });
 
-        uint160 sqrtLower = TickMath.getSqrtPriceAtTick(tickLower);
-        uint160 sqrtUpper = TickMath.getSqrtPriceAtTick(tickUpper);
-
-        // amount1 = L * (sqrtB - sqrtA) / Q96, so L = amount1 * Q96 / (sqrtB - sqrtA).
-        // Floors, leaving dust — see the contract docs.
-        uint128 liquidity = uint128(FullMath.mulDiv(amount, Q96, uint256(sqrtUpper - sqrtLower)));
-        if (liquidity == 0) revert LiquidityIsZero();
-
-        PoolKey memory key = PoolKey({
-            currency0: Currency.wrap(address(0)), // native ETH, always currency0
-            currency1: Currency.wrap(token),
-            fee: fee,
-            tickSpacing: spacing,
-            hooks: hooks
-        });
-
-        // Initialising exactly AT tickUpper is what makes the position single-sided: a
-        // position is entirely currency1 when the current tick is at or above its upper
-        // tick, so the pool owes us no ETH.
-        poolManager.initialize(key, sqrtUpper);
+        // Starting exactly at the token-only edge of the range is what makes the position
+        // single-sided, so the pool owes us no quote token.
+        poolManager.initialize(key, startSqrtPrice);
 
         poolManager.unlock(
             abi.encode(
@@ -269,16 +331,24 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
                     tickLower: tickLower,
                     tickUpper: tickUpper,
                     liquidity: liquidity,
-                    token: token
+                    token: token,
+                    tokenIsCurrency0: tokenIsCurrency0
                 })
             )
         );
 
-        _placements[token] =
-            Placement({key: key, tickLower: tickLower, tickUpper: tickUpper, liquidity: liquidity});
+        _placements[token] = Placement({
+            key: key,
+            tickLower: tickLower,
+            tickUpper: tickUpper,
+            liquidity: liquidity,
+            tokenIsCurrency0: tokenIsCurrency0
+        });
 
         PoolId poolId = key.toId();
-        emit LiquidityPlaced(token, poolId, amount, startPriceWei, tickLower, tickUpper, liquidity);
+        emit LiquidityPlaced(
+            token, poolId, quoteToken, amount, startFdv, tickLower, tickUpper, liquidity, tokenIsCurrency0
+        );
 
         return PoolId.unwrap(poolId);
     }
@@ -301,17 +371,17 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
             ""
         );
 
-        // The whole point of single-sided placement: we must owe no ETH. If we do, the
-        // orientation or the starting tick is wrong, and paying it would silently drain
+        // The whole point of single-sided placement: we must owe no quote token. If we do,
+        // the orientation or the starting tick is wrong, and paying it would silently drain
         // this contract, so fail loudly instead.
-        int128 ethDelta = delta.amount0();
-        if (ethDelta != 0) revert PlacementWouldCostEth(ethDelta);
+        (int128 tokenDelta, int128 quoteDelta) =
+            cb.tokenIsCurrency0 ? (delta.amount0(), delta.amount1()) : (delta.amount1(), delta.amount0());
+        if (quoteDelta != 0) revert PlacementWouldCostQuote(quoteDelta);
 
         // Settle what we owe in the token. Negative delta means we owe the pool.
-        int128 tokenDelta = delta.amount1();
         if (tokenDelta < 0) {
             uint256 owed = uint256(uint128(-tokenDelta));
-            poolManager.sync(cb.key.currency1);
+            poolManager.sync(Currency.wrap(cb.token));
             IERC20(cb.token).safeTransfer(address(poolManager), owed);
             poolManager.settle();
         }
@@ -328,10 +398,10 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
      * @dev Permissionless: anyone may trigger it, and it only ever moves fees into the
      *      claimable balances of the fee recipient and the treasury. Collecting when
      *      nothing has accrued is a no-op that credits zero.
-     * @return ethFees   ETH collected, in wei
-     * @return tokenFees launch tokens collected, in raw units
+     * @return quoteFees quote-token fees collected, in its raw units (wei for ETH)
+     * @return tokenFees launch-token fees collected, in raw units
      */
-    function collectFees(address token) external nonReentrant returns (uint256 ethFees, uint256 tokenFees) {
+    function collectFees(address token) external nonReentrant returns (uint256 quoteFees, uint256 tokenFees) {
         Placement memory p = _placements[token];
         if (p.liquidity == 0) revert NoPlacement(token);
         address treasury = feeTreasury;
@@ -346,43 +416,41 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
                     tickLower: p.tickLower,
                     tickUpper: p.tickUpper,
                     liquidity: 0,
-                    token: token
+                    token: token,
+                    tokenIsCurrency0: p.tokenIsCurrency0
                 })
             )
         );
-        (ethFees, tokenFees) = abi.decode(result, (uint256, uint256));
+        (quoteFees, tokenFees) = abi.decode(result, (uint256, uint256));
 
-        uint256 recipientEth = (ethFees * CREATOR_FEE_BPS) / BPS;
+        address quote = _quoteOf(p);
+        uint256 recipientQuote = (quoteFees * CREATOR_FEE_BPS) / BPS;
         uint256 recipientTokens = (tokenFees * CREATOR_FEE_BPS) / BPS;
-        claimableEth[recipient] += recipientEth;
-        claimableEth[treasury] += ethFees - recipientEth;
-        claimableToken[token][recipient] += recipientTokens;
-        claimableToken[token][treasury] += tokenFees - recipientTokens;
-        totalClaimableToken[token] += tokenFees;
+        claimable[quote][recipient] += recipientQuote;
+        claimable[quote][treasury] += quoteFees - recipientQuote;
+        claimable[token][recipient] += recipientTokens;
+        claimable[token][treasury] += tokenFees - recipientTokens;
+        if (quote != NATIVE) totalClaimable[quote] += quoteFees;
+        totalClaimable[token] += tokenFees;
 
-        emit FeesCollected(token, recipient, ethFees, tokenFees, recipientEth, recipientTokens);
+        emit FeesCollected(token, recipient, quote, quoteFees, tokenFees, recipientQuote, recipientTokens);
     }
 
-    /// @notice Withdraw the caller's collected ETH fees, from every launch, to `to`.
-    function claimEth(address to) external nonReentrant returns (uint256 amount) {
+    /// @notice Withdraw the caller's collected fees in `currency` (`address(0)` = ETH) to
+    ///         `to`. For a quote currency that is every launch paired with it at once.
+    function claim(address currency, address to) external nonReentrant returns (uint256 amount) {
         if (to == address(0)) revert ZeroAddress();
-        amount = claimableEth[msg.sender];
+        amount = claimable[currency][msg.sender];
         if (amount == 0) revert NothingToClaim();
-        claimableEth[msg.sender] = 0;
-        (bool ok,) = to.call{value: amount}("");
-        if (!ok) revert EthTransferFailed();
-        emit FeesClaimed(msg.sender, address(0), to, amount);
-    }
-
-    /// @notice Withdraw the caller's collected fees in launch token `token` to `to`.
-    function claimToken(address token, address to) external nonReentrant returns (uint256 amount) {
-        if (to == address(0)) revert ZeroAddress();
-        amount = claimableToken[token][msg.sender];
-        if (amount == 0) revert NothingToClaim();
-        claimableToken[token][msg.sender] = 0;
-        totalClaimableToken[token] -= amount;
-        IERC20(token).safeTransfer(to, amount);
-        emit FeesClaimed(msg.sender, token, to, amount);
+        claimable[currency][msg.sender] = 0;
+        if (currency == NATIVE) {
+            (bool ok,) = to.call{value: amount}("");
+            if (!ok) revert EthTransferFailed();
+        } else {
+            totalClaimable[currency] -= amount;
+            IERC20(currency).safeTransfer(to, amount);
+        }
+        emit FeesClaimed(msg.sender, currency, to, amount);
     }
 
     /// @notice Who receives a launch's 88% share: set by `setFeeRecipient`, else its creator.
@@ -415,11 +483,11 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
             }),
             ""
         );
-        uint256 ethFees = uint256(uint128(delta.amount0()));
-        uint256 tokenFees = uint256(uint128(delta.amount1()));
-        if (ethFees != 0) poolManager.take(cb.key.currency0, address(this), ethFees);
-        if (tokenFees != 0) poolManager.take(cb.key.currency1, address(this), tokenFees);
-        return abi.encode(ethFees, tokenFees);
+        uint256 fees0 = uint256(uint128(delta.amount0()));
+        uint256 fees1 = uint256(uint128(delta.amount1()));
+        if (fees0 != 0) poolManager.take(cb.key.currency0, address(this), fees0);
+        if (fees1 != 0) poolManager.take(cb.key.currency1, address(this), fees1);
+        return cb.tokenIsCurrency0 ? abi.encode(fees1, fees0) : abi.encode(fees0, fees1);
     }
 
     /// @dev ETH arrives only as collected fees, taken from the PoolManager.
@@ -438,37 +506,67 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
     /// @notice The pool a launched token trades in, for indexers and the UI.
     function poolIdOf(address token) external view returns (bytes32) {
         Placement memory p = _placements[token];
-        if (Currency.unwrap(p.key.currency1) == address(0)) return bytes32(0);
+        if (p.liquidity == 0) return bytes32(0);
         return PoolId.unwrap(p.key.toId());
+    }
+
+    /// @notice What a placed token trades against (`address(0)` = ETH). Zero for a token
+    ///         this placer never placed, so check `poolIdOf` first.
+    function quoteTokenOf(address token) external view returns (address) {
+        Placement memory p = _placements[token];
+        return p.liquidity == 0 ? address(0) : _quoteOf(p);
     }
 
     // ------------------------------------------------------------------
     // Internals
     // ------------------------------------------------------------------
 
+    function _quoteOf(Placement memory p) private pure returns (address) {
+        return Currency.unwrap(p.tokenIsCurrency0 ? p.key.currency1 : p.key.currency0);
+    }
+
     /**
-     * @dev The tick whose price corresponds to `startPriceWei` wei of ETH per whole token,
-     *      floored to a multiple of `spacing`.
-     *
-     *      v4's price is currency1/currency0 in RAW units, i.e. token-raw per wei:
-     *          price = 1e18 / startPriceWei
-     *      and sqrtPriceX96 = sqrt(price) * 2**96 = sqrt(price << 192).
-     *
-     *      `1e18 << 192` is about 2**252, so it fits in a uint256 without any scaling
-     *      tricks even at the minimum price of 1 wei per token.
+     * @dev sqrtPriceX96 when the QUOTE is currency0: v4's price is token-raw per
+     *      quote-raw, `amount / startFdv`, and sqrtPriceX96 = sqrt(price << 192). mulDiv
+     *      keeps the 512-bit product exact; the quotient fits a uint256 only while
+     *      `startFdv > amount >> 64` (for a 1e27 supply, above ~5.4e7 raw units — far
+     *      below any sane valuation), so smaller valuations revert here by name.
      */
-    function _alignedTickForStartPrice(uint256 startPriceWei, int24 spacing) internal pure returns (int24) {
-        if (startPriceWei == 0) revert StartPriceUnreachable(0);
+    function _sqrtPriceTokenPerQuote(uint256 startFdv, uint256 amount) internal pure returns (uint256) {
+        if (startFdv <= amount >> 64) revert StartFdvUnreachable(startFdv);
+        return _sqrt(FullMath.mulDiv(amount, 1 << 192, startFdv));
+    }
 
-        uint256 ratioX192 = FullMath.mulDiv(WAD, 1 << 192, startPriceWei);
-        uint256 sqrtPrice = _sqrt(ratioX192);
+    /**
+     * @dev sqrtPriceX96 when the TOKEN is currency0: v4's price is quote-raw per
+     *      token-raw, `startFdv / amount`. The quotient fits while `startFdv / amount <
+     *      2**64`, i.e. below ~1.8e19 raw quote units per raw token — no real price.
+     */
+    function _sqrtPriceQuotePerToken(uint256 startFdv, uint256 amount) internal pure returns (uint256) {
+        if (startFdv == 0 || startFdv / amount >= 1 << 64) revert StartFdvUnreachable(startFdv);
+        return _sqrt(FullMath.mulDiv(startFdv, 1 << 192, amount));
+    }
 
+    /// @dev The tick at `sqrtPrice`, reverting if it lies outside v4's price range.
+    function _tickForSqrtPrice(uint256 sqrtPrice, uint256 startFdv) internal pure returns (int24) {
         if (sqrtPrice < TickMath.MIN_SQRT_PRICE || sqrtPrice >= TickMath.MAX_SQRT_PRICE) {
-            revert StartPriceUnreachable(startPriceWei);
+            revert StartFdvUnreachable(startFdv);
         }
+        return TickMath.getTickAtSqrtPrice(uint160(sqrtPrice));
+    }
 
-        int24 tick = TickMath.getTickAtSqrtPrice(uint160(sqrtPrice));
-        return _alignDown(tick, spacing);
+    /// @dev A static fee no higher than MAX_FEE (so never v4's dynamic-fee flag) and a
+    ///      tick spacing v4 accepts.
+    function _checkPoolParams(uint24 _fee, int24 _tickSpacing) private pure {
+        if (_fee > MAX_FEE || _tickSpacing < TickMath.MIN_TICK_SPACING || _tickSpacing > MAX_TICK_SPACING) {
+            revert PoolParamsOutOfRange(_fee, _tickSpacing);
+        }
+    }
+
+    function _toLiquidity(uint256 l) internal pure returns (uint128) {
+        if (l == 0) revert LiquidityIsZero();
+        if (l > type(uint128).max) revert LiquidityOverflow(l);
+        return uint128(l);
     }
 
     /// @dev Floors toward negative infinity so the result is always a usable tick.
@@ -476,6 +574,12 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         int24 aligned = (tick / spacing) * spacing;
         if (tick < 0 && aligned != tick) aligned -= spacing;
         return aligned;
+    }
+
+    /// @dev Rounds toward positive infinity to a multiple of `spacing`.
+    function _alignUpTick(int24 tick, int24 spacing) internal pure returns (int24) {
+        int24 down = _alignDown(tick, spacing);
+        return down == tick ? tick : down + spacing;
     }
 
     /// @dev Rounds a positive width up to a whole number of spacings, so the range is
@@ -503,6 +607,7 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
 
     function setPoolParams(uint24 _fee, int24 _tickSpacing, int24 _rangeWidthTicks) external onlyRole(CONFIG_ROLE) {
         if (_rangeWidthTicks <= 0) revert RangeWidthNotPositive();
+        _checkPoolParams(_fee, _tickSpacing);
         fee = _fee;
         tickSpacing = _tickSpacing;
         rangeWidthTicks = _rangeWidthTicks;
@@ -527,14 +632,16 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         emit FeeTreasuryUpdated(treasury);
     }
 
-    /// @notice Recover the rounding remainder described in the contract docs.
-    /// @dev Sweeps only what exceeds the unclaimed fees held in `token`, which after a
-    ///      successful placement is dust by construction.
-    function sweepDust(address token, address to) external onlyRole(CONFIG_ROLE) {
+    /// @notice Recover the rounding remainder described in the contract docs, in any
+    ///         ERC-20 this contract holds.
+    /// @dev Sweeps only what exceeds the unclaimed fees held in `currency`: for a launch
+    ///      token that is placement dust by construction, and an ERC-20 quote token holds
+    ///      nothing beyond its unclaimed fees except what was sent here by mistake.
+    function sweepDust(address currency, address to) external onlyRole(CONFIG_ROLE) {
         if (to == address(0)) revert ZeroAddress();
-        uint256 dust = IERC20(token).balanceOf(address(this)) - totalClaimableToken[token];
+        uint256 dust = IERC20(currency).balanceOf(address(this)) - totalClaimable[currency];
         if (dust == 0) revert ZeroAmount();
-        IERC20(token).safeTransfer(to, dust);
-        emit DustSwept(token, to, dust);
+        IERC20(currency).safeTransfer(to, dust);
+        emit DustSwept(currency, to, dust);
     }
 }

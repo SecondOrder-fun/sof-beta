@@ -53,20 +53,20 @@ contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
 
     function setUp() public {
         manager = new PoolManager(address(this));
-        launchpad = new TokenLaunchpad(address(this), address(0), 1, 1 ether);
+        launchpad = new TokenLaunchpad(address(this), address(0), 1e9, 1e27);
         placer = new UniV4LiquidityPlacer(address(manager), address(launchpad), address(this), 10_000, 200, 46_000);
         launchpad.setPlacer(address(placer));
         placer.setGate(_deployGate(address(placer)));
         router = new UniV4LaunchRouter(address(manager), address(launchpad));
         launchpad.setRouter(address(router));
 
-        (, token) = launchpad.launch("Frog Pond", "POND", "", PRICE);
+        (, token) = launchpad.launch("Frog Pond", "POND", "", address(0), PRICE * 1e9);
         vm.deal(buyer, 100 ether);
     }
 
     function _buy(uint256 ethIn, uint256 minOut) internal returns (uint256) {
         vm.prank(buyer);
-        return router.buy{value: ethIn}(token, minOut, buyer, block.timestamp);
+        return router.buy{value: ethIn}(token, ethIn, minOut, buyer, block.timestamp);
     }
 
     function _sell(uint256 tokensIn, uint256 minOut) internal returns (uint256) {
@@ -100,7 +100,7 @@ contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
     function test_buyRevertsBelowMinimumOut() public {
         vm.prank(buyer);
         vm.expectRevert(abi.encodeWithSelector(InsufficientOutput.selector, FIXTURE_BUY1_OUT, FIXTURE_BUY1_OUT + 1));
-        router.buy{value: 0.1 ether}(token, FIXTURE_BUY1_OUT + 1, buyer, block.timestamp);
+        router.buy{value: 0.1 ether}(token, 0.1 ether, FIXTURE_BUY1_OUT + 1, buyer, block.timestamp);
     }
 
     function test_sellRevertsBelowMinimumOut() public {
@@ -119,7 +119,7 @@ contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
         vm.warp(1_000_001);
         vm.prank(buyer);
         vm.expectRevert(abi.encodeWithSelector(Expired.selector, deadline));
-        router.buy{value: 0.1 ether}(token, 0, buyer, deadline);
+        router.buy{value: 0.1 ether}(token, 0.1 ether, 0, buyer, deadline);
     }
 
     // ------------------------------------------------------------------
@@ -192,12 +192,12 @@ contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
         MockERC20 foreign = new MockERC20("Foreign", "FRN", 1e24);
         vm.prank(buyer);
         vm.expectRevert(abi.encodeWithSelector(NotALaunchToken.selector, address(foreign)));
-        router.buy{value: 0.1 ether}(address(foreign), 0, buyer, block.timestamp);
+        router.buy{value: 0.1 ether}(address(foreign), 0.1 ether, 0, buyer, block.timestamp);
     }
 
     function test_sendsTokensToTheRecipientNotTheCaller() public {
         vm.prank(buyer);
-        uint256 out = router.buy{value: 0.1 ether}(token, 0, other, block.timestamp);
+        uint256 out = router.buy{value: 0.1 ether}(token, 0.1 ether, 0, other, block.timestamp);
         assertEq(IERC20(token).balanceOf(other), out);
         assertEq(IERC20(token).balanceOf(buyer), 0);
     }
@@ -212,13 +212,13 @@ contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
     function test_rejectsZeroAmountsAndZeroRecipient() public {
         vm.startPrank(buyer);
         vm.expectRevert(RouterZeroAmount.selector);
-        router.buy{value: 0}(token, 0, buyer, block.timestamp);
+        router.buy{value: 0}(token, 0, 0, buyer, block.timestamp);
 
         vm.expectRevert(RouterZeroAmount.selector);
         router.sell(token, 0, 0, buyer, block.timestamp);
 
         vm.expectRevert(RouterZeroAddress.selector);
-        router.buy{value: 0.1 ether}(token, 0, address(0), block.timestamp);
+        router.buy{value: 0.1 ether}(token, 0.1 ether, 0, address(0), block.timestamp);
         vm.stopPrank();
     }
 
@@ -280,7 +280,7 @@ contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
 
         // The replacement routes identically — the interface is the contract clients rely on.
         vm.prank(buyer);
-        assertEq(ILaunchRouter(address(launchpad.router())).buy{value: 0.1 ether}(token, 0, buyer, block.timestamp), FIXTURE_BUY1_OUT);
+        assertEq(ILaunchRouter(address(launchpad.router())).buy{value: 0.1 ether}(token, 0.1 ether, 0, buyer, block.timestamp), FIXTURE_BUY1_OUT);
 
         launchpad.setRouter(address(0));
         assertEq(address(launchpad.router()), address(0));
@@ -301,10 +301,10 @@ contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
         assertEq(launchpad.placerOf(token), address(placer), "the old launch keeps its placer");
         assertEq(_buy(0.1 ether, 0), FIXTURE_BUY1_OUT, "and still routes through it");
 
-        (, address newer) = launchpad.launch("Newer", "NEW", "", PRICE);
+        (, address newer) = launchpad.launch("Newer", "NEW", "", address(0), PRICE * 1e9);
         assertEq(launchpad.placerOf(newer), address(next));
         vm.prank(buyer);
-        assertEq(router.buy{value: 0.1 ether}(newer, 0, buyer, block.timestamp), FIXTURE_BUY1_OUT);
+        assertEq(router.buy{value: 0.1 ether}(newer, 0.1 ether, 0, buyer, block.timestamp), FIXTURE_BUY1_OUT);
     }
 
     function test_placerOfIsZeroForForeignTokens() public view {

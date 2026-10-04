@@ -40,7 +40,7 @@ contract LaunchLpFeesTest is Test, LaunchPoolGateDeployer {
 
     function setUp() public {
         manager = new PoolManager(address(this));
-        launchpad = new TokenLaunchpad(address(this), address(0), 1, 1 ether);
+        launchpad = new TokenLaunchpad(address(this), address(0), 1e9, 1e27);
         placer = new UniV4LiquidityPlacer(address(manager), address(launchpad), address(this), 10_000, 200, 46_000);
         launchpad.setPlacer(address(placer));
         placer.setGate(_deployGate(address(placer)));
@@ -49,13 +49,13 @@ contract LaunchLpFeesTest is Test, LaunchPoolGateDeployer {
         launchpad.setRouter(address(router));
 
         vm.prank(creator);
-        (, token) = launchpad.launch("Frog Pond", "POND", "", PRICE);
+        (, token) = launchpad.launch("Frog Pond", "POND", "", address(0), PRICE * 1e9);
         vm.deal(trader, 100 ether);
     }
 
     function _buy(uint256 ethIn) internal returns (uint256 out) {
         vm.prank(trader);
-        out = router.buy{value: ethIn}(token, 0, trader, block.timestamp);
+        out = router.buy{value: ethIn}(token, ethIn, 0, trader, block.timestamp);
     }
 
     function _sell(uint256 tokensIn) internal returns (uint256 out) {
@@ -84,11 +84,11 @@ contract LaunchLpFeesTest is Test, LaunchPoolGateDeployer {
 
         uint256 creatorEth = (ethFees * 8_800) / 10_000;
         uint256 creatorTokens = (tokenFees * 8_800) / 10_000;
-        assertEq(placer.claimableEth(creator), creatorEth);
-        assertEq(placer.claimableEth(treasury), ethFees - creatorEth);
-        assertEq(placer.claimableToken(token, creator), creatorTokens);
-        assertEq(placer.claimableToken(token, treasury), tokenFees - creatorTokens);
-        assertEq(placer.claimableEth(stranger), 0, "the caller earns nothing for collecting");
+        assertEq(placer.claimable(address(0), creator), creatorEth);
+        assertEq(placer.claimable(address(0), treasury), ethFees - creatorEth);
+        assertEq(placer.claimable(token, creator), creatorTokens);
+        assertEq(placer.claimable(token, treasury), tokenFees - creatorTokens);
+        assertEq(placer.claimable(address(0), stranger), 0, "the caller earns nothing for collecting");
 
         assertEq(address(placer).balance, ethFees, "the placer holds exactly what it owes");
     }
@@ -96,12 +96,12 @@ contract LaunchLpFeesTest is Test, LaunchPoolGateDeployer {
     function test_collectingAgainWithoutTradesCreditsNothing() public {
         _buy(1 ether);
         placer.collectFees(token);
-        uint256 creatorEth = placer.claimableEth(creator);
+        uint256 creatorEth = placer.claimable(address(0), creator);
 
         (uint256 ethFees, uint256 tokenFees) = placer.collectFees(token);
         assertEq(ethFees, 0);
         assertEq(tokenFees, 0);
-        assertEq(placer.claimableEth(creator), creatorEth);
+        assertEq(placer.claimable(address(0), creator), creatorEth);
     }
 
     function test_collectingLeavesThePositionTradeable() public {
@@ -121,7 +121,7 @@ contract LaunchLpFeesTest is Test, LaunchPoolGateDeployer {
         bare.setGate(_deployGate(address(bare)));
         launchpad.setPlacer(address(bare));
         vm.prank(creator);
-        (, address other) = launchpad.launch("Other", "OTH", "", PRICE);
+        (, address other) = launchpad.launch("Other", "OTH", "", address(0), PRICE * 1e9);
         vm.expectRevert(FeeTreasuryNotSet.selector);
         bare.collectFees(other);
     }
@@ -135,28 +135,28 @@ contract LaunchLpFeesTest is Test, LaunchPoolGateDeployer {
         _sell(bought / 2);
         placer.collectFees(token);
 
-        uint256 creatorEth = placer.claimableEth(creator);
-        uint256 creatorTokens = placer.claimableToken(token, creator);
+        uint256 creatorEth = placer.claimable(address(0), creator);
+        uint256 creatorTokens = placer.claimable(token, creator);
         address wallet = address(0xA11);
 
         vm.startPrank(creator);
-        assertEq(placer.claimEth(wallet), creatorEth);
-        assertEq(placer.claimToken(token, wallet), creatorTokens);
+        assertEq(placer.claim(address(0), wallet), creatorEth);
+        assertEq(placer.claim(token, wallet), creatorTokens);
         vm.stopPrank();
         assertEq(wallet.balance, creatorEth);
         assertEq(IERC20(token).balanceOf(wallet), creatorTokens);
 
         vm.startPrank(treasury);
-        placer.claimEth(treasury);
-        placer.claimToken(token, treasury);
+        placer.claim(address(0), treasury);
+        placer.claim(token, treasury);
         vm.stopPrank();
 
         assertEq(address(placer).balance, 0);
-        assertEq(placer.totalClaimableToken(token), 0);
+        assertEq(placer.totalClaimable(token), 0);
 
         vm.prank(creator);
         vm.expectRevert(NothingToClaim.selector);
-        placer.claimEth(wallet);
+        placer.claim(address(0), wallet);
     }
 
     /// A claim to an address that rejects ETH fails without losing the credit, so the
@@ -164,16 +164,16 @@ contract LaunchLpFeesTest is Test, LaunchPoolGateDeployer {
     function test_aFailedEthClaimKeepsTheCredit() public {
         _buy(1 ether);
         placer.collectFees(token);
-        uint256 owed = placer.claimableEth(creator);
+        uint256 owed = placer.claimable(address(0), creator);
 
         address rejecting = address(new RejectsEth());
         vm.prank(creator);
         vm.expectRevert(EthTransferFailed.selector);
-        placer.claimEth(rejecting);
-        assertEq(placer.claimableEth(creator), owed);
+        placer.claim(address(0), rejecting);
+        assertEq(placer.claimable(address(0), creator), owed);
 
         vm.prank(creator);
-        placer.claimEth(creator);
+        placer.claim(address(0), creator);
         assertEq(creator.balance, owed);
     }
 
@@ -202,7 +202,7 @@ contract LaunchLpFeesTest is Test, LaunchPoolGateDeployer {
     function test_handoverAppliesToLaterCollectionsOnly() public {
         _buy(1 ether);
         placer.collectFees(token);
-        uint256 creatorBefore = placer.claimableEth(creator);
+        uint256 creatorBefore = placer.claimable(address(0), creator);
 
         address next = address(0x2E27);
         vm.prank(creator);
@@ -210,8 +210,8 @@ contract LaunchLpFeesTest is Test, LaunchPoolGateDeployer {
 
         _buy(1 ether);
         placer.collectFees(token);
-        assertEq(placer.claimableEth(creator), creatorBefore, "earlier credit unchanged");
-        assertGt(placer.claimableEth(next), 0, "later fees go to the new recipient");
+        assertEq(placer.claimable(address(0), creator), creatorBefore, "earlier credit unchanged");
+        assertGt(placer.claimable(address(0), next), 0, "later fees go to the new recipient");
     }
 
     // ------------------------------------------------------------------
@@ -224,7 +224,7 @@ contract LaunchLpFeesTest is Test, LaunchPoolGateDeployer {
         placer.collectFees(token);
 
         uint256 held = IERC20(token).balanceOf(address(placer));
-        uint256 owed = placer.totalClaimableToken(token);
+        uint256 owed = placer.totalClaimable(token);
         assertGt(owed, 0);
 
         if (held > owed) {

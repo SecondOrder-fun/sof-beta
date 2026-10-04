@@ -80,29 +80,36 @@
   },
   {
     "type": "function",
-    "name": "claimEth",
-    "inputs": [
-      {
-        "name": "to",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
+    "name": "MAX_FEE",
+    "inputs": [],
     "outputs": [
       {
-        "name": "amount",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "",
+        "type": "uint24",
+        "internalType": "uint24"
       }
     ],
-    "stateMutability": "nonpayable"
+    "stateMutability": "view"
   },
   {
     "type": "function",
-    "name": "claimToken",
+    "name": "MAX_TICK_SPACING",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "int24",
+        "internalType": "int24"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "claim",
     "inputs": [
       {
-        "name": "token",
+        "name": "currency",
         "type": "address",
         "internalType": "address"
       },
@@ -123,29 +130,10 @@
   },
   {
     "type": "function",
-    "name": "claimableEth",
+    "name": "claimable",
     "inputs": [
       {
-        "name": "account",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "claimableToken",
-    "inputs": [
-      {
-        "name": "token",
+        "name": "currency",
         "type": "address",
         "internalType": "address"
       },
@@ -176,7 +164,7 @@
     ],
     "outputs": [
       {
-        "name": "ethFees",
+        "name": "quoteFees",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -308,6 +296,11 @@
             "name": "liquidity",
             "type": "uint128",
             "internalType": "uint128"
+          },
+          {
+            "name": "tokenIsCurrency0",
+            "type": "bool",
+            "internalType": "bool"
           }
         ]
       }
@@ -403,7 +396,12 @@
         "internalType": "uint256"
       },
       {
-        "name": "startPriceWei",
+        "name": "quoteToken",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "startFdv",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -445,6 +443,25 @@
         "name": "",
         "type": "address",
         "internalType": "contract IPoolManager"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "quoteTokenOf",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -589,7 +606,7 @@
     "name": "sweepDust",
     "inputs": [
       {
-        "name": "token",
+        "name": "currency",
         "type": "address",
         "internalType": "address"
       },
@@ -617,10 +634,10 @@
   },
   {
     "type": "function",
-    "name": "totalClaimableToken",
+    "name": "totalClaimable",
     "inputs": [
       {
-        "name": "token",
+        "name": "currency",
         "type": "address",
         "internalType": "address"
       }
@@ -658,7 +675,7 @@
     "name": "DustSwept",
     "inputs": [
       {
-        "name": "token",
+        "name": "currency",
         "type": "address",
         "indexed": true,
         "internalType": "address"
@@ -764,7 +781,13 @@
         "internalType": "address"
       },
       {
-        "name": "ethFees",
+        "name": "quoteToken",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "quoteFees",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -776,7 +799,7 @@
         "internalType": "uint256"
       },
       {
-        "name": "recipientEth",
+        "name": "recipientQuote",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -820,13 +843,19 @@
         "internalType": "PoolId"
       },
       {
+        "name": "quoteToken",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
         "name": "amount",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
       },
       {
-        "name": "requestedStartPriceWei",
+        "name": "requestedStartFdv",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -848,6 +877,12 @@
         "type": "uint128",
         "indexed": false,
         "internalType": "uint128"
+      },
+      {
+        "name": "tokenIsCurrency0",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
       }
     ],
     "anonymous": false
@@ -1006,6 +1041,17 @@
   },
   {
     "type": "error",
+    "name": "LiquidityOverflow",
+    "inputs": [
+      {
+        "name": "liquidity",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "NoPlacement",
     "inputs": [
       {
@@ -1043,12 +1089,39 @@
   },
   {
     "type": "error",
-    "name": "PlacementWouldCostEth",
+    "name": "PlacementWouldCostQuote",
     "inputs": [
       {
-        "name": "ethDelta",
+        "name": "quoteDelta",
         "type": "int128",
         "internalType": "int128"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "PoolParamsOutOfRange",
+    "inputs": [
+      {
+        "name": "fee",
+        "type": "uint24",
+        "internalType": "uint24"
+      },
+      {
+        "name": "tickSpacing",
+        "type": "int24",
+        "internalType": "int24"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "QuoteIsLaunchToken",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
       }
     ]
   },
@@ -1075,10 +1148,10 @@
   },
   {
     "type": "error",
-    "name": "StartPriceUnreachable",
+    "name": "StartFdvUnreachable",
     "inputs": [
       {
-        "name": "startPriceWei",
+        "name": "startFdv",
         "type": "uint256",
         "internalType": "uint256"
       }
