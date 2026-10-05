@@ -8,7 +8,8 @@
 //   1. TokenLaunchpad.placerOf(token)            -> the placer holding the position
 //      PoolManager.extsload([slot0, liquidity])  -> the pool's current state (in parallel)
 //   2. <that placer>.getPlacement(token)         -> the position's tick range, its
-//                                                   orientation and its pool key
+//                                                   orientation, its pool key (tick
+//                                                   spacing) and the launch's trade fee
 //   3. symbol() + decimals() of any quote token not listed in
 //      config/launchQuoteTokens.js (skipped when every quote is listed)
 // Each launch is read through ITS placer, not the deployment's current one: the

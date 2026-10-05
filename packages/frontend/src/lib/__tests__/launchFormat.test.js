@@ -13,6 +13,8 @@ import {
   formatTokenAmount,
   formatEthAmount,
   tokensToEthWei,
+  formatTradeFee,
+  parseTradeFeePct,
 } from "@/lib/launchFormat";
 import { getCountdownParts, timeUntil } from "@/lib/utils";
 
@@ -80,6 +82,28 @@ describe("parseQuoteAmount", () => {
   it("is null for empty, zero, junk, or more decimals than the quote has", () => {
     for (const bad of ["", " ", "0", "0.0", ".", "abc", "1e5", "-1", "0.0000001"]) {
       expect(parseQuoteAmount(bad, 6)).toBeNull();
+    }
+  });
+});
+
+describe("trade fee percentages", () => {
+  it("formats pips as a percentage", () => {
+    expect(formatTradeFee(10_000)).toBe("1");
+    expect(formatTradeFee(5_000)).toBe("0.5");
+    expect(formatTradeFee(25_000)).toBe("2.5");
+    expect(formatTradeFee(100_000)).toBe("10");
+    expect(formatTradeFee(1)).toBe("0.0001");
+    expect(formatTradeFee(null)).toBe("—");
+  });
+  it("parses a typed percentage into pips", () => {
+    expect(parseTradeFeePct("1")).toBe(10_000);
+    expect(parseTradeFeePct("0.5")).toBe(5_000);
+    expect(parseTradeFeePct(" 2.5% ")).toBe(25_000);
+    expect(parseTradeFeePct("0.0001")).toBe(1);
+  });
+  it("is null for empty, zero, junk, or finer than a pip", () => {
+    for (const bad of ["", "0", "abc", "-1", "0.00001", "1e2"]) {
+      expect(parseTradeFeePct(bad)).toBeNull();
     }
   });
 });

@@ -16,26 +16,34 @@ import {
   minimumReceived,
   deriveMarketState,
   swapFeeFor,
+  tradeFeeOn,
+  MAX_TRADE_FEE,
 } from "@/lib/v4PoolMath";
 
 // Every constant below was emitted by a REAL PoolManager swap in
 // packages/contracts/test/UniV4LiquidityPlacer.t.sol:test_fixture_quoteMathForFrontend
 // (`forge test --match-test test_fixture_quoteMathForFrontend -vv`).
-// An ETH launch at a 1 ETH FDV (fee 1%, tick spacing 200, range
-// [minUsableTick, tickUpper]), then a 0.1 ETH buy, a 1 ETH buy, and a sale of
-// half the second buy's tokens. If any of these tests fail after a contracts
-// change, re-run the fixture and update the numbers — do not loosen the
-// tolerances.
+// An ETH launch at a 1 ETH FDV (a 1% trade fee taken by the placer as the pool's
+// hook, LP fee 0, tick spacing 200, range [minUsableTick, tickUpper]), then a
+// 0.1 ETH buy, a 1 ETH buy, and a sale of half the second buy's tokens. If any
+// of these tests fail after a contracts change, re-run the fixture and update
+// the numbers — do not loosen the tolerances.
+//
+// The pool key carries the placer as its hook, so the poolId (and with it the
+// state slot) changes with the placer's address: the fixture prints both, and
+// poolStateSlot() is checked against that pair alone.
 const FIX = {
-  poolId: "0xdf65a7d19d01dc6ffec730782b08a7d118d2c301da730b92a892a9aea678c06e",
-  poolStateSlot: "0xe5fbf8fdc079cde931db19e27cf3edf7614d24659d0eae829f27cef72d99408f",
-  slot0Word: "0x0000000027100000000329600000000000007b42d530bfeef6c84ca32f6118a4",
+  poolId: "0xb826ba3cd87f6c1f69ce2cd36194eb7ef645c081f006d74489b4cf463239f73f",
+  poolStateSlot: "0x0a3428b771fd3ceb735dbb12c030187f7340a858597ac2a62a64ffed29c52855",
+  slot0Word: "0x0000000000000000000329600000000000007b42d530bfeef6c84ca32f6118a4",
   placementLiquidity: 31690866724818211737594n,
   tickLower: -887200,
   tickUpper: 207200,
   launchSqrt: 2500031419217008302293562112940196n,
   launchTick: 207200,
-  lpFee: 10000,
+  lpFee: 0,
+  tradeFee: 10_000,
+  tickSpacing: 200,
   buy1: {
     ethIn: 100000000000000000n,
     tokensOut: 89729910215527505885256588n,
@@ -43,13 +51,13 @@ const FIX = {
   },
   buy2: {
     ethIn: 1000000000000000000n,
-    tokensOut: 430498561536536843999554978n,
-    sqrtAfter: 1199443894665599552012033888298460n,
+    tokensOut: 430498561536536844228747640n,
+    sqrtAfter: 1199443894665599551439045032215605n,
   },
   sell: {
-    tokensIn: 215249280768268421999777489n,
-    ethOut: 643813329407072925n,
-    sqrtAfter: 1732192559901288602284316559577343n,
+    tokensIn: 215249280768268422114373820n,
+    ethOut: 641819427148231841n,
+    sqrtAfter: 1737573859550133945939966401206119n,
   },
 };
 
@@ -63,7 +71,8 @@ const SQRT_LOWER = sqrtPriceX96AtTick(FIX.tickLower);
 /** The fixture pool as quoteBuy / quoteSell take it, ETH (quote) as currency0. */
 const POOL = {
   liquidity: FIX.placementLiquidity,
-  lpFee: FIX.lpFee,
+  tradeFee: FIX.tradeFee,
+  tickSpacing: FIX.tickSpacing,
   sqrtLowerX96: SQRT_LOWER,
   sqrtUpperX96: FIX.launchSqrt,
 };
@@ -135,21 +144,24 @@ describe("quoteBuy — against real v4 swaps", () => {
     expect(q.tokensOut).toBe(FIX.buy1.tokensOut);
     expect(q.sqrtPriceAfter).toBe(FIX.buy1.sqrtAfter);
     expect(q.exceedsRange).toBe(false);
+    // 1% of the gross 0.1 ETH, in ETH.
+    expect(q.fee).toBe(FIX.buy1.ethIn / 100n);
   });
 
-  // v4 may split a swap at a tick-bitmap word boundary and run it as two steps,
-  // snapping sqrtPrice to TickMath's exact value at the boundary and charging the
-  // fee PER STEP, rounded up each time. The quote does it in one step. So the gap
-  // is not a fixed few wei — it scales with the trade — but it is bounded far
-  // below anything the UI can display (4 significant figures). The bound is
-  // 1e-15 relative, a trillion times tighter than the display.
-  it("matches a second, larger buy to within 1e-15 relative", () => {
+  // This buy crosses the tick-bitmap word edge at tick 204800, where v4 ends a
+  // step and snaps sqrtPrice to TickMath's exact value; the quote steps there too.
+  it("matches a second, larger buy exactly — across a word edge", () => {
     const q = quoteBuy({ ...POOL, sqrtPriceX96: FIX.buy1.sqrtAfter, quoteIn: FIX.buy2.ethIn });
+    expect(q.tokensOut).toBe(FIX.buy2.tokensOut);
+    expect(q.sqrtPriceAfter).toBe(FIX.buy2.sqrtAfter);
+  });
+
+  // Without the tick spacing the swap is one step: off by rounding at the edge,
+  // far below anything the UI displays.
+  it("quotes one step without a tick spacing, within 1e-15 of v4", () => {
+    const { tickSpacing: _omit, ...oneStep } = POOL;
+    const q = quoteBuy({ ...oneStep, sqrtPriceX96: FIX.buy1.sqrtAfter, quoteIn: FIX.buy2.ethIn });
     expect(rel(q.tokensOut, FIX.buy2.tokensOut)).toBeLessThan(1e-15);
-    expect(rel(q.sqrtPriceAfter, FIX.buy2.sqrtAfter)).toBeLessThan(1e-15);
-    // Never promises less than v4 delivers; minimum-received applies slippage to
-    // it, which absorbs any rounding gap many times over.
-    expect(q.tokensOut).toBeGreaterThanOrEqual(FIX.buy2.tokensOut);
   });
 
   it("reports price impact that grows with size", () => {
@@ -198,6 +210,9 @@ describe("quoteSell — against a real v4 swap", () => {
     const q = quoteSell({ ...POOL, sqrtPriceX96: FIX.buy2.sqrtAfter, tokensIn: FIX.sell.tokensIn });
     expect(q.quoteOut).toBe(FIX.sell.ethOut);
     expect(q.sqrtPriceAfter).toBe(FIX.sell.sqrtAfter);
+    // The fee is 1% of what the pool paid, rounded up: the seller got the rest.
+    const gross = q.quoteOut + q.fee;
+    expect(q.fee).toBe((gross + 99n) / 100n);
   });
 
   it("caps a sell at the launch price — there is no liquidity above it", () => {
@@ -352,13 +367,113 @@ const withProtocolFee = (word) => {
 };
 
 describe("deriveMarketState fees", () => {
-  const placement = { tickLower: FIX.tickLower, tickUpper: FIX.tickUpper, liquidity: FIX.placementLiquidity };
+  const placement = {
+    tickLower: FIX.tickLower,
+    tickUpper: FIX.tickUpper,
+    liquidity: FIX.placementLiquidity,
+    tradeFee: FIX.tradeFee,
+    key: { tickSpacing: FIX.tickSpacing },
+  };
+
+  it("carries the launch's trade fee and tick spacing from its placement", () => {
+    const m = deriveMarketState({ slot0Word: FIX.slot0Word, liquidityWord: "0x0", placement, wholeSupply: WHOLE_SUPPLY });
+    expect(m.tradeFee).toBe(10_000);
+    expect(m.tickSpacing).toBe(200);
+    // Launch pools have no LP fee: v4 itself charges nothing inside the swap.
+    expect(m.buySwapFee).toBe(0);
+    expect(m.sellSwapFee).toBe(0);
+  });
 
   it("charges buys the zeroForOne protocol fee when the quote is currency0", () => {
     const m = deriveMarketState({ slot0Word: withProtocolFee(FIX.slot0Word), liquidityWord: "0x0", placement, wholeSupply: WHOLE_SUPPLY });
-    expect(m.lpFee).toBe(10_000);
-    expect(m.buyFee).toBe(10_990);
-    expect(m.sellFee).toBe(11_980);
+    expect(m.buySwapFee).toBe(1_000);
+    expect(m.sellSwapFee).toBe(2_000);
+    expect(m.tradeFee).toBe(10_000);
+  });
+});
+
+// The hook's fee on the quote side, at a launch's own rate. Compared against a
+// direct computation: the same swap with no trade fee, and the fee by hand.
+describe("trade fee — in the quote, at the launch's rate", () => {
+  const RATE = 25_000; // 2.5%
+  const ceilFee = (amount) => (amount * BigInt(RATE) + 999_999n) / 1_000_000n;
+
+  it("rounds the fee up, like FullMath.mulDivRoundingUp", () => {
+    expect(tradeFeeOn(1_000_000n, 10_000)).toBe(10_000n);
+    expect(tradeFeeOn(1_000_001n, 10_000)).toBe(10_001n);
+    expect(tradeFeeOn(1n, 5_000)).toBe(1n);
+    expect(tradeFeeOn(123n, 0)).toBe(0n);
+    expect(tradeFeeOn(0n, 10_000)).toBe(0n);
+    expect(MAX_TRADE_FEE).toBe(100_000);
+  });
+
+  const orientations = [
+    ["the quote is currency0 (ETH)", { ...POOL, tradeFee: RATE }, FIX.launchSqrt, FIX.buy2.sqrtAfter],
+    [
+      "the token is currency0",
+      {
+        liquidity: FIX.placementLiquidity,
+        tradeFee: RATE,
+        tickSpacing: FIX.tickSpacing,
+        sqrtLowerX96: sqrtPriceX96AtTick(-FIX.tickUpper),
+        sqrtUpperX96: sqrtPriceX96AtTick(887200),
+        tokenIsCurrency0: true,
+      },
+      sqrtPriceX96AtTick(-FIX.tickUpper),
+      null,
+    ],
+  ];
+
+  for (const [name, pool, launchSqrt, tradedSqrt] of orientations) {
+    describe(name, () => {
+      // Somewhere with quote in the pool to sell back into.
+      const traded =
+        tradedSqrt ?? quoteBuy({ ...pool, tradeFee: 0, sqrtPriceX96: launchSqrt, quoteIn: 2n * ONE_ETH }).sqrtPriceAfter;
+
+      it("a buy swaps the gross amount less the fee", () => {
+        const gross = 333_333_333_333_333_333n;
+        const q = quoteBuy({ ...pool, sqrtPriceX96: launchSqrt, quoteIn: gross });
+        const fee = ceilFee(gross);
+        const direct = quoteBuy({ ...pool, tradeFee: 0, sqrtPriceX96: launchSqrt, quoteIn: gross - fee });
+        expect(q.fee).toBe(fee);
+        expect(q.tokensOut).toBe(direct.tokensOut);
+        expect(q.sqrtPriceAfter).toBe(direct.sqrtPriceAfter);
+        expect(q.tokensOut).toBeLessThan(quoteBuy({ ...pool, tradeFee: 0, sqrtPriceX96: launchSqrt, quoteIn: gross }).tokensOut);
+      });
+
+      it("a sell pays out the pool's amount less the fee", () => {
+        const tokensIn = 77_777_777_777_777_777_777_777n;
+        const q = quoteSell({ ...pool, sqrtPriceX96: traded, tokensIn });
+        const gross = quoteSell({ ...pool, tradeFee: 0, sqrtPriceX96: traded, tokensIn }).quoteOut;
+        expect(gross).toBeGreaterThan(0n);
+        expect(q.fee).toBe(ceilFee(gross));
+        expect(q.quoteOut).toBe(gross - ceilFee(gross));
+        // The fee does not move the pool: it is taken outside the swap.
+        expect(q.sqrtPriceAfter).toBe(quoteSell({ ...pool, tradeFee: 0, sqrtPriceX96: traded, tokensIn }).sqrtPriceAfter);
+      });
+
+      it("a buy too small to be more than its fee quotes nothing (SwapTooSmallForFee)", () => {
+        const q = quoteBuy({ ...pool, sqrtPriceX96: launchSqrt, quoteIn: 1n });
+        expect(q.tokensOut).toBe(0n);
+        expect(q.fee).toBe(0n);
+      });
+    });
+  }
+
+  it("a buy the range cannot fill in full quotes nothing when a fee is charged (PartialFillWithFee)", () => {
+    const start = SQRT_LOWER * 2n;
+    const q = quoteBuy({ ...POOL, sqrtPriceX96: start, quoteIn: 10n ** 45n });
+    expect(q.exceedsRange).toBe(true);
+    expect(q.tokensOut).toBe(0n);
+    expect(q.fee).toBe(0n);
+  });
+
+  it("a sell capped at the launch price fills partly, with the fee on what the pool paid", () => {
+    const q = quoteSell({ ...POOL, sqrtPriceX96: FIX.buy1.sqrtAfter, tokensIn: SUPPLY_RAW });
+    const gross = quoteSell({ ...POOL, tradeFee: 0, sqrtPriceX96: FIX.buy1.sqrtAfter, tokensIn: SUPPLY_RAW }).quoteOut;
+    expect(q.exceedsRange).toBe(true);
+    expect(q.fee).toBe((gross + 99n) / 100n);
+    expect(q.quoteOut).toBe(gross - q.fee);
   });
 });
 
@@ -422,12 +537,19 @@ describe("token is currency0 — mirrored against the ETH fixture", () => {
   };
   const launch = sqrtPriceX96AtTick(M.tickLower);
   const upper = sqrtPriceX96AtTick(M.tickUpper);
-  const MPOOL = { liquidity: M.liquidity, lpFee: FIX.lpFee, sqrtLowerX96: launch, sqrtUpperX96: upper, tokenIsCurrency0: true };
+  const MPOOL = {
+    liquidity: M.liquidity,
+    tradeFee: FIX.tradeFee,
+    tickSpacing: FIX.tickSpacing,
+    sqrtLowerX96: launch,
+    sqrtUpperX96: upper,
+    tokenIsCurrency0: true,
+  };
   const placement = { ...M, tokenIsCurrency0: true };
-  // A slot0 word at the launch price: tick -207200, lpFee 1%.
+  // A slot0 word at the launch price: tick -207200, lpFee 0 (the fee is the hook's).
   const launchWord = (() => {
     const tick = BigInt(M.tickLower) & 0xffffffn;
-    return `0x${((10_000n << 208n) | (tick << 160n) | launch).toString(16).padStart(64, "0")}`;
+    return `0x${((tick << 160n) | launch).toString(16).padStart(64, "0")}`;
   })();
   const USDC = { address: "0xffffffffffffffffffffffffffffffffffffffff", symbol: "USDC", decimals: 6 };
 
@@ -469,7 +591,7 @@ describe("token is currency0 — mirrored against the ETH fixture", () => {
     const b = quoteBuy({ ...MPOOL, sqrtPriceX96: launch, quoteIn: ONE_ETH });
     const s = quoteSell({ ...MPOOL, sqrtPriceX96: b.sqrtPriceAfter, tokensIn: b.tokensOut });
     expect(s.quoteOut).toBeLessThan(ONE_ETH);
-    // Two 1% fees, and nothing else lost.
+    // Two 1% trade fees, and nothing else lost.
     expect(Number(s.quoteOut) / Number(ONE_ETH)).toBeGreaterThan(0.97);
   });
 
@@ -523,8 +645,8 @@ describe("token is currency0 — mirrored against the ETH fixture", () => {
     expect(m.fdv).toBe(m.launchFdv);
     expect(m.quote).toBe(USDC);
     // A buy is oneForZero here, so it pays the HIGH 12 bits' protocol fee.
-    expect(m.buyFee).toBe(11_980);
-    expect(m.sellFee).toBe(10_990);
+    expect(m.buySwapFee).toBe(2_000);
+    expect(m.sellSwapFee).toBe(1_000);
   });
 
   it("the market reads the launch price when pushed below it", () => {

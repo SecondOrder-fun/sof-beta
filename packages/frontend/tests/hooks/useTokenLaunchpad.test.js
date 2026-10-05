@@ -3,6 +3,8 @@ import { decodeFunctionData } from "viem";
 import {
   buildLaunchCalls,
   validateLaunchForm,
+  DEFAULT_TRADE_FEE,
+  TRADE_FEE_PRESETS,
   MAX_NAME_LENGTH,
   MAX_SYMBOL_LENGTH,
   utf8Length,
@@ -16,7 +18,7 @@ const ETH_BOUNDS = { minFdv: ONE_ETH, maxFdv: 1000n * ONE_ETH };
 const CTX = { quote: ETH_BOUNDS };
 
 describe("validateLaunchForm", () => {
-  const valid = { name: "Second Order", symbol: "SOF", fdv: 5n * ONE_ETH };
+  const valid = { name: "Second Order", symbol: "SOF", fdv: 5n * ONE_ETH, tradeFee: 10_000 };
 
   it("accepts a well-formed launch", () => {
     expect(validateLaunchForm(valid, CTX)).toEqual({});
@@ -91,6 +93,36 @@ describe("validateLaunchForm", () => {
     expect(validateLaunchForm({ ...valid, fdv: 5n * ONE_ETH }, usdc).fdv).toBe("errors.fdvTooHigh");
   });
 
+  // TradeFeeOutOfRange(tradeFee, minTradeFee, MAX_TRADE_FEE), both bounds inclusive.
+  describe("the trade fee", () => {
+    const bounds = { ...CTX, minTradeFee: 5_000 };
+
+    it("is required", () => {
+      expect(validateLaunchForm({ ...valid, tradeFee: null }, bounds).tradeFee).toBe("errors.tradeFeeInvalid");
+    });
+
+    it("accepts the placer's minimum and the 10% maximum exactly", () => {
+      expect(validateLaunchForm({ ...valid, tradeFee: 5_000 }, bounds).tradeFee).toBeUndefined();
+      expect(validateLaunchForm({ ...valid, tradeFee: 100_000 }, bounds).tradeFee).toBeUndefined();
+    });
+
+    it("rejects below the placer's minimum and above 10%", () => {
+      expect(validateLaunchForm({ ...valid, tradeFee: 4_999 }, bounds).tradeFee).toBe("errors.tradeFeeTooLow");
+      expect(validateLaunchForm({ ...valid, tradeFee: 100_001 }, bounds).tradeFee).toBe("errors.tradeFeeTooHigh");
+    });
+
+    it("checks only the maximum while the minimum is loading", () => {
+      expect(validateLaunchForm({ ...valid, tradeFee: 1 }, CTX).tradeFee).toBeUndefined();
+      expect(validateLaunchForm({ ...valid, tradeFee: 200_000 }, CTX).tradeFee).toBe("errors.tradeFeeTooHigh");
+    });
+
+    it("offers presets inside the deploy-time bounds, defaulting to 1%", () => {
+      expect(DEFAULT_TRADE_FEE).toBe(10_000);
+      expect(TRADE_FEE_PRESETS).toEqual([5_000, 10_000, 20_000, 50_000]);
+      for (const fee of TRADE_FEE_PRESETS) expect(validateLaunchForm({ ...valid, tradeFee: fee }, bounds)).toEqual({});
+    });
+  });
+
   describe("the first buy", () => {
     it("is optional", () => {
       expect(validateLaunchForm({ ...valid, firstBuyInput: "", firstBuy: null }, CTX)).toEqual({});
@@ -123,16 +155,26 @@ describe("buildLaunchCalls", () => {
   const LAUNCHPAD = "0x1000000000000000000000000000000000000001";
   const USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
   const ZERO = "0x0000000000000000000000000000000000000000";
-  const base = { launchpad: LAUNCHPAD, name: "Second Order", symbol: "SOF", metadataURI: "ipfs://x" };
+  const base = { launchpad: LAUNCHPAD, name: "Second Order", symbol: "SOF", metadataURI: "ipfs://x", tradeFee: 10_000 };
   const decodeLaunch = (data) => decodeFunctionData({ abi: TokenLaunchpadAbi, data });
 
-  // The valuation goes to the contract as-is — no conversion to a per-token price.
-  it("passes the valuation straight through as startFdv, with a 0 slippage floor", () => {
+  // The valuation goes to the contract as-is — no conversion to a per-token price —
+  // and the trade fee in pips, between startFdv and creatorBuyIn.
+  it("passes the valuation straight through as startFdv, the trade fee, and a 0 slippage floor", () => {
     const [call] = buildLaunchCalls({ ...base, quoteToken: ZERO, startFdv: 2n * ONE_ETH });
     const { functionName, args } = decodeLaunch(call.data);
     expect(functionName).toBe("launch");
-    expect(args).toEqual(["Second Order", "SOF", "ipfs://x", ZERO, 2n * ONE_ETH, 0n, 0n]);
+    expect(args).toEqual(["Second Order", "SOF", "ipfs://x", ZERO, 2n * ONE_ETH, 10_000, 0n, 0n]);
     expect(call.value).toBeUndefined();
+  });
+
+  it("sends the creator's chosen trade fee", () => {
+    const [call] = buildLaunchCalls({ ...base, quoteToken: ZERO, startFdv: 2n * ONE_ETH, tradeFee: 25_000 });
+    expect(decodeLaunch(call.data).args[5]).toBe(25_000);
+  });
+
+  it("refuses to build a launch without a trade fee", () => {
+    expect(() => buildLaunchCalls({ ...base, tradeFee: undefined, quoteToken: ZERO, startFdv: 2n * ONE_ETH })).toThrow();
   });
 
   // ETH launch: msg.value must equal creatorBuyIn exactly.
@@ -140,7 +182,7 @@ describe("buildLaunchCalls", () => {
     const calls = buildLaunchCalls({ ...base, quoteToken: ZERO, startFdv: 2n * ONE_ETH, creatorBuyIn: ONE_ETH / 10n });
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ to: LAUNCHPAD, value: ONE_ETH / 10n });
-    expect(decodeLaunch(calls[0].data).args.slice(3)).toEqual([ZERO, 2n * ONE_ETH, ONE_ETH / 10n, 0n]);
+    expect(decodeLaunch(calls[0].data).args.slice(3)).toEqual([ZERO, 2n * ONE_ETH, 10_000, ONE_ETH / 10n, 0n]);
   });
 
   // ERC-20 launch: no ETH at all, and the LAUNCHPAD (not the router) is approved
@@ -151,13 +193,13 @@ describe("buildLaunchCalls", () => {
     expect(calls.every((c) => c.value === undefined)).toBe(true);
     const approve = decodeFunctionData({ abi: ERC20Abi, data: calls[0].data });
     expect(approve).toMatchObject({ functionName: "approve", args: [LAUNCHPAD, 50n * 10n ** 6n] });
-    expect(decodeLaunch(calls[1].data).args.slice(3)).toEqual([USDC, 5_000n * 10n ** 6n, 50n * 10n ** 6n, 0n]);
+    expect(decodeLaunch(calls[1].data).args.slice(3)).toEqual([USDC, 5_000n * 10n ** 6n, 10_000, 50n * 10n ** 6n, 0n]);
   });
 
   it("sends just the launch for an ERC-20 pairing without a first buy", () => {
     const calls = buildLaunchCalls({ ...base, quoteToken: USDC, startFdv: 5_000n * 10n ** 6n });
     expect(calls).toHaveLength(1);
     expect(calls[0].value).toBeUndefined();
-    expect(decodeLaunch(calls[0].data).args.slice(3)).toEqual([USDC, 5_000n * 10n ** 6n, 0n, 0n]);
+    expect(decodeLaunch(calls[0].data).args.slice(3)).toEqual([USDC, 5_000n * 10n ** 6n, 10_000, 0n, 0n]);
   });
 });

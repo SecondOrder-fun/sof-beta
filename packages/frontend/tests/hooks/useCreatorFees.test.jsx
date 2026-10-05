@@ -25,19 +25,17 @@ const PLACER_OF = { [OLD_TOKEN]: OLD_PLACER, [NEW_TOKEN]: CURRENT_PLACER, [FOREI
 // OLD_TOKEN is ETH-paired, NEW_TOKEN USDC-paired.
 const QUOTE_OF = { [OLD_TOKEN]: ZERO, [NEW_TOKEN]: USDC, [FOREIGN_TOKEN]: ZERO };
 
-// Per placer, per quote currency, per account: credited quote. Per token, per account: credited tokens.
+// Per placer, per quote currency, per account: credited quote. Per token: pending fees (quote).
 const QUOTE_CREDITS = {
   [OLD_PLACER]: { [ZERO]: { [WALLET]: 7n }, [USDC]: { [WALLET]: 0n } },
   [CURRENT_PLACER]: { [ZERO]: { [WALLET]: 3n }, [USDC]: { [WALLET]: 5n } },
 };
-const TOKENS = { [OLD_TOKEN]: { [WALLET]: 11n }, [NEW_TOKEN]: { [WALLET]: 0n } };
+const PENDING = { [OLD_TOKEN]: 100n, [NEW_TOKEN]: 0n };
 const RECIPIENT = { [OLD_TOKEN]: WALLET, [NEW_TOKEN]: OTHER };
 
-const state = { collect: {}, collectThrows: false };
 const calls = [];
 const multicall = vi.fn(async ({ contracts, allowFailure }) => {
   calls.push({ fns: contracts.map((c) => c.functionName), allowFailure, contracts });
-  if (contracts[0]?.functionName === "collectFees" && state.collectThrows) throw new Error("rpc down");
   return contracts.map((c) => {
     const result = (() => {
       switch (c.functionName) {
@@ -50,13 +48,11 @@ const multicall = vi.fn(async ({ contracts, allowFailure }) => {
         case "CREATOR_FEE_BPS":
           return 8800n;
         case "claimable":
-          return TOKENS[c.args[0]]
-            ? TOKENS[c.args[0]][c.args[1]]
-            : QUOTE_CREDITS[c.address][c.args[0]][c.args[1]];
+          return QUOTE_CREDITS[c.address][c.args[0]][c.args[1]];
         case "feeRecipientOf":
           return RECIPIENT[c.args[0]];
-        case "collectFees":
-          return state.collect[c.args[0]];
+        case "pendingFees":
+          return PENDING[c.args[0]];
         default:
           throw new Error(`unexpected ${c.functionName}`);
       }
@@ -86,8 +82,6 @@ beforeEach(() => {
   calls.length = 0;
   multicall.mockClear();
   executeBatch.mockReset();
-  state.collect = { [OLD_TOKEN]: [100n, 200n] }; // NEW_TOKEN's collect reverts
-  state.collectThrows = false;
 });
 
 const launches = [OLD_TOKEN, NEW_TOKEN, FOREIGN_TOKEN].map((token) => ({ token }));
@@ -115,24 +109,17 @@ describe("useCreatorFees", () => {
       claimable: { [ZERO]: { [WALLET]: 3n }, [USDC.toLowerCase()]: { [WALLET]: 5n } },
     });
 
-    expect(out[0]).toMatchObject({
-      quoteToken: ZERO,
-      recipient: WALLET,
-      claimableTokens: { [WALLET]: 11n },
-      uncollectedQuote: 100n,
-      uncollectedTokens: 200n,
-    });
-    // A collect that would revert reads as unknown, not zero — and not as a failed query.
-    expect(out[1]).toMatchObject({ quoteToken: USDC, recipient: OTHER, uncollectedQuote: null, uncollectedTokens: null });
+    expect(out[0]).toEqual({ token: OLD_TOKEN, placer: OLD_PLACER, quoteToken: ZERO, recipient: WALLET, pendingFees: 100n });
+    expect(out[1]).toEqual({ token: NEW_TOKEN, placer: CURRENT_PLACER, quoteToken: USDC, recipient: OTHER, pendingFees: 0n });
     // Symbol and decimals for every currency read, without asking listed tokens.
     expect(result.current.data.quotes[USDC.toLowerCase()]).toMatchObject({ symbol: "USDC", decimals: 6 });
     expect(result.current.data.quotes[ZERO]).toMatchObject({ symbol: "ETH", decimals: 18 });
   });
 
-  it("uses three multicalls: placers, then the reads and the simulated collects", async () => {
+  it("uses two multicalls: placers, then the reads — pendingFees, no simulated collect", async () => {
     const { result } = renderHook(() => useCreatorFees(launches, { account: WALLET }), { wrapper });
     await waitFor(() => expect(result.current.data).toBeDefined());
-    expect(multicall).toHaveBeenCalledTimes(3);
+    expect(multicall).toHaveBeenCalledTimes(2);
     expect(calls[0].fns).toEqual([
       "placer",
       "placerOf",
@@ -142,22 +129,18 @@ describe("useCreatorFees", () => {
       "placerOf",
       "quoteTokenOf",
     ]);
-    const collect = calls.find((c) => c.fns[0] === "collectFees");
-    expect(collect.allowFailure).toBe(true);
-    expect(collect.contracts.map((c) => [c.address, c.args[0]])).toEqual([
-      [OLD_PLACER, OLD_TOKEN],
-      [CURRENT_PLACER, NEW_TOKEN],
-    ]);
+    expect(calls.some((c) => c.fns.includes("collectFees"))).toBe(false);
     // The balances must all read, or the claim would be built on guesses.
     const reads = calls.find((c) => c.fns.includes("claimable"));
     expect(reads.allowFailure).toBe(false);
-  });
-
-  it("treats a failed collect simulation as unknown for every launch", async () => {
-    state.collectThrows = true;
-    const { result } = renderHook(() => useCreatorFees(launches, { account: WALLET }), { wrapper });
-    await waitFor(() => expect(result.current.data).toBeDefined());
-    expect(result.current.data.launches.map((l) => l.uncollectedQuote)).toEqual([null, null]);
+    expect(reads.contracts.filter((c) => c.functionName === "pendingFees").map((c) => [c.address, c.args[0]])).toEqual([
+      [OLD_PLACER, OLD_TOKEN],
+      [CURRENT_PLACER, NEW_TOKEN],
+    ]);
+    // Fees are only ever in the quote: no launch token is read as a claimable currency.
+    const claimCurrencies = reads.contracts.filter((c) => c.functionName === "claimable").map((c) => c.args[0]);
+    expect(claimCurrencies).not.toContain(OLD_TOKEN);
+    expect(claimCurrencies).not.toContain(NEW_TOKEN);
   });
 
   it("reads the connected account lower-cased", async () => {

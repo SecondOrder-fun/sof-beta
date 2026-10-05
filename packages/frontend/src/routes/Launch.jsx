@@ -12,9 +12,12 @@
 //
 // "Paired with" picks the quote token — ETH, or an ERC-20 the launchpad allows
 // (useLaunchpadConfig) — and the valuation is typed in it, against that quote's
-// own bounds. An optional first buy, in the same quote, is made inside the
-// launch transaction before anyone else can trade (an ERC-20 one is approved in
-// the same batch). The per-token price is derived and shown, never typed.
+// own bounds. The trade fee is the creator's choice too — presets or a typed
+// percentage, between the placer's minTradeFee() and 10% (useTradeFeeBounds),
+// sent to launch() in pips — charged on every buy and sell in the quote and fixed
+// for the pool's life. An optional first buy, in the same quote, is made inside
+// the launch transaction before anyone else can trade (an ERC-20 one is approved
+// in the same batch). The per-token price is derived and shown, never typed.
 
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
@@ -22,6 +25,7 @@ import { useTranslation } from "react-i18next";
 import { useAccount, useBalance } from "wagmi";
 
 import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,18 +35,39 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useLoginModal } from "@/hooks/useLoginModal";
 import { useLaunchRouter } from "@/hooks/useLaunchTrade";
 import {
+  CREATOR_FEE_PCT,
+  DEFAULT_TRADE_FEE,
   MAX_NAME_LENGTH,
   MAX_SYMBOL_LENGTH,
+  TRADE_FEE_PRESETS,
   utf8Length,
   useLaunchpadConfig,
   useLaunchpadReady,
   useLaunchToken,
+  useTradeFeeBounds,
   validateLaunchForm,
 } from "@/hooks/useTokenLaunchpad";
 import { ETH_QUOTE, isNativeQuote } from "@/config/launchQuoteTokens";
-import { formatFdv, formatQuoteAmount, formatSupply, formatTokenPrice, parseQuoteAmount } from "@/lib/launchFormat";
+import { MAX_TRADE_FEE } from "@/lib/v4PoolMath";
+import {
+  formatFdv,
+  formatQuoteAmount,
+  formatSupply,
+  formatTokenPrice,
+  formatTradeFee,
+  parseQuoteAmount,
+  parseTradeFeePct,
+} from "@/lib/launchFormat";
 
-const EMPTY_FORM = { name: "", symbol: "", metadataURI: "", fdv: "", firstBuy: "", quote: ETH_QUOTE.address };
+const EMPTY_FORM = {
+  name: "",
+  symbol: "",
+  metadataURI: "",
+  fdv: "",
+  tradeFee: formatTradeFee(DEFAULT_TRADE_FEE),
+  firstBuy: "",
+  quote: ETH_QUOTE.address,
+};
 
 const Launch = () => {
   const { t } = useTranslation(["launchpad", "common"]);
@@ -51,6 +76,7 @@ const Launch = () => {
 
   const configQuery = useLaunchpadConfig();
   const readyQuery = useLaunchpadReady();
+  const { data: feeBounds } = useTradeFeeBounds();
   const { router, isLoading: isRouterLoading } = useLaunchRouter();
   const { launch, isPending, isSuccess, error, reset } = useLaunchToken();
 
@@ -68,6 +94,8 @@ const Launch = () => {
 
   const fdv = useMemo(() => parseQuoteAmount(form.fdv, unit.decimals), [form.fdv, unit.decimals]);
   const firstBuy = useMemo(() => parseQuoteAmount(form.firstBuy, unit.decimals), [form.firstBuy, unit.decimals]);
+  const tradeFee = useMemo(() => parseTradeFeePct(form.tradeFee), [form.tradeFee]);
+  const maxTradeFee = feeBounds?.max ?? MAX_TRADE_FEE;
   const price = fdv != null && config ? formatTokenPrice(fdv, unit, config.wholeSupply) : null;
 
   // The creator's balance of the chosen quote, so a first buy they cannot pay
@@ -81,10 +109,29 @@ const Launch = () => {
   const errors = useMemo(
     () =>
       validateLaunchForm(
-        { name: form.name, symbol: form.symbol, fdv, firstBuyInput: form.firstBuy, firstBuy },
-        { quote: quote ?? undefined, hasRouter: isRouterLoading || Boolean(router), balance: balance?.value ?? null },
+        { name: form.name, symbol: form.symbol, fdv, tradeFee, firstBuyInput: form.firstBuy, firstBuy },
+        {
+          quote: quote ?? undefined,
+          minTradeFee: feeBounds?.min,
+          maxTradeFee,
+          hasRouter: isRouterLoading || Boolean(router),
+          balance: balance?.value ?? null,
+        },
       ),
-    [form.name, form.symbol, form.firstBuy, fdv, firstBuy, quote, router, isRouterLoading, balance?.value],
+    [
+      form.name,
+      form.symbol,
+      form.firstBuy,
+      fdv,
+      tradeFee,
+      firstBuy,
+      quote,
+      feeBounds?.min,
+      maxTradeFee,
+      router,
+      isRouterLoading,
+      balance?.value,
+    ],
   );
   const isValid = Object.keys(errors).length === 0;
 
@@ -95,7 +142,7 @@ const Launch = () => {
   const onSubmit = async (e) => {
     e.preventDefault();
     setSubmitted(true);
-    if (!isValid || fdv == null || !quote) return;
+    if (!isValid || fdv == null || tradeFee == null || !quote) return;
     if (!isConnected) {
       openLoginModal();
       return;
@@ -106,6 +153,7 @@ const Launch = () => {
       metadataURI: form.metadataURI.trim(),
       quoteToken: quote.address,
       startFdv: fdv,
+      tradeFee,
       creatorBuyIn: firstBuy ?? 0n,
     });
     // The token address comes from the receipt's TokenLaunched event, which the
@@ -260,7 +308,7 @@ const Launch = () => {
                 <span className="text-sm text-muted-foreground shrink-0">{unit.symbol}</span>
               </div>
               <p className="text-xs text-muted-foreground">
-                {t("form.valuationHelp")}
+                {t("form.valuationHelp", { supply: (config?.wholeSupply ?? 1_000_000_000n).toLocaleString("en-US") })}
                 {quote
                   ? ` ${t("form.valuationRange", {
                       min: formatFdv(quote.minFdv, unit.decimals),
@@ -275,6 +323,52 @@ const Launch = () => {
                     min: quote ? formatFdv(quote.minFdv, unit.decimals) : "",
                     max: quote ? formatFdv(quote.maxFdv, unit.decimals) : "",
                     quote: unit.symbol,
+                  })}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="launch-trade-fee">{t("form.tradeFee")}</Label>
+              <div className="flex flex-wrap items-center gap-2">
+                <ButtonGroup aria-label={t("form.tradeFeePresets")}>
+                  {TRADE_FEE_PRESETS.map((pips) => (
+                    <Button
+                      key={pips}
+                      type="button"
+                      size="sm"
+                      variant={tradeFee === pips ? "default" : "outline"}
+                      aria-pressed={tradeFee === pips}
+                      onClick={() => setForm((prev) => ({ ...prev, tradeFee: formatTradeFee(pips) }))}
+                    >
+                      {t("form.tradeFeePercent", { fee: formatTradeFee(pips) })}
+                    </Button>
+                  ))}
+                </ButtonGroup>
+                <div className="flex items-center gap-2 w-28">
+                  <Input
+                    id="launch-trade-fee"
+                    value={form.tradeFee}
+                    onChange={set("tradeFee")}
+                    inputMode="decimal"
+                    autoComplete="off"
+                  />
+                  <span className="text-sm text-muted-foreground shrink-0">%</span>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t("form.tradeFeeHelp", {
+                  quote: unit.symbol,
+                  share: CREATOR_FEE_PCT,
+                  platform: 100 - CREATOR_FEE_PCT,
+                  max: formatTradeFee(maxTradeFee),
+                })}
+              </p>
+              {errorFor("tradeFee") && (
+                <p className="text-xs text-destructive">
+                  {t(errorFor("tradeFee"), {
+                    min: formatTradeFee(feeBounds?.min),
+                    max: formatTradeFee(maxTradeFee),
                   })}
                 </p>
               )}
@@ -330,6 +424,18 @@ const Launch = () => {
                   <dt className="text-muted-foreground">{t("summary.startPrice")}</dt>
                   <dd className="font-medium text-foreground">
                     {price ? `${price.value} ${t("summary.startPriceUnit", { unit: price.unit })}` : "—"}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">{t("summary.tradeFee")}</dt>
+                  <dd className="font-medium text-foreground text-right">
+                    {tradeFee != null
+                      ? t("summary.tradeFeeValue", {
+                          fee: formatTradeFee(tradeFee),
+                          quote: unit.symbol,
+                          share: CREATOR_FEE_PCT,
+                        })
+                      : "—"}
                   </dd>
                 </div>
                 <div className="flex justify-between gap-4">

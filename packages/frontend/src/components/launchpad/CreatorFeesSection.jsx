@@ -3,24 +3,27 @@
 // "Creator fees" on the connected user's own profile (desktop ProfileContent,
 // mobile Creator tab), per the approved design: every launch the user earns
 // from, a total per quote currency (ETH, USDC, …) with one "Claim all <SYMBOL>"
-// each, and a Table by launch with each token's fees and its own claim.
+// each, and a Table by launch with each launch's trade fee and its fees not yet
+// collected. Trade fees are only ever in a launch's quote, so the per-currency
+// claim is the only claim.
 //
 // Which launches: those the connected wallet created, from the
 // backend's creator index (useCreatorLaunches) — so a launch whose fees another
 // creator handed TO this account is not listed here (no recipient index yet; its
 // token page still shows the card). A listed launch stays while this account is
-// its fee recipient or still holds tokens credited from it; one handed on with
-// nothing left is dropped. Quote fees already collected are pooled per account
-// and currency on the placer (one claim takes all of a currency), so they show
-// in that currency's total only — the table's "In pool" column is each pool's
-// uncollected share, in its launch's quote.
+// its fee recipient; one handed on is dropped (what was already collected for
+// this account stays in its per-currency total). Collected fees are pooled per
+// account and currency on the placer (one claim takes all of a currency), so
+// they show in that currency's total only — the table's "Not yet collected"
+// column is each launch's pending share, in its quote. The trade fee is the API
+// row's `tradeFee` (pips), so the section needs no pool reads.
 //
 // Renders nothing with no launches, while loading, or when the backend or chain
 // read fails: most accounts never launch, and an "unavailable" box on every
 // profile would be noise. Each token page's card reads the chain on its own.
 //
-// Composed from existing primitives: Card, Table, TokenArt (Avatar), Button
-// (primary and outline), plus ClaimedStatus from CreatorFeesCard.
+// Composed from existing primitives: Card, Table, TokenArt (Avatar), Button,
+// plus ClaimedStatus from CreatorFeesCard.
 
 import { useAccount } from "wagmi";
 import { useId, useState } from "react";
@@ -42,17 +45,9 @@ import TokenArt from "@/components/launchpad/TokenArt";
 import { ClaimedStatus } from "@/components/launchpad/CreatorFeesCard";
 import { useCreatorLaunches } from "@/hooks/useLaunchActivity";
 import { useCreatorFees, useCreatorFeeWrite } from "@/hooks/useCreatorFees";
-import { useLaunchMarkets } from "@/hooks/useLaunchMarkets";
-import { formatQuoteAmount } from "@/lib/launchFormat";
-import { tokensToQuote } from "@/lib/v4PoolMath";
+import { formatQuoteAmount, formatTradeFee } from "@/lib/launchFormat";
 import { ETH_QUOTE } from "@/config/launchQuoteTokens";
-import {
-  currencyKey,
-  formatFeeTokens,
-  planClaimAllQuote,
-  planClaimToken,
-  summarizeCreatorFees,
-} from "@/lib/creatorFees";
+import { currencyKey, planClaimAllQuote, summarizeCreatorFees } from "@/lib/creatorFees";
 
 const CreatorFeesSection = () => {
   const { t } = useTranslation("launchpad");
@@ -61,13 +56,9 @@ const CreatorFeesSection = () => {
   const { launches: created } = useCreatorLaunches(address);
   const hasLaunches = created.length > 0;
   const { data } = useCreatorFees(created, { account: address, enabled: hasLaunches });
-  const { markets } = useLaunchMarkets(
-    created.map((l) => ({ token: l.token, placementId: l.poolId })),
-    { enabled: hasLaunches },
-  );
   const write = useCreatorFeeWrite();
 
-  // What the last claim sent, for the status line; and which button sent it.
+  // What the last claim sent, for the status line; and which currency's button sent it.
   const [claimed, setClaimed] = useState(null);
   const [sending, setSending] = useState(null);
   const titleId = useId();
@@ -94,12 +85,7 @@ const CreatorFeesSection = () => {
   };
 
   const claimedTitle = (c) =>
-    c.kind === "tokens"
-      ? t("creatorFees.claimedTokens", { tokens: formatFeeTokens(c.tokens), symbol: c.symbol })
-      : t("creatorFees.claimedQuote", {
-          amount: formatQuoteAmount(c.amount, c.quote.decimals),
-          quote: c.quote.symbol,
-        });
+    t("creatorFees.claimedQuote", { amount: formatQuoteAmount(c.amount, c.quote.decimals), quote: c.quote.symbol });
 
   return (
     <Card role="region" aria-labelledby={titleId}>
@@ -111,7 +97,7 @@ const CreatorFeesSection = () => {
           <p className="text-sm text-muted-foreground">{t("creatorFees.profile.subtitle")}</p>
         </div>
 
-        {summary.currencies.map(({ currency, collected, inPool, total, launchCount }) => {
+        {summary.currencies.map(({ currency, collected, pending, total, launchCount }) => {
           const quote = quoteOf(currency);
           const plan = planClaimAllQuote(data, address, currency);
           const key = `quote:${currency}`;
@@ -128,11 +114,11 @@ const CreatorFeesSection = () => {
                   {formatQuoteAmount(total, quote.decimals)}{" "}
                   <span className="text-base font-medium text-muted-foreground">{quote.symbol}</span>
                 </div>
-                {collected > 0n && inPool > 0n ? (
+                {collected > 0n && pending > 0n ? (
                   <div className="text-xs text-muted-foreground">
                     {t("creatorFees.profile.quoteBreakdown", {
                       collected: formatQuoteAmount(collected, quote.decimals),
-                      inPool: formatQuoteAmount(inPool, quote.decimals),
+                      pending: formatQuoteAmount(pending, quote.decimals),
                       quote: quote.symbol,
                     })}
                   </div>
@@ -141,7 +127,7 @@ const CreatorFeesSection = () => {
               <Button
                 type="button"
                 disabled={!plan.calls.length || write.isPending}
-                onClick={() => send(key, plan.calls, { kind: "quote", amount: plan.amount, quote })}
+                onClick={() => send(key, plan.calls, { amount: plan.amount, quote })}
               >
                 {sending === key
                   ? t("creatorFees.claiming")
@@ -166,22 +152,16 @@ const CreatorFeesSection = () => {
             <TableHeader>
               <TableRow>
                 <TableHead className="px-2">{t("creatorFees.profile.colToken")}</TableHead>
+                <TableHead className="px-2 text-right">{t("creatorFees.profile.colTradeFee")}</TableHead>
                 <TableHead className="px-2 text-right">{t("creatorFees.profile.colQuote")}</TableHead>
-                <TableHead className="px-2 text-right">{t("creatorFees.profile.colTokens")}</TableHead>
-                <TableHead className="px-2">
-                  <span className="sr-only">{t("creatorFees.profile.colAction")}</span>
-                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {summary.rows.map(({ launch, isRecipient, quoteInPool, tokens }) => {
+              {summary.rows.map(({ launch, quotePending }) => {
                 const info = meta[launch.token.toLowerCase()] ?? {};
                 const symbol = info.symbol ?? "";
-                const market = markets[launch.token.toLowerCase()];
+                const tradeFee = info.tradeFee;
                 const quote = quoteOf(launch.quoteToken);
-                const tokensInQuote = tokensToQuote(tokens, market);
-                const placerFees = data.placers[launch.placer.toLowerCase()];
-                const plan = planClaimToken(launch, placerFees, address);
                 return (
                   <TableRow key={launch.token}>
                     <TableCell className="px-2">
@@ -196,47 +176,20 @@ const CreatorFeesSection = () => {
                         <span className="min-w-0">
                           <span className="block font-semibold text-heading truncate">{info.name}</span>
                           <span className="block text-xs font-mono text-muted-foreground">${symbol}</span>
-                          {isRecipient ? null : (
-                            <span className="block text-xs text-muted-foreground">
-                              {t("creatorFees.profile.handedOn")}
-                            </span>
-                          )}
                         </span>
                       </Link>
                     </TableCell>
-                    <TableCell className="px-2 text-right font-mono text-sm">
-                      {quoteInPool > 0n ? `${formatQuoteAmount(quoteInPool, quote.decimals)} ${quote.symbol}` : "—"}
+                    <TableCell className="px-2 text-right text-sm">
+                      {tradeFee != null ? `${formatTradeFee(tradeFee)}%` : "—"}
                     </TableCell>
                     <TableCell className="px-2 text-right">
-                      <span className="block font-mono text-sm">
-                        {tokens > 0n ? `${formatFeeTokens(tokens)} ${symbol}` : "—"}
-                      </span>
-                      {tokens > 0n && tokensInQuote != null ? (
-                        <span className="block text-xs text-muted-foreground">
-                          {t("creatorFees.tokensQuote", {
-                            amount: formatQuoteAmount(tokensInQuote, quote.decimals),
-                            quote: quote.symbol,
-                          })}
+                      {quotePending > 0n ? (
+                        <span className="font-mono text-sm">
+                          {formatQuoteAmount(quotePending, quote.decimals)} {quote.symbol}
                         </span>
-                      ) : tokens === 0n && quoteInPool === 0n ? (
-                        <span className="block text-xs text-muted-foreground">{t("creatorFees.profile.noFees")}</span>
-                      ) : null}
-                    </TableCell>
-                    <TableCell className="px-2 text-right">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="whitespace-nowrap"
-                        disabled={!plan.calls.length || write.isPending}
-                        onClick={() => send(launch.token, plan.calls, { kind: "tokens", tokens, symbol })}
-                      >
-                        {sending === launch.token
-                          ? t("creatorFees.claiming")
-                          : plan.calls.length
-                            ? t("creatorFees.profile.claimSymbol", { symbol })
-                            : t("creatorFees.profile.nothingYet")}
-                      </Button>
+                      ) : (
+                        "—"
+                      )}
                     </TableCell>
                   </TableRow>
                 );

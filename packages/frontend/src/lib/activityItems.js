@@ -70,6 +70,7 @@ export function describeTokenItem(item, t) {
     };
   }
   // A trade can be tiny; keep its significant digits rather than show "0 ETH".
+  // What the trader paid (buy, trade fee included) or received (sell, net of it).
   const amount = formatQuoteAmount(item.quoteAmount ?? 0, decimals);
   const fdv = item.priceE18 ? fdvFromPriceE18(item.priceE18) : null;
   return {

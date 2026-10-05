@@ -6,12 +6,12 @@
 // would flash on every visitor's page).
 //
 // States:
-//   fees      — the launch's quote token (from buys: ETH, or the ERC-20 it is
-//               paired with) and the launch token (from sells) the recipient
-//               has earned: credited + their 88% of what is still in the pool,
-//               with the token's value in the quote at the pool price; one
-//               primary claim button. Uncollected fees get a line saying the
-//               claim collects them first (it does, in the same batch).
+//   fees      — what the recipient has earned in the launch's quote token (ETH,
+//               or the ERC-20 it is paired with — the trade fee is only ever
+//               taken in it, on buys and sells alike): credited + their 88% of
+//               the fees not yet collected; one primary claim button. Pending
+//               fees get a line saying the claim collects them first (it does,
+//               in the same batch).
 //   empty     — "No fees yet" and a disabled "Nothing to claim"
 //   claimed   — role=status "Claimed …" with a link to the transaction; shown
 //               until the card unmounts, above the fees state if new fees arrive
@@ -41,14 +41,12 @@ import { useCreatorFees, useCreatorFeeWrite } from "@/hooks/useCreatorFees";
 import { getNetworkByKey } from "@/config/networks";
 import { getStoredNetworkKey } from "@/lib/wagmi";
 import { shortAddress } from "@/lib/format";
-import { formatQuoteAmount } from "@/lib/launchFormat";
-import { tokensToQuote } from "@/lib/v4PoolMath";
+import { formatQuoteAmount, formatTradeFee } from "@/lib/launchFormat";
 import { ETH_QUOTE } from "@/config/launchQuoteTokens";
 import {
   buildLaunchClaimCalls,
   buildTransferCalls,
   currencyKey,
-  formatFeeTokens,
   launchEarnings,
   sameAddress,
 } from "@/lib/creatorFees";
@@ -57,12 +55,6 @@ import {
 function txUrl(hash) {
   const explorer = getNetworkByKey(getStoredNetworkKey())?.explorer;
   return explorer && hash ? `${explorer.replace(/\/$/, "")}/tx/${hash}` : null;
-}
-
-/** A claim's amounts in one of three phrasings, so a zero side is never named. */
-function amountsKey(prefix, quote, tokens) {
-  if (quote > 0n && tokens > 0n) return `${prefix}Both`;
-  return quote > 0n ? `${prefix}Quote` : `${prefix}Tokens`;
 }
 
 const Amount = ({ label, value, unit, children }) => (
@@ -112,7 +104,7 @@ ClaimedStatus.propTypes = {
   hash: PropTypes.string,
 };
 
-const CreatorFeesCard = ({ token, name, symbol, market }) => {
+const CreatorFeesCard = ({ token, name, market }) => {
   const { t } = useTranslation("launchpad");
   const { address } = useAccount();
   const { data } = useCreatorFees([{ token }], { account: address, enabled: Boolean(address) });
@@ -141,25 +133,19 @@ const CreatorFeesCard = ({ token, name, symbol, market }) => {
   if (!launch || !placerFees || !sameAddress(launch.recipient, address)) return null;
 
   const earned = launchEarnings(launch, placerFees, address);
-  // The currency buys pay this launch's fees in.
+  // The currency every one of this launch's fees is paid in.
   const quote = data.quotes?.[currencyKey(launch.quoteToken)] ?? market?.quote ?? ETH_QUOTE;
   const formatQuote = (raw) => formatQuoteAmount(raw, quote.decimals);
   const share = Number(placerFees.creatorFeeBps) / 100;
-  const fee = market?.lpFee != null ? Number(market.lpFee) / 10_000 : null;
-  const tokensInQuote = tokensToQuote(earned.tokens, market);
-  const hasFees = earned.quote > 0n || earned.tokens > 0n;
-  const amounts = {
-    amount: formatQuote(earned.quote),
-    quote: quote.symbol,
-    tokens: formatFeeTokens(earned.tokens),
-    symbol,
-  };
+  // The launch's own trade fee, from its placement (useLaunchMarkets).
+  const fee = market?.tradeFee != null ? formatTradeFee(market.tradeFee) : null;
+  const hasFees = earned.quote > 0n;
 
   const onClaim = async () => {
-    const { calls, quote: quoteAmount, tokens } = buildLaunchClaimCalls(launch, placerFees, address);
+    const { calls, quote: quoteAmount } = buildLaunchClaimCalls(launch, placerFees, address);
     try {
       const hash = await claim.send(calls);
-      setClaimed({ quote: quoteAmount, tokens, hash, to: address });
+      setClaimed({ quote: quoteAmount, hash, to: address });
     } catch {
       // Surfaced from claim.error below.
     }
@@ -178,18 +164,13 @@ const CreatorFeesCard = ({ token, name, symbol, market }) => {
             {t("creatorFees.title")}
           </h2>
           <Badge variant="outline" className="text-muted-foreground">
-            {fee != null ? t("creatorFees.shareBadge", { share, fee }) : t("creatorFees.shareBadgePoolFee", { share })}
+            {fee != null ? t("creatorFees.shareBadge", { share, fee }) : t("creatorFees.shareBadgeNoRate", { share })}
           </Badge>
         </div>
 
         {claimed ? (
           <ClaimedStatus
-            title={t(amountsKey("creatorFees.claimed", claimed.quote, claimed.tokens), {
-              amount: formatQuote(claimed.quote),
-              quote: quote.symbol,
-              tokens: formatFeeTokens(claimed.tokens),
-              symbol,
-            })}
+            title={t("creatorFees.claimedQuote", { amount: formatQuote(claimed.quote), quote: quote.symbol })}
             address={claimed.to}
             hash={claimed.hash}
           />
@@ -197,25 +178,13 @@ const CreatorFeesCard = ({ token, name, symbol, market }) => {
 
         {hasFees ? (
           <>
-            <div className="space-y-2">
-              <Amount label={t("creatorFees.fromBuys")} value={amounts.amount} unit={quote.symbol}>
-                {earned.quote > 0n ? t("creatorFees.quotePooled", { quote: quote.symbol }) : null}
-              </Amount>
-              <Amount label={t("creatorFees.fromSells")} value={amounts.tokens} unit={symbol}>
-                {earned.tokens > 0n && tokensInQuote != null
-                  ? t("creatorFees.tokensQuote", { amount: formatQuote(tokensInQuote), quote: quote.symbol })
-                  : null}
-              </Amount>
-            </div>
+            <Amount label={t("creatorFees.earned")} value={formatQuote(earned.quote)} unit={quote.symbol}>
+              {t("creatorFees.quotePooled", { quote: quote.symbol })}
+            </Amount>
 
-            {earned.quoteInPool > 0n || earned.tokensInPool > 0n ? (
+            {earned.quotePending > 0n ? (
               <p className="text-xs text-muted-foreground">
-                {t(amountsKey("creatorFees.inPool", earned.quoteInPool, earned.tokensInPool), {
-                  amount: formatQuote(earned.quoteInPool),
-                  quote: quote.symbol,
-                  tokens: formatFeeTokens(earned.tokensInPool),
-                  symbol,
-                })}
+                {t("creatorFees.pendingQuote", { amount: formatQuote(earned.quotePending), quote: quote.symbol })}
               </p>
             ) : null}
 
@@ -223,7 +192,7 @@ const CreatorFeesCard = ({ token, name, symbol, market }) => {
               <Button type="button" size="lg" className="w-full" disabled={claim.isPending} onClick={onClaim}>
                 {claim.isPending
                   ? t("creatorFees.claiming")
-                  : t(amountsKey("creatorFees.claim", earned.quote, earned.tokens), amounts)}
+                  : t("creatorFees.claimQuote", { amount: formatQuote(earned.quote), quote: quote.symbol })}
               </Button>
               <p className="text-center text-xs text-muted-foreground">{t("creatorFees.captionSent")}</p>
             </div>
@@ -232,8 +201,8 @@ const CreatorFeesCard = ({ token, name, symbol, market }) => {
           <>
             <p className="text-sm text-muted-foreground">
               {fee != null
-                ? t("creatorFees.emptyBody", { share, fee, name, symbol, quote: quote.symbol })
-                : t("creatorFees.emptyBodyPoolFee", { share, name, symbol, quote: quote.symbol })}
+                ? t("creatorFees.emptyBody", { share, fee, name, quote: quote.symbol })
+                : t("creatorFees.emptyBodyNoRate", { share, name, quote: quote.symbol })}
             </p>
             <Button type="button" variant="outline" size="lg" className="w-full" disabled>
               {t("creatorFees.nothingToClaim")}
@@ -291,7 +260,7 @@ CreatorFeesCard.propTypes = {
   token: PropTypes.string.isRequired,
   name: PropTypes.string,
   symbol: PropTypes.string,
-  market: PropTypes.shape({ fdv: PropTypes.any, totalSupplyRaw: PropTypes.any, lpFee: PropTypes.any, quote: PropTypes.object }),
+  market: PropTypes.shape({ tradeFee: PropTypes.number, quote: PropTypes.object }),
 };
 
 export default CreatorFeesCard;

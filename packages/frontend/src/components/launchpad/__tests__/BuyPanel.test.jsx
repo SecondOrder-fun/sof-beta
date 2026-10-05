@@ -6,7 +6,14 @@ import { deriveMarketState } from "@/lib/v4PoolMath";
 
 vi.mock("react-i18next", async (importOriginal) => ({
   ...(await importOriginal()),
-  useTranslation: () => ({ t: (key, opts) => (opts?.symbol ? `${key}:${opts.symbol}` : key) }),
+  useTranslation: () => ({
+    t: (key, opts) =>
+      key === "trade.tradeFeeValue"
+        ? `${opts.amount} ${opts.quote} (${opts.fee}%)`
+        : opts?.symbol
+          ? `${key}:${opts.symbol}`
+          : key,
+  }),
 }));
 const account = { address: "0x9999999999999999999999999999999999999999", isConnected: true };
 vi.mock("wagmi", async (importOriginal) => ({
@@ -37,14 +44,20 @@ vi.mock("@/hooks/useQuoteBalance", () => ({
 vi.mock("@/lib/wagmi", () => ({ getStoredNetworkKey: () => "TESTNET" }));
 
 // The launch state from test_fixture_quoteMathForFrontend: a real PoolManager,
-// 1 ETH FDV, untouched. A 0.1 ETH buy from here delivered exactly
-// 89,729,910.215527505885256588 tokens on-chain.
+// 1 ETH FDV at a 1% trade fee, untouched. A 0.1 ETH buy from here delivered
+// exactly 89,729,910.215527505885256588 tokens on-chain, the fee 0.001 ETH.
 const TOKEN = "0x1111111111111111111111111111111111111111";
 const ETH = { address: "0x0000000000000000000000000000000000000000", symbol: "ETH", decimals: 18 };
 const fixture = {
-  slot0Word: "0x0000000027100000000329600000000000007b42d530bfeef6c84ca32f6118a4",
+  slot0Word: "0x0000000000000000000329600000000000007b42d530bfeef6c84ca32f6118a4",
   liquidityWord: "0x0", // v4 reports 0 active at launch — the panel must still quote
-  placement: { tickLower: -887200, tickUpper: 207200, liquidity: 31690866724818211737594n },
+  placement: {
+    tickLower: -887200,
+    tickUpper: 207200,
+    liquidity: 31690866724818211737594n,
+    tradeFee: 10_000,
+    key: { tickSpacing: 200 },
+  },
   wholeSupply: 1_000_000_000n,
 };
 const market = deriveMarketState({ ...fixture, quote: ETH });
@@ -102,10 +115,38 @@ describe("BuyPanel", () => {
     expect(screen.queryByText("trade.exceedsBuy")).not.toBeInTheDocument();
   });
 
-  it("warns when a buy would run past the far end of the range", () => {
+  // The hook prices its fee on the whole payment, so a buy the range cannot fill
+  // in full reverts on-chain (PartialFillWithFee): no quote, and no button.
+  it("refuses a buy that would run past the far end of the range", () => {
     setup({ market: { ...market, sqrtPriceX96: market.sqrtLowerX96 * 2n } });
     typeAmount("1000000000000000000000000000");
     expect(screen.getByText("trade.exceedsBuy")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "trade.tooLarge" })).toBeDisabled();
+  });
+
+  it("shows the trade fee in the quote: 1% of a buy's payment", () => {
+    setup();
+    expect(screen.getByTestId("trade-fee")).toHaveTextContent("1%");
+    typeAmount("0.1");
+    expect(screen.getByTestId("trade-fee")).toHaveTextContent("0.001 ETH (1%)");
+  });
+
+  it("charges each launch its own rate", () => {
+    setup({ market: { ...market, tradeFee: 25_000 } });
+    typeAmount("0.1");
+    expect(screen.getByTestId("trade-fee")).toHaveTextContent("0.0025 ETH (2.5%)");
+  });
+
+  it("shows a sell's fee in the quote, out of the proceeds", () => {
+    tokenBalance.current = 1_000_000_000n * 10n ** 18n;
+    // After the fixture's two buys; selling half the second returned 0.641819… ETH
+    // net of a 0.006483… ETH fee.
+    setup({ market: { ...market, sqrtPriceX96: 1199443894665599551439045032215605n } });
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "trade.sell" }));
+    fireEvent.click(screen.getByRole("tab", { name: "trade.sell" }));
+    typeAmount("215249280.768268422114373820");
+    expect(screen.getByTestId("trade-receive")).toHaveTextContent("0.641819");
+    expect(screen.getByTestId("trade-fee")).toHaveTextContent("0.006483 ETH (1%)");
   });
 
   it("switches to selling, and clears the amount so a buy size is not reused as tokens", () => {

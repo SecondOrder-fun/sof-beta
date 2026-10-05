@@ -10,9 +10,10 @@
 // ContentBox for the pay/receive boxes, ButtonGroup for quick amounts.
 //
 // Quotes are exact and live: lib/v4PoolMath reproduces v4's swap math from the
-// pool's own state in either orientation, pinned against a real PoolManager
-// swap — and the router delivers exactly that amount, pinned by
-// UniV4LaunchRouter.t.sol. Trades go through whichever router
+// pool's own state in either orientation, with the launch's own trade fee taken
+// in the quote (off a buy's payment, out of a sell's proceeds), pinned against
+// real PoolManager swaps — and the router delivers exactly that amount, pinned
+// by UniV4LaunchRouter.t.sol. The summary shows that fee in the quote. Trades go through whichever router
 // TokenLaunchpad.router() advertises (useLaunchTrade), with minimum-out taken
 // from the quote and the slippage setting. An ERC-20 buy batches the router's
 // approval with the buy; an ETH buy sends the ETH with it.
@@ -36,7 +37,7 @@ import { useQuoteBalance } from "@/hooks/useQuoteBalance";
 import { useLaunchTrade } from "@/hooks/useLaunchTrade";
 import { useLoginModal } from "@/hooks/useLoginModal";
 import { minimumReceived, quoteBuy, quoteSell } from "@/lib/v4PoolMath";
-import { formatSupply, formatTokenPrice, parseQuoteAmount } from "@/lib/launchFormat";
+import { formatSupply, formatTokenPrice, formatTradeFee, parseQuoteAmount } from "@/lib/launchFormat";
 import { DEFAULT_BUY_PRESETS, ETH_QUOTE, findLaunchQuote, isNativeQuote } from "@/config/launchQuoteTokens";
 import { getStoredNetworkKey } from "@/lib/wagmi";
 
@@ -87,10 +88,12 @@ const BuyPanel = ({ token, symbol, market, quote: quoteProp, className }) => {
       tokenIsCurrency0: market.tokenIsCurrency0,
       sqrtLowerX96: market.sqrtLowerX96,
       sqrtUpperX96: market.sqrtUpperX96,
+      tickSpacing: market.tickSpacing,
+      tradeFee: market.tradeFee,
     };
     return isBuy
-      ? quoteBuy({ ...pool, lpFee: market.buyFee, quoteIn: amountIn })
-      : quoteSell({ ...pool, lpFee: market.sellFee, tokensIn: amountIn });
+      ? quoteBuy({ ...pool, swapFee: market.buySwapFee, quoteIn: amountIn })
+      : quoteSell({ ...pool, swapFee: market.sellSwapFee, tokensIn: amountIn });
   }, [market, amountIn, isBuy]);
 
   const out = swap ? (isBuy ? swap.tokensOut : swap.quoteOut) : null;
@@ -98,7 +101,13 @@ const BuyPanel = ({ token, symbol, market, quote: quoteProp, className }) => {
   const receive = out == null ? "0" : formatOut(out);
   const minOut = out == null ? null : minimumReceived(out, slippagePct);
   const impactPct = swap ? swap.priceImpact * 100 : null;
-  const feePct = market ? (isBuy ? market.buyFee : market.sellFee) / 10_000 : null;
+  // The launch's trade fee, always in the quote: off the payment on a buy, out of
+  // the proceeds on a sell.
+  const feePct = market?.tradeFee != null ? formatTradeFee(market.tradeFee) : null;
+  const feeAmount = swap && out ? swap.fee : null;
+  // With a trade fee, a buy the range cannot fill in full reverts (quoted as
+  // nothing out); a sell, or a buy in a zero-fee pool, fills partly.
+  const buyCannotFill = isBuy && swap?.exceedsRange && !out;
 
   const onSide = (next) => {
     setSide(next);
@@ -115,6 +124,7 @@ const BuyPanel = ({ token, symbol, market, quote: quoteProp, className }) => {
   if (!router) cta = { label: isBuy ? t("trade.buyCta", { symbol }) : t("trade.sellCta", { symbol }), disabled: true };
   else if (!isConnected) cta = { label: t("trade.connect"), disabled: false, onClick: openLoginModal };
   else if (amountIn == null) cta = { label: t("trade.enterAmount"), disabled: true };
+  else if (buyCannotFill) cta = { label: t("trade.tooLarge"), disabled: true };
   else if (insufficient) cta = { label: t("trade.insufficient", { unit: isBuy ? quote.symbol : symbol }), disabled: true };
   else if (isPending) cta = { label: t("trade.pending"), disabled: true };
   else if (!out) cta = { label: t("trade.enterAmount"), disabled: true };
@@ -236,8 +246,14 @@ const BuyPanel = ({ token, symbol, market, quote: quoteProp, className }) => {
             </dd>
           </div>
           <div className="flex justify-between">
-            <dt className="text-muted-foreground">{t("trade.poolFee")}</dt>
-            <dd>{feePct == null ? "—" : `${feePct}%`}</dd>
+            <dt className="text-muted-foreground">{t("trade.tradeFee")}</dt>
+            <dd data-testid="trade-fee">
+              {feePct == null
+                ? "—"
+                : feeAmount != null
+                  ? t("trade.tradeFeeValue", { amount: formatPrecise(feeAmount, quote.decimals), quote: quote.symbol, fee: feePct })
+                  : `${feePct}%`}
+            </dd>
           </div>
           <div className="flex justify-between">
             <dt className="text-muted-foreground">{t("trade.minReceived")}</dt>
@@ -248,7 +264,9 @@ const BuyPanel = ({ token, symbol, market, quote: quoteProp, className }) => {
         </dl>
 
         {swap?.exceedsRange && (
-          <p className="text-xs text-fabric-red">{isBuy ? t("trade.exceedsBuy") : t("trade.exceedsSell")}</p>
+          <p className="text-xs text-fabric-red">
+            {isBuy ? t(buyCannotFill ? "trade.exceedsBuy" : "trade.exceedsBuyPartial") : t("trade.exceedsSell")}
+          </p>
         )}
 
         <Button type="button" size="lg" className="w-full" disabled={cta.disabled} onClick={cta.onClick}>

@@ -7,7 +7,9 @@
 // launch record), unless a row names its own quoteToken / quoteSymbol /
 // quoteDecimals. Trade rows from this route do not carry them — the quote is on
 // the token — so without the prop a USDC launch's rows would print as ETH.
-// Prices arrive as `priceE18` (quote raw units per whole token × 1e18).
+// Prices arrive as `priceE18` (quote raw units per whole token × 1e18). A row's
+// `quoteAmount` is what the trader paid (a buy, the trade fee included) or
+// received (a sell, net of it); its `feeAmount` is that fee, null on older rows.
 
 import PropTypes from "prop-types";
 import { useTranslation } from "react-i18next";

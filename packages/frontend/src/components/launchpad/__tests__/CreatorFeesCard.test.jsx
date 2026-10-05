@@ -41,36 +41,18 @@ vi.mock("@/config/networks", () => ({
   getNetworkByKey: () => ({ explorer: "https://sepolia.basescan.org/" }),
 }));
 
-// The launch state from test_fixture_quoteMathForFrontend (1% LP fee).
+// The launch state from test_fixture_quoteMathForFrontend (a 1% trade fee).
 const market = deriveMarketState({
-  slot0Word: "0x0000000027100000000329600000000000007b42d530bfeef6c84ca32f6118a4",
+  slot0Word: "0x0000000000000000000329600000000000007b42d530bfeef6c84ca32f6118a4",
   liquidityWord: "0x0",
-  placement: { tickLower: -887200, tickUpper: 207200, liquidity: 31690866724818211737594n },
+  placement: { tickLower: -887200, tickUpper: 207200, liquidity: 31690866724818211737594n, tradeFee: 10_000 },
   wholeSupply: 1_000_000_000n,
   quote: QUOTES[ZERO],
 });
 
-const setFees = ({
-  recipient = WALLET,
-  quoteToken = ZERO,
-  eth = {},
-  usdc = {},
-  tokens = {},
-  uncollectedQuote = 0n,
-  uncollectedTokens = 0n,
-} = {}) => {
+const setFees = ({ recipient = WALLET, quoteToken = ZERO, eth = {}, usdc = {}, pendingFees = 0n } = {}) => {
   fees.current = {
-    launches: [
-      {
-        token: TOKEN,
-        placer: PLACER,
-        quoteToken,
-        recipient,
-        claimableTokens: tokens,
-        uncollectedQuote,
-        uncollectedTokens,
-      },
-    ],
+    launches: [{ token: TOKEN, placer: PLACER, quoteToken, recipient, pendingFees }],
     placers: {
       [PLACER.toLowerCase()]: {
         address: PLACER,
@@ -125,73 +107,64 @@ describe("CreatorFeesCard", () => {
     expect(screen.getByRole("region", { name: "creatorFees.title" })).toBeInTheDocument();
   });
 
-  it("shows what the recipient earned: credited plus their 88% of what is still in the pool", () => {
-    // 0.1 ETH credited + 88% of 0.05 in the pool = 0.144; 1M + 88% of 500K = 1.44M
-    setFees({
-      eth: { [lc(WALLET)]: E / 10n },
-      tokens: { [lc(WALLET)]: 1_000_000n * E },
-      uncollectedQuote: E / 20n,
-      uncollectedTokens: 500_000n * E,
-    });
+  it("shows what the recipient earned, all in the quote: credited plus their 88% of what is pending", () => {
+    // 0.1 ETH credited + 88% of 0.05 pending = 0.144 (shown to two decimals)
+    setFees({ eth: { [lc(WALLET)]: E / 10n }, pendingFees: E / 20n });
     setup();
 
     expect(screen.getByRole("region", { name: "creatorFees.title" })).toBeInTheDocument();
     expect(screen.getByText("creatorFees.shareBadge(share=88,fee=1)")).toBeInTheDocument();
-    expect(screen.getByText("1.44M")).toBeInTheDocument();
-    expect(screen.getByText(/^creatorFees\.tokensQuote\(amount=.*,quote=ETH\)$/)).toBeInTheDocument();
-    expect(
-      screen.getByText("creatorFees.inPoolBoth(amount=0.04,quote=ETH,tokens=440K,symbol=POND)"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "creatorFees.claimBoth(amount=0.14,quote=ETH,tokens=1.44M,symbol=POND)" }),
-    ).toBeEnabled();
+    expect(screen.getByText("creatorFees.earned")).toBeInTheDocument();
+    expect(screen.getByText("creatorFees.pendingQuote(amount=0.04,quote=ETH)")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "creatorFees.claimQuote(amount=0.14,quote=ETH)" })).toBeEnabled();
     expect(screen.getByText("creatorFees.captionSent")).toBeInTheDocument();
     expect(screen.getByText("creatorFees.you")).toBeInTheDocument();
+    // No launch-token side any more.
+    expect(screen.queryByText(/POND/)).not.toBeInTheDocument();
   });
 
-  it("leaves out the pool line when everything is already collected", () => {
+  it("shows the launch's own trade fee rate", () => {
+    setFees({ eth: { [lc(WALLET)]: E } });
+    render(<CreatorFeesCard token={TOKEN} name="Frog Pond" symbol="POND" market={{ ...market, tradeFee: 25_000 }} />);
+    expect(screen.getByText("creatorFees.shareBadge(share=88,fee=2.5)")).toBeInTheDocument();
+  });
+
+  it("leaves out the pending line when everything is already collected", () => {
     setFees({ eth: { [lc(WALLET)]: E } });
     setup();
-    expect(screen.queryByText(/creatorFees\.inPool/)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "creatorFees.claimQuote(amount=1,quote=ETH,tokens=0,symbol=POND)" })).toBeEnabled();
+    expect(screen.queryByText(/creatorFees\.pendingQuote/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "creatorFees.claimQuote(amount=1,quote=ETH)" })).toBeEnabled();
   });
 
-  it("names only the token when only token fees are earned", () => {
-    setFees({ tokens: { [lc(WALLET)]: 2_000n * E } });
+  it("claims in one batch from the connected wallet: collect, then claim ETH", async () => {
+    setFees({ eth: { [lc(WALLET)]: E }, pendingFees: 100n * E });
     setup();
-    expect(screen.getByRole("button", { name: "creatorFees.claimTokens(amount=0,quote=ETH,tokens=2K,symbol=POND)" })).toBeEnabled();
-  });
-
-  it("claims in one batch from the connected wallet: collect, claim ETH, claim the token", async () => {
-    setFees({ eth: { [lc(WALLET)]: E }, uncollectedTokens: 100n * E });
-    setup();
-    fireEvent.click(screen.getByRole("button", { name: /^creatorFees\.claimBoth/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^creatorFees\.claimQuote/ }));
 
     await waitFor(() => expect(write.send).toHaveBeenCalledTimes(1));
     const [[calls]] = write.send.mock.calls;
     expect(decode(calls)).toEqual([
       ["collectFees", TOKEN],
       ["claim", ZERO, WALLET],
-      ["claim", TOKEN, WALLET],
     ]);
 
     const status = await screen.findByRole("status");
-    expect(within(status).getByText("creatorFees.claimedBoth(amount=1,quote=ETH,tokens=88,symbol=POND)")).toBeInTheDocument();
+    expect(within(status).getByText("creatorFees.claimedQuote(amount=89,quote=ETH)")).toBeInTheDocument();
     expect(within(status).getByRole("link", { name: "creatorFees.viewTransaction" })).toHaveAttribute(
       "href",
       "https://sepolia.basescan.org/tx/0xhash",
     );
   });
 
-  // A USDC-paired launch earns buy-side fees in USDC: shown in USDC's 6
-  // decimals and claimed with claim(USDC), never as ETH.
-  it("shows and claims a USDC-paired launch's buy-side fees in USDC", async () => {
-    setFees({ quoteToken: USDC, eth: { [lc(WALLET)]: E }, usdc: { [lc(WALLET)]: 2_500_000n }, uncollectedQuote: 1_000_000n });
+  // A USDC-paired launch earns its fees in USDC: shown in USDC's 6 decimals and
+  // claimed with claim(USDC), never as ETH.
+  it("shows and claims a USDC-paired launch's fees in USDC", async () => {
+    setFees({ quoteToken: USDC, eth: { [lc(WALLET)]: E }, usdc: { [lc(WALLET)]: 2_500_000n }, pendingFees: 1_000_000n });
     setup();
     // 2.5 credited + 88% of 1 = 3.38 USDC; the 1 ETH credited elsewhere is not this launch's.
     expect(screen.getByText("creatorFees.quotePooled(quote=USDC)")).toBeInTheDocument();
-    expect(screen.getByText("creatorFees.inPoolQuote(amount=0.88,quote=USDC,tokens=0,symbol=POND)")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "creatorFees.claimQuote(amount=3.38,quote=USDC,tokens=0,symbol=POND)" }));
+    expect(screen.getByText("creatorFees.pendingQuote(amount=0.88,quote=USDC)")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "creatorFees.claimQuote(amount=3.38,quote=USDC)" }));
     await waitFor(() => expect(write.send).toHaveBeenCalledTimes(1));
     expect(decode(write.send.mock.calls[0][0])).toEqual([
       ["collectFees", TOKEN],
@@ -203,7 +176,7 @@ describe("CreatorFeesCard", () => {
     setFees();
     setup();
     expect(
-      screen.getByText("creatorFees.emptyBody(share=88,fee=1,name=Frog Pond,symbol=POND,quote=ETH)"),
+      screen.getByText("creatorFees.emptyBody(share=88,fee=1,name=Frog Pond,quote=ETH)"),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "creatorFees.nothingToClaim" })).toBeDisabled();
     // The recipient can still hand fees on before any arrive.
@@ -258,7 +231,7 @@ describe("CreatorFeesCard", () => {
     });
 
     it("collects first, then hands future fees on, and says where they go", async () => {
-      setFees({ uncollectedQuote: E });
+      setFees({ pendingFees: E });
       setup();
       openDialog();
       fireEvent.change(field(), { target: { value: OTHER.toLowerCase() } });

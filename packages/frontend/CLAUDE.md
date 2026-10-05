@@ -113,7 +113,7 @@ oracle, so "Top FDV" groups by quote (ETH first).
 
 **The launch form takes a valuation, not a per-token price** (`src/routes/Launch.jsx`,
 `src/hooks/useTokenLaunchpad.js`), and passes it to `launch(…, quoteToken, startFdv,
-creatorBuyIn, minTokensOut)` unconverted. Every launch mints the same 1e9 supply, so
+tradeFee, creatorBuyIn, minTokensOut)` unconverted. Every launch mints the same 1e9 supply, so
 a per-token price is nine orders of magnitude from the valuation and, in a 6-decimal
 quote, too coarse to express. Display valuations in the quote and per-token prices
 in gwei for ETH (at the 1 ETH floor exactly 1 gwei per token), in the quote itself
@@ -123,19 +123,34 @@ sends it as `value`; an ERC-20 batches `approve(launchpad, creatorBuyIn)` first.
 `minTokensOut` is 0 on purpose — the buy runs in the same transaction the pool is
 created in, so no trade can come between and a floor protects nothing. A first buy
 needs `router()` set (`CreatorBuyNeedsRouter`), so the form checks it and the balance.
+**The creator picks the trade fee**: presets 0.5%, 1% (default), 2%, 5% or a typed
+percentage, sent in pips (10_000 = 1%) and validated against the current placer's
+`minTradeFee()` and `MAX_TRADE_FEE()` (10%) — `useTradeFeeBounds`. It is fixed for the
+pool's life; the summary says it is paid in the quote and that 88% goes to the creator.
 
 A network with no launchpad in its deployment JSON renders an explanation, not an
 error. The raffle stack deploys independently of the launchpad.
 
 **Live pool state comes straight from Uniswap v4, not the indexer.**
 `useLaunchMarkets` reads each pool's slot0 and liquidity via `PoolManager.extsload`
-plus the tick range from the placer that placed that launch (`TokenLaunchpad.placerOf`
+plus the placement (tick range, pool key, `tradeFee`) from the placer that placed that launch (`TokenLaunchpad.placerOf`
 — never the deployment's `LiquidityPlacer`, which is only where new launches go), and `src/lib/v4PoolMath.js` turns that into price,
 FDV, multiple since launch, supply sold, and exact buy/sell quotes. There is no
-quoter contract in the stack. That math is pinned against a real `PoolManager`
-swap: `test_fixture_quoteMathForFrontend` in the contracts package emits the
+quoter contract in the stack. That math is pinned to the wei against real `PoolManager`
+swaps: `test_fixture_quoteMathForFrontend` in the contracts package emits the
 numbers `tests/lib/v4PoolMath.test.js` reproduces. If a contracts change moves
 them, re-run the fixture and update the constants — never loosen the tolerances.
+The quote steps where v4 does — at each tick-bitmap word edge, from the pool key's
+tick spacing — or a swap crossing one is off by rounding. The fixture's poolId and
+state slot change with the placer's (hook's) address; the test only pins the pair.
+**Trade fee, in the quote only.** Launch pools have LP fee 0; the placer is each
+pool's v4 hook and takes the launch's own `tradeFee` (pips) of the gross quote flow,
+rounded up: a buy of G swaps `G − ceil(G·f/1e6)`; a sell's pool payout O reaches the
+trader as `O − ceil(O·f/1e6)`. `quoteBuy` / `quoteSell` take `tradeFee` (market.tradeFee)
+and return the `fee` in the quote, which the buy panel shows; v4's own fee inside the
+swap (`buySwapFee` / `sellSwapFee`: slot0's LP fee plus any protocol fee) is separate.
+A buy the range cannot fill in full reverts on-chain (`PartialFillWithFee`), so it
+quotes nothing and the panel refuses it; a sell capped at launch fills partly.
 **Both orientations:** v4 sorts currencies by address. With the quote as currency0
 (every ETH launch) a buy is zeroForOne, the range is `[minUsableTick, tickUpper]` and
 the pool opens at `tickUpper`; an ERC-20 quote above the token makes the TOKEN
@@ -170,27 +185,32 @@ same amounts the quote math is pinned to, so the quote shown is the trade made.
 
 ## Creator fees
 
-A launch's LP position belongs to its placer (`TokenLaunchpad.placerOf`), which
-credits 88% of the pool's 1% fee to the launch's fee recipient — the launch's quote
-token (ETH or its ERC-20) from buys, the launch token from sells. Two surfaces, from Card, Table, the outline Badge,
+The placer (`TokenLaunchpad.placerOf`) takes each launch's trade fee as the pool's hook,
+**only ever in the launch's quote token** (ETH or its ERC-20), on buys and sells alike,
+and credits 88% of it to the launch's fee recipient. There are never launch-token fee
+balances. Two surfaces, from Card, Table, the outline Badge,
 Button, Separator, Dialog and Input: `CreatorFeesCard` on the token page (only for
 the current recipient) and `CreatorFeesSection` on the own profile (desktop
-`ProfileContent`, mobile Creator tab). Reads are `hooks/useCreatorFees.js` (three
-multicalls, one of them `collectFees` **simulated** for what is still in the pool);
-call-building and the earned/summary math are pure in `lib/creatorFees.js`.
+`ProfileContent`, mobile Creator tab). Reads are `hooks/useCreatorFees.js` (two
+multicalls; taken-but-uncollected fees are the public view `pendingFees(token)`, so
+nothing is simulated); call-building and the earned/summary math are pure in
+`lib/creatorFees.js`. The token page's facts show the launch's trade fee (from the
+market); the profile table shows it from the API launch row's `tradeFee`.
 
-- **Earned = credited + the recipient's floored share of a simulated collect.** A
-  claim batch collects first (`collectFees` is permissionless), and a
-  `claim(currency, to)` is only added when the amount it will find is non-zero — it
-  reverts `NothingToClaim` on zero, which would fail the whole batch. Uncollected fees
-  count only for the current recipient: they are credited to whoever is recipient
-  at collection, which is also why Transfer collects before `setFeeRecipient`.
-- **Quote fees are pooled per account, per currency, per placer**
+- **Earned = credited + the recipient's floored share of `pendingFees`.** A
+  claim batch collects first (`collectFees` is permissionless, returns one `fees`
+  amount), and a `claim(currency, to)` is only added when the amount it will find is
+  non-zero — it reverts `NothingToClaim` on zero, which would fail the whole batch.
+  Pending fees count only for the current recipient: they are credited to whoever is
+  recipient at collection, which is also why Transfer collects before `setFeeRecipient`.
+- **Fees are pooled per account, per currency, per placer**
   (`claimable(currency, account)`, address 0 = ETH; one `claim(currency)` takes
-  them all), so the token page's quote amount includes other same-quote launches'
+  them all), so the token page's amount includes other same-quote launches'
   collected fees (it says so), and the profile shows one total and one "Claim all
-  <SYMBOL>" per quote currency — collected fees only in those totals; its table's
-  "In pool" column is each pool's uncollected share. Calls are grouped per placer.
+  <SYMBOL>" per quote currency — `collectFees` for each of its launches with fees
+  pending, then the claim; collected fees only in those totals. Its table (no
+  per-launch claim) shows each launch's trade fee and pending share. Calls are grouped
+  per placer.
 - **The claimant is `msg.sender`, so the batch must come from the credited
   account.** `executeBatch` sends from the connected wallet, so the card shows
   only when that wallet is the current recipient, and every claim plan is built
@@ -198,9 +218,13 @@ call-building and the earned/summary math are pure in `lib/creatorFees.js`.
 - **The profile lists launches by creator** (`useCreatorLaunches`,
   `/api/launchpad/tokens?creator=`, the connected wallet). A launch whose fees another
   creator handed to this account does not appear there (no recipient index);
-  its token page's card still shows. A listed launch whose fees were handed on
-  stays while tokens credited before the transfer remain. The section renders
-  nothing with no launches or on a failed read.
+  its token page's card still shows. A listed launch whose fees were handed on is
+  dropped (what was collected for this account stays in its currency total). The
+  section renders nothing with no launches or on a failed read.
+- **Indexed trade amounts are trader-facing.** The backend's trade rows (trades feed,
+  activity ticker) carry `quoteAmount` = what the trader paid (buy, fee included) or
+  received (sell, net of it) and `feeAmount` (null on older rows); launch rows carry
+  `tradeFee` in pips. Quotes still use the placement's on-chain `tradeFee`.
 
 ## Season quote token ("Priced in")
 

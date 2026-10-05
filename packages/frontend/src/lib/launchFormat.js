@@ -119,6 +119,27 @@ export function parseQuoteAmount(input, decimals = 18) {
   }
 }
 
+/**
+ * A launch's trade fee, in pips (10_000 = 1%, as UniV4LiquidityPlacer stores it),
+ * as a percentage without the sign: 10_000 → "1", 5_000 → "0.5", 25_000 → "2.5".
+ * @param {number | bigint | null | undefined} pips
+ */
+export function formatTradeFee(pips) {
+  if (pips == null) return '—';
+  return formatUnits(BigInt(pips), 4);
+}
+
+/**
+ * Parse a typed trade-fee percentage ("1", "0.5") into pips. Null for anything
+ * that is not a usable positive number or is finer than a pip (four decimals).
+ * @param {string} input
+ * @returns {number | null}
+ */
+export function parseTradeFeePct(input) {
+  const pips = parseQuoteAmount(String(input ?? '').replace(/%\s*$/, ''), 4);
+  return pips == null ? null : Number(pips);
+}
+
 /** The fixed-point digits kept when dividing a valuation down to a per-token price. */
 const PRICE_SCALE_DIGITS = 18;
 

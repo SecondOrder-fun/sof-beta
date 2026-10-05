@@ -2,7 +2,8 @@
 //
 // One launched token, per the approved launchpad design: identity and raffle
 // badge, the FDV price chart, supply sold, trades, the buy panel, the creator
-// fees card (only for the launch's fee recipient) and the raffle card. Desktop
+// fees card (only for the launch's fee recipient), the raffle card and the token
+// facts, which include the launch's trade fee (from its placement, via the market). Desktop
 // puts the panel and both cards in a sticky side column; mobile opens the same
 // panel in the existing Sheet from a bar above the bottom nav, and the cards
 // stay in the page. Every amount is in the launch's quote token (ETH or an
@@ -34,7 +35,8 @@ import { useTokenLaunch } from "@/hooks/useTokenLaunches";
 import { useLaunchMarkets } from "@/hooks/useLaunchMarkets";
 import { useTokenSeasons } from "@/hooks/useLaunchActivity";
 import { shortAddress } from "@/lib/format";
-import { formatAge } from "@/lib/launchFormat";
+import { formatAge, formatTradeFee } from "@/lib/launchFormat";
+import { ETH_QUOTE } from "@/config/launchQuoteTokens";
 
 const Fact = ({ label, children }) => (
   <div className="flex justify-between gap-4 text-sm">
@@ -184,6 +186,14 @@ const TokenDetail = () => {
                 <Fact label={t("detail.factSupply")}>{(launch.totalSupply / 10n ** 18n).toLocaleString()}</Fact>
                 <Fact label={t("detail.factAllocation")}>{t("detail.factAllocationValue")}</Fact>
                 <Fact label={t("detail.factLiquidity")}>{t("detail.factLiquidityValue")}</Fact>
+                <Fact label={t("detail.factTradeFee")}>
+                  {market?.tradeFee != null
+                    ? t("detail.factTradeFeeValue", {
+                        fee: formatTradeFee(market.tradeFee),
+                        quote: (market.quote ?? launch.quote ?? ETH_QUOTE).symbol,
+                      })
+                    : "—"}
+                </Fact>
                 <Fact label={t("detail.factControls")}>{t("detail.factControlsValue")}</Fact>
               </dl>
             </CardContent>

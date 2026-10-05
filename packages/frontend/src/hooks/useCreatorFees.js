@@ -4,8 +4,9 @@
 // the write that claims or hands them on. Shaping and call-building live in
 // lib/creatorFees.js; this file only reads and sends.
 //
-// Three multicalls for any number of launches (plus a symbol/decimals read for
-// any quote token config/launchQuoteTokens.js does not list):
+// Two multicalls for any number of launches (plus a symbol/decimals read, in
+// parallel with the second, for any quote token config/launchQuoteTokens.js does
+// not list):
 //   1. TokenLaunchpad.placerOf(token) and quoteTokenOf(token) for each launch,
 //      plus placer() — the current placer, so quote fees already credited there
 //      count even for a launch not in the list (fees handed to this account by
@@ -13,14 +14,11 @@
 //   2. per placer: CREATOR_FEE_BPS and claimable(currency, account) for every
 //      quote currency that matters there — ETH, the network's listed quotes, and
 //      the quotes of the listed launches on it;
-//      per launch: feeRecipientOf(token) and claimable(token, account)
-//   3. collectFees(token) on its placer, SIMULATED (an eth_call through
-//      Multicall3, nothing is sent): what a collection would pay out right now,
-//      as (quoteFees, tokenFees). Permissionless, so the caller does not matter.
-//      A launch whose collect would revert (e.g. FeeTreasuryNotSet) reads null —
-//      its claim then skips the collect rather than failing.
-// 2 and 3 run in parallel. Each launch is read through ITS placer, never the
-// deployment's LiquidityPlacer: earlier launches stay where they were placed.
+//      per launch: feeRecipientOf(token) and pendingFees(token) — the trade fees
+//      taken and not yet collected, all in the launch's quote
+// Fees are only ever in the quote, so there is no per-launch-token balance to
+// read. Each launch is read through ITS placer, never the deployment's
+// LiquidityPlacer: earlier launches stay where they were placed.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePublicClient } from 'wagmi';
@@ -108,30 +106,12 @@ export function useCreatorFees(launches, { account, enabled = true } = {}) {
       ]);
       const launchReads = placed.flatMap(({ token, placer }) => [
         { address: placer, abi: UniV4LiquidityPlacerAbi, functionName: 'feeRecipientOf', args: [token] },
-        ...accountList.map((a) => ({
-          address: placer,
-          abi: UniV4LiquidityPlacerAbi,
-          functionName: 'claimable',
-          args: [token, a],
-        })),
+        { address: placer, abi: UniV4LiquidityPlacerAbi, functionName: 'pendingFees', args: [token] },
       ]);
 
       const allCurrencies = placerCurrencies.flat();
-      const [reads, collects, quotes] = await Promise.all([
+      const [reads, quotes] = await Promise.all([
         client.multicall({ contracts: [...placerReads, ...launchReads], allowFailure: false }),
-        placed.length
-          ? client
-              .multicall({
-                contracts: placed.map(({ token, placer }) => ({
-                  address: placer,
-                  abi: UniV4LiquidityPlacerAbi,
-                  functionName: 'collectFees',
-                  args: [token],
-                })),
-                allowFailure: true,
-              })
-              .catch(() => [])
-          : [],
         resolveQuoteMeta(client, allCurrencies, networkKey),
       ]);
 
@@ -149,19 +129,15 @@ export function useCreatorFees(launches, { account, enabled = true } = {}) {
         placers[lc(address)] = { address, creatorFeeBps, claimable };
       });
 
-      const out = placed.map(({ token, placer, quoteToken }, i) => {
+      const out = placed.map(({ token, placer, quoteToken }) => {
         const recipient = reads[at++];
-        const claimableTokens = {};
-        for (const a of accountList) claimableTokens[a] = reads[at++];
-        const collected = collects[i]?.status === 'success' ? collects[i].result : null;
+        const pendingFees = reads[at++];
         return {
           token: (launches.find((l) => lc(l.token) === token) ?? {}).token ?? token,
           placer,
           quoteToken,
           recipient: recipient && !ZERO_ADDRESS.test(recipient) ? recipient : null,
-          claimableTokens,
-          uncollectedQuote: collected ? collected[0] : null,
-          uncollectedTokens: collected ? collected[1] : null,
+          pendingFees,
         };
       });
 

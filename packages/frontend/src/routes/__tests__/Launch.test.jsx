@@ -7,6 +7,7 @@ import {
   useLaunchpadConfig,
   useLaunchpadReady,
   useLaunchToken,
+  useTradeFeeBounds,
 } from "@/hooks/useTokenLaunchpad";
 
 vi.mock("@/hooks/useTokenLaunchpad", async () => {
@@ -16,6 +17,7 @@ vi.mock("@/hooks/useTokenLaunchpad", async () => {
     useLaunchpadConfig: vi.fn(),
     useLaunchpadReady: vi.fn(),
     useLaunchToken: vi.fn(),
+    useTradeFeeBounds: vi.fn(),
   };
 });
 
@@ -34,7 +36,14 @@ vi.mock("@/hooks/useLoginModal", () => ({
 }));
 vi.mock("react-i18next", async (importOriginal) => ({
   ...(await importOriginal()),
-  useTranslation: () => ({ t: (key, opts) => (opts?.unit ? `${key}:${opts.unit}` : key) }),
+  useTranslation: () => ({
+    t: (key, opts) =>
+      key === "summary.tradeFeeValue" || key === "form.tradeFeePercent" || key.startsWith("errors.tradeFee")
+        ? `${key}(${Object.entries(opts ?? {}).map(([k, v]) => `${k}=${v}`).join(",")})`
+        : opts?.unit
+          ? `${key}:${opts.unit}`
+          : key,
+  }),
 }));
 
 // Radix Select needs these in jsdom.
@@ -65,7 +74,7 @@ const CONFIG = {
 
 let launchMock;
 
-const setup = ({ config = CONFIG, isAvailable = true, ready = true } = {}) => {
+const setup = ({ config = CONFIG, isAvailable = true, ready = true, feeBounds = { min: 5_000, max: 100_000 } } = {}) => {
   launchMock = vi.fn().mockResolvedValue("0xhash");
   balance.current = undefined;
   useLaunchpadConfig.mockReturnValue({
@@ -74,6 +83,7 @@ const setup = ({ config = CONFIG, isAvailable = true, ready = true } = {}) => {
     isAvailable,
   });
   useLaunchpadReady.mockReturnValue({ data: ready });
+  useTradeFeeBounds.mockReturnValue({ data: feeBounds });
   useLaunchToken.mockReturnValue({
     launch: launchMock,
     isPending: false,
@@ -133,7 +143,72 @@ describe("Launch form", () => {
       metadataURI: "",
       quoteToken: ZERO,
       startFdv: 2n * ONE_ETH,
+      tradeFee: 10_000,
       creatorBuyIn: 0n,
+    });
+  });
+
+  describe("trade fee", () => {
+    const tradeFeeInput = () => screen.getByLabelText("form.tradeFee");
+    const preset = (pct) => screen.getByRole("button", { name: `form.tradeFeePercent(fee=${pct})` });
+
+    it("defaults to 1%, and says so in the summary: paid in the quote, 88% to the creator", () => {
+      setup();
+      expect(tradeFeeInput()).toHaveValue("1");
+      expect(preset("1")).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByText("summary.tradeFeeValue(fee=1,quote=ETH,share=88)")).toBeInTheDocument();
+    });
+
+    it("offers 0.5%, 1%, 2% and 5%, and submits the chosen one in pips", async () => {
+      setup();
+      for (const pct of ["0.5", "1", "2", "5"]) expect(preset(pct)).toBeInTheDocument();
+      fireEvent.click(preset("5"));
+      expect(tradeFeeInput()).toHaveValue("5");
+      fill({ fdv: "2" });
+      await submit();
+      expect(launchMock.mock.calls[0][0]).toMatchObject({ tradeFee: 50_000 });
+    });
+
+    it("takes a custom percentage", async () => {
+      setup();
+      fireEvent.change(tradeFeeInput(), { target: { value: "2.5" } });
+      expect(screen.getByText("summary.tradeFeeValue(fee=2.5,quote=ETH,share=88)")).toBeInTheDocument();
+      fill({ fdv: "2" });
+      await submit();
+      expect(launchMock.mock.calls[0][0]).toMatchObject({ tradeFee: 25_000 });
+    });
+
+    it("names the quote it is paid in", () => {
+      setup();
+      pickQuote("USDC");
+      expect(screen.getByText("summary.tradeFeeValue(fee=1,quote=USDC,share=88)")).toBeInTheDocument();
+    });
+
+    it("refuses a fee below the placer's minimum", async () => {
+      setup({ feeBounds: { min: 5_000, max: 100_000 } });
+      fireEvent.change(tradeFeeInput(), { target: { value: "0.25" } });
+      fill({ fdv: "2" });
+      fireEvent.click(screen.getByRole("button", { name: "form.submit" }));
+      expect(await screen.findByText("errors.tradeFeeTooLow(min=0.5,max=10)")).toBeInTheDocument();
+      expect(launchMock).not.toHaveBeenCalled();
+    });
+
+    it("refuses a fee above 10%", async () => {
+      setup();
+      fireEvent.change(tradeFeeInput(), { target: { value: "12" } });
+      fill({ fdv: "2" });
+      fireEvent.click(screen.getByRole("button", { name: "form.submit" }));
+      expect(await screen.findByText("errors.tradeFeeTooHigh(min=0.5,max=10)")).toBeInTheDocument();
+      expect(launchMock).not.toHaveBeenCalled();
+    });
+
+    it("refuses an empty or unreadable fee", async () => {
+      setup();
+      fireEvent.change(tradeFeeInput(), { target: { value: "" } });
+      fill({ fdv: "2" });
+      fireEvent.click(screen.getByRole("button", { name: "form.submit" }));
+      expect(await screen.findByText("errors.tradeFeeInvalid(min=0.5,max=10)")).toBeInTheDocument();
+      expect(launchMock).not.toHaveBeenCalled();
     });
   });
 

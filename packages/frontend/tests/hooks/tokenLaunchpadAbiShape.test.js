@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { encodeAbiParameters, decodeFunctionResult, parseAbiParameters } from "viem";
-import { TokenLaunchpadAbi } from "@/utils/abis";
+import { TokenLaunchpadAbi, UniV4LiquidityPlacerAbi } from "@/utils/abis";
 
 // useTokenLaunches reads decoded results by NAME (`record.token`, `record.creator`)
 // for getLaunch, and POSITIONALLY for the multi-output views (launchIdOf,
@@ -67,6 +67,26 @@ describe("TokenLaunchpad ABI decode shapes", () => {
     expect(config[0]).toBe(true);
     expect(config[1]).toBe(ONE_ETH);
     expect(config[2]).toBe(1000n * ONE_ETH);
+  });
+
+  // useLaunchMarkets reads the placement by name, including the launch's trade fee.
+  it("decodes getPlacement as an object ending in tradeFee", () => {
+    const fn = UniV4LiquidityPlacerAbi.find((e) => e.type === "function" && e.name === "getPlacement");
+    const key = [USDC, TOKEN, 0, 200, PLACER];
+    const data = encodeAbiParameters(fn.outputs, [
+      { key: { currency0: key[0], currency1: key[1], fee: key[2], tickSpacing: key[3], hooks: key[4] }, tickLower: -887200, tickUpper: 207200, liquidity: 5n, tokenIsCurrency0: false, tradeFee: 25_000 },
+    ]);
+    const p = decodeFunctionResult({ abi: UniV4LiquidityPlacerAbi, functionName: "getPlacement", data });
+    expect(p.tradeFee).toBe(25_000);
+    expect(p.key.tickSpacing).toBe(200);
+    expect(p.key.fee).toBe(0);
+  });
+
+  it("takes the trade fee in launch(), between startFdv and creatorBuyIn", () => {
+    const launch = TokenLaunchpadAbi.find((e) => e.type === "function" && e.name === "launch");
+    expect(launch.inputs.map((i) => i.type)).toEqual([
+      "string", "string", "string", "address", "uint256", "uint24", "uint256", "uint256",
+    ]);
   });
 
   it("exposes every function the launch routes call", () => {
