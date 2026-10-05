@@ -27,6 +27,7 @@ const log = ({ args: argOverrides, ...logOverrides } = {}) => ({
     metadataURI: "ipfs://meta",
     quoteToken: NATIVE_QUOTE,
     startFdv: WAD, // a 1 ETH valuation: 1 gwei per token
+    tradeFee: 25_000, // 2.5%
     placementId: `0x${"ab".repeat(32)}`,
     ...argOverrides,
   },
@@ -45,6 +46,14 @@ describe("buildLaunchRow", () => {
     expect(row.block_number).toBe(1234);
     expect(row.tx_hash).toBe("0xDEADBEEF");
     expect(row.launched_at).toBe(new Date(1_700_000_000 * 1000).toISOString());
+    expect(row.trade_fee).toBe(25_000);
+  });
+
+  // Every 0.42 TokenLaunched carries the rate; a row without one would take the
+  // column's pre-0.42 default (1%) and misstate the launch's fee for good.
+  it("treats a log without a trade fee as unusable", () => {
+    expect(buildLaunchRow(log({ args: { tradeFee: undefined } }), TOTAL_SUPPLY, 1)).toBeNull();
+    expect(buildLaunchRow(log({ args: { tradeFee: 0 } }), TOTAL_SUPPLY, 1).trade_fee).toBe(0);
   });
 
   // The start price is per WHOLE token, scaled by 1e18. Dividing by the raw

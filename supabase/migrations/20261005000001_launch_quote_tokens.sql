@@ -13,6 +13,11 @@
 --                    + quote_decimals
 --   launch_trades    eth_amount -> quote_amount, price_wei -> price_e18
 --
+-- and for the per-launch trade fee (contracts 0.42.0):
+--
+--   token_launches   + trade_fee      (pips, 10000 = 1%; the creator's choice)
+--   launch_trades    + fee_amount     (quote raw units; NULL on older rows)
+--
 -- Prices are scaled by 1e18 (WAD fixed point) because a 6-decimal quote has
 -- too few raw units per token to chart: a 2,500 USDC valuation of 1e9 tokens is
 -- 2.5 raw USDC units per token, which an integer column floors to 2. The columns
@@ -77,7 +82,23 @@ ALTER TABLE token_launches
   ADD COLUMN IF NOT EXISTS quote_symbol TEXT DEFAULT 'ETH',
   ADD COLUMN IF NOT EXISTS quote_decimals INTEGER NOT NULL DEFAULT 18;
 
+-- Launch pools have a zero LP fee since contracts 0.42.0: the placer, as the
+-- pool's v4 hook, takes the creator's trade fee (0.5%-10%, fixed per pool) in
+-- the quote token. Launches from before 0.42 paid a 1% LP fee, so the default
+-- 10000 is their true rate; every newer launch stores the rate from its event.
+ALTER TABLE token_launches
+  ADD COLUMN IF NOT EXISTS trade_fee INTEGER NOT NULL DEFAULT 10000;
+
+-- The trade fee taken on each swap. From 0.42 quote_amount is what the trader
+-- paid (buy: pool amount + fee) or received (sell: pool amount - fee). Rows
+-- indexed before this column, and trades on pre-0.42 pools (whose LP fee is
+-- inside the pool amounts), have no separate fee: NULL.
+ALTER TABLE launch_trades
+  ADD COLUMN IF NOT EXISTS fee_amount TEXT;
+
 COMMENT ON COLUMN token_launches.start_price_e18 IS 'quote raw units per whole token, x 1e18 (WAD fixed point)';
 COMMENT ON COLUMN token_launches.start_fdv IS 'opening fully-diluted valuation, quote raw units';
-COMMENT ON COLUMN launch_trades.quote_amount IS 'quote raw units, unsigned';
+COMMENT ON COLUMN token_launches.trade_fee IS 'trade fee on every buy and sell, pips (10000 = 1%), in the quote token; 10000 for pre-0.42 launches, whose pools charged a 1% LP fee';
+COMMENT ON COLUMN launch_trades.quote_amount IS 'quote raw units, unsigned; what the trader paid (buy) or received (sell), trade fee included';
+COMMENT ON COLUMN launch_trades.fee_amount IS 'trade fee taken by the pool hook, quote raw units; NULL when not recorded (older rows, pre-0.42 LP-fee pools)';
 COMMENT ON COLUMN launch_trades.price_e18 IS 'quote raw units per whole token, x 1e18 (WAD fixed point), from sqrtPriceX96 after the swap';

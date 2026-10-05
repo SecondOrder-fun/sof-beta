@@ -70,6 +70,10 @@ function toLaunchResponse(row) {
     quoteDecimals: row.quote_decimals,
     startPriceE18: row.start_price_e18,
     startFdv: row.start_fdv,
+    // The creator's fee on every buy and sell, in pips (10000 = 1%), taken in the
+    // quote token and fixed for the pool's life. 10000 on launches from before
+    // contracts 0.42.0, whose pools charged a 1% LP fee instead.
+    tradeFee: row.trade_fee,
     totalSupply: row.total_supply,
     poolId: row.pool_id,
     launchedAt: row.launched_at,
@@ -87,8 +91,12 @@ function toTradeResponse(row) {
     trader: row.trader,
     side: row.side,
     // In the launch's quote token's raw units (its quote fields are on the token);
-    // priceE18 is raw units per whole token × 1e18.
+    // priceE18 is raw units per whole token × 1e18. quoteAmount is what the trader
+    // paid (buy) or received (sell), the trade fee included; feeAmount is that fee
+    // (null for trades indexed before it was recorded, and on pre-0.42 pools whose
+    // LP fee is inside the amounts).
     quoteAmount: row.quote_amount,
+    feeAmount: row.fee_amount ?? null,
     tokenAmount: row.token_amount,
     priceE18: row.price_e18,
     tick: row.tick,

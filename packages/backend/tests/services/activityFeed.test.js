@@ -128,7 +128,7 @@ describe("buildTokenActivity", () => {
   it("merges trades and launches newest first, labelled with symbols", () => {
     const items = buildTokenActivity({
       trades: [
-        { side: "BUY", block_time: at(NOW - 10), trader: "0xa", token_address: "0xt", quote_amount: "1", price_e18: "5", tx_hash: "0x1" },
+        { side: "BUY", block_time: at(NOW - 10), trader: "0xa", token_address: "0xt", quote_amount: "1", fee_amount: "3", price_e18: "5", tx_hash: "0x1" },
         { side: "SELL", block_time: at(NOW - 30), trader: "0xb", token_address: "0xt", quote_amount: "2", price_e18: "4", tx_hash: "0x2" },
       ],
       launches: [{ launched_at: at(NOW - 20), creator_address: "0xc", token_address: "0xu", symbol: "NEW", start_fdv: "9", tx_hash: "0x3" }],
@@ -138,6 +138,9 @@ describe("buildTokenActivity", () => {
     expect(items[0].symbol).toBe("POND");
     expect(items[1].symbol).toBe("NEW");
     expect(items[0].priceE18).toBe("5"); // the trade's price_e18, under the API name
+    // the trader-facing amount and the fee in it; a row without a fee carries null
+    expect(items[0]).toMatchObject({ quoteAmount: "1", feeAmount: "3" });
+    expect(items[2]).toMatchObject({ quoteAmount: "2", feeAmount: null });
     expect(items[0]).not.toHaveProperty("price");
   });
 

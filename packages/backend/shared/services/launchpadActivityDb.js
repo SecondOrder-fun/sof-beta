@@ -181,7 +181,7 @@ export async function listRecentTrades(limit = 20) {
   const { data, error } = await supabase
     .from("launch_trades")
     .select(
-      "tx_hash, log_index, token_address, trader, side, quote_amount, price_e18, block_time, block_number, " +
+      "tx_hash, log_index, token_address, trader, side, quote_amount, fee_amount, price_e18, block_time, block_number, " +
         "token_launches!inner(is_hidden, quote_symbol, quote_decimals)",
     )
     .eq("token_launches.is_hidden", false)

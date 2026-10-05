@@ -6,12 +6,13 @@
  *   event TokenLaunched(
  *       uint256 indexed launchId, address indexed token, address indexed creator,
  *       string name, string symbol, string metadataURI,
- *       address quoteToken, uint256 startFdv, bytes32 placementId
+ *       address quoteToken, uint256 startFdv, uint24 tradeFee, bytes32 placementId
  *   );
  *
  * `quoteToken` is what the launch trades against — address 0 for native ETH,
  * else an allowlisted ERC-20 — and `startFdv` its opening valuation in that
- * token's raw units. The quote's symbol and decimals are read once per quote
+ * token's raw units. `tradeFee` is the creator's fee on every trade, in pips
+ * (10_000 = 1%), fixed for the pool's life. The quote's symbol and decimals are read once per quote
  * (resolveQuote) and stored with the launch, so every client can format its
  * amounts without another RPC call.
  *
@@ -167,6 +168,7 @@ export async function processTokenLaunchedLog(log, totalSupply, logger, sseServi
       quoteDecimals: row.quote_decimals,
       startPriceE18: row.start_price_e18,
       startFdv: row.start_fdv,
+      tradeFee: row.trade_fee,
       blockNumber: row.block_number,
       txHash: row.tx_hash,
     });

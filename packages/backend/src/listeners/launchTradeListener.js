@@ -6,7 +6,7 @@
  * Feeds the price chart, the trade feed, and the tokens row of the activity
  * ticker.
  *
- * Four things make this listener different from the others:
+ * Five things make this listener different from the others:
  *
  * 1. It must FILTER BY POOL at the RPC. The PoolManager is a singleton: every
  *    v4 swap on the chain comes out of it, so an unfiltered query is the whole
@@ -44,8 +44,8 @@
  *    Without it, a router retired before the history's start is not trusted,
  *    and swaps still routed through it would store the router as the trader
  *    (server.js warns at startup in that case). That costs one receipt
- *    fetch per router transaction; blocks and receipts are fetched
- *    FETCH_CONCURRENCY at a time.
+ *    fetch per router transaction (shared with point 5); blocks and receipts
+ *    are fetched FETCH_CONCURRENCY at a time.
  *
  * 4. It NEVER SKIPS a range it could not fully store. A failed block-time
  *    read, receipt read, router-history read, launch insert or trade insert
@@ -59,9 +59,25 @@
  *    stored cursor or the lookback window's start — bootScanWindow). Only
  *    trades this process inserted are broadcast as TokenTrade, so a replayed
  *    range never re-announces old trades as live.
+ *
+ * 5. It ADDS THE TRADE FEE. Swap's amounts are the pool's and exclude the
+ *    creator's trade fee (contracts 0.42.0: zero LP fee; the placer, as the
+ *    pool's hook, takes the fee in the quote token and emits TradeFeeTaken
+ *    right after the Swap). The fee is paired from the transaction's receipt
+ *    (buildTradeRow.tradeFeeOf) — the same receipt attribution reads, so a
+ *    router swap costs nothing extra; a swap through any other route on a
+ *    fee-paying pool costs one receipt per transaction. Pools whose launch
+ *    chose a zero fee, and an earlier launchpad's LP-fee pools, need none.
+ *    `quote_amount` is then what the trader paid (buy) or got (sell), and
+ *    `fee_amount` the fee.
  */
 
-import { PoolManagerABI, TokenLaunchpadABI, UniV4LaunchRouterABI } from "@sof/contracts";
+import {
+  PoolManagerABI,
+  TokenLaunchpadABI,
+  UniV4LaunchRouterABI,
+  UniV4LiquidityPlacerABI,
+} from "@sof/contracts";
 import { publicClient } from "../lib/viemClient.js";
 import { lookbackWindow, resumeWithoutWindow } from "../lib/bootScanWindow.js";
 import {
@@ -72,7 +88,13 @@ import { createBlockCursor } from "../lib/blockCursor.js";
 import { tokenLaunchesDb } from "../../shared/services/tokenLaunchesDb.js";
 import { getSSEChannelService } from "../services/sseChannelService.js";
 import { processTokenLaunchedLog } from "./tokenLaunchedListener.js";
-import { attributeTrader, buildTradeRow, tokenIsCurrency0 } from "./buildTradeRow.js";
+import {
+  attributeTrader,
+  buildTradeRow,
+  mayPayTradeFee,
+  tokenIsCurrency0,
+  tradeFeeOf,
+} from "./buildTradeRow.js";
 
 /** Pool ids per Swap getLogs. Past this, one range becomes several queries. */
 export const MAX_POOL_IDS_PER_QUERY = 100;
@@ -87,10 +109,11 @@ const maxBig = (a, b) => (a > b ? a : b);
 const minBig = (a, b) => (a < b ? a : b);
 
 /**
- * pool id (lowercase) -> { token, symbol, quote, tokenIsCurrency0 }. Seeded from
- * the DB, extended by on-chain discovery. Module-level so the historical scan
- * and the live poller share it. `tokenIsCurrency0` (the launch token sorts below
- * its ERC-20 quote) decides which side of each Swap is the quote.
+ * pool id (lowercase) -> { token, symbol, quote, tokenIsCurrency0, tradeFee }.
+ * Seeded from the DB, extended by on-chain discovery. Module-level so the
+ * historical scan and the live poller share it. `tokenIsCurrency0` (the launch
+ * token sorts below its ERC-20 quote) decides which side of each Swap is the
+ * quote; `tradeFee` (pips, null = unknown) whether its swaps can pay a fee.
  */
 const pools = new Map();
 
@@ -109,7 +132,7 @@ let routerHistoryFrom = /** @type {bigint | undefined} */ (undefined);
 let routerScannedTo = /** @type {bigint | null} */ (null);
 let routerCurrentRead = false;
 
-function rememberPool(poolId, token, symbol, quote) {
+function rememberPool(poolId, token, symbol, quote, tradeFee) {
   if (!poolId || isZero(poolId)) return;
   const q = lc(quote ?? "0x0000000000000000000000000000000000000000");
   pools.set(lc(poolId), {
@@ -117,6 +140,7 @@ function rememberPool(poolId, token, symbol, quote) {
     symbol: symbol ?? null,
     quote: q,
     tokenIsCurrency0: tokenIsCurrency0(token, q),
+    tradeFee: tradeFee == null ? null : Number(tradeFee),
   });
 }
 
@@ -233,17 +257,18 @@ async function discoverLaunches({ launchpad, totalSupply, fromBlock, toBlock, lo
     maxRetries: 5,
   });
   for (const log of launches) {
-    const { token, symbol, placementId, quoteToken } = log.args ?? {};
+    const { token, symbol, placementId, quoteToken, tradeFee } = log.args ?? {};
     if (!token || !placementId) continue;
     const status = await processTokenLaunchedLog(log, totalSupply, logger, sseService);
-    if (status !== "skipped") rememberPool(placementId, token, symbol, quoteToken);
+    if (status !== "skipped") rememberPool(placementId, token, symbol, quoteToken, tradeFee);
   }
   markLaunchesCovered(range.from, range.to);
 }
 
 /**
- * Turn a batch of Swap logs into rows, fetching each block time and each
- * router transaction's receipt once. Throws if any of them is unavailable.
+ * Turn a batch of Swap logs into rows, fetching each block time once, and each
+ * receipt once for a transaction whose swaps need one (a router's, to attribute,
+ * or one that may have paid the trade fee). Throws if any of them is unavailable.
  */
 async function buildRows(logs, { launchpad, poolManager }) {
   const launchLogs = logs.filter((log) => pools.has(lc(log.args?.id)));
@@ -261,14 +286,15 @@ async function buildRows(logs, { launchpad, poolManager }) {
     }),
   );
 
-  // Only router swaps can be attributed, so only they need a receipt.
-  const routerTxs = [
-    ...new Set(
-      launchLogs.filter((log) => trusted.has(lc(log.args?.sender))).map((log) => log.transactionHash),
-    ),
-  ];
+  // A receipt is needed to attribute a router swap, and to read the trade fee of
+  // a swap that may have paid one; one fetch serves every swap in its transaction.
+  const needsReceipt = (log) => {
+    const pool = pools.get(lc(log.args.id));
+    return trusted.has(lc(log.args?.sender)) || mayPayTradeFee(log, pool);
+  };
+  const receiptTxs = [...new Set(launchLogs.filter(needsReceipt).map((log) => log.transactionHash))];
   const receipts = new Map(
-    await mapLimit(routerTxs, FETCH_CONCURRENCY, async (tx) => {
+    await mapLimit(receiptTxs, FETCH_CONCURRENCY, async (tx) => {
       const receipt = await publicClient.getTransactionReceipt({ hash: tx });
       if (!receipt) throw new Error(`receipt ${tx} unavailable`);
       return [tx, receipt.logs ?? []];
@@ -278,7 +304,8 @@ async function buildRows(logs, { launchpad, poolManager }) {
   const rows = [];
   for (const log of launchLogs) {
     const pool = pools.get(lc(log.args.id));
-    const trader = attributeTrader(receipts.get(log.transactionHash) ?? [], log, {
+    const receiptLogs = receipts.get(log.transactionHash) ?? [];
+    const trader = attributeTrader(receiptLogs, log, {
       token: pool.token,
       tokenIsCurrency0: pool.tokenIsCurrency0,
       routers: trusted,
@@ -286,11 +313,19 @@ async function buildRows(logs, { launchpad, poolManager }) {
       poolManagerAbi: PoolManagerABI,
       routerAbi: UniV4LaunchRouterABI,
     });
+    const fee = tradeFeeOf(receiptLogs, log, {
+      tradeFee: pool.tradeFee,
+      tokenIsCurrency0: pool.tokenIsCurrency0,
+      poolManager,
+      poolManagerAbi: PoolManagerABI,
+      placerAbi: UniV4LiquidityPlacerABI,
+    });
     const row = buildTradeRow(log, {
       token: pool.token,
       tokenIsCurrency0: pool.tokenIsCurrency0,
       blockTimeSec: blockTimes.get(log.blockNumber),
       trader,
+      fee,
     });
     if (row) rows.push({ row, symbol: pool.symbol });
   }
@@ -322,6 +357,7 @@ async function persist(logs, ctx, sseService) {
       trader: row.trader,
       quoteToken: pools.get(lc(row.pool_id))?.quote ?? null,
       quoteAmount: row.quote_amount,
+      feeAmount: row.fee_amount,
       tokenAmount: row.token_amount,
       priceE18: row.price_e18,
       blockNumber: row.block_number,
@@ -350,7 +386,7 @@ export async function startLaunchTradeListener({ poolManager, launchpad, deployB
   });
 
   for (const p of await tokenLaunchesDb.listPoolIndex()) {
-    rememberPool(p.pool_id, p.token_address, p.symbol, p.quote_token);
+    rememberPool(p.pool_id, p.token_address, p.symbol, p.quote_token, p.trade_fee);
   }
 
   const sseService = getSSEChannelService(logger);

@@ -209,6 +209,7 @@ export function buildTokenActivity({ trades, launches, symbols, hidden = new Set
       token: t.token_address,
       symbol: symbols[t.token_address] ?? null,
       quoteAmount: t.quote_amount,
+      feeAmount: t.fee_amount ?? null,
       priceE18: t.price_e18,
       quoteSymbol: t.quote_symbol ?? null,
       quoteDecimals: t.quote_decimals ?? null,

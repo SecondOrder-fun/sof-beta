@@ -3,6 +3,8 @@
 // index complete — nothing stored half-built, nothing skipped past, and every
 // launch broadcast exactly once whichever listener indexes it.
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { encodeAbiParameters, encodeEventTopics } from "viem";
+import { PoolManagerABI, UniV4LiquidityPlacerABI } from "@sof/contracts";
 
 const publicClient = {
   getBlock: vi.fn(),
@@ -67,7 +69,7 @@ const launchLog = (over = {}) => ({
   transactionHash: "0xlaunch",
   args: {
     launchId: 0n, token: TOKEN, creator: "0x3333333333333333333333333333333333333333",
-    name: "Pond", symbol: "POND", metadataURI: "ipfs://x", startFdv: 10n ** 18n, placementId: POOL,
+    name: "Pond", symbol: "POND", metadataURI: "ipfs://x", startFdv: 10n ** 18n, tradeFee: 10_000, placementId: POOL,
   },
   ...over,
 });
@@ -542,11 +544,73 @@ describe("launchTradeListener.persist", () => {
     expect(sse.broadcast.mock.calls.filter(([, e]) => e.type === "TokenTrade")).toHaveLength(2);
   });
 
-  it("fetches receipts only for swaps sent by the launch router", async () => {
+  // A receipt is read to attribute a router swap or to find a swap's trade fee —
+  // so on a pool that charges none, only router swaps need one.
+  it("fetches receipts only for router swaps on a zero-fee pool", async () => {
+    __test.rememberPool(POOL, TOKEN, "POND", undefined, 0);
     await __test.persist([swap(1), swap(2, { args: { ...swap(2).args, sender: ROUTER } })], ctx, sse);
     expect(publicClient.getTransactionReceipt).toHaveBeenCalledTimes(1);
     expect(publicClient.getTransactionReceipt).toHaveBeenCalledWith({ hash: "0xtx2" });
-    expect(tokenLaunchesDb.insertLaunchTrades.mock.calls[0][0]).toHaveLength(2);
+    const rows = tokenLaunchesDb.insertLaunchTrades.mock.calls[0][0];
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.fee_amount)).toEqual(["0", "0"]);
+  });
+
+  it("fetches no receipt for a non-router swap on an LP-fee pool (an earlier launchpad's)", async () => {
+    await __test.persist([swap(1, { args: { ...swap(1).args, fee: 10_000 } })], ctx, sse);
+    expect(publicClient.getTransactionReceipt).not.toHaveBeenCalled();
+    const [row] = tokenLaunchesDb.insertLaunchTrades.mock.calls[0][0];
+    expect(row).toMatchObject({ quote_amount: "1", fee_amount: null });
+  });
+
+  it("fetches each transaction's receipt once for the trade fee, whoever sent the swaps", async () => {
+    __test.rememberPool(POOL, TOKEN, "POND", undefined, 10_000);
+    const second = swap(1, { logIndex: 3 });
+    await __test.persist([swap(1), second, swap(2)], ctx, sse);
+    expect(publicClient.getTransactionReceipt.mock.calls.map(([p]) => p.hash).sort()).toEqual(["0xtx1", "0xtx2"]);
+  });
+
+  // Swap's amounts exclude the hook's fee; the stored and broadcast amount is
+  // what the trader paid, read from the TradeFeeTaken in the same receipt.
+  it("stores and broadcasts the trader-facing amount and the fee from the receipt", async () => {
+    const PLACER = "0x8888888888888888888888888888888888888888";
+    const fee = 10n ** 15n;
+    const pool = -(99n * 10n ** 18n) / 1000n;
+    const swapTopics = encodeEventTopics({ abi: PoolManagerABI, eventName: "Swap", args: { id: POOL, sender: ROUTER } });
+    const swapData = encodeAbiParameters(
+      [{ type: "int128" }, { type: "int128" }, { type: "uint160" }, { type: "uint128" }, { type: "int24" }, { type: "uint24" }],
+      [pool, 5n, 2n ** 96n, 1n, 0, 0],
+    );
+    const feeTopics = encodeEventTopics({ abi: UniV4LiquidityPlacerABI, eventName: "TradeFeeTaken", args: { poolId: POOL, token: TOKEN } });
+    publicClient.getTransactionReceipt.mockResolvedValue({
+      logs: [
+        { address: POOL_MANAGER, topics: swapTopics, data: swapData, logIndex: 0 },
+        { address: PLACER, topics: feeTopics, data: encodeAbiParameters([{ type: "uint256" }], [fee]), logIndex: 2 },
+      ],
+    });
+    __test.rememberPool(POOL, TOKEN, "POND", undefined, 10_000);
+    await __test.persist([swap(1, { args: { ...swap(1).args, sender: ROUTER, amount0: pool, fee: 0 } })], ctx, sse);
+    const [row] = tokenLaunchesDb.insertLaunchTrades.mock.calls[0][0];
+    expect(row).toMatchObject({ side: "BUY", quote_amount: "100000000000000000", fee_amount: "1000000000000000" });
+    const [, event] = sse.broadcast.mock.calls.find(([, e]) => e.type === "TokenTrade");
+    expect(event).toMatchObject({ quoteAmount: "100000000000000000", feeAmount: "1000000000000000" });
+  });
+
+  it("throws, storing nothing, when a fee-paying swap's receipt is unavailable", async () => {
+    __test.rememberPool(POOL, TOKEN, "POND", undefined, 10_000);
+    publicClient.getTransactionReceipt.mockRejectedValueOnce(new Error("receipt unavailable"));
+    await expect(__test.persist([swap(1)], ctx, sse)).rejects.toThrow("receipt unavailable");
+    expect(tokenLaunchesDb.insertLaunchTrades).not.toHaveBeenCalled();
+  });
+
+  it("knows a discovered launch's trade fee (a zero fee needs no receipt)", async () => {
+    __test.reset();
+    eventsByName({ TokenLaunched: [launchLog({ args: { ...launchLog().args, tradeFee: 0 } })] });
+    await __test.discoverLaunches({ launchpad: LAUNCHPAD, totalSupply: SUPPLY, fromBlock: 0n, toBlock: 150n, logger, sseService: sse });
+    await __test.persist([swap(1)], ctx, sse);
+    expect(publicClient.getTransactionReceipt).not.toHaveBeenCalled();
+    expect(tokenLaunchesDb.insertTokenLaunch.mock.calls[0][0].trade_fee).toBe(0);
+    expect(launchedBroadcasts()[0][1]).toMatchObject({ tradeFee: 0 });
   });
 
   it(`fetches blocks concurrently, at most ${FETCH_CONCURRENCY} at a time`, async () => {

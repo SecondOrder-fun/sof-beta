@@ -52,6 +52,7 @@ const row = (over = {}) => ({
   quote_decimals: 18,
   start_price_e18: "1000000000000000000000000000",
   start_fdv: ONE_ETH,
+  trade_fee: 25_000,
   total_supply: (1_000_000_000n * 10n ** 18n).toString(),
   pool_id: `0x${"ab".repeat(32)}`,
   launched_at: "2026-09-29T00:00:00.000Z",
@@ -97,6 +98,7 @@ describe("GET /api/launchpad/tokens", () => {
       quoteToken: "0x0000000000000000000000000000000000000000",
       quoteSymbol: "ETH",
       quoteDecimals: 18,
+      tradeFee: 25_000,
     });
   });
 
@@ -271,6 +273,7 @@ describe("GET /api/launchpad/tokens/:address/trades", () => {
         trader: CREATOR,
         side: "BUY",
         quote_amount: "100000000000000000",
+        fee_amount: "1000000000000000",
         token_amount: "5000000000000000000000",
         price_e18: "1000000000000000000000000000",
         tick: -12345,
@@ -289,9 +292,19 @@ describe("GET /api/launchpad/tokens/:address/trades", () => {
       logIndex: 2,
       side: "BUY",
       quoteAmount: "100000000000000000",
+      feeAmount: "1000000000000000",
       tokenAmount: "5000000000000000000000",
       priceE18: "1000000000000000000000000000",
     });
+  });
+
+  // Rows indexed before fee_amount existed have none; the field is still there.
+  it("returns feeAmount null for a trade with no recorded fee", async () => {
+    listLaunchTrades.mockResolvedValueOnce([
+      { tx_hash: "0xabd", log_index: 0, token_address: TOKEN, side: "SELL", quote_amount: "1", fee_amount: null },
+    ]);
+    const res = await app.inject({ method: "GET", url: `/api/launchpad/tokens/${TOKEN}/trades` });
+    expect(res.json().trades[0]).toMatchObject({ quoteAmount: "1", feeAmount: null });
   });
 
   it("clamps the trade limit", async () => {

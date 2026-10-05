@@ -8,7 +8,7 @@
  * buildLaunchRow: the listener imports viemClient at load (which needs
  * NETWORK), and this is the mapping most likely to be subtly wrong.
  *
- * Three facts it rests on, the first two pinned by
+ * Four facts it rests on, the first two pinned by
  * contracts/test/UniV4LaunchRouter.t.sol:test_swapEventSignConvention_forTheIndexer:
  *
  *   - amount0 / amount1 are the CALLER's deltas: negative = paid in. A swap that
@@ -21,6 +21,14 @@
  *     address: ETH (address 0) and an ERC-20 below the token are currency0; an
  *     ERC-20 above the token makes the TOKEN currency0 (`tokenIsCurrency0`).
  *     Amounts, side and price are all read from the quote side accordingly.
+ *   - Swap's amounts EXCLUDE the trade fee (contracts 0.42.0). Launch pools have
+ *     a zero LP fee (`Swap.fee` = 0); the placer, as the pool's v4 hook, takes the
+ *     creator's `tradeFee` in the quote token and emits `TradeFeeTaken(poolId,
+ *     token, fee)` right after the Swap (tradeFeeOf pairs the two). The stored
+ *     `quote_amount` is what the trader paid or got: a BUY is |pool quote| + fee,
+ *     a SELL pool quote − fee; `fee_amount` is the fee. A pool from an earlier
+ *     launchpad charged a 1% LP fee instead (`Swap.fee` ≠ 0), which is already
+ *     inside its amounts and is not reported apart (`fee_amount` null).
  */
 
 import { decodeEventLog } from "viem";
@@ -75,14 +83,27 @@ const abs = (x) => (x < 0n ? -x : x);
  * @param {boolean} [ctx.tokenIsCurrency0]  the pool's orientation (false for ETH)
  * @param {number} [ctx.blockTimeSec]
  * @param {string} [ctx.trader]     from attributeTrader; falls back to the swap sender
+ * @param {bigint | null} [ctx.fee] the hook's trade fee on this swap (tradeFeeOf), in
+ *   quote raw units; null/omitted = not known apart from the amounts (stored null)
  * @returns {object | null}
  */
-export function buildTradeRow(log, { token, tokenIsCurrency0: tokenFirst = false, blockTimeSec, trader } = {}) {
+export function buildTradeRow(log, { token, tokenIsCurrency0: tokenFirst = false, blockTimeSec, trader, fee } = {}) {
   const a = log?.args;
   if (!a || a.amount0 == null || a.amount1 == null || !token) return null;
 
   const { quote, token: tokenDelta } = sides(a, tokenFirst);
   if (quote === 0n && tokenDelta === 0n) return null; // zero-size swap: nothing traded
+
+  const buy = quote < 0n;
+  const feeAmount = fee == null ? null : BigInt(fee);
+  // Trader-facing: the fee is on top of what a buyer paid the pool, and out of
+  // what the pool paid a seller. The hook never takes more than a sell's output
+  // (its fee is a fraction of it), so the floor at 0 only guards a bad pairing.
+  let quoteAmount = abs(quote);
+  if (feeAmount != null) {
+    quoteAmount = buy ? quoteAmount + feeAmount : quoteAmount - feeAmount;
+    if (quoteAmount < 0n) quoteAmount = 0n;
+  }
 
   return {
     tx_hash: log.transactionHash,
@@ -90,8 +111,9 @@ export function buildTradeRow(log, { token, tokenIsCurrency0: tokenFirst = false
     token_address: token,
     pool_id: a.id,
     trader: trader || a.sender || null,
-    side: quote < 0n ? "BUY" : "SELL",
-    quote_amount: abs(quote).toString(),
+    side: buy ? "BUY" : "SELL",
+    quote_amount: quoteAmount.toString(),
+    fee_amount: feeAmount == null ? null : feeAmount.toString(),
     token_amount: abs(tokenDelta).toString(),
     price_e18: priceE18(a.sqrtPriceX96, tokenFirst).toString(),
     tick: a.tick != null ? Number(a.tick) : null,
@@ -173,6 +195,72 @@ export function attributeTrader(
     return null;
   }
   return null;
+}
+
+/**
+ * Whether this swap may have paid the placer's trade fee, so its receipt has to
+ * be read for it: a hook-fee pool (`Swap.fee` 0 — an earlier launchpad's pools
+ * charged an LP fee instead and have no hook fee) whose launch chose a non-zero
+ * `tradeFee` (unknown counts as non-zero), and some quote moved (the hook takes
+ * nothing, and emits nothing, on a zero quote amount).
+ * @param {object} swapLog  viem-decoded Swap log
+ * @param {{ tradeFee?: number | null, tokenIsCurrency0?: boolean }} [pool]
+ */
+export function mayPayTradeFee(swapLog, { tradeFee, tokenIsCurrency0: tokenFirst = false } = {}) {
+  const a = swapLog?.args;
+  if (!a || a.amount0 == null || a.amount1 == null) return false;
+  if (BigInt(a.fee ?? 0) !== 0n) return false;
+  if (tradeFee != null && Number(tradeFee) === 0) return false;
+  return sides(a, tokenFirst).quote !== 0n;
+}
+
+/**
+ * The trade fee the placer took on a swap, from its transaction's receipt.
+ *
+ * The placer is each launch pool's v4 hook. v4 calls its afterSwap right after
+ * emitting Swap, and the hook mints the fee as ERC-6909 claims (the PoolManager's
+ * `Transfer`) and emits `TradeFeeTaken(poolId, token, fee)` before control
+ * returns to whoever called swap. So a swap's fee is the FIRST TradeFeeTaken for
+ * its pool after it in log order, before the next PoolManager Swap on that pool
+ * in the same transaction; none there means no fee (0). Nothing can emit between
+ * the Swap and the hook's own event, so a look-alike TradeFeeTaken from another
+ * contract can only come later — which is why a swap that cannot have paid a fee
+ * (mayPayTradeFee) is never paired at all.
+ *
+ * @param {object[]} receiptLogs  raw logs from the transaction receipt
+ * @param {object} swapLog        the viem-decoded Swap log
+ * @param {object} ctx
+ * @param {number | null} [ctx.tradeFee]     the launch's fee rate, pips (null = unknown)
+ * @param {boolean} [ctx.tokenIsCurrency0]  the pool's orientation (false for ETH)
+ * @param {string} ctx.poolManager           the v4 PoolManager (emitter of Swap)
+ * @param {import('viem').Abi} ctx.poolManagerAbi
+ * @param {import('viem').Abi} ctx.placerAbi UniV4LiquidityPlacer (TradeFeeTaken)
+ * @returns {bigint | null} the fee in quote raw units; null for a pool whose LP fee
+ *   is inside the Swap amounts (an earlier launchpad's), 0n when none was taken
+ */
+export function tradeFeeOf(receiptLogs, swapLog, { tradeFee, tokenIsCurrency0: tokenFirst = false, poolManager, poolManagerAbi, placerAbi } = {}) {
+  const a = swapLog?.args;
+  if (!a) return null;
+  if (BigInt(a.fee ?? 0) !== 0n) return null; // LP-fee pool: the fee is in the amounts
+  if (!mayPayTradeFee(swapLog, { tradeFee, tokenIsCurrency0: tokenFirst })) return 0n;
+
+  const pm = String(poolManager).toLowerCase();
+  const poolId = String(a.id).toLowerCase();
+  const swapIndex = Number(swapLog.logIndex);
+  const later = (receiptLogs ?? [])
+    .filter((raw) => Number(raw.logIndex) > swapIndex)
+    .sort((x, y) => Number(x.logIndex) - Number(y.logIndex));
+
+  for (const raw of later) {
+    if (String(raw.address).toLowerCase() === pm) {
+      const next = tryDecode(poolManagerAbi, raw, "Swap");
+      if (next && String(next.args.id).toLowerCase() === poolId) return 0n; // the next swap's turn
+      continue;
+    }
+    const ev = tryDecode(placerAbi, raw, "TradeFeeTaken");
+    if (ev && String(ev.args.poolId).toLowerCase() === poolId) return BigInt(ev.args.fee);
+  }
+  return 0n;
 }
 
 function tryDecode(abi, raw, eventName) {
