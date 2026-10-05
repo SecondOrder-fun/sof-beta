@@ -19,7 +19,7 @@ pragma solidity ^0.8.20;
  *      - never keep what a partial fill did not use: return unspent ETH, and pull only
  *        the ERC-20 quote or launch tokens a swap actually spends — a pool that runs out
  *        of range fills partially, and the difference must never stay in the router;
- *      - take no fee of its own. Trading fees are the pool's.
+ *      - take no fee of its own. The trade fee is the pool hook's (the placer), in the quote token.
  */
 interface ILaunchRouter {
     /// @notice Spend up to `quoteIn` of `token`'s quote token buying `token`.

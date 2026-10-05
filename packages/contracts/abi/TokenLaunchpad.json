@@ -305,6 +305,11 @@
         "internalType": "uint256"
       },
       {
+        "name": "tradeFee",
+        "type": "uint24",
+        "internalType": "uint24"
+      },
+      {
         "name": "creatorBuyIn",
         "type": "uint256",
         "internalType": "uint256"
@@ -855,6 +860,12 @@
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      },
+      {
+        "name": "tradeFee",
+        "type": "uint24",
+        "indexed": false,
+        "internalType": "uint24"
       },
       {
         "name": "placementId",

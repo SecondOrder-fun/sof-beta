@@ -617,7 +617,7 @@ tradeable in the launch transaction.
 
 ```solidity
 interface ILiquidityPlacer {
-    function place(address token, uint256 amount, uint256 startPriceWei)
+    function place(address token, uint256 amount, address quoteToken, uint256 startFdv, uint24 tradeFee)
         external returns (bytes32 placementId);
 }
 ```
@@ -664,8 +664,42 @@ out at a 100 ETH valuation for a 1 ETH launch. The cost is small — depth near 
 price is within ~10% of the 100x range's. One range rather than a band staircase: a ladder
 *shapes* a curve, it is not needed to *have* one.
 
-Deployed parameters (step 22): fee 1%, tick spacing 200. `setPoolParams` is capped at a 3%
-fee (so never v4's dynamic-fee flag) and a v4-valid tick spacing.
+Deployed parameters (step 22): tick spacing 200 (`setTickSpacing`, v4-valid only), LP fee
+zero (see the trade fee below), trade-fee floor 0.5%.
+
+#### Trade fee: the placer is the pool's hook, and charges only the quote token
+
+Decided 2026-10-05. A plain LP fee accrues in whichever token the trader pays in: the quote
+on buys, the **launch token on sells**. That handed creators their own token to sell (fee
+income that looks like dumping) and left the treasury holding one coin per launch. Mint.club
+charges only the reserve token because a bonding curve only ever moves the reserve; on a v4
+pool the same result needs a hook. So launch pools have a **zero LP fee**, and the placer —
+deployed at a mined address carrying its hook flags — is every pool's hook:
+
+- `beforeInitialize`: only the placer may initialize a pool keyed with it (the anti-DoS gate
+  that `LaunchPoolGate` used to be).
+- `beforeSwap` / `afterSwap` with return deltas: the fee is `tradeFee` of the **gross quote
+  flow**, charged in the quote token on every swap, through any router. When the quote is
+  the specified side (exact-in buy, exact-out sell) `beforeSwap` takes it from the specified
+  amount; otherwise (exact-in sell, exact-out buy) `afterSwap` takes it from the unspecified
+  amount. All four shapes charge the same rate; fees round up; a quote-specified swap that
+  fills short of its amount (a price limit) reverts rather than overcharge, and one too small
+  to carry its fee is refused. The same split as Clanker v4's protocol fee; Flaunch, Zora and
+  OpenZeppelin's `BaseHookFee` charge the unspecified side instead, which cannot fix one
+  currency.
+- The hook settles its credit as ERC-6909 claims (`PoolManager.mint`), no transfer per swap,
+  adds to `pendingFees[token]` and emits `TradeFeeTaken` plus the standard `HookFee` after
+  the PoolManager's `Swap` log — whose amounts are the pool's and exclude the fee, which
+  indexers must add back (buys) or subtract (sells).
+- `collectFees(token)` (permissionless) splits pending fees 88/12 to the fee recipient and
+  treasury per quote currency; `claim(currency, to)` burns claims and has the PoolManager pay
+  `to` directly.
+
+The creator chooses `tradeFee` at launch (`launch(..., startFdv, tradeFee, ...)`), from
+`minTradeFee` (CONFIG_ROLE, 0.5% at deploy) up to the compiled-in `MAX_TRADE_FEE` of 10%,
+fixed for the pool's life. Pools are sell-floored at the launch price (no liquidity below),
+so exact-out sells beyond what the pool holds revert. Snipe protection (a decaying launch
+fee, as Clanker, Zora and Pons do) would live in the same hook and is not built.
 
 #### The opening price is set as a valuation
 
@@ -680,14 +714,15 @@ bounds are a **1 ETH floor and a 1000 ETH ceiling**; USDC's are 2,500 to 2,500,0
 
 `launch(..., creatorBuyIn, minTokensOut)` optionally buys for the creator through the
 active router right after placement, in the same transaction, so nobody can buy ahead of
-them. It is an ordinary router buy — pool price, 1% fee — so it is not a free allocation;
+them. It is an ordinary router buy — pool price, the launch's trade fee — so it is not a free allocation;
 `minTokensOut` reverts the whole launch and any unspent quote is refunded.
 
 #### Dust
 
 Liquidity is an integer, so flooring it leaves a remainder of a few raw units — around
-1e-12 whole tokens at realistic prices. It
-stays in the placer, and `sweepDust` makes it recoverable rather than silently stuck.
+1e-12 whole tokens at realistic prices. It stays in the placer for good: launch tokens
+belong to their launches (and the raffles and markets built on them), not to the platform,
+so there is no sweep (removed 2026-10-05).
 
 ### 5.10 `launchpad/ILaunchRouter.sol` + `launchpad/UniV4LaunchRouter.sol`
 

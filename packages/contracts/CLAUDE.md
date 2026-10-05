@@ -23,7 +23,7 @@ src/
 ├── infofi/     # InfoFiMarketFactory, InfoFiFPMMV2, InfoFiPriceOracle, InfoFiSettlement, ConditionalTokenSOF, MarketTypeRegistry, RaffleOracleAdapter
 ├── gating/     # SeasonGating, SeasonGatingStorage
 ├── sponsor/    # SponsorOnboarding
-├── launchpad/  # TokenLaunchpad, LaunchToken, ILiquidityPlacer, UniV4LiquidityPlacer, LaunchPoolGate, HookMiner, ILaunchRouter, UniV4LaunchRouter
+├── launchpad/  # TokenLaunchpad, LaunchToken, ILiquidityPlacer, UniV4LiquidityPlacer (also the pools' v4 hook), HookMiner, ILaunchRouter, UniV4LaunchRouter
 ├── lib/        # Interfaces + RaffleTypes, RaffleLogic
 └── test-helpers/ # MockERC20 (placeholder quote token), MockUSDC
 ```
@@ -43,7 +43,9 @@ Test files covering:
 - Pricing invariants (`invariant/HybridPricingInvariant.t.sol`)
 - InfoFi FPMM (`InfoFiFPMM.t.sol`, `FPMMPermit.t.sol`)
 - Per-season quote tokens (`SeasonQuoteToken.t.sol`)
-- LP fee collection and the 88/12 split (`LaunchLpFees.t.sol`, real `PoolManager`, trades through the router)
+- The quote-only trade fee and the 88/12 split (`LaunchTradeFees.t.sol`, real `PoolManager`: all four swap shapes
+  in every pool orientation, through our router and straight through the PoolManager, plus a fuzz test,
+  partial-fill and tiny-swap guards, event order, collect/claim)
 - Launchpad (`TokenLaunchpad.t.sol`, `UniV4LiquidityPlacer.t.sol` — against a real v4
   `PoolManager`, not a mock — and `LaunchpadDeployWiring.t.sol`, which runs deploy steps
   20-23 and asserts the FDV bounds, the circular wiring and a trade through the advertised
@@ -99,12 +101,11 @@ Modular numbered scripts in `script/deploy/`:
 - `22_DeployLiquidityPlacer` — the v4 placer, then `launchpad.setPlacer(...)`. Closes the
   circular dependency (the placer takes the launchpad immutably, so the launchpad goes first
   and accepts its half by setter). Skips with a log — it does not fail the deploy — if no
-  PoolManager is available; `launch()` then reverts `PlacerNotSet`. Also deploys the
-  `LaunchPoolGate` hook (CREATE2 through the standard factory, salt mined by `HookMiner` so
-  its address carries exactly the before-initialize bit) and `placer.setGate(...)`: without
-  it anyone could initialize the next token's pool first and block launches for good.
-  Also sets the placer's `feeTreasury` (`TREASURY_ADDRESS`, else the deployer) — the 12%
-  platform share of LP fees; `collectFees` reverts until it is set.
+  PoolManager is available; `launch()` then reverts `PlacerNotSet`. The placer is every
+  launch pool's v4 hook, so it is deployed with CREATE2 through the standard factory at a salt
+  mined by `HookMiner` for exactly `PLACER_HOOK_FLAGS` (the constructor re-checks). Trade-fee
+  floor 0.5% (`MIN_TRADE_FEE`). Also sets the placer's `feeTreasury` (`TREASURY_ADDRESS`, else
+  the deployer) — the 12% platform share of trade fees; `collectFees` reverts until it is set.
 - `23_DeployLaunchRouter` — `UniV4LaunchRouter(poolManager, launchpad)`, then
   `launchpad.setRouter(...)`. The router finds each token's pool through the placer that
   launch recorded (`launchpad.placerOf`), so `setPlacer` only redirects NEW launches and
@@ -167,7 +168,7 @@ Version-controlled in `deployments/`:
 ## Launch quote tokens
 
 - **A launch pairs with native ETH (`address(0)`, the default) or an allowlisted ERC-20.**
-  `TokenLaunchpad.launch(name, symbol, metadataURI, quoteToken, startFdv, creatorBuyIn, minTokensOut)`; `quoteConfig(quote)`
+  `TokenLaunchpad.launch(name, symbol, metadataURI, quoteToken, startFdv, tradeFee, creatorBuyIn, minTokensOut)`; `quoteConfig(quote)`
   holds each allowed quote's FDV bounds in its raw units (`setQuoteToken` / `removeQuoteToken`,
   CONFIG_ROLE). `quoteTokenOf(token)` and `Launch.quoteToken` record the pairing. List only
   plain ERC-20s (no fee-on-transfer, rebasing or callback tokens), and never WETH next to ETH.
@@ -183,12 +184,12 @@ Version-controlled in `deployments/`:
   active router right after placement, before anyone else can trade (ETH: send it as
   `msg.value`; ERC-20: approve the launchpad). `minTokensOut` reverts the whole launch; unspent
   quote is refunded; `CreatorBought` is emitted; it reverts `CreatorBuyNeedsRouter` if
-  `router()` is zero. No free allocation: same price and 1% fee as any buyer.
+  `router()` is zero. No free allocation: same price and trade fee as any buyer.
 - **Router:** `buy(token, quoteIn, minTokensOut, recipient, deadline)` — ETH pairs send `quoteIn`
   as `msg.value` (anything else reverts `EthAmountMismatch`); ERC-20 pairs send no ETH and
   approve the router, which pulls only what filled. `sell(...)` pays out the launch's quote.
-- **Pool params are capped:** `setPoolParams` refuses a fee above `MAX_FEE` (3%, so never v4's
-  dynamic-fee flag) and a tick spacing v4 would reject.
+- **Pool params:** launch pools have a zero LP fee (the trade fee is the hook's);
+  `setTickSpacing` refuses a spacing v4 would reject.
 - **Replacing the launchpad stack** (an interface change `setRouter`/`setPlacer` cannot carry):
   `scripts/redeploy-launchpad.sh --network <n>` runs `script/ops/RedeployLaunchpad.s.sol`
   (steps 21–23 against the recorded Raffle + PoolManager, `Raffle.setLaunchpad`, and USDC
@@ -196,18 +197,28 @@ Version-controlled in `deployments/`:
   `extract-deployment-addresses.js --script RedeployLaunchpad.s.sol`, which overlays the new
   addresses on the deployments file. Old launches keep their pools under the old placer.
 
-## Launch LP fees
+## Launch trade fees
 
-- **The placer owns every launch position, so it earns the pools' 1% swap fee** in the quote
-  token (buys) and the launch token (sells). `UniV4LiquidityPlacer.collectFees(token)` is
-  permissionless: a zero-liquidity `modifyLiquidity` pays out the accrued fees, which are
-  credited 88% (`CREATOR_FEE_BPS`) to the launch's fee recipient and 12% to `feeTreasury`, on
-  both sides. Credits are per currency (`claimable(currency, account)`, `address(0)` = ETH), so
-  one `claim(currency, to)` pays a quote currency from every launch paired with it, while each
-  launch token claims on its own. Payouts are pulls, so no recipient can block a collection.
-  The recipient starts as the creator (`TokenLaunchpad.creatorOf`) and only the current
-  recipient can hand it on (`setFeeRecipient`). `sweepDust` never touches unclaimed fees
-  (`totalClaimable`). Fees accrue per placer: collect through `launchpad.placerOf`.
+- **The placer is every launch pool's hook and charges the fee in the quote token only.** Pools
+  have LP fee 0; `beforeSwap`/`afterSwap` (with return deltas) take `tradeFee` of the gross
+  quote flow on every swap, through any router: quote specified (exact-in buy, exact-out sell)
+  in `beforeSwap`, else in `afterSwap`. Fees round up. A quote-specified swap that fills short
+  reverts `PartialFillWithFee`; one whose fee would be the whole amount reverts
+  `SwapTooSmallForFee` (both arrive wrapped by the PoolManager). Never charge, credit or hold a
+  launch-token fee.
+- **The creator picks the rate at launch:** `tradeFee` in pips, `minTradeFee` (CONFIG_ROLE) to
+  `MAX_TRADE_FEE` (10%, compiled in), fixed per pool (`tradeFeeOf(token)`, `Placement.tradeFee`).
+- **Accounting:** fees become ERC-6909 claims on the PoolManager (`mint`, no transfer per swap)
+  and `pendingFees[token]`. `collectFees(token)` (permissionless) credits 88% (`CREATOR_FEE_BPS`)
+  to the launch's fee recipient and 12% to `feeTreasury` in `claimable(currency, account)`
+  (`address(0)` = ETH); `claim(currency, to)` burns claims and the PoolManager pays `to`. The
+  recipient starts as the creator (`TokenLaunchpad.creatorOf`) and only the current recipient
+  can hand it on (`setFeeRecipient`). Fees accrue per placer: collect through
+  `launchpad.placerOf`. The placer holds no ETH and no fee balances of its own.
+- **Indexers:** the PoolManager's `Swap` amounts are the pool's and exclude the fee. The hook
+  emits `TradeFeeTaken(poolId, token, fee)` and the standard `HookFee` after `Swap` (and the
+  fee's ERC-6909 `Transfer`): a buy cost `|quote amount| + fee`, a sell paid `quote - fee`.
+- **No sweep.** Placement dust (a few raw launch-token units) stays in the placer for good.
 
 ## No smart accounts or paymaster
 

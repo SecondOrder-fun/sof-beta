@@ -28,9 +28,11 @@ interface ILiquidityPlacer {
      * @param quoteToken  What it trades against: address(0) for native ETH, else an ERC-20.
      * @param startFdv    Creator-chosen opening valuation of `amount`, in `quoteToken`'s
      *                    raw units: the starting price is `startFdv / amount`.
+     * @param tradeFee    The creator-chosen trade fee in pips (10_000 = 1%), charged in
+     *                    `quoteToken` on every swap; the implementation bounds it.
      * @return placementId Venue-specific handle (a v4 pool id, an LP token id, …).
      */
-    function place(address token, uint256 amount, address quoteToken, uint256 startFdv)
+    function place(address token, uint256 amount, address quoteToken, uint256 startFdv, uint24 tradeFee)
         external
         returns (bytes32 placementId);
 }

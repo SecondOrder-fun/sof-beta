@@ -18,21 +18,17 @@
         "internalType": "address"
       },
       {
-        "name": "_fee",
-        "type": "uint24",
-        "internalType": "uint24"
-      },
-      {
         "name": "_tickSpacing",
         "type": "int24",
         "internalType": "int24"
+      },
+      {
+        "name": "_minTradeFee",
+        "type": "uint24",
+        "internalType": "uint24"
       }
     ],
     "stateMutability": "nonpayable"
-  },
-  {
-    "type": "receive",
-    "stateMutability": "payable"
   },
   {
     "type": "function",
@@ -75,13 +71,13 @@
   },
   {
     "type": "function",
-    "name": "MAX_FEE",
+    "name": "HOOK_FLAGS",
     "inputs": [],
     "outputs": [
       {
         "name": "",
-        "type": "uint24",
-        "internalType": "uint24"
+        "type": "uint160",
+        "internalType": "uint160"
       }
     ],
     "stateMutability": "view"
@@ -95,6 +91,251 @@
         "name": "",
         "type": "int24",
         "internalType": "int24"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MAX_TRADE_FEE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint24",
+        "internalType": "uint24"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "afterSwap",
+    "inputs": [
+      {
+        "name": "sender",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "key",
+        "type": "tuple",
+        "internalType": "struct PoolKey",
+        "components": [
+          {
+            "name": "currency0",
+            "type": "address",
+            "internalType": "Currency"
+          },
+          {
+            "name": "currency1",
+            "type": "address",
+            "internalType": "Currency"
+          },
+          {
+            "name": "fee",
+            "type": "uint24",
+            "internalType": "uint24"
+          },
+          {
+            "name": "tickSpacing",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "hooks",
+            "type": "address",
+            "internalType": "contract IHooks"
+          }
+        ]
+      },
+      {
+        "name": "params",
+        "type": "tuple",
+        "internalType": "struct IPoolManager.SwapParams",
+        "components": [
+          {
+            "name": "zeroForOne",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "amountSpecified",
+            "type": "int256",
+            "internalType": "int256"
+          },
+          {
+            "name": "sqrtPriceLimitX96",
+            "type": "uint160",
+            "internalType": "uint160"
+          }
+        ]
+      },
+      {
+        "name": "delta",
+        "type": "int256",
+        "internalType": "BalanceDelta"
+      },
+      {
+        "name": "",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      },
+      {
+        "name": "",
+        "type": "int128",
+        "internalType": "int128"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "beforeInitialize",
+    "inputs": [
+      {
+        "name": "sender",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct PoolKey",
+        "components": [
+          {
+            "name": "currency0",
+            "type": "address",
+            "internalType": "Currency"
+          },
+          {
+            "name": "currency1",
+            "type": "address",
+            "internalType": "Currency"
+          },
+          {
+            "name": "fee",
+            "type": "uint24",
+            "internalType": "uint24"
+          },
+          {
+            "name": "tickSpacing",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "hooks",
+            "type": "address",
+            "internalType": "contract IHooks"
+          }
+        ]
+      },
+      {
+        "name": "",
+        "type": "uint160",
+        "internalType": "uint160"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "beforeSwap",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "key",
+        "type": "tuple",
+        "internalType": "struct PoolKey",
+        "components": [
+          {
+            "name": "currency0",
+            "type": "address",
+            "internalType": "Currency"
+          },
+          {
+            "name": "currency1",
+            "type": "address",
+            "internalType": "Currency"
+          },
+          {
+            "name": "fee",
+            "type": "uint24",
+            "internalType": "uint24"
+          },
+          {
+            "name": "tickSpacing",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "hooks",
+            "type": "address",
+            "internalType": "contract IHooks"
+          }
+        ]
+      },
+      {
+        "name": "params",
+        "type": "tuple",
+        "internalType": "struct IPoolManager.SwapParams",
+        "components": [
+          {
+            "name": "zeroForOne",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "amountSpecified",
+            "type": "int256",
+            "internalType": "int256"
+          },
+          {
+            "name": "sqrtPriceLimitX96",
+            "type": "uint160",
+            "internalType": "uint160"
+          }
+        ]
+      },
+      {
+        "name": "",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      },
+      {
+        "name": "",
+        "type": "int256",
+        "internalType": "BeforeSwapDelta"
+      },
+      {
+        "name": "",
+        "type": "uint24",
+        "internalType": "uint24"
       }
     ],
     "stateMutability": "view"
@@ -159,30 +400,12 @@
     ],
     "outputs": [
       {
-        "name": "quoteFees",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "tokenFees",
+        "name": "fees",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
     "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "fee",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint24",
-        "internalType": "uint24"
-      }
-    ],
-    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -218,16 +441,88 @@
   },
   {
     "type": "function",
-    "name": "gate",
+    "name": "getHookPermissions",
     "inputs": [],
     "outputs": [
       {
         "name": "",
-        "type": "address",
-        "internalType": "contract IHooks"
+        "type": "tuple",
+        "internalType": "struct Hooks.Permissions",
+        "components": [
+          {
+            "name": "beforeInitialize",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "afterInitialize",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "beforeAddLiquidity",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "afterAddLiquidity",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "beforeRemoveLiquidity",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "afterRemoveLiquidity",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "beforeSwap",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "afterSwap",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "beforeDonate",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "afterDonate",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "beforeSwapReturnDelta",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "afterSwapReturnDelta",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "afterAddLiquidityReturnDelta",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "afterRemoveLiquidityReturnDelta",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ]
       }
     ],
-    "stateMutability": "view"
+    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -296,6 +591,11 @@
             "name": "tokenIsCurrency0",
             "type": "bool",
             "internalType": "bool"
+          },
+          {
+            "name": "tradeFee",
+            "type": "uint24",
+            "internalType": "uint24"
           }
         ]
       }
@@ -378,6 +678,38 @@
   },
   {
     "type": "function",
+    "name": "minTradeFee",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint24",
+        "internalType": "uint24"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pendingFees",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "place",
     "inputs": [
       {
@@ -399,6 +731,11 @@
         "name": "startFdv",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "tradeFee",
+        "type": "uint24",
+        "internalType": "uint24"
       }
     ],
     "outputs": [
@@ -530,12 +867,12 @@
   },
   {
     "type": "function",
-    "name": "setGate",
+    "name": "setMinTradeFee",
     "inputs": [
       {
-        "name": "_gate",
-        "type": "address",
-        "internalType": "address"
+        "name": "_minTradeFee",
+        "type": "uint24",
+        "internalType": "uint24"
       }
     ],
     "outputs": [],
@@ -543,13 +880,8 @@
   },
   {
     "type": "function",
-    "name": "setPoolParams",
+    "name": "setTickSpacing",
     "inputs": [
-      {
-        "name": "_fee",
-        "type": "uint24",
-        "internalType": "uint24"
-      },
       {
         "name": "_tickSpacing",
         "type": "int24",
@@ -580,24 +912,6 @@
   },
   {
     "type": "function",
-    "name": "sweepDust",
-    "inputs": [
-      {
-        "name": "currency",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "to",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "tickSpacing",
     "inputs": [],
     "outputs": [
@@ -611,10 +925,10 @@
   },
   {
     "type": "function",
-    "name": "totalClaimable",
+    "name": "tradeFeeOf",
     "inputs": [
       {
-        "name": "currency",
+        "name": "token",
         "type": "address",
         "internalType": "address"
       }
@@ -622,8 +936,8 @@
     "outputs": [
       {
         "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint24",
+        "internalType": "uint24"
       }
     ],
     "stateMutability": "view"
@@ -646,31 +960,6 @@
       }
     ],
     "stateMutability": "nonpayable"
-  },
-  {
-    "type": "event",
-    "name": "DustSwept",
-    "inputs": [
-      {
-        "name": "currency",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "to",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "amount",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
   },
   {
     "type": "event",
@@ -764,25 +1053,13 @@
         "internalType": "address"
       },
       {
-        "name": "quoteFees",
+        "name": "fees",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
       },
       {
-        "name": "tokenFees",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "recipientQuote",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "recipientTokens",
+        "name": "recipientShare",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -792,13 +1069,31 @@
   },
   {
     "type": "event",
-    "name": "GateUpdated",
+    "name": "HookFee",
     "inputs": [
       {
-        "name": "gate",
+        "name": "poolId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "sender",
         "type": "address",
         "indexed": true,
         "internalType": "address"
+      },
+      {
+        "name": "feeAmount0",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      },
+      {
+        "name": "feeAmount1",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
       }
     ],
     "anonymous": false
@@ -860,25 +1155,25 @@
         "type": "bool",
         "indexed": false,
         "internalType": "bool"
+      },
+      {
+        "name": "tradeFee",
+        "type": "uint24",
+        "indexed": false,
+        "internalType": "uint24"
       }
     ],
     "anonymous": false
   },
   {
     "type": "event",
-    "name": "PoolParamsUpdated",
+    "name": "MinTradeFeeUpdated",
     "inputs": [
       {
-        "name": "fee",
+        "name": "minTradeFee",
         "type": "uint24",
         "indexed": false,
         "internalType": "uint24"
-      },
-      {
-        "name": "tickSpacing",
-        "type": "int24",
-        "indexed": false,
-        "internalType": "int24"
       }
     ],
     "anonymous": false
@@ -959,6 +1254,44 @@
     "anonymous": false
   },
   {
+    "type": "event",
+    "name": "TickSpacingUpdated",
+    "inputs": [
+      {
+        "name": "tickSpacing",
+        "type": "int24",
+        "indexed": false,
+        "internalType": "int24"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "TradeFeeTaken",
+    "inputs": [
+      {
+        "name": "poolId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "PoolId"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "fee",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
     "name": "AccessControlBadConfirmation",
     "inputs": []
@@ -981,29 +1314,8 @@
   },
   {
     "type": "error",
-    "name": "EthTransferFailed",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "FeeTreasuryNotSet",
     "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "GateNotSet",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "InvalidGate",
-    "inputs": [
-      {
-        "name": "gate",
-        "type": "address",
-        "internalType": "address"
-      }
-    ]
   },
   {
     "type": "error",
@@ -1050,6 +1362,17 @@
   },
   {
     "type": "error",
+    "name": "NotThisPlacer",
+    "inputs": [
+      {
+        "name": "initializer",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "NothingToClaim",
     "inputs": []
   },
@@ -1060,28 +1383,28 @@
   },
   {
     "type": "error",
+    "name": "PartialFillWithFee",
+    "inputs": [
+      {
+        "name": "filled",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "expected",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "PlacementWouldCostQuote",
     "inputs": [
       {
         "name": "quoteDelta",
         "type": "int128",
         "internalType": "int128"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "PoolParamsOutOfRange",
-    "inputs": [
-      {
-        "name": "fee",
-        "type": "uint24",
-        "internalType": "uint24"
-      },
-      {
-        "name": "tickSpacing",
-        "type": "int24",
-        "internalType": "int24"
       }
     ]
   },
@@ -1120,6 +1443,60 @@
         "name": "startFdv",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SwapTooSmallForFee",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TickSpacingOutOfRange",
+    "inputs": [
+      {
+        "name": "tickSpacing",
+        "type": "int24",
+        "internalType": "int24"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TradeFeeOutOfRange",
+    "inputs": [
+      {
+        "name": "tradeFee",
+        "type": "uint24",
+        "internalType": "uint24"
+      },
+      {
+        "name": "min",
+        "type": "uint24",
+        "internalType": "uint24"
+      },
+      {
+        "name": "max",
+        "type": "uint24",
+        "internalType": "uint24"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnknownPool",
+    "inputs": [
+      {
+        "name": "poolId",
+        "type": "bytes32",
+        "internalType": "PoolId"
       }
     ]
   },

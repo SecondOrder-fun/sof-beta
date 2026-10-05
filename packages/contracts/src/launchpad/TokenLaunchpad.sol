@@ -40,7 +40,7 @@ error InvalidFdvBounds();
  *      - **No free creator allocation.** The creator receives no tokens for free, by any
  *        path. A creator who wants a position buys it — optionally in the launch
  *        transaction itself (`creatorBuyIn`), so nobody can buy ahead of them — through
- *        the same router, at the same pool price and 1% fee as anyone else.
+ *        the same router, at the same pool price and trade fee as anyone else.
  *      - **No reserved supply.** The entire supply is placed as liquidity. Single-sided
  *        placement removed the separate LP bucket, and funding the InfoFi seed from
  *        trading fees removed the seed bucket, so a launched token has no overhang at all.
@@ -139,6 +139,7 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
         string metadataURI,
         address quoteToken,
         uint256 startFdv,
+        uint24 tradeFee,
         bytes32 placementId
     );
     event PlacerUpdated(address indexed previous, address indexed current);
@@ -179,6 +180,9 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
      *                      or an ERC-20 on the allowlist.
      * @param startFdv      Opening fully-diluted valuation, in `quoteToken`'s raw units:
      *                      what the whole supply is worth at the starting price.
+     * @param tradeFee      The pool's trade fee in pips (10_000 = 1%), charged on every
+     *                      buy and sell in the quote token and split 88/12 creator/platform.
+     *                      Fixed for the pool's life; the placer bounds it (at most 10%).
      * @param creatorBuyIn  Optional first buy for the creator, in `quoteToken`'s raw units,
      *                      made in this transaction right after the pool is placed — before
      *                      anyone else can trade. ETH: send exactly this as `msg.value`.
@@ -194,6 +198,7 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
         string calldata metadataURI,
         address quoteToken,
         uint256 startFdv,
+        uint24 tradeFee,
         uint256 creatorBuyIn,
         uint256 minTokensOut
     ) external payable nonReentrant whenNotPaused returns (uint256 launchId, address token) {
@@ -218,7 +223,7 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
         // Hand the entire supply to the placer. Nothing is withheld for the creator or
         // for the protocol — see the contract docs.
         IERC20(token).safeTransfer(address(currentPlacer), TOKEN_SUPPLY);
-        bytes32 placementId = currentPlacer.place(token, TOKEN_SUPPLY, quoteToken, startFdv);
+        bytes32 placementId = currentPlacer.place(token, TOKEN_SUPPLY, quoteToken, startFdv, tradeFee);
 
         // The placer must consume everything it was given. A residual balance here would
         // mean supply is stranded in the launchpad, permanently outside both the market
@@ -240,7 +245,9 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
         );
         _launchIdPlusOne[token] = launchId + 1;
 
-        emit TokenLaunched(launchId, token, msg.sender, name, symbol, metadataURI, quoteToken, startFdv, placementId);
+        emit TokenLaunched(
+            launchId, token, msg.sender, name, symbol, metadataURI, quoteToken, startFdv, tradeFee, placementId
+        );
 
         if (creatorBuyIn != 0) _creatorBuy(launchId, token, quoteToken, creatorBuyIn, minTokensOut);
     }

@@ -18,7 +18,7 @@ interface IERC20Meta {
 
 /// @title RedeployLaunchpad
 /// @notice Replaces the launchpad stack (deploy steps 21–23) on a chain whose raffle stack
-///         stays put: a new TokenLaunchpad, UniV4LiquidityPlacer + LaunchPoolGate and
+///         stays put: a new TokenLaunchpad, UniV4LiquidityPlacer (also every pool's hook) and
 ///         UniV4LaunchRouter, with `Raffle.setLaunchpad` pointed at the new launchpad.
 ///         Optionally allowlists one ERC-20 launch quote token in the same broadcast.
 ///
@@ -66,7 +66,7 @@ contract RedeployLaunchpad is Script {
 
         console2.log("=== 21: TokenLaunchpad (+ Raffle.setLaunchpad) ===");
         addrs = new DeployTokenLaunchpad().run(addrs);
-        console2.log("=== 22: UniV4LiquidityPlacer + LaunchPoolGate ===");
+        console2.log("=== 22: UniV4LiquidityPlacer (pool hook) ===");
         addrs = new DeployLiquidityPlacer().run(addrs);
         require(addrs.liquidityPlacer != address(0), "RedeployLaunchpad: placer step skipped");
         console2.log("=== 23: UniV4LaunchRouter ===");

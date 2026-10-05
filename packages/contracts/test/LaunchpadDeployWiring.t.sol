@@ -29,6 +29,7 @@ contract LaunchpadDeployWiringTest is Test {
 
     address internal deployer;
     address internal buyer = address(0xB0B);
+    uint24 internal constant TEST_TRADE_FEE = 10_000; // 1%
 
     function setUp() public {
         deployer = vm.addr(DEPLOYER_KEY);
@@ -66,8 +67,11 @@ contract LaunchpadDeployWiringTest is Test {
         assertEq(address(launchpad.placer()), addrs.liquidityPlacer, "launchpad points at the placer");
         assertEq(placer.launchpad(), addrs.tokenLaunchpad, "placer points back at the launchpad");
         assertEq(address(placer.poolManager()), addrs.poolManager);
-        // LP fees cannot be collected without somewhere to send the platform's share.
+        // Trade fees cannot be collected without somewhere to send the platform's share.
         assertTrue(placer.feeTreasury() != address(0), "fee treasury set");
+        // The placer is every launch pool's hook, so it must sit at a mined address.
+        assertEq(uint160(addrs.liquidityPlacer) & ((1 << 14) - 1), placer.HOOK_FLAGS(), "hook address flags");
+        assertEq(placer.minTradeFee(), 5_000, "0.5% trade-fee floor");
     }
 
     function test_deployerHoldsTheAdminRolesOnBoth() public {
@@ -87,7 +91,7 @@ contract LaunchpadDeployWiringTest is Test {
 
         (uint256 minFdv,) = _ethFdvBounds(launchpad);
         vm.prank(buyer);
-        (, address token) = launchpad.launch("Deployed", "DPLY", "ipfs://m", address(0), minFdv, 0, 0);
+        (, address token) = launchpad.launch("Deployed", "DPLY", "ipfs://m", address(0), minFdv, TEST_TRADE_FEE, 0, 0);
 
         assertGt(IERC20(token).balanceOf(addrs.poolManager), 0, "supply reached the pool");
         assertEq(IERC20(token).balanceOf(addrs.tokenLaunchpad), 0, "launchpad kept nothing");
@@ -103,11 +107,13 @@ contract LaunchpadDeployWiringTest is Test {
 
         (uint256 minFdv,) = _ethFdvBounds(launchpad);
         vm.prank(buyer);
-        (, address token) = launchpad.launch("Routed", "RTD", "", address(0), minFdv, 0, 0);
+        (, address token) = launchpad.launch("Routed", "RTD", "", address(0), minFdv, TEST_TRADE_FEE, 0, 0);
 
         vm.deal(buyer, 1 ether);
         vm.prank(buyer);
-        uint256 out = ILaunchRouter(address(launchpad.router())).buy{value: 0.1 ether}(token, 0.1 ether, 1, buyer, block.timestamp);
+        uint256 out = ILaunchRouter(address(launchpad.router())).buy{value: 0.1 ether}(
+            token, 0.1 ether, 1, buyer, block.timestamp
+        );
         assertGt(out, 0);
         assertEq(IERC20(token).balanceOf(buyer), out);
     }
@@ -138,7 +144,7 @@ contract LaunchpadDeployWiringTest is Test {
 
         vm.prank(buyer);
         vm.expectRevert(abi.encodeWithSelector(StartFdvOutOfRange.selector, pathological, minFdv, maxFdv));
-        launchpad.launch("TooCheap", "CHEAP", "", address(0), pathological, 0, 0);
+        launchpad.launch("TooCheap", "CHEAP", "", address(0), pathological, TEST_TRADE_FEE, 0, 0);
     }
 
     /// Both bounds are reachable: a price exactly at each end must place successfully. A
@@ -149,8 +155,8 @@ contract LaunchpadDeployWiringTest is Test {
 
         (uint256 minFdv, uint256 maxFdv) = _ethFdvBounds(launchpad);
         vm.startPrank(buyer);
-        (, address atFloor) = launchpad.launch("Floor", "FLR", "", address(0), minFdv, 0, 0);
-        (, address atCeiling) = launchpad.launch("Ceiling", "CEIL", "", address(0), maxFdv, 0, 0);
+        (, address atFloor) = launchpad.launch("Floor", "FLR", "", address(0), minFdv, TEST_TRADE_FEE, 0, 0);
+        (, address atCeiling) = launchpad.launch("Ceiling", "CEIL", "", address(0), maxFdv, TEST_TRADE_FEE, 0, 0);
         vm.stopPrank();
 
         assertGt(IERC20(atFloor).balanceOf(addrs.poolManager), 0);
@@ -183,7 +189,7 @@ contract LaunchpadDeployWiringTest is Test {
 
         vm.prank(buyer);
         vm.expectRevert(PlacerNotSet.selector);
-        launchpad.launch("Unusable", "UNUS", "", address(0), minFdv, 0, 0);
+        launchpad.launch("Unusable", "UNUS", "", address(0), minFdv, TEST_TRADE_FEE, 0, 0);
     }
 
     /// POOL_MANAGER_ADDRESS is how a new chain is brought up, so it must be the thing the

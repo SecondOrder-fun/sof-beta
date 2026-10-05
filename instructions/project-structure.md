@@ -116,7 +116,7 @@ packages/contracts/
 │   ├── infofi/                     # InfoFiMarketFactory, InfoFiFPMMV2, InfoFiPriceOracle, InfoFiSettlement, ConditionalTokenSOF, MarketTypeRegistry, RaffleOracleAdapter
 │   ├── gating/                     # SeasonGating.sol, SeasonGatingStorage.sol
 │   ├── sponsor/                    # SponsorOnboarding.sol
-│   ├── launchpad/                  # TokenLaunchpad, LaunchToken, UniV4LiquidityPlacer, LaunchPoolGate, HookMiner, UniV4LaunchRouter (+ interfaces)
+│   ├── launchpad/                  # TokenLaunchpad, LaunchToken, UniV4LiquidityPlacer (also the pools' hook), HookMiner, UniV4LaunchRouter (+ interfaces)
 │   ├── lib/                        # Interfaces (IRaffle, ISeasonFactory, etc.) + RaffleTypes, RaffleLogic
 │   └── test-helpers/               # MockERC20.sol (placeholder quote token), MockUSDC.sol
 ├── test/                           # Forge tests + helpers/ + invariant/ + integration/

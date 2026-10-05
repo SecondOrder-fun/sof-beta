@@ -16,15 +16,11 @@ import {
     EthAmountMismatch as LaunchEthAmountMismatch,
     OnlyRouter
 } from "../src/launchpad/TokenLaunchpad.sol";
-import {
-    UniV4LiquidityPlacer,
-    PoolParamsOutOfRange,
-    ZeroAmount
-} from "../src/launchpad/UniV4LiquidityPlacer.sol";
+import {UniV4LiquidityPlacer, TickSpacingOutOfRange} from "../src/launchpad/UniV4LiquidityPlacer.sol";
 import {UniV4LaunchRouter, EthAmountMismatch, InsufficientOutput} from "../src/launchpad/UniV4LaunchRouter.sol";
 import {MockERC20} from "../src/test-helpers/MockERC20.sol";
 import {MockUSDC} from "../src/test-helpers/MockUSDC.sol";
-import {LaunchPoolGateDeployer} from "./helpers/LaunchPoolGateDeployer.sol";
+import {PlacerDeployer} from "./helpers/PlacerDeployer.sol";
 
 /// @notice Launches paired with an allowlisted ERC-20 instead of native ETH, against a
 ///         REAL PoolManager.
@@ -38,7 +34,7 @@ import {LaunchPoolGateDeployer} from "./helpers/LaunchPoolGateDeployer.sol";
 ///
 ///         The main quote is 6-decimal (USDC-shaped), the case a per-token price could not
 ///         express: a 5,000 USDC valuation is 5 raw units per token.
-contract LaunchQuoteTokensTest is Test, LaunchPoolGateDeployer {
+contract LaunchQuoteTokensTest is Test, PlacerDeployer {
     using StateLibrary for IPoolManager;
 
     PoolManager internal manager;
@@ -64,9 +60,8 @@ contract LaunchQuoteTokensTest is Test, LaunchPoolGateDeployer {
     function setUp() public {
         manager = new PoolManager(address(this));
         launchpad = new TokenLaunchpad(address(this), address(0), 1 ether, 1000 ether);
-        placer = new UniV4LiquidityPlacer(address(manager), address(launchpad), address(this), 10_000, SPACING);
+        placer = _deployPlacer(address(manager), address(launchpad), address(this), SPACING);
         launchpad.setPlacer(address(placer));
-        placer.setGate(_deployGate(address(placer)));
         placer.setFeeTreasury(treasury);
         router = new UniV4LaunchRouter(address(manager), address(launchpad));
         launchpad.setRouter(address(router));
@@ -90,7 +85,7 @@ contract LaunchQuoteTokensTest is Test, LaunchPoolGateDeployer {
 
     function _launch(address quote) internal returns (address token) {
         vm.prank(creator);
-        (, token) = launchpad.launch("Paired", "PAIR", "", quote, USDC_FDV, 0, 0);
+        (, token) = launchpad.launch("Paired", "PAIR", "", quote, USDC_FDV, TEST_TRADE_FEE, 0, 0);
     }
 
     function _buy(address token, uint256 quoteIn) internal returns (uint256) {
@@ -113,7 +108,7 @@ contract LaunchQuoteTokensTest is Test, LaunchPoolGateDeployer {
         // price1/0 in raw units = sqrtP^2 / 2^192
         uint256 priceX96 = FullMath.mulDiv(sqrtP, sqrtP, 1 << 96);
         return p.tokenIsCurrency0
-            ? FullMath.mulDiv(SUPPLY, priceX96, 1 << 96) // quote per token
+            ? FullMath.mulDiv(SUPPLY, priceX96, 1 << 96)  // quote per token
             : FullMath.mulDiv(SUPPLY, 1 << 96, priceX96); // token per quote, inverted
     }
 
@@ -253,27 +248,22 @@ contract LaunchQuoteTokensTest is Test, LaunchPoolGateDeployer {
         uint256 bought = _buy(token, 1_000e6);
         _sell(token, bought / 2);
 
-        (uint256 quoteFees, uint256 tokenFees) = placer.collectFees(token);
-        assertGe(quoteFees, 9_99e4, "about 1% of the 1,000 USDC buy");
-        assertLe(quoteFees, 10e6);
-        assertGt(tokenFees, 0, "the sell paid its fee in the token");
+        uint256 quoteFees = placer.collectFees(token);
+        // 1% of the 1,000 USDC buy, plus 1% of what the sell paid out — all in USDC.
+        assertGt(quoteFees, 10e6, "the buy's 10 USDC and the sell's share");
+        assertLt(quoteFees, 20e6);
+        assertEq(placer.claimable(token, creator), 0, "never a launch-token fee");
 
         uint256 creatorQuote = (quoteFees * 8_800) / 10_000;
         assertEq(placer.claimable(quote, creator), creatorQuote);
         assertEq(placer.claimable(quote, treasury), quoteFees - creatorQuote);
-        assertEq(placer.totalClaimable(quote), quoteFees);
-
-        // Unclaimed quote fees are not dust.
-        vm.expectRevert(ZeroAmount.selector);
-        placer.sweepDust(quote, address(this));
 
         vm.prank(creator);
         assertEq(placer.claim(quote, creator), creatorQuote);
         assertEq(IERC20(quote).balanceOf(creator), creatorQuote);
         vm.prank(treasury);
         placer.claim(quote, treasury);
-        assertEq(IERC20(quote).balanceOf(address(placer)), 0, "every quote fee paid out");
-        assertEq(placer.totalClaimable(quote), 0);
+        assertEq(manager.balanceOf(address(placer), uint256(uint160(quote))), 0, "every quote fee paid out");
     }
 
     /// Across the whole allowed valuation range, on both sides: the pool opens at or
@@ -282,7 +272,7 @@ contract LaunchQuoteTokensTest is Test, LaunchPoolGateDeployer {
         fdv = bound(fdv, USDC_MIN_FDV, USDC_MAX_FDV);
         address quote = high ? HIGH : LOW;
         vm.prank(creator);
-        (, address token) = launchpad.launch("Fuzzed", "FUZZ", "", quote, fdv, 0, 0);
+        (, address token) = launchpad.launch("Fuzzed", "FUZZ", "", quote, fdv, TEST_TRADE_FEE, 0, 0);
 
         uint256 opened = _currentFdv(token);
         assertGe(opened, (fdv * 9999) / 10000, "never below the requested valuation");
@@ -303,7 +293,7 @@ contract LaunchQuoteTokensTest is Test, LaunchPoolGateDeployer {
         vm.deal(creator, 1 ether);
         vm.prank(creator);
         (uint256 id, address token) =
-            launchpad.launch{value: 0.1 ether}("Mine", "MINE", "", address(0), 1 ether, 0.1 ether, 0);
+            launchpad.launch{value: 0.1 ether}("Mine", "MINE", "", address(0), 1 ether, TEST_TRADE_FEE, 0.1 ether, 0);
 
         assertEq(IERC20(token).balanceOf(creator), FIXTURE_BUY1_OUT, "creator bought first, at the launch price");
         assertEq(creator.balance, 0.9 ether, "exactly the buy was spent");
@@ -317,7 +307,7 @@ contract LaunchQuoteTokensTest is Test, LaunchPoolGateDeployer {
         vm.startPrank(creator);
         IERC20(HIGH).approve(address(launchpad), 100e6);
         vm.recordLogs();
-        (, address token) = launchpad.launch("Mine", "MINE", "", HIGH, USDC_FDV, 100e6, 1);
+        (, address token) = launchpad.launch("Mine", "MINE", "", HIGH, USDC_FDV, TEST_TRADE_FEE, 100e6, 1);
         vm.stopPrank();
 
         uint256 got = IERC20(token).balanceOf(creator);
@@ -331,7 +321,9 @@ contract LaunchQuoteTokensTest is Test, LaunchPoolGateDeployer {
         vm.deal(creator, 1 ether);
         vm.prank(creator);
         vm.expectRevert();
-        launchpad.launch{value: 0.1 ether}("Mine", "MINE", "", address(0), 1 ether, 0.1 ether, FIXTURE_BUY1_OUT + 1);
+        launchpad.launch{value: 0.1 ether}(
+            "Mine", "MINE", "", address(0), 1 ether, TEST_TRADE_FEE, 0.1 ether, FIXTURE_BUY1_OUT + 1
+        );
         assertEq(launchpad.launchCount(), 0, "no token was launched");
         assertEq(creator.balance, 1 ether, "nothing was spent");
     }
@@ -340,14 +332,14 @@ contract LaunchQuoteTokensTest is Test, LaunchPoolGateDeployer {
         vm.deal(creator, 1 ether);
         vm.startPrank(creator);
         vm.expectRevert(abi.encodeWithSelector(LaunchEthAmountMismatch.selector, 0.1 ether, 0));
-        launchpad.launch{value: 0.1 ether}("NoBuy", "NOB", "", address(0), 1 ether, 0, 0);
+        launchpad.launch{value: 0.1 ether}("NoBuy", "NOB", "", address(0), 1 ether, TEST_TRADE_FEE, 0, 0);
 
         vm.expectRevert(abi.encodeWithSelector(LaunchEthAmountMismatch.selector, 0.05 ether, 0.1 ether));
-        launchpad.launch{value: 0.05 ether}("Short", "SHT", "", address(0), 1 ether, 0.1 ether, 0);
+        launchpad.launch{value: 0.05 ether}("Short", "SHT", "", address(0), 1 ether, TEST_TRADE_FEE, 0.1 ether, 0);
 
         // An ERC-20 launch takes no ETH, even alongside a creator buy.
         vm.expectRevert(abi.encodeWithSelector(LaunchEthAmountMismatch.selector, 0.1 ether, 0));
-        launchpad.launch{value: 0.1 ether}("Usdc", "USD", "", HIGH, USDC_FDV, 100e6, 0);
+        launchpad.launch{value: 0.1 ether}("Usdc", "USD", "", HIGH, USDC_FDV, TEST_TRADE_FEE, 100e6, 0);
         vm.stopPrank();
     }
 
@@ -356,9 +348,9 @@ contract LaunchQuoteTokensTest is Test, LaunchPoolGateDeployer {
         vm.deal(creator, 1 ether);
         vm.startPrank(creator);
         vm.expectRevert(CreatorBuyNeedsRouter.selector);
-        launchpad.launch{value: 0.1 ether}("Mine", "MINE", "", address(0), 1 ether, 0.1 ether, 0);
+        launchpad.launch{value: 0.1 ether}("Mine", "MINE", "", address(0), 1 ether, TEST_TRADE_FEE, 0.1 ether, 0);
 
-        launchpad.launch("Plain", "PLN", "", address(0), 1 ether, 0, 0);
+        launchpad.launch("Plain", "PLN", "", address(0), 1 ether, TEST_TRADE_FEE, 0, 0);
         vm.stopPrank();
         assertEq(launchpad.launchCount(), 1);
     }
@@ -384,7 +376,7 @@ contract LaunchQuoteTokensTest is Test, LaunchPoolGateDeployer {
 
     function test_buyingAnEthPairNeedsTheValueToMatch() public {
         vm.prank(creator);
-        (, address token) = launchpad.launch("Eth", "ETHP", "", address(0), 1 ether, 0, 0);
+        (, address token) = launchpad.launch("Eth", "ETHP", "", address(0), 1 ether, TEST_TRADE_FEE, 0, 0);
         vm.deal(trader, 1 ether);
         vm.prank(trader);
         vm.expectRevert(abi.encodeWithSelector(EthAmountMismatch.selector, 0.05 ether, 0.1 ether));
@@ -427,7 +419,7 @@ contract LaunchQuoteTokensTest is Test, LaunchPoolGateDeployer {
         MockERC20(high18).mint(trader, 100e18);
 
         vm.prank(creator);
-        (, address token) = launchpad.launch("Eighteen", "EIGHT", "", high18, 10e18, 0, 0);
+        (, address token) = launchpad.launch("Eighteen", "EIGHT", "", high18, 10e18, TEST_TRADE_FEE, 0, 0);
         assertTrue(placer.getPlacement(token).tokenIsCurrency0);
 
         vm.startPrank(trader);
@@ -443,23 +435,12 @@ contract LaunchQuoteTokensTest is Test, LaunchPoolGateDeployer {
     // Pool-parameter ceilings
     // ------------------------------------------------------------------
 
-    function test_poolFeeIsCappedAndCannotBeDynamic() public {
-        vm.expectRevert(abi.encodeWithSelector(PoolParamsOutOfRange.selector, uint24(30_001), SPACING));
-        placer.setPoolParams(30_001, SPACING);
-
-        // v4's dynamic-fee flag is far above the cap, so it is refused the same way.
-        vm.expectRevert(abi.encodeWithSelector(PoolParamsOutOfRange.selector, uint24(0x800000), SPACING));
-        placer.setPoolParams(0x800000, SPACING);
-
-        placer.setPoolParams(30_000, SPACING);
-    }
-
     function test_tickSpacingMustBeOneV4Accepts() public {
-        vm.expectRevert(abi.encodeWithSelector(PoolParamsOutOfRange.selector, uint24(10_000), int24(0)));
-        placer.setPoolParams(10_000, 0);
+        vm.expectRevert(abi.encodeWithSelector(TickSpacingOutOfRange.selector, int24(0)));
+        placer.setTickSpacing(0);
 
         int24 tooWide = TickMath.MAX_TICK_SPACING + 1;
-        vm.expectRevert(abi.encodeWithSelector(PoolParamsOutOfRange.selector, uint24(10_000), tooWide));
-        placer.setPoolParams(10_000, tooWide);
+        vm.expectRevert(abi.encodeWithSelector(TickSpacingOutOfRange.selector, tooWide));
+        placer.setTickSpacing(tooWide);
     }
 }

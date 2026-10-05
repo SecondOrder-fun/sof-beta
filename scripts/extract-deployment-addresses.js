@@ -64,7 +64,6 @@ const CONTRACT_NAME_MAP = {
   PoolManager: "PoolManager",
   TokenLaunchpad: "TokenLaunchpad",
   UniV4LiquidityPlacer: "LiquidityPlacer",
-  LaunchPoolGate: "LaunchPoolGate",
   UniV4LaunchRouter: "LaunchRouter",
 };
 
@@ -96,6 +95,10 @@ const STATIC = {
   },
 };
 
+// Keys no deploy writes any more, dropped when a partial deploy overlays the file.
+// LaunchPoolGate: the placer itself is the launch pools' hook since contracts 0.42.0.
+const RETIRED_KEYS = ["LaunchPoolGate"];
+
 // Canonical key order for human-readable diff stability
 const KEY_ORDER = [
   "QuoteToken",
@@ -117,7 +120,6 @@ const KEY_ORDER = [
   "PoolManager",
   "TokenLaunchpad",
   "LiquidityPlacer",
-  "LaunchPoolGate",
   "LaunchRouter",
 ];
 
@@ -214,6 +216,7 @@ function main() {
   // A partial deploy starts from the recorded addresses; DeployAll replaces them all.
   const partial = script !== FULL_DEPLOY_SCRIPT;
   const contracts = partial ? { ...readExistingContracts(outPathFor(repoRoot, network)) } : {};
+  for (const key of RETIRED_KEYS) delete contracts[key];
   if (partial && Object.keys(contracts).length === 0) {
     console.error(`No deployments file to overlay ${script} onto — run a full deploy first.`);
     process.exit(1);

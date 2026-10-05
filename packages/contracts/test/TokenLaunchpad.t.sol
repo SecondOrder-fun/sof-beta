@@ -27,9 +27,14 @@ contract MockPlacer is ILiquidityPlacer {
     uint256 public lastAmount;
     address public lastQuoteToken;
     uint256 public lastStartFdv;
+    uint24 public lastTradeFee;
     uint256 public calls;
 
-    function place(address token, uint256 amount, address quoteToken, uint256 startFdv) external returns (bytes32) {
+    function place(address token, uint256 amount, address quoteToken, uint256 startFdv, uint24 tradeFee)
+        external
+        returns (bytes32)
+    {
+        lastTradeFee = tradeFee;
         lastToken = token;
         lastAmount = amount;
         lastQuoteToken = quoteToken;
@@ -41,7 +46,7 @@ contract MockPlacer is ILiquidityPlacer {
 
 /// @dev Leaves tokens behind. The launchpad must reject this rather than strand supply.
 contract LeakyPlacer is ILiquidityPlacer {
-    function place(address token, uint256 amount, address, uint256) external returns (bytes32) {
+    function place(address token, uint256 amount, address, uint256, uint24) external returns (bytes32) {
         // Return half to the launchpad, simulating a partial placement.
         IERC20(token).transfer(msg.sender, amount / 2);
         return bytes32(0);
@@ -49,6 +54,7 @@ contract LeakyPlacer is ILiquidityPlacer {
 }
 
 contract TokenLaunchpadTest is Test {
+    uint24 internal constant TEST_TRADE_FEE = 10_000; // 1%
     TokenLaunchpad internal launchpad;
     MockPlacer internal placer;
 
@@ -70,7 +76,7 @@ contract TokenLaunchpadTest is Test {
 
     function _launch(string memory name, string memory symbol) internal returns (uint256 id, address token) {
         vm.prank(creator);
-        return launchpad.launch(name, symbol, "ipfs://meta", NATIVE, FDV, 0, 0);
+        return launchpad.launch(name, symbol, "ipfs://meta", NATIVE, FDV, TEST_TRADE_FEE, 0, 0);
     }
 
     // ------------------------------------------------------------------
@@ -81,7 +87,7 @@ contract TokenLaunchpadTest is Test {
         uint256 balanceBefore = stranger.balance;
 
         vm.prank(stranger);
-        (uint256 id, address token) = launchpad.launch("Anyone", "ANY", "", NATIVE, FDV, 0, 0);
+        (uint256 id, address token) = launchpad.launch("Anyone", "ANY", "", NATIVE, FDV, TEST_TRADE_FEE, 0, 0);
 
         assertEq(id, 0);
         assertTrue(token != address(0));
@@ -118,6 +124,7 @@ contract TokenLaunchpadTest is Test {
         assertEq(IERC20(token).totalSupply(), launchpad.TOKEN_SUPPLY());
         assertEq(placer.lastAmount(), launchpad.TOKEN_SUPPLY());
         assertEq(placer.lastQuoteToken(), NATIVE, "the quote token reaches the placer");
+        assertEq(placer.lastTradeFee(), TEST_TRADE_FEE, "the creator's trade fee reaches the placer");
         assertEq(placer.lastStartFdv(), FDV, "creator's starting valuation reaches the placer");
     }
 
@@ -164,33 +171,29 @@ contract TokenLaunchpadTest is Test {
 
     function test_startFdvMustBeInBounds() public {
         vm.startPrank(creator);
-        vm.expectRevert(
-            abi.encodeWithSelector(StartFdvOutOfRange.selector, MIN_FDV - 1, MIN_FDV, MAX_FDV)
-        );
-        launchpad.launch("Low", "LOW", "", NATIVE, MIN_FDV - 1, 0, 0);
+        vm.expectRevert(abi.encodeWithSelector(StartFdvOutOfRange.selector, MIN_FDV - 1, MIN_FDV, MAX_FDV));
+        launchpad.launch("Low", "LOW", "", NATIVE, MIN_FDV - 1, TEST_TRADE_FEE, 0, 0);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(StartFdvOutOfRange.selector, MAX_FDV + 1, MIN_FDV, MAX_FDV)
-        );
-        launchpad.launch("High", "HIGH", "", NATIVE, MAX_FDV + 1, 0, 0);
+        vm.expectRevert(abi.encodeWithSelector(StartFdvOutOfRange.selector, MAX_FDV + 1, MIN_FDV, MAX_FDV));
+        launchpad.launch("High", "HIGH", "", NATIVE, MAX_FDV + 1, TEST_TRADE_FEE, 0, 0);
         vm.stopPrank();
     }
 
     function test_nameAndSymbolAreValidated() public {
         vm.startPrank(creator);
         vm.expectRevert(EmptyName.selector);
-        launchpad.launch("", "SYM", "", NATIVE, FDV, 0, 0);
+        launchpad.launch("", "SYM", "", NATIVE, FDV, TEST_TRADE_FEE, 0, 0);
 
         vm.expectRevert(EmptySymbol.selector);
-        launchpad.launch("Name", "", "", NATIVE, FDV, 0, 0);
+        launchpad.launch("Name", "", "", NATIVE, FDV, TEST_TRADE_FEE, 0, 0);
 
         string memory longName = new string(49);
         vm.expectRevert(NameTooLong.selector);
-        launchpad.launch(longName, "SYM", "", NATIVE, FDV, 0, 0);
+        launchpad.launch(longName, "SYM", "", NATIVE, FDV, TEST_TRADE_FEE, 0, 0);
 
         string memory longSymbol = new string(17);
         vm.expectRevert(SymbolTooLong.selector);
-        launchpad.launch("Name", longSymbol, "", NATIVE, FDV, 0, 0);
+        launchpad.launch("Name", longSymbol, "", NATIVE, FDV, TEST_TRADE_FEE, 0, 0);
         vm.stopPrank();
     }
 
@@ -200,10 +203,8 @@ contract TokenLaunchpadTest is Test {
         launchpad.setPlacer(address(new LeakyPlacer()));
 
         vm.prank(creator);
-        vm.expectRevert(
-            abi.encodeWithSelector(LaunchpadHoldsResidualTokens.selector, launchpad.TOKEN_SUPPLY() / 2)
-        );
-        launchpad.launch("Leaky", "LEAK", "", NATIVE, FDV, 0, 0);
+        vm.expectRevert(abi.encodeWithSelector(LaunchpadHoldsResidualTokens.selector, launchpad.TOKEN_SUPPLY() / 2));
+        launchpad.launch("Leaky", "LEAK", "", NATIVE, FDV, TEST_TRADE_FEE, 0, 0);
     }
 
     function test_launchRevertsWhenNoPlacerConfigured() public {
@@ -211,7 +212,7 @@ contract TokenLaunchpadTest is Test {
 
         vm.prank(creator);
         vm.expectRevert(PlacerNotSet.selector);
-        bare.launch("NoPlacer", "NOP", "", NATIVE, FDV, 0, 0);
+        bare.launch("NoPlacer", "NOP", "", NATIVE, FDV, TEST_TRADE_FEE, 0, 0);
     }
 
     function test_constructorRejectsInvertedFdvBounds() public {
@@ -240,7 +241,7 @@ contract TokenLaunchpadTest is Test {
 
         vm.prank(creator);
         vm.expectRevert();
-        launchpad.launch("During", "DUR", "", NATIVE, FDV, 0, 0);
+        launchpad.launch("During", "DUR", "", NATIVE, FDV, TEST_TRADE_FEE, 0, 0);
 
         // The already-launched token is untouched: supply still placed, still tradeable
         // wherever the placer put it. Pausing is a control on this contract, not on pools.
@@ -281,7 +282,7 @@ contract TokenLaunchpadTest is Test {
         MockERC20 usdc = new MockERC20("USD Coin", "USDC", 0);
         vm.prank(creator);
         vm.expectRevert(abi.encodeWithSelector(QuoteTokenNotAllowed.selector, address(usdc)));
-        launchpad.launch("Unlisted", "UNL", "", address(usdc), FDV, 0, 0);
+        launchpad.launch("Unlisted", "UNL", "", address(usdc), FDV, TEST_TRADE_FEE, 0, 0);
     }
 
     function test_allowedErc20QuoteLaunchesWithItsOwnBounds() public {
@@ -291,8 +292,9 @@ contract TokenLaunchpadTest is Test {
         vm.startPrank(creator);
         // ETH's bounds do not apply to USDC, nor USDC's to ETH.
         vm.expectRevert(abi.encodeWithSelector(StartFdvOutOfRange.selector, 2_499e6, 2_500e6, 1_000_000e6));
-        launchpad.launch("Cheap", "CHP", "", address(usdc), 2_499e6, 0, 0);
-        (uint256 id, address token) = launchpad.launch("Stable", "STB", "", address(usdc), 5_000e6, 0, 0);
+        launchpad.launch("Cheap", "CHP", "", address(usdc), 2_499e6, TEST_TRADE_FEE, 0, 0);
+        (uint256 id, address token) =
+            launchpad.launch("Stable", "STB", "", address(usdc), 5_000e6, TEST_TRADE_FEE, 0, 0);
         vm.stopPrank();
 
         assertEq(launchpad.quoteTokenOf(token), address(usdc));
@@ -304,13 +306,13 @@ contract TokenLaunchpadTest is Test {
         MockERC20 usdc = new MockERC20("USD Coin", "USDC", 0);
         launchpad.setQuoteToken(address(usdc), 1, type(uint256).max);
         vm.prank(creator);
-        (, address existing) = launchpad.launch("Before", "BEF", "", address(usdc), 5_000e6, 0, 0);
+        (, address existing) = launchpad.launch("Before", "BEF", "", address(usdc), 5_000e6, TEST_TRADE_FEE, 0, 0);
 
         launchpad.removeQuoteToken(address(usdc));
 
         vm.prank(creator);
         vm.expectRevert(abi.encodeWithSelector(QuoteTokenNotAllowed.selector, address(usdc)));
-        launchpad.launch("After", "AFT", "", address(usdc), 5_000e6, 0, 0);
+        launchpad.launch("After", "AFT", "", address(usdc), 5_000e6, TEST_TRADE_FEE, 0, 0);
         assertEq(launchpad.quoteTokenOf(existing), address(usdc), "the earlier launch keeps its pairing");
 
         vm.expectRevert(abi.encodeWithSelector(QuoteTokenNotAllowed.selector, address(usdc)));
@@ -327,7 +329,7 @@ contract TokenLaunchpadTest is Test {
         launchpad.removeQuoteToken(NATIVE);
         vm.prank(creator);
         vm.expectRevert(abi.encodeWithSelector(QuoteTokenNotAllowed.selector, NATIVE));
-        launchpad.launch("NoEth", "NOE", "", NATIVE, FDV, 0, 0);
+        launchpad.launch("NoEth", "NOE", "", NATIVE, FDV, TEST_TRADE_FEE, 0, 0);
 
         launchpad.setQuoteToken(NATIVE, MIN_FDV, MAX_FDV);
         _launch("EthAgain", "ETHA");

@@ -118,8 +118,10 @@ contract UniV4LaunchRouter is ILaunchRouter, IUnlockCallback, ReentrancyGuard {
         );
         if (out < minTokensOut) revert InsufficientOutput(out, minTokensOut);
 
-        // A buy that exhausts the range spends less than it was sent. Return unspent ETH;
-        // an ERC-20 quote was only ever pulled for what the pool took.
+        // A buy that stops at the range edge spends less than it was sent. With a trade fee
+        // the pool's hook reverts such a buy instead (it priced the fee on the whole
+        // amount), so this only matters for a zero-fee pool. Return unspent ETH; an ERC-20
+        // quote was only ever pulled for what the swap took.
         if (quote == address(0)) {
             uint256 refund = msg.value - quoteSpent;
             if (refund != 0) {
@@ -169,9 +171,7 @@ contract UniV4LaunchRouter is ILaunchRouter, IUnlockCallback, ReentrancyGuard {
         BalanceDelta delta = poolManager.swap(
             s.key,
             IPoolManager.SwapParams({
-                zeroForOne: spendCurrency0,
-                amountSpecified: -int256(s.amountIn),
-                sqrtPriceLimitX96: s.priceLimit
+                zeroForOne: spendCurrency0, amountSpecified: -int256(s.amountIn), sqrtPriceLimitX96: s.priceLimit
             }),
             ""
         );
@@ -180,7 +180,8 @@ contract UniV4LaunchRouter is ILaunchRouter, IUnlockCallback, ReentrancyGuard {
             ? (s.key.currency0, delta.amount0(), s.key.currency1, delta.amount1())
             : (s.key.currency1, delta.amount1(), s.key.currency0, delta.amount0());
 
-        // What the pool actually took — less than amountIn on a partial fill.
+        // What the swap cost the caller, the hook's quote-token fee included — less than
+        // amountIn only on a partial fill.
         uint256 spent = uint256(uint128(-inDelta));
         poolManager.sync(inCurrency);
         if (inCurrency.isAddressZero()) {
