@@ -26,11 +26,6 @@
         "name": "_tickSpacing",
         "type": "int24",
         "internalType": "int24"
-      },
-      {
-        "name": "_rangeWidthTicks",
-        "type": "int24",
-        "internalType": "int24"
       }
     ],
     "stateMutability": "nonpayable"
@@ -468,19 +463,6 @@
   },
   {
     "type": "function",
-    "name": "rangeWidthTicks",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "int24",
-        "internalType": "int24"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "renounceRole",
     "inputs": [
       {
@@ -570,11 +552,6 @@
       },
       {
         "name": "_tickSpacing",
-        "type": "int24",
-        "internalType": "int24"
-      },
-      {
-        "name": "_rangeWidthTicks",
         "type": "int24",
         "internalType": "int24"
       }
@@ -902,12 +879,6 @@
         "type": "int24",
         "indexed": false,
         "internalType": "int24"
-      },
-      {
-        "name": "rangeWidthTicks",
-        "type": "int24",
-        "indexed": false,
-        "internalType": "int24"
       }
     ],
     "anonymous": false
@@ -1124,11 +1095,6 @@
         "internalType": "address"
       }
     ]
-  },
-  {
-    "type": "error",
-    "name": "RangeWidthNotPositive",
-    "inputs": []
   },
   {
     "type": "error",

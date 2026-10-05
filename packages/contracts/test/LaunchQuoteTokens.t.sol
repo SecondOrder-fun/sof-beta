@@ -10,7 +10,12 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
-import {TokenLaunchpad} from "../src/launchpad/TokenLaunchpad.sol";
+import {
+    TokenLaunchpad,
+    CreatorBuyNeedsRouter,
+    EthAmountMismatch as LaunchEthAmountMismatch,
+    OnlyRouter
+} from "../src/launchpad/TokenLaunchpad.sol";
 import {
     UniV4LiquidityPlacer,
     PoolParamsOutOfRange,
@@ -59,7 +64,7 @@ contract LaunchQuoteTokensTest is Test, LaunchPoolGateDeployer {
     function setUp() public {
         manager = new PoolManager(address(this));
         launchpad = new TokenLaunchpad(address(this), address(0), 1 ether, 1000 ether);
-        placer = new UniV4LiquidityPlacer(address(manager), address(launchpad), address(this), 10_000, SPACING, 46_000);
+        placer = new UniV4LiquidityPlacer(address(manager), address(launchpad), address(this), 10_000, SPACING);
         launchpad.setPlacer(address(placer));
         placer.setGate(_deployGate(address(placer)));
         placer.setFeeTreasury(treasury);
@@ -85,7 +90,7 @@ contract LaunchQuoteTokensTest is Test, LaunchPoolGateDeployer {
 
     function _launch(address quote) internal returns (address token) {
         vm.prank(creator);
-        (, token) = launchpad.launch("Paired", "PAIR", "", quote, USDC_FDV);
+        (, token) = launchpad.launch("Paired", "PAIR", "", quote, USDC_FDV, 0, 0);
     }
 
     function _buy(address token, uint256 quoteIn) internal returns (uint256) {
@@ -213,30 +218,26 @@ contract LaunchQuoteTokensTest is Test, LaunchPoolGateDeployer {
         assertEq(IERC20(token).balanceOf(address(router)), 0, "router keeps no tokens");
     }
 
-    function test_low_anExhaustingBuyPullsOnlyWhatFilled() public {
-        _checkExhaustingBuy(LOW);
+    function test_low_aHugeBuyNeverSellsOut() public {
+        _checkHugeBuy(LOW);
     }
 
-    function test_high_anExhaustingBuyPullsOnlyWhatFilled() public {
-        _checkExhaustingBuy(HIGH);
+    function test_high_aHugeBuyNeverSellsOut() public {
+        _checkHugeBuy(HIGH);
     }
 
-    /// A buy larger than the whole range fills partially, stops at the range edge rather
-    /// than stranding the price at a v4 extreme, and is charged only what filled.
-    function _checkExhaustingBuy(address quote) internal {
+    /// A buy of 200x the opening valuation fills in full on either side: the position runs
+    /// to the end of v4's price scale, so there is no ceiling to sell out at, the payer is
+    /// charged exactly what they offered, and supply remains in the pool.
+    function _checkHugeBuy(address quote) internal {
         address token = _launch(quote);
         uint256 usdcBefore = IERC20(quote).balanceOf(trader);
 
         uint256 out = _buy(token, 1_000_000e6);
-        uint256 spent = usdcBefore - IERC20(quote).balanceOf(trader);
-        assertLt(spent, 1_000_000e6, "charged less than offered");
-        assertGt(out, SUPPLY - SUPPLY / 1e6, "bought essentially the whole position");
-
-        UniV4LiquidityPlacer.Placement memory p = placer.getPlacement(token);
-        int24 edge = p.tokenIsCurrency0 ? p.tickUpper : p.tickLower;
-        int24 tick = _currentTick(token);
-        // v4 reports the tick just below a price exactly on a boundary when moving down.
-        assertTrue(tick == edge || tick == edge - 1, "stopped at the range edge");
+        assertEq(usdcBefore - IERC20(quote).balanceOf(trader), 1_000_000e6, "filled in full");
+        assertLt(out, SUPPLY, "supply is left in the pool");
+        assertGt(IPoolManager(address(manager)).getLiquidity(PoolId.wrap(placer.poolIdOf(token))), 0, "still in range");
+        assertGt(_sell(token, out), 0, "and it all sells back");
     }
 
     function test_low_feesAreCollectedAndClaimedInTheQuote() public {
@@ -281,12 +282,92 @@ contract LaunchQuoteTokensTest is Test, LaunchPoolGateDeployer {
         fdv = bound(fdv, USDC_MIN_FDV, USDC_MAX_FDV);
         address quote = high ? HIGH : LOW;
         vm.prank(creator);
-        (, address token) = launchpad.launch("Fuzzed", "FUZZ", "", quote, fdv);
+        (, address token) = launchpad.launch("Fuzzed", "FUZZ", "", quote, fdv, 0, 0);
 
         uint256 opened = _currentFdv(token);
         assertGe(opened, (fdv * 9999) / 10000, "never below the requested valuation");
         assertLe(opened, (fdv * 103) / 100, "within one tick spacing of it");
         assertEq(IERC20(quote).balanceOf(address(manager)), 0, "single-sided");
+    }
+
+    // ------------------------------------------------------------------
+    // The creator's buy, inside the launch transaction
+    // ------------------------------------------------------------------
+
+    /// 0.1 ETH into a 1 ETH launch: the same trade the frontend fixture pins
+    /// (UniV4LaunchRouter.t.sol FIXTURE_BUY1_OUT). Getting exactly that amount proves the
+    /// creator bought first, at the launch price, before anyone could trade.
+    uint256 internal constant FIXTURE_BUY1_OUT = 89729910215527505885256588;
+
+    function test_anEthCreatorBuyIsTheFirstTradeAtTheLaunchPrice() public {
+        vm.deal(creator, 1 ether);
+        vm.prank(creator);
+        (uint256 id, address token) =
+            launchpad.launch{value: 0.1 ether}("Mine", "MINE", "", address(0), 1 ether, 0.1 ether, 0);
+
+        assertEq(IERC20(token).balanceOf(creator), FIXTURE_BUY1_OUT, "creator bought first, at the launch price");
+        assertEq(creator.balance, 0.9 ether, "exactly the buy was spent");
+        assertEq(address(launchpad).balance, 0, "launchpad keeps no ETH");
+        assertEq(IERC20(token).balanceOf(address(launchpad)), 0, "launchpad keeps no tokens");
+        assertEq(id, 0);
+    }
+
+    function test_anErc20CreatorBuyPullsTheQuoteFromTheCreator() public {
+        MockUSDC(HIGH).mint(creator, 100e6);
+        vm.startPrank(creator);
+        IERC20(HIGH).approve(address(launchpad), 100e6);
+        vm.recordLogs();
+        (, address token) = launchpad.launch("Mine", "MINE", "", HIGH, USDC_FDV, 100e6, 1);
+        vm.stopPrank();
+
+        uint256 got = IERC20(token).balanceOf(creator);
+        assertGt(got, (SUPPLY * 19) / 1000, "about 2% of supply for 100 USDC at 5,000");
+        assertEq(IERC20(HIGH).balanceOf(creator), 0, "the 100 USDC was spent");
+        assertEq(IERC20(HIGH).balanceOf(address(launchpad)), 0, "launchpad keeps no quote");
+        assertEq(IERC20(HIGH).allowance(address(launchpad), address(router)), 0, "router approval reset");
+    }
+
+    function test_aCreatorBuyBelowItsMinimumRevertsTheWholeLaunch() public {
+        vm.deal(creator, 1 ether);
+        vm.prank(creator);
+        vm.expectRevert();
+        launchpad.launch{value: 0.1 ether}("Mine", "MINE", "", address(0), 1 ether, 0.1 ether, FIXTURE_BUY1_OUT + 1);
+        assertEq(launchpad.launchCount(), 0, "no token was launched");
+        assertEq(creator.balance, 1 ether, "nothing was spent");
+    }
+
+    function test_launchEthMustMatchTheCreatorBuy() public {
+        vm.deal(creator, 1 ether);
+        vm.startPrank(creator);
+        vm.expectRevert(abi.encodeWithSelector(LaunchEthAmountMismatch.selector, 0.1 ether, 0));
+        launchpad.launch{value: 0.1 ether}("NoBuy", "NOB", "", address(0), 1 ether, 0, 0);
+
+        vm.expectRevert(abi.encodeWithSelector(LaunchEthAmountMismatch.selector, 0.05 ether, 0.1 ether));
+        launchpad.launch{value: 0.05 ether}("Short", "SHT", "", address(0), 1 ether, 0.1 ether, 0);
+
+        // An ERC-20 launch takes no ETH, even alongside a creator buy.
+        vm.expectRevert(abi.encodeWithSelector(LaunchEthAmountMismatch.selector, 0.1 ether, 0));
+        launchpad.launch{value: 0.1 ether}("Usdc", "USD", "", HIGH, USDC_FDV, 100e6, 0);
+        vm.stopPrank();
+    }
+
+    function test_aCreatorBuyNeedsARouterButALaunchDoesNot() public {
+        launchpad.setRouter(address(0));
+        vm.deal(creator, 1 ether);
+        vm.startPrank(creator);
+        vm.expectRevert(CreatorBuyNeedsRouter.selector);
+        launchpad.launch{value: 0.1 ether}("Mine", "MINE", "", address(0), 1 ether, 0.1 ether, 0);
+
+        launchpad.launch("Plain", "PLN", "", address(0), 1 ether, 0, 0);
+        vm.stopPrank();
+        assertEq(launchpad.launchCount(), 1);
+    }
+
+    function test_theLaunchpadRejectsStrayEth() public {
+        vm.deal(address(this), 1 ether);
+        (bool ok, bytes memory ret) = address(launchpad).call{value: 1 wei}("");
+        assertFalse(ok);
+        assertEq(bytes4(ret), OnlyRouter.selector);
     }
 
     // ------------------------------------------------------------------
@@ -303,7 +384,7 @@ contract LaunchQuoteTokensTest is Test, LaunchPoolGateDeployer {
 
     function test_buyingAnEthPairNeedsTheValueToMatch() public {
         vm.prank(creator);
-        (, address token) = launchpad.launch("Eth", "ETHP", "", address(0), 1 ether);
+        (, address token) = launchpad.launch("Eth", "ETHP", "", address(0), 1 ether, 0, 0);
         vm.deal(trader, 1 ether);
         vm.prank(trader);
         vm.expectRevert(abi.encodeWithSelector(EthAmountMismatch.selector, 0.05 ether, 0.1 ether));
@@ -346,7 +427,7 @@ contract LaunchQuoteTokensTest is Test, LaunchPoolGateDeployer {
         MockERC20(high18).mint(trader, 100e18);
 
         vm.prank(creator);
-        (, address token) = launchpad.launch("Eighteen", "EIGHT", "", high18, 10e18);
+        (, address token) = launchpad.launch("Eighteen", "EIGHT", "", high18, 10e18, 0, 0);
         assertTrue(placer.getPlacement(token).tokenIsCurrency0);
 
         vm.startPrank(trader);
@@ -364,21 +445,21 @@ contract LaunchQuoteTokensTest is Test, LaunchPoolGateDeployer {
 
     function test_poolFeeIsCappedAndCannotBeDynamic() public {
         vm.expectRevert(abi.encodeWithSelector(PoolParamsOutOfRange.selector, uint24(30_001), SPACING));
-        placer.setPoolParams(30_001, SPACING, 46_000);
+        placer.setPoolParams(30_001, SPACING);
 
         // v4's dynamic-fee flag is far above the cap, so it is refused the same way.
         vm.expectRevert(abi.encodeWithSelector(PoolParamsOutOfRange.selector, uint24(0x800000), SPACING));
-        placer.setPoolParams(0x800000, SPACING, 46_000);
+        placer.setPoolParams(0x800000, SPACING);
 
-        placer.setPoolParams(30_000, SPACING, 46_000);
+        placer.setPoolParams(30_000, SPACING);
     }
 
     function test_tickSpacingMustBeOneV4Accepts() public {
         vm.expectRevert(abi.encodeWithSelector(PoolParamsOutOfRange.selector, uint24(10_000), int24(0)));
-        placer.setPoolParams(10_000, 0, 46_000);
+        placer.setPoolParams(10_000, 0);
 
         int24 tooWide = TickMath.MAX_TICK_SPACING + 1;
         vm.expectRevert(abi.encodeWithSelector(PoolParamsOutOfRange.selector, uint24(10_000), tooWide));
-        placer.setPoolParams(10_000, tooWide, 46_000);
+        placer.setPoolParams(10_000, tooWide);
     }
 }

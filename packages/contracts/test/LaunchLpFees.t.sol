@@ -41,7 +41,7 @@ contract LaunchLpFeesTest is Test, LaunchPoolGateDeployer {
     function setUp() public {
         manager = new PoolManager(address(this));
         launchpad = new TokenLaunchpad(address(this), address(0), 1e9, 1e27);
-        placer = new UniV4LiquidityPlacer(address(manager), address(launchpad), address(this), 10_000, 200, 46_000);
+        placer = new UniV4LiquidityPlacer(address(manager), address(launchpad), address(this), 10_000, 200);
         launchpad.setPlacer(address(placer));
         placer.setGate(_deployGate(address(placer)));
         placer.setFeeTreasury(treasury);
@@ -49,7 +49,7 @@ contract LaunchLpFeesTest is Test, LaunchPoolGateDeployer {
         launchpad.setRouter(address(router));
 
         vm.prank(creator);
-        (, token) = launchpad.launch("Frog Pond", "POND", "", address(0), PRICE * 1e9);
+        (, token) = launchpad.launch("Frog Pond", "POND", "", address(0), PRICE * 1e9, 0, 0);
         vm.deal(trader, 100 ether);
     }
 
@@ -117,11 +117,11 @@ contract LaunchLpFeesTest is Test, LaunchPoolGateDeployer {
         placer.collectFees(address(0xF00));
 
         UniV4LiquidityPlacer bare =
-            new UniV4LiquidityPlacer(address(manager), address(launchpad), address(this), 10_000, 200, 46_000);
+            new UniV4LiquidityPlacer(address(manager), address(launchpad), address(this), 10_000, 200);
         bare.setGate(_deployGate(address(bare)));
         launchpad.setPlacer(address(bare));
         vm.prank(creator);
-        (, address other) = launchpad.launch("Other", "OTH", "", address(0), PRICE * 1e9);
+        (, address other) = launchpad.launch("Other", "OTH", "", address(0), PRICE * 1e9, 0, 0);
         vm.expectRevert(FeeTreasuryNotSet.selector);
         bare.collectFees(other);
     }

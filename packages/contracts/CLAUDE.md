@@ -167,14 +167,23 @@ Version-controlled in `deployments/`:
 ## Launch quote tokens
 
 - **A launch pairs with native ETH (`address(0)`, the default) or an allowlisted ERC-20.**
-  `TokenLaunchpad.launch(name, symbol, metadataURI, quoteToken, startFdv)`; `quoteConfig(quote)`
+  `TokenLaunchpad.launch(name, symbol, metadataURI, quoteToken, startFdv, creatorBuyIn, minTokensOut)`; `quoteConfig(quote)`
   holds each allowed quote's FDV bounds in its raw units (`setQuoteToken` / `removeQuoteToken`,
   CONFIG_ROLE). `quoteTokenOf(token)` and `Launch.quoteToken` record the pairing. List only
   plain ERC-20s (no fee-on-transfer, rebasing or callback tokens), and never WETH next to ETH.
 - **Either side of the pool.** v4 sorts currencies by address, so an ERC-20 quote above the
-  launch token makes the TOKEN currency0: the position is `[tickLower, tickLower + width]`, the
-  pool starts at `tickLower` and buys move the tick UP. `Placement.tokenIsCurrency0` records it
-  and the router reads it for swap direction and price limits. ETH is always currency0.
+  launch token makes the TOKEN currency0: the position is `[tickLower, maxUsableTick]`, the
+  pool starts at `tickLower` and buys move the tick UP (ETH, always currency0: `[minUsableTick,
+  tickUpper]`, starting at `tickUpper`). `Placement.tokenIsCurrency0` records it and the router
+  reads it for swap direction and price limits.
+- **The position never sells out.** It runs from the opening price to v4's last usable tick, so
+  there is liquidity at every price and no route can strand the pool in an empty range. There is
+  no range-width parameter any more (the old ~100x range sold out at a 100 ETH valuation).
+- **Creator buy in the launch transaction.** `creatorBuyIn > 0` buys for the creator through the
+  active router right after placement, before anyone else can trade (ETH: send it as
+  `msg.value`; ERC-20: approve the launchpad). `minTokensOut` reverts the whole launch; unspent
+  quote is refunded; `CreatorBought` is emitted; it reverts `CreatorBuyNeedsRouter` if
+  `router()` is zero. No free allocation: same price and 1% fee as any buyer.
 - **Router:** `buy(token, quoteIn, minTokensOut, recipient, deadline)` — ETH pairs send `quoteIn`
   as `msg.value` (anything else reverts `EthAmountMismatch`); ERC-20 pairs send no ETH and
   approve the router, which pulls only what filled. `sell(...)` pays out the launch's quote.

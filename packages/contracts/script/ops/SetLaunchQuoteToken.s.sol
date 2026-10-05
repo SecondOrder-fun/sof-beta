@@ -30,7 +30,7 @@ interface IERC20Decimals {
 ///   PRIVATE_KEY              a CONFIG_ROLE holder on the launchpad
 contract SetLaunchQuoteToken is Script {
     function run() external {
-        TokenLaunchpad launchpad = TokenLaunchpad(vm.envAddress("TOKEN_LAUNCHPAD_ADDRESS"));
+        TokenLaunchpad launchpad = TokenLaunchpad(payable(vm.envAddress("TOKEN_LAUNCHPAD_ADDRESS")));
         address quote = vm.envAddress("QUOTE_TOKEN");
         bool remove = vm.envOr("REMOVE", false);
         uint256 key = vm.envUint("PRIVATE_KEY");

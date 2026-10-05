@@ -40,7 +40,6 @@ contract UniV4LiquidityPlacerTest is Test, LaunchPoolGateDeployer {
 
     uint24 internal constant FEE = 10_000; // 1%
     int24 internal constant SPACING = 200;
-    int24 internal constant RANGE_WIDTH = 46_000; // ~100x climb
 
     uint256 internal constant MIN_PRICE = 1;
     uint256 internal constant MAX_PRICE = 1 ether;
@@ -57,15 +56,14 @@ contract UniV4LiquidityPlacerTest is Test, LaunchPoolGateDeployer {
 
         launchpad = new TokenLaunchpad(admin, address(0), MIN_PRICE * 1e9, MAX_PRICE * 1e9);
         placer = new UniV4LiquidityPlacer(
-            address(manager), address(launchpad), admin, FEE, SPACING, RANGE_WIDTH
-        );
+            address(manager), address(launchpad), admin, FEE, SPACING);
         launchpad.setPlacer(address(placer));
         placer.setGate(_deployGate(address(placer)));
     }
 
     function _launch(uint256 startPriceWei) internal returns (address token) {
         vm.prank(creator);
-        (, token) = launchpad.launch("Launched", "LNCH", "ipfs://m", address(0), startPriceWei * 1e9);
+        (, token) = launchpad.launch("Launched", "LNCH", "ipfs://m", address(0), startPriceWei * 1e9, 0, 0);
     }
 
     // ------------------------------------------------------------------
@@ -142,7 +140,7 @@ contract UniV4LiquidityPlacerTest is Test, LaunchPoolGateDeployer {
     function test_cheaperStartPriceGivesHigherTick() public {
         address cheap = _launch(1_000_000_000); // FDV 1 ETH
         vm.prank(creator);
-        (, address dear) = launchpad.launch("Dear", "DEAR", "", address(0), 100_000_000_000 * 1e9); // FDV 100 ETH
+        (, address dear) = launchpad.launch("Dear", "DEAR", "", address(0), 100_000_000_000 * 1e9, 0, 0); // FDV 100 ETH
 
         int24 cheapTick = placer.getPlacement(cheap).tickUpper;
         int24 dearTick = placer.getPlacement(dear).tickUpper;
@@ -297,7 +295,7 @@ contract UniV4LiquidityPlacerTest is Test, LaunchPoolGateDeployer {
     function test_twoLaunchesGetSeparatePools() public {
         address a = _launch(PRICE);
         vm.prank(creator);
-        (, address b) = launchpad.launch("Second", "SEC", "", address(0), PRICE * 1e9);
+        (, address b) = launchpad.launch("Second", "SEC", "", address(0), PRICE * 1e9, 0, 0);
 
         assertTrue(placer.poolIdOf(a) != placer.poolIdOf(b), "distinct pools");
         assertGt(IERC20(a).balanceOf(address(manager)), 0);
@@ -350,12 +348,11 @@ contract UniV4LiquidityPlacerTest is Test, LaunchPoolGateDeployer {
 
     function test_placeRevertsUntilAGateIsSet() public {
         UniV4LiquidityPlacer fresh = new UniV4LiquidityPlacer(
-            address(manager), address(launchpad), admin, FEE, SPACING, RANGE_WIDTH
-        );
+            address(manager), address(launchpad), admin, FEE, SPACING);
         launchpad.setPlacer(address(fresh));
         vm.prank(creator);
         vm.expectRevert(GateNotSet.selector);
-        launchpad.launch("Launched", "LNCH", "ipfs://m", address(0), PRICE * 1e9);
+        launchpad.launch("Launched", "LNCH", "ipfs://m", address(0), PRICE * 1e9, 0, 0);
     }
 
     function test_setGateRejectsAnAddressWithoutExactlyTheInitializeBit() public {
@@ -383,11 +380,11 @@ contract UniV4LiquidityPlacerTest is Test, LaunchPoolGateDeployer {
     function test_onlyConfigRoleCanSetPoolParams() public {
         vm.prank(address(0xBAD));
         vm.expectRevert();
-        placer.setPoolParams(500, 10, 1000);
+        placer.setPoolParams(500, 10);
     }
 
     function test_configChangeAffectsSubsequentLaunches() public {
-        placer.setPoolParams(3000, 60, 12_000);
+        placer.setPoolParams(3000, 60);
 
         address token = _launch(PRICE);
         UniV4LiquidityPlacer.Placement memory p = placer.getPlacement(token);

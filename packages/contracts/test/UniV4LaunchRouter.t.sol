@@ -45,22 +45,22 @@ contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
     uint256 internal constant PRICE = 1_000_000_000; // 1 gwei/token = 1 ETH FDV
 
     // From test_fixture_quoteMathForFrontend (UniV4LiquidityPlacer.t.sol), and the frontend.
-    uint256 internal constant FIXTURE_BUY1_OUT = 90544562424768864432372374;
-    uint256 internal constant FIXTURE_BUY2_OUT = 458314310870065520885587454;
-    uint256 internal constant FIXTURE_SELL_OUT = 633721166099902280;
+    uint256 internal constant FIXTURE_BUY1_OUT = 89729910215527505885256588;
+    uint256 internal constant FIXTURE_BUY2_OUT = 430498561536536843999554978;
+    uint256 internal constant FIXTURE_SELL_OUT = 643813329407072925;
 
     address internal token;
 
     function setUp() public {
         manager = new PoolManager(address(this));
         launchpad = new TokenLaunchpad(address(this), address(0), 1e9, 1e27);
-        placer = new UniV4LiquidityPlacer(address(manager), address(launchpad), address(this), 10_000, 200, 46_000);
+        placer = new UniV4LiquidityPlacer(address(manager), address(launchpad), address(this), 10_000, 200);
         launchpad.setPlacer(address(placer));
         placer.setGate(_deployGate(address(placer)));
         router = new UniV4LaunchRouter(address(manager), address(launchpad));
         launchpad.setRouter(address(router));
 
-        (, token) = launchpad.launch("Frog Pond", "POND", "", address(0), PRICE * 1e9);
+        (, token) = launchpad.launch("Frog Pond", "POND", "", address(0), PRICE * 1e9, 0, 0);
         vm.deal(buyer, 100 ether);
     }
 
@@ -123,31 +123,30 @@ contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
     }
 
     // ------------------------------------------------------------------
-    // Partial fills: nothing may stay in the router
+    // The position never sells out
     // ------------------------------------------------------------------
 
-    /// A single 1 ETH-FDV range sells out for roughly 10 ETH, so 50 ETH cannot all be
-    /// spent. The unspent ETH must come back, and the router must end holding nothing.
-    function test_oversizedBuyRefundsUnspentEth() public {
+    /// The position runs to v4's last usable tick, so even a buy 50x the opening valuation
+    /// fills in full: there is liquidity at every price, the router keeps nothing, and the
+    /// pool still holds supply to sell. (With a ~100x range this 50 ETH buy used to empty
+    /// the position and come back mostly refunded.)
+    function test_aHugeBuyFillsInFullAndNeverSellsOut() public {
         uint256 before = buyer.balance;
         uint256 out = _buy(50 ether, 0);
         uint256 spent = before - buyer.balance;
 
-        assertLt(spent, 50 ether, "the range could not absorb it all");
-        assertGt(out, (launchpad.TOKEN_SUPPLY() * 999) / 1000, "essentially the whole supply");
+        assertEq(spent, 50 ether, "every wei was spent: no ceiling to hit");
+        assertLt(out, launchpad.TOKEN_SUPPLY(), "supply is left in the pool");
+        assertGt(IERC20(token).balanceOf(address(manager)), 0);
         assertEq(address(router).balance, 0, "router keeps no ETH");
         assertEq(address(manager).balance, spent, "the pool holds exactly what was spent");
     }
 
-    /// A buy that exhausts the range stops at the position's floor, not at v4's global
-    /// MIN_SQRT_PRICE: past the floor there is no liquidity to fill, and a price stranded
-    /// at the minimum reads as zero liquidity (so nothing can be quoted to sell back into)
-    /// and an absurd token price.
-    function test_exhaustingBuyLeavesThePriceAtTheRangeFloor() public {
+    /// After a huge buy the pool still quotes and still takes the whole balance back.
+    function test_afterAHugeBuyThePoolStillTakesEverythingBack() public {
         _buy(50 ether, 0);
         UniV4LiquidityPlacer.Placement memory p = placer.getPlacement(token);
-        (uint160 sqrtPriceX96,,,) = IPoolManager(address(manager)).getSlot0(p.key.toId());
-        assertEq(sqrtPriceX96, TickMath.getSqrtPriceAtTick(p.tickLower), "price parked at the floor");
+        assertGt(IPoolManager(address(manager)).getLiquidity(p.key.toId()), 0, "liquidity is still in range");
         assertGt(_sell(IERC20(token).balanceOf(buyer), 0), 0, "the whole position can be sold back into");
     }
 
@@ -294,14 +293,14 @@ contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
     /// under the old one keeps its pool, and the router must still find it there.
     function test_launchesUnderAReplacedPlacerStayTradeable() public {
         UniV4LiquidityPlacer next =
-            new UniV4LiquidityPlacer(address(manager), address(launchpad), address(this), 10_000, 200, 46_000);
+            new UniV4LiquidityPlacer(address(manager), address(launchpad), address(this), 10_000, 200);
         next.setGate(_deployGate(address(next)));
         launchpad.setPlacer(address(next));
 
         assertEq(launchpad.placerOf(token), address(placer), "the old launch keeps its placer");
         assertEq(_buy(0.1 ether, 0), FIXTURE_BUY1_OUT, "and still routes through it");
 
-        (, address newer) = launchpad.launch("Newer", "NEW", "", address(0), PRICE * 1e9);
+        (, address newer) = launchpad.launch("Newer", "NEW", "", address(0), PRICE * 1e9, 0, 0);
         assertEq(launchpad.placerOf(newer), address(next));
         vm.prank(buyer);
         assertEq(router.buy{value: 0.1 ether}(newer, 0.1 ether, 0, buyer, block.timestamp), FIXTURE_BUY1_OUT);

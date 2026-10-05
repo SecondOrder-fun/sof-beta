@@ -35,13 +35,6 @@ contract DeployLiquidityPlacer is Script {
     /// @notice Tick spacing. Must divide the position's ticks.
     int24 internal constant TICK_SPACING = 200;
 
-    /// @notice How far below the start price the position extends.
-    /// @dev 1.0001**46_000 is roughly 100x, so the token can climb about two orders of
-    ///      magnitude before the position is fully sold and the supply is entirely in
-    ///      buyers' hands. Wide enough that no realistic launch exhausts it; narrow enough
-    ///      that the price actually moves on ordinary volume.
-    int24 internal constant RANGE_WIDTH_TICKS = 46_000;
-
     function run(DeployedAddresses memory addrs) public returns (DeployedAddresses memory) {
         require(addrs.tokenLaunchpad != address(0), "LiquidityPlacer: launchpad must be deployed first");
 
@@ -63,12 +56,11 @@ contract DeployLiquidityPlacer is Script {
         vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
 
         UniV4LiquidityPlacer placer = new UniV4LiquidityPlacer(
-            poolManager, addrs.tokenLaunchpad, admin, POOL_FEE, TICK_SPACING, RANGE_WIDTH_TICKS
-        );
+            poolManager, addrs.tokenLaunchpad, admin, POOL_FEE, TICK_SPACING);
 
         // The launchpad's half of the circular dependency. Deployer holds CONFIG_ROLE from
         // the launchpad's constructor.
-        TokenLaunchpad(addrs.tokenLaunchpad).setPlacer(address(placer));
+        TokenLaunchpad(payable(addrs.tokenLaunchpad)).setPlacer(address(placer));
 
         // The pool-initialization gate (see LaunchPoolGate): a hook at a CREATE2 address
         // mined so its permission bits are exactly before-initialize. Broadcast CREATE2
@@ -92,7 +84,7 @@ contract DeployLiquidityPlacer is Script {
 
         console2.log("UniV4LiquidityPlacer:", address(placer));
         console2.log("  PoolManager:", poolManager);
-        console2.log("  fee / tickSpacing / rangeWidth:", POOL_FEE, uint256(int256(TICK_SPACING)));
+        console2.log("  fee / tickSpacing:", POOL_FEE, uint256(int256(TICK_SPACING)));
         console2.log("  wired into TokenLaunchpad:", addrs.tokenLaunchpad);
         console2.log("LaunchPoolGate:", address(gate));
         console2.log("  LP fee treasury (12%):", feeTreasury);

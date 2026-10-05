@@ -26,6 +26,10 @@
     "stateMutability": "nonpayable"
   },
   {
+    "type": "receive",
+    "stateMutability": "payable"
+  },
+  {
     "type": "function",
     "name": "CONFIG_ROLE",
     "inputs": [],
@@ -299,6 +303,16 @@
         "name": "startFdv",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "creatorBuyIn",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minTokensOut",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [
@@ -313,7 +327,7 @@
         "internalType": "address"
       }
     ],
-    "stateMutability": "nonpayable"
+    "stateMutability": "payable"
   },
   {
     "type": "function",
@@ -591,6 +605,43 @@
   },
   {
     "type": "event",
+    "name": "CreatorBought",
+    "inputs": [
+      {
+        "name": "launchId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "creator",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "quoteSpent",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "tokensOut",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Paused",
     "inputs": [
       {
@@ -850,6 +901,11 @@
   },
   {
     "type": "error",
+    "name": "CreatorBuyNeedsRouter",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "EmptyName",
     "inputs": []
   },
@@ -862,6 +918,22 @@
     "type": "error",
     "name": "EnforcedPause",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "EthAmountMismatch",
+    "inputs": [
+      {
+        "name": "sent",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "expected",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -896,6 +968,11 @@
   },
   {
     "type": "error",
+    "name": "OnlyRouter",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "PlacerNotSet",
     "inputs": []
   },
@@ -924,6 +1001,11 @@
   {
     "type": "error",
     "name": "ReentrancyGuardReentrantCall",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "RefundFailed",
     "inputs": []
   },
   {

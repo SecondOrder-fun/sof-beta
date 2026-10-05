@@ -59,7 +59,7 @@ contract LaunchpadDeployWiringTest is Test {
         assertTrue(addrs.tokenLaunchpad != address(0), "launchpad deployed");
         assertTrue(addrs.liquidityPlacer != address(0), "placer deployed");
 
-        TokenLaunchpad launchpad = TokenLaunchpad(addrs.tokenLaunchpad);
+        TokenLaunchpad launchpad = TokenLaunchpad(payable(addrs.tokenLaunchpad));
         UniV4LiquidityPlacer placer = UniV4LiquidityPlacer(payable(addrs.liquidityPlacer));
 
         // Both halves of the circular dependency.
@@ -72,7 +72,7 @@ contract LaunchpadDeployWiringTest is Test {
 
     function test_deployerHoldsTheAdminRolesOnBoth() public {
         DeployedAddresses memory addrs = _runLocalLaunchpadDeploy();
-        TokenLaunchpad launchpad = TokenLaunchpad(addrs.tokenLaunchpad);
+        TokenLaunchpad launchpad = TokenLaunchpad(payable(addrs.tokenLaunchpad));
         UniV4LiquidityPlacer placer = UniV4LiquidityPlacer(payable(addrs.liquidityPlacer));
 
         assertTrue(launchpad.hasRole(launchpad.CONFIG_ROLE(), deployer));
@@ -83,11 +83,11 @@ contract LaunchpadDeployWiringTest is Test {
     /// The point of the whole chain: after the deploy, a launch works.
     function test_launchWorksEndToEndAfterDeploy() public {
         DeployedAddresses memory addrs = _runLocalLaunchpadDeploy();
-        TokenLaunchpad launchpad = TokenLaunchpad(addrs.tokenLaunchpad);
+        TokenLaunchpad launchpad = TokenLaunchpad(payable(addrs.tokenLaunchpad));
 
         (uint256 minFdv,) = _ethFdvBounds(launchpad);
         vm.prank(buyer);
-        (, address token) = launchpad.launch("Deployed", "DPLY", "ipfs://m", address(0), minFdv);
+        (, address token) = launchpad.launch("Deployed", "DPLY", "ipfs://m", address(0), minFdv, 0, 0);
 
         assertGt(IERC20(token).balanceOf(addrs.poolManager), 0, "supply reached the pool");
         assertEq(IERC20(token).balanceOf(addrs.tokenLaunchpad), 0, "launchpad kept nothing");
@@ -98,12 +98,12 @@ contract LaunchpadDeployWiringTest is Test {
     /// at a working one — and a trade through it must land.
     function test_deployLeavesTheLaunchpadAdvertisingAWorkingRouter() public {
         DeployedAddresses memory addrs = _runLocalLaunchpadDeploy();
-        TokenLaunchpad launchpad = TokenLaunchpad(addrs.tokenLaunchpad);
+        TokenLaunchpad launchpad = TokenLaunchpad(payable(addrs.tokenLaunchpad));
         assertEq(address(launchpad.router()), addrs.launchRouter, "launchpad advertises the router");
 
         (uint256 minFdv,) = _ethFdvBounds(launchpad);
         vm.prank(buyer);
-        (, address token) = launchpad.launch("Routed", "RTD", "", address(0), minFdv);
+        (, address token) = launchpad.launch("Routed", "RTD", "", address(0), minFdv, 0, 0);
 
         vm.deal(buyer, 1 ether);
         vm.prank(buyer);
@@ -119,7 +119,7 @@ contract LaunchpadDeployWiringTest is Test {
     /// If someone edits the bounds as wei and slips a zero, this is what catches it.
     function test_boundsAreTheIntendedFdvRange() public {
         DeployedAddresses memory addrs = _runLocalLaunchpadDeploy();
-        TokenLaunchpad launchpad = TokenLaunchpad(addrs.tokenLaunchpad);
+        TokenLaunchpad launchpad = TokenLaunchpad(payable(addrs.tokenLaunchpad));
 
         (bool allowed, uint256 minFdv, uint256 maxFdv) = launchpad.quoteConfig(address(0));
         assertTrue(allowed, "ETH is the default quote token");
@@ -131,26 +131,26 @@ contract LaunchpadDeployWiringTest is Test {
     /// a single 0.1 ETH buy consumes the entire position. The deployed floor must exclude it.
     function test_theFdvThatBreaksPlacementIsBelowTheFloor() public {
         DeployedAddresses memory addrs = _runLocalLaunchpadDeploy();
-        TokenLaunchpad launchpad = TokenLaunchpad(addrs.tokenLaunchpad);
+        TokenLaunchpad launchpad = TokenLaunchpad(payable(addrs.tokenLaunchpad));
 
         uint256 pathological = 0.001 ether;
         (uint256 minFdv, uint256 maxFdv) = _ethFdvBounds(launchpad);
 
         vm.prank(buyer);
         vm.expectRevert(abi.encodeWithSelector(StartFdvOutOfRange.selector, pathological, minFdv, maxFdv));
-        launchpad.launch("TooCheap", "CHEAP", "", address(0), pathological);
+        launchpad.launch("TooCheap", "CHEAP", "", address(0), pathological, 0, 0);
     }
 
     /// Both bounds are reachable: a price exactly at each end must place successfully. A
     /// bound the placer cannot actually handle would be worse than no bound.
     function test_bothBoundsArePlaceable() public {
         DeployedAddresses memory addrs = _runLocalLaunchpadDeploy();
-        TokenLaunchpad launchpad = TokenLaunchpad(addrs.tokenLaunchpad);
+        TokenLaunchpad launchpad = TokenLaunchpad(payable(addrs.tokenLaunchpad));
 
         (uint256 minFdv, uint256 maxFdv) = _ethFdvBounds(launchpad);
         vm.startPrank(buyer);
-        (, address atFloor) = launchpad.launch("Floor", "FLR", "", address(0), minFdv);
-        (, address atCeiling) = launchpad.launch("Ceiling", "CEIL", "", address(0), maxFdv);
+        (, address atFloor) = launchpad.launch("Floor", "FLR", "", address(0), minFdv, 0, 0);
+        (, address atCeiling) = launchpad.launch("Ceiling", "CEIL", "", address(0), maxFdv, 0, 0);
         vm.stopPrank();
 
         assertGt(IERC20(atFloor).balanceOf(addrs.poolManager), 0);
@@ -174,7 +174,7 @@ contract LaunchpadDeployWiringTest is Test {
         assertEq(addrs.liquidityPlacer, address(0), "no placer deployed");
         assertEq(addrs.poolManager, address(0), "nothing resolved");
 
-        TokenLaunchpad launchpad = TokenLaunchpad(addrs.tokenLaunchpad);
+        TokenLaunchpad launchpad = TokenLaunchpad(payable(addrs.tokenLaunchpad));
         assertEq(address(launchpad.placer()), address(0));
 
         // Read the bound up front: expectRevert applies to the very next call, and an
@@ -183,7 +183,7 @@ contract LaunchpadDeployWiringTest is Test {
 
         vm.prank(buyer);
         vm.expectRevert(PlacerNotSet.selector);
-        launchpad.launch("Unusable", "UNUS", "", address(0), minFdv);
+        launchpad.launch("Unusable", "UNUS", "", address(0), minFdv, 0, 0);
     }
 
     /// POOL_MANAGER_ADDRESS is how a new chain is brought up, so it must be the thing the

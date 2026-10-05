@@ -18,6 +18,10 @@ error SymbolTooLong();
 error StartFdvOutOfRange(uint256 startFdv, uint256 min, uint256 max);
 error QuoteTokenNotAllowed(address quoteToken);
 error QuoteTokenNotAContract(address quoteToken);
+error CreatorBuyNeedsRouter();
+error EthAmountMismatch(uint256 sent, uint256 expected);
+error RefundFailed();
+error OnlyRouter();
 error PlacerNotSet();
 error LaunchpadHoldsResidualTokens(uint256 amount);
 error InvalidFdvBounds();
@@ -33,9 +37,10 @@ error InvalidFdvBounds();
  *      - **No launch fee.** Launching costs gas only. Charging moved to raffle creation,
  *        where the costs (VRF in particular) are actually incurred. No major launchpad
  *        earns from launch fees; Clanker and Pools.trade charge nothing (§1, fee benchmarks).
- *      - **No free creator allocation.** The creator receives no tokens here, by any
- *        path. A creator who wants a position buys it like anyone else, at the same
- *        price, after the pool exists.
+ *      - **No free creator allocation.** The creator receives no tokens for free, by any
+ *        path. A creator who wants a position buys it — optionally in the launch
+ *        transaction itself (`creatorBuyIn`), so nobody can buy ahead of them — through
+ *        the same router, at the same pool price and 1% fee as anyone else.
  *      - **No reserved supply.** The entire supply is placed as liquidity. Single-sided
  *        placement removed the separate LP bucket, and funding the InfoFi seed from
  *        trading fees removed the seed bucket, so a launched token has no overhang at all.
@@ -140,6 +145,10 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
     event RouterUpdated(address indexed previous, address indexed current);
     event QuoteTokenSet(address indexed quoteToken, uint256 minStartFdv, uint256 maxStartFdv);
     event QuoteTokenRemoved(address indexed quoteToken);
+    /// @notice The creator's buy made inside the launch transaction.
+    event CreatorBought(
+        uint256 indexed launchId, address indexed token, address indexed creator, uint256 quoteSpent, uint256 tokensOut
+    );
 
     /// @param _minEthStartFdv Lowest opening valuation for an ETH launch, in wei.
     /// @param _maxEthStartFdv Highest opening valuation for an ETH launch, in wei.
@@ -170,6 +179,12 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
      *                      or an ERC-20 on the allowlist.
      * @param startFdv      Opening fully-diluted valuation, in `quoteToken`'s raw units:
      *                      what the whole supply is worth at the starting price.
+     * @param creatorBuyIn  Optional first buy for the creator, in `quoteToken`'s raw units,
+     *                      made in this transaction right after the pool is placed — before
+     *                      anyone else can trade. ETH: send exactly this as `msg.value`.
+     *                      ERC-20: approve this contract for it and send no ETH. Zero skips
+     *                      the buy (and then no ETH may be sent).
+     * @param minTokensOut  The creator buy's slippage floor; the whole launch reverts below it.
      * @return launchId The launch's index.
      * @return token    The deployed token.
      */
@@ -178,8 +193,10 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
         string calldata symbol,
         string calldata metadataURI,
         address quoteToken,
-        uint256 startFdv
-    ) external nonReentrant whenNotPaused returns (uint256 launchId, address token) {
+        uint256 startFdv,
+        uint256 creatorBuyIn,
+        uint256 minTokensOut
+    ) external payable nonReentrant whenNotPaused returns (uint256 launchId, address token) {
         if (bytes(name).length == 0) revert EmptyName();
         if (bytes(symbol).length == 0) revert EmptySymbol();
         if (bytes(name).length > MAX_NAME_LENGTH) revert NameTooLong();
@@ -189,6 +206,8 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
         if (startFdv < qc.minStartFdv || startFdv > qc.maxStartFdv) {
             revert StartFdvOutOfRange(startFdv, qc.minStartFdv, qc.maxStartFdv);
         }
+        uint256 expectedValue = quoteToken == NATIVE ? creatorBuyIn : 0;
+        if (msg.value != expectedValue) revert EthAmountMismatch(msg.value, expectedValue);
 
         ILiquidityPlacer currentPlacer = placer;
         if (address(currentPlacer) == address(0)) revert PlacerNotSet();
@@ -222,6 +241,48 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
         _launchIdPlusOne[token] = launchId + 1;
 
         emit TokenLaunched(launchId, token, msg.sender, name, symbol, metadataURI, quoteToken, startFdv, placementId);
+
+        if (creatorBuyIn != 0) _creatorBuy(launchId, token, quoteToken, creatorBuyIn, minTokensOut);
+    }
+
+    /// @dev The creator's first buy, through the active router exactly as any buyer's is,
+    ///      so it pays the pool price and fee and is recorded as an ordinary trade. The
+    ///      launch is already registered, which the router requires. Whatever a partial fill
+    ///      leaves unspent goes back to the creator, so this contract keeps nothing.
+    function _creatorBuy(uint256 launchId, address token, address quoteToken, uint256 quoteIn, uint256 minTokensOut)
+        private
+    {
+        ILaunchRouter r = router;
+        if (address(r) == address(0)) revert CreatorBuyNeedsRouter();
+
+        uint256 tokensOut;
+        uint256 unspent;
+        if (quoteToken == NATIVE) {
+            // msg.value is already in the balance; the router refunds any unspent part here.
+            uint256 before = address(this).balance - quoteIn;
+            tokensOut = r.buy{value: quoteIn}(token, quoteIn, minTokensOut, msg.sender, block.timestamp);
+            unspent = address(this).balance - before;
+            if (unspent != 0) {
+                (bool ok,) = msg.sender.call{value: unspent}("");
+                if (!ok) revert RefundFailed();
+            }
+        } else {
+            IERC20 quote = IERC20(quoteToken);
+            uint256 before = quote.balanceOf(address(this));
+            quote.safeTransferFrom(msg.sender, address(this), quoteIn);
+            quote.forceApprove(address(r), quoteIn);
+            tokensOut = r.buy(token, quoteIn, minTokensOut, msg.sender, block.timestamp);
+            quote.forceApprove(address(r), 0);
+            unspent = quote.balanceOf(address(this)) - before;
+            if (unspent != 0) quote.safeTransfer(msg.sender, unspent);
+        }
+
+        emit CreatorBought(launchId, token, msg.sender, quoteIn - unspent, tokensOut);
+    }
+
+    /// @dev ETH arrives only as the router's refund of a creator buy's unspent part.
+    receive() external payable {
+        if (msg.sender != address(router)) revert OnlyRouter();
     }
 
     // ------------------------------------------------------------------

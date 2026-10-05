@@ -29,7 +29,7 @@ contract DeployLaunchRouter is Script {
         vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
 
         UniV4LaunchRouter router = new UniV4LaunchRouter(addrs.poolManager, addrs.tokenLaunchpad);
-        TokenLaunchpad(addrs.tokenLaunchpad).setRouter(address(router));
+        TokenLaunchpad(payable(addrs.tokenLaunchpad)).setRouter(address(router));
 
         vm.stopBroadcast();
 

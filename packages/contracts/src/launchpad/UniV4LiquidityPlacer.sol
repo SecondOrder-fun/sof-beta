@@ -29,7 +29,6 @@ error ZeroAddress();
 error ZeroAmount();
 error StartFdvUnreachable(uint256 startFdv);
 error PoolParamsOutOfRange(uint24 fee, int24 tickSpacing);
-error RangeWidthNotPositive();
 error PlacementWouldCostQuote(int128 quoteDelta);
 error LiquidityIsZero();
 error GateNotSet();
@@ -62,28 +61,32 @@ error LiquidityOverflow(uint256 liquidity);
  *      for an ERC-20 whose address is below the launch token's. Price is *token per
  *      quote*, so a HIGH tick means a CHEAP token, and buying (quote in, token out) moves
  *      the tick DOWN. A position holds only `currency1` (the token) when the current tick
- *      is at or above its upper tick, so the position is `[tickUpper - width, tickUpper]`
- *      and the pool starts AT `tickUpper`. Buyers walk the tick down to `tickLower`.
+ *      is at or above its upper tick, so the position is `[minUsableTick, tickUpper]` and
+ *      the pool starts AT `tickUpper`. Buyers walk the tick down from there.
  *
  *      **Token is currency0** — an ERC-20 quote whose address is above the launch token's.
  *      Price is *quote per token*, so a HIGH tick means an EXPENSIVE token and buying
  *      moves the tick UP. A position holds only `currency0` (the token) when the current
- *      tick is at or below its lower tick, so the position is `[tickLower, tickLower +
- *      width]` and the pool starts AT `tickLower`. Buyers walk the tick up to `tickUpper`.
+ *      tick is at or below its lower tick, so the position is `[tickLower, maxUsableTick]`
+ *      and the pool starts AT `tickLower`. Buyers walk the tick up from there.
  *
- *      Either way the token's price climbs the same ~`rangeWidthTicks` before the position
- *      sells out, and the pool starts exactly at the edge where it owes no quote token.
+ *      Either way the pool starts exactly at the edge where it owes no quote token.
  *      `Placement.tokenIsCurrency0` records the case; the router reads it to pick the
  *      swap direction and the edge a swap may not cross.
  *
- *      ## Why one range rather than a staircase of bands
+ *      ## One range, to the end of the price scale
  *
- *      Clanker and Pons both spread liquidity across several bands. A band ladder is a
- *      way to *shape* the curve; it is not needed to have one. A single wide range gives a
- *      continuous, monotonic price curve with less gas, fewer `modifyLiquidity` calls and
- *      no per-band rounding to reason about. Bands remain a straightforward extension —
- *      the range parameters already live in config — and should be added only if there is
- *      a shape we actually want that one range cannot express.
+ *      The position runs from the starting price all the way to v4's last usable tick, so
+ *      the token never sells out: at any price there is still liquidity, and no route —
+ *      ours or a third party's — can push it into an empty range where quoting breaks. A
+ *      range that ended ~100x above launch would have sold out at a 100 ETH valuation for a
+ *      1 ETH launch. The cost is small: liquidity scales with `1 / (sqrtB - sqrtA)`, and
+ *      with the far edge effectively at zero (or infinity) the depth near the launch price
+ *      is within ~10% of a 100x range's.
+ *
+ *      A single range rather than a staircase of bands: a band ladder is a way to *shape*
+ *      the curve, not a requirement for having one. One range gives a continuous,
+ *      monotonic price curve with less gas and no per-band rounding to reason about.
  *
  *      ## Who may initialize the pool
  *
@@ -138,10 +141,6 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
     uint24 public fee;
     /// @notice Tick spacing. Must divide the position's ticks.
     int24 public tickSpacing;
-    /// @notice How far the position extends from the start price, in ticks. Sets how far
-    ///         the token price can climb before the position is fully sold out.
-    ///         ~46_050 ticks is roughly a 100x climb (1.0001**46050).
-    int24 public rangeWidthTicks;
     /// @notice The hook every launch pool is keyed with; only it lets this contract
     ///         initialize a pool. Changing it affects future launches only.
     IHooks public gate;
@@ -186,7 +185,7 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         uint128 liquidity,
         bool tokenIsCurrency0
     );
-    event PoolParamsUpdated(uint24 fee, int24 tickSpacing, int24 rangeWidthTicks);
+    event PoolParamsUpdated(uint24 fee, int24 tickSpacing);
     event GateUpdated(address indexed gate);
     event DustSwept(address indexed currency, address indexed to, uint256 amount);
     event FeesCollected(
@@ -221,18 +220,15 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         address _launchpad,
         address admin,
         uint24 _fee,
-        int24 _tickSpacing,
-        int24 _rangeWidthTicks
+        int24 _tickSpacing
     ) {
         if (_poolManager == address(0) || _launchpad == address(0) || admin == address(0)) revert ZeroAddress();
-        if (_rangeWidthTicks <= 0) revert RangeWidthNotPositive();
         _checkPoolParams(_fee, _tickSpacing);
 
         poolManager = IPoolManager(_poolManager);
         launchpad = _launchpad;
         fee = _fee;
         tickSpacing = _tickSpacing;
-        rangeWidthTicks = _rangeWidthTicks;
 
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(CONFIG_ROLE, admin);
@@ -256,7 +252,6 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         if (address(hooks) == address(0)) revert GateNotSet();
 
         int24 spacing = tickSpacing;
-        int24 width = _alignUp(rangeWidthTicks, spacing);
         bool tokenIsCurrency0 = token < quoteToken;
 
         // Ticks are discrete, so the effective start price is the creator's valuation
@@ -274,9 +269,7 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
             int24 tick = _tickForSqrtPrice(sqrtStart, startFdv);
             if (TickMath.getSqrtPriceAtTick(tick) < sqrtStart) tick += 1;
             tickLower = _alignUpTick(tick, spacing);
-            tickUpper = tickLower + width;
-            int24 maxTick = TickMath.maxUsableTick(spacing);
-            if (tickUpper > maxTick) tickUpper = maxTick;
+            tickUpper = TickMath.maxUsableTick(spacing);
             uint160 sqrtLower = TickMath.getSqrtPriceAtTick(tickLower);
             uint160 sqrtUpper = TickMath.getSqrtPriceAtTick(tickUpper);
             // amount0 = L * Q96 * (sqrtB - sqrtA) / (sqrtA * sqrtB), so
@@ -291,9 +284,7 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
             // Price is token per quote here, so dearer is a LOWER tick. getTickAtSqrtPrice
             // already floors; aligning down keeps rounding that way.
             tickUpper = _alignDown(_tickForSqrtPrice(_sqrtPriceTokenPerQuote(startFdv, amount), startFdv), spacing);
-            tickLower = tickUpper - width;
-            int24 minTick = TickMath.minUsableTick(spacing);
-            if (tickLower < minTick) tickLower = minTick;
+            tickLower = TickMath.minUsableTick(spacing);
             uint160 sqrtLower = TickMath.getSqrtPriceAtTick(tickLower);
             uint160 sqrtUpper = TickMath.getSqrtPriceAtTick(tickUpper);
             // amount1 = L * (sqrtB - sqrtA) / Q96, so L = amount1 * Q96 / (sqrtB - sqrtA).
@@ -582,14 +573,6 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         return down == tick ? tick : down + spacing;
     }
 
-    /// @dev Rounds a positive width up to a whole number of spacings, so the range is
-    ///      never narrower than configured.
-    function _alignUp(int24 width, int24 spacing) internal pure returns (int24) {
-        int24 aligned = (width / spacing) * spacing;
-        if (aligned != width) aligned += spacing;
-        return aligned;
-    }
-
     /// @dev Babylonian integer square root.
     function _sqrt(uint256 x) internal pure returns (uint256 y) {
         if (x == 0) return 0;
@@ -605,13 +588,11 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
     // Config
     // ------------------------------------------------------------------
 
-    function setPoolParams(uint24 _fee, int24 _tickSpacing, int24 _rangeWidthTicks) external onlyRole(CONFIG_ROLE) {
-        if (_rangeWidthTicks <= 0) revert RangeWidthNotPositive();
+    function setPoolParams(uint24 _fee, int24 _tickSpacing) external onlyRole(CONFIG_ROLE) {
         _checkPoolParams(_fee, _tickSpacing);
         fee = _fee;
         tickSpacing = _tickSpacing;
-        rangeWidthTicks = _rangeWidthTicks;
-        emit PoolParamsUpdated(_fee, _tickSpacing, _rangeWidthTicks);
+        emit PoolParamsUpdated(_fee, _tickSpacing);
     }
 
     /// @notice Set the pool-initialization gate. It must be a `LaunchPoolGate` for this

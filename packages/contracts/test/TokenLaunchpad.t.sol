@@ -70,7 +70,7 @@ contract TokenLaunchpadTest is Test {
 
     function _launch(string memory name, string memory symbol) internal returns (uint256 id, address token) {
         vm.prank(creator);
-        return launchpad.launch(name, symbol, "ipfs://meta", NATIVE, FDV);
+        return launchpad.launch(name, symbol, "ipfs://meta", NATIVE, FDV, 0, 0);
     }
 
     // ------------------------------------------------------------------
@@ -81,7 +81,7 @@ contract TokenLaunchpadTest is Test {
         uint256 balanceBefore = stranger.balance;
 
         vm.prank(stranger);
-        (uint256 id, address token) = launchpad.launch("Anyone", "ANY", "", NATIVE, FDV);
+        (uint256 id, address token) = launchpad.launch("Anyone", "ANY", "", NATIVE, FDV, 0, 0);
 
         assertEq(id, 0);
         assertTrue(token != address(0));
@@ -167,30 +167,30 @@ contract TokenLaunchpadTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(StartFdvOutOfRange.selector, MIN_FDV - 1, MIN_FDV, MAX_FDV)
         );
-        launchpad.launch("Low", "LOW", "", NATIVE, MIN_FDV - 1);
+        launchpad.launch("Low", "LOW", "", NATIVE, MIN_FDV - 1, 0, 0);
 
         vm.expectRevert(
             abi.encodeWithSelector(StartFdvOutOfRange.selector, MAX_FDV + 1, MIN_FDV, MAX_FDV)
         );
-        launchpad.launch("High", "HIGH", "", NATIVE, MAX_FDV + 1);
+        launchpad.launch("High", "HIGH", "", NATIVE, MAX_FDV + 1, 0, 0);
         vm.stopPrank();
     }
 
     function test_nameAndSymbolAreValidated() public {
         vm.startPrank(creator);
         vm.expectRevert(EmptyName.selector);
-        launchpad.launch("", "SYM", "", NATIVE, FDV);
+        launchpad.launch("", "SYM", "", NATIVE, FDV, 0, 0);
 
         vm.expectRevert(EmptySymbol.selector);
-        launchpad.launch("Name", "", "", NATIVE, FDV);
+        launchpad.launch("Name", "", "", NATIVE, FDV, 0, 0);
 
         string memory longName = new string(49);
         vm.expectRevert(NameTooLong.selector);
-        launchpad.launch(longName, "SYM", "", NATIVE, FDV);
+        launchpad.launch(longName, "SYM", "", NATIVE, FDV, 0, 0);
 
         string memory longSymbol = new string(17);
         vm.expectRevert(SymbolTooLong.selector);
-        launchpad.launch("Name", longSymbol, "", NATIVE, FDV);
+        launchpad.launch("Name", longSymbol, "", NATIVE, FDV, 0, 0);
         vm.stopPrank();
     }
 
@@ -203,7 +203,7 @@ contract TokenLaunchpadTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(LaunchpadHoldsResidualTokens.selector, launchpad.TOKEN_SUPPLY() / 2)
         );
-        launchpad.launch("Leaky", "LEAK", "", NATIVE, FDV);
+        launchpad.launch("Leaky", "LEAK", "", NATIVE, FDV, 0, 0);
     }
 
     function test_launchRevertsWhenNoPlacerConfigured() public {
@@ -211,7 +211,7 @@ contract TokenLaunchpadTest is Test {
 
         vm.prank(creator);
         vm.expectRevert(PlacerNotSet.selector);
-        bare.launch("NoPlacer", "NOP", "", NATIVE, FDV);
+        bare.launch("NoPlacer", "NOP", "", NATIVE, FDV, 0, 0);
     }
 
     function test_constructorRejectsInvertedFdvBounds() public {
@@ -240,7 +240,7 @@ contract TokenLaunchpadTest is Test {
 
         vm.prank(creator);
         vm.expectRevert();
-        launchpad.launch("During", "DUR", "", NATIVE, FDV);
+        launchpad.launch("During", "DUR", "", NATIVE, FDV, 0, 0);
 
         // The already-launched token is untouched: supply still placed, still tradeable
         // wherever the placer put it. Pausing is a control on this contract, not on pools.
@@ -281,7 +281,7 @@ contract TokenLaunchpadTest is Test {
         MockERC20 usdc = new MockERC20("USD Coin", "USDC", 0);
         vm.prank(creator);
         vm.expectRevert(abi.encodeWithSelector(QuoteTokenNotAllowed.selector, address(usdc)));
-        launchpad.launch("Unlisted", "UNL", "", address(usdc), FDV);
+        launchpad.launch("Unlisted", "UNL", "", address(usdc), FDV, 0, 0);
     }
 
     function test_allowedErc20QuoteLaunchesWithItsOwnBounds() public {
@@ -291,8 +291,8 @@ contract TokenLaunchpadTest is Test {
         vm.startPrank(creator);
         // ETH's bounds do not apply to USDC, nor USDC's to ETH.
         vm.expectRevert(abi.encodeWithSelector(StartFdvOutOfRange.selector, 2_499e6, 2_500e6, 1_000_000e6));
-        launchpad.launch("Cheap", "CHP", "", address(usdc), 2_499e6);
-        (uint256 id, address token) = launchpad.launch("Stable", "STB", "", address(usdc), 5_000e6);
+        launchpad.launch("Cheap", "CHP", "", address(usdc), 2_499e6, 0, 0);
+        (uint256 id, address token) = launchpad.launch("Stable", "STB", "", address(usdc), 5_000e6, 0, 0);
         vm.stopPrank();
 
         assertEq(launchpad.quoteTokenOf(token), address(usdc));
@@ -304,13 +304,13 @@ contract TokenLaunchpadTest is Test {
         MockERC20 usdc = new MockERC20("USD Coin", "USDC", 0);
         launchpad.setQuoteToken(address(usdc), 1, type(uint256).max);
         vm.prank(creator);
-        (, address existing) = launchpad.launch("Before", "BEF", "", address(usdc), 5_000e6);
+        (, address existing) = launchpad.launch("Before", "BEF", "", address(usdc), 5_000e6, 0, 0);
 
         launchpad.removeQuoteToken(address(usdc));
 
         vm.prank(creator);
         vm.expectRevert(abi.encodeWithSelector(QuoteTokenNotAllowed.selector, address(usdc)));
-        launchpad.launch("After", "AFT", "", address(usdc), 5_000e6);
+        launchpad.launch("After", "AFT", "", address(usdc), 5_000e6, 0, 0);
         assertEq(launchpad.quoteTokenOf(existing), address(usdc), "the earlier launch keeps its pairing");
 
         vm.expectRevert(abi.encodeWithSelector(QuoteTokenNotAllowed.selector, address(usdc)));
@@ -327,7 +327,7 @@ contract TokenLaunchpadTest is Test {
         launchpad.removeQuoteToken(NATIVE);
         vm.prank(creator);
         vm.expectRevert(abi.encodeWithSelector(QuoteTokenNotAllowed.selector, NATIVE));
-        launchpad.launch("NoEth", "NOE", "", NATIVE, FDV);
+        launchpad.launch("NoEth", "NOE", "", NATIVE, FDV, 0, 0);
 
         launchpad.setQuoteToken(NATIVE, MIN_FDV, MAX_FDV);
         _launch("EthAgain", "ETHA");
