@@ -17,12 +17,12 @@ const TRADES = "launch_trades";
 
 const LAUNCH_COLUMNS =
   "token_address, launch_id, creator_address, name, symbol, metadata_uri, " +
-  "start_price_wei, implied_fdv_wei, total_supply, pool_id, launched_at, " +
+  "quote_token, quote_symbol, quote_decimals, start_price, start_fdv, total_supply, pool_id, launched_at, " +
   "block_number, tx_hash, is_hidden, is_verified, created_at, updated_at";
 
 const TRADE_COLUMNS =
-  "tx_hash, log_index, token_address, pool_id, trader, side, eth_amount, " +
-  "token_amount, price_wei, tick, block_number, block_time";
+  "tx_hash, log_index, token_address, pool_id, trader, side, quote_amount, " +
+  "token_amount, price, tick, block_number, block_time";
 
 const lc = (v) => (v == null ? v : String(v).toLowerCase());
 
@@ -244,7 +244,7 @@ export async function listPoolIndex({ pageSize = POOL_INDEX_PAGE } = {}) {
   for (;;) {
     let q = supabase
       .from(LAUNCHES)
-      .select("pool_id, token_address, symbol")
+      .select("pool_id, token_address, symbol, quote_token")
       .not("pool_id", "is", null);
     const last = all.at(-1);
     if (last) q = q.gt("token_address", last.token_address);

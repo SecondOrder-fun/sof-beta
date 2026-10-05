@@ -61,9 +61,14 @@ function toLaunchResponse(row) {
     name: row.name,
     symbol: row.symbol,
     metadataURI: row.metadata_uri,
-    // Strings, not numbers: these are wei and do not survive a JS number.
-    startPriceWei: row.start_price_wei,
-    impliedFdvWei: row.implied_fdv_wei,
+    // What the launch trades against (0x000…000 = native ETH), and how to format
+    // its amounts. startPrice (per whole token) and startFdv are in that quote's
+    // RAW units, as strings: they do not survive a JS number.
+    quoteToken: row.quote_token,
+    quoteSymbol: row.quote_symbol,
+    quoteDecimals: row.quote_decimals,
+    startPrice: row.start_price,
+    startFdv: row.start_fdv,
     totalSupply: row.total_supply,
     poolId: row.pool_id,
     launchedAt: row.launched_at,
@@ -80,9 +85,10 @@ function toTradeResponse(row) {
     token: row.token_address,
     trader: row.trader,
     side: row.side,
-    ethAmount: row.eth_amount,
+    // In the launch's quote token's raw units (its quote fields are on the token).
+    quoteAmount: row.quote_amount,
     tokenAmount: row.token_amount,
-    priceWei: row.price_wei,
+    price: row.price,
     tick: row.tick,
     blockNumber: row.block_number,
     blockTime: row.block_time,
@@ -244,11 +250,19 @@ export default async function launchpadRoutes(fastify) {
         trades,
         seed,
         truncated,
-        launch: { launchedAt: launch.launched_at, startPriceWei: launch.start_price_wei },
+        launch: { launchedAt: launch.launched_at, startPrice: launch.start_price },
         rangeSec,
         nowSec,
       });
-      return { range, tradeCount: trades.length, truncated, ...chart };
+      return {
+        range,
+        tradeCount: trades.length,
+        truncated,
+        quoteToken: launch.quote_token,
+        quoteSymbol: launch.quote_symbol,
+        quoteDecimals: launch.quote_decimals,
+        ...chart,
+      };
     } catch (err) {
       request.log.error({ err, address }, "launchpad chart failed");
       return reply.code(500).send({ error: "failed to load chart" });

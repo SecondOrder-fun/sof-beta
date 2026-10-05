@@ -15,58 +15,58 @@ import {
 
 const NOW = 1_700_000_000;
 const at = (sec) => new Date(sec * 1000).toISOString();
-const launch = { launchedAt: at(NOW - 5 * 86400), startPriceWei: "1000000000" };
+const launch = { launchedAt: at(NOW - 5 * 86400), startPrice: "1000000000" };
 
 describe("buildChart", () => {
   it("enters the range at the price in force when it opened — the last earlier trade", () => {
     const c = buildChart({
-      trades: [{ price_wei: "3000", block_time: at(NOW - 100) }],
-      seed: { price_wei: "2000", block_time: at(NOW - 7200) },
+      trades: [{ price: "3000", block_time: at(NOW - 100) }],
+      seed: { price: "2000", block_time: at(NOW - 7200) },
       launch, rangeSec: 3600, nowSec: NOW,
     });
-    expect(c.points[0]).toEqual({ t: NOW - 3600, priceWei: "2000" });
-    expect(c.points.at(-1)).toEqual({ t: NOW - 100, priceWei: "3000" });
+    expect(c.points[0]).toEqual({ t: NOW - 3600, price: "2000" });
+    expect(c.points.at(-1)).toEqual({ t: NOW - 100, price: "3000" });
   });
 
   // A quiet hour must still draw a line, not an empty chart.
   it("draws the entry point even when nothing traded in range", () => {
-    const c = buildChart({ trades: [], seed: { price_wei: "2000", block_time: at(NOW - 7200) }, launch, rangeSec: 3600, nowSec: NOW });
-    expect(c.points).toEqual([{ t: NOW - 3600, priceWei: "2000" }]);
+    const c = buildChart({ trades: [], seed: { price: "2000", block_time: at(NOW - 7200) }, launch, rangeSec: 3600, nowSec: NOW });
+    expect(c.points).toEqual([{ t: NOW - 3600, price: "2000" }]);
   });
 
   it("starts 'all' at the launch price and time", () => {
     const c = buildChart({ trades: [], seed: null, launch, rangeSec: null, nowSec: NOW });
-    expect(c.points[0]).toEqual({ t: NOW - 5 * 86400, priceWei: "1000000000" });
-    expect(c.launch.priceWei).toBe("1000000000");
+    expect(c.points[0]).toEqual({ t: NOW - 5 * 86400, price: "1000000000" });
+    expect(c.launch.price).toBe("1000000000");
   });
 
   it("never starts before launch, even for a range longer than the token has existed", () => {
-    const young = { launchedAt: at(NOW - 600), startPriceWei: "5" };
+    const young = { launchedAt: at(NOW - 600), startPrice: "5" };
     const c = buildChart({ trades: [], seed: null, launch: young, rangeSec: 86400, nowSec: NOW });
-    expect(c.points[0]).toEqual({ t: NOW - 600, priceWei: "5" });
+    expect(c.points[0]).toEqual({ t: NOW - 600, price: "5" });
   });
 
   // Truncated: only the newest trades came back. The launch price (or the
   // range's opening price) is not the price before the first of them.
   it("enters a truncated 'all' chart at the newest omitted trade, at its own time", () => {
     const c = buildChart({
-      trades: [{ price_wei: "900", block_time: at(NOW - 50) }, { price_wei: "950", block_time: at(NOW - 10) }],
-      seed: { price_wei: "880", block_time: at(NOW - 60) },
+      trades: [{ price: "900", block_time: at(NOW - 50) }, { price: "950", block_time: at(NOW - 10) }],
+      seed: { price: "880", block_time: at(NOW - 60) },
       truncated: true,
       launch, rangeSec: null, nowSec: NOW,
     });
-    expect(c.points.map((p) => [p.t, p.priceWei])).toEqual([[NOW - 60, "880"], [NOW - 50, "900"], [NOW - 10, "950"]]);
-    expect(c.launch.priceWei).toBe("1000000000");
+    expect(c.points.map((p) => [p.t, p.price])).toEqual([[NOW - 60, "880"], [NOW - 50, "900"], [NOW - 10, "950"]]);
+    expect(c.launch.price).toBe("1000000000");
   });
 
   it("enters a truncated ranged chart at the omitted trade, not the range's start", () => {
     const c = buildChart({
-      trades: [{ price_wei: "900", block_time: at(NOW - 50) }],
-      seed: { price_wei: "880", block_time: at(NOW - 60) },
+      trades: [{ price: "900", block_time: at(NOW - 50) }],
+      seed: { price: "880", block_time: at(NOW - 60) },
       truncated: true,
       launch, rangeSec: 3600, nowSec: NOW,
     });
-    expect(c.points[0]).toEqual({ t: NOW - 60, priceWei: "880" });
+    expect(c.points[0]).toEqual({ t: NOW - 60, price: "880" });
   });
 });
 
@@ -79,7 +79,7 @@ describe("summarizeSeason", () => {
 });
 
 describe("downsample", () => {
-  const pts = Array.from({ length: 1000 }, (_, i) => ({ t: i, priceWei: String(i) }));
+  const pts = Array.from({ length: 1000 }, (_, i) => ({ t: i, price: String(i) }));
 
   it("caps the point count and keeps the first and last", () => {
     const d = downsample(pts, 50);
@@ -89,8 +89,8 @@ describe("downsample", () => {
   });
 
   it("keeps only prices that actually traded — no averaging", () => {
-    const originals = new Set(pts.map((p) => p.priceWei));
-    for (const p of downsample(pts, 50)) expect(originals.has(p.priceWei)).toBe(true);
+    const originals = new Set(pts.map((p) => p.price));
+    for (const p of downsample(pts, 50)) expect(originals.has(p.price)).toBe(true);
   });
 
   it("leaves short series alone", () => {
@@ -128,10 +128,10 @@ describe("buildTokenActivity", () => {
   it("merges trades and launches newest first, labelled with symbols", () => {
     const items = buildTokenActivity({
       trades: [
-        { side: "BUY", block_time: at(NOW - 10), trader: "0xa", token_address: "0xt", eth_amount: "1", price_wei: "5", tx_hash: "0x1" },
-        { side: "SELL", block_time: at(NOW - 30), trader: "0xb", token_address: "0xt", eth_amount: "2", price_wei: "4", tx_hash: "0x2" },
+        { side: "BUY", block_time: at(NOW - 10), trader: "0xa", token_address: "0xt", quote_amount: "1", price: "5", tx_hash: "0x1" },
+        { side: "SELL", block_time: at(NOW - 30), trader: "0xb", token_address: "0xt", quote_amount: "2", price: "4", tx_hash: "0x2" },
       ],
-      launches: [{ launched_at: at(NOW - 20), creator_address: "0xc", token_address: "0xu", symbol: "NEW", implied_fdv_wei: "9", tx_hash: "0x3" }],
+      launches: [{ launched_at: at(NOW - 20), creator_address: "0xc", token_address: "0xu", symbol: "NEW", start_fdv: "9", tx_hash: "0x3" }],
       symbols: { "0xt": "POND" },
     });
     expect(items.map((i) => i.kind)).toEqual(["buy", "launch", "sell"]);

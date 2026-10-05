@@ -6,8 +6,14 @@
  *   event TokenLaunched(
  *       uint256 indexed launchId, address indexed token, address indexed creator,
  *       string name, string symbol, string metadataURI,
- *       uint256 startPriceWei, bytes32 placementId
+ *       address quoteToken, uint256 startFdv, bytes32 placementId
  *   );
+ *
+ * `quoteToken` is what the launch trades against — address 0 for native ETH,
+ * else an allowlisted ERC-20 — and `startFdv` its opening valuation in that
+ * token's raw units. The quote's symbol and decimals are read once per quote
+ * (resolveQuote) and stored with the launch, so every client can format its
+ * amounts without another RPC call.
  *
  * This listener is the ONLY source for a token's name, symbol and metadata URI.
  * The launchpad emits them but does not store them — on-chain storage would
@@ -48,7 +54,34 @@ import {
 import { createBlockCursor } from "../lib/blockCursor.js";
 import { tokenLaunchesDb } from "../../shared/services/tokenLaunchesDb.js";
 import { getSSEChannelService } from "../services/sseChannelService.js";
-import { buildLaunchRow } from "./buildLaunchRow.js";
+import { erc20Abi } from "viem";
+import { buildLaunchRow, ETH_QUOTE, NATIVE_QUOTE } from "./buildLaunchRow.js";
+
+/** quote address (lowercase) -> { address, symbol, decimals }. Quotes never change. */
+const quoteCache = new Map([[NATIVE_QUOTE, ETH_QUOTE]]);
+
+/**
+ * A quote token's symbol and decimals, read once and cached. Decimals are
+ * required — formatting with the wrong ones is off by orders of magnitude — so a
+ * failed read throws and the launch is retried. A symbol that cannot be read
+ * (a non-standard token) is stored as null rather than blocking the launch.
+ * @param {string} address
+ */
+export async function resolveQuote(address) {
+  const key = String(address ?? NATIVE_QUOTE).toLowerCase();
+  const cached = quoteCache.get(key);
+  if (cached) return cached;
+  const decimals = await publicClient.readContract({ address: key, abi: erc20Abi, functionName: "decimals" });
+  let symbol = null;
+  try {
+    symbol = await publicClient.readContract({ address: key, abi: erc20Abi, functionName: "symbol" });
+  } catch {
+    symbol = null;
+  }
+  const quote = { address: key, symbol: symbol ? String(symbol).slice(0, 16) : null, decimals: Number(decimals) };
+  quoteCache.set(key, quote);
+  return quote;
+}
 
 /**
  * Whether a database error means the row can NEVER be stored: SQLSTATE class
@@ -89,7 +122,10 @@ export async function processTokenLaunchedLog(log, totalSupply, logger, sseServi
   const block = await publicClient.getBlock({ blockNumber: log.blockNumber });
   if (block?.timestamp == null) throw new Error(`block ${log.blockNumber} has no timestamp`);
 
-  const row = buildLaunchRow(log, totalSupply, block.timestamp);
+  // Also throws on a failed read, so the range is retried rather than storing a
+  // launch whose amounts no client could format.
+  const quote = await resolveQuote(log.args?.quoteToken);
+  const row = buildLaunchRow(log, totalSupply, block.timestamp, quote);
   if (!row) {
     logger.warn({ topics: log.topics }, "TokenLaunched log missing args — skipping");
     return "skipped";
@@ -115,7 +151,7 @@ export async function processTokenLaunchedLog(log, totalSupply, logger, sseServi
 
   logger.info(
     `🚀 TokenLaunched: ${row.symbol || "?"} (${row.token_address}) ` +
-      `by ${row.creator_address} at ${row.start_price_wei} wei/token ` +
+      `by ${row.creator_address} at a ${row.start_fdv} ${row.quote_symbol ?? row.quote_token} valuation (raw) ` +
       `(block ${row.block_number})`,
   );
 
@@ -126,8 +162,11 @@ export async function processTokenLaunchedLog(log, totalSupply, logger, sseServi
       creator: row.creator_address,
       name: row.name,
       symbol: row.symbol,
-      startPriceWei: row.start_price_wei,
-      impliedFdvWei: row.implied_fdv_wei,
+      quoteToken: row.quote_token,
+      quoteSymbol: row.quote_symbol,
+      quoteDecimals: row.quote_decimals,
+      startPrice: row.start_price,
+      startFdv: row.start_fdv,
       blockNumber: row.block_number,
       txHash: row.tx_hash,
     });

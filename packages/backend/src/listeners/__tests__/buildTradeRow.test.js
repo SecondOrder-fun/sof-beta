@@ -2,7 +2,7 @@
 import { describe, it, expect } from "vitest";
 import { encodeAbiParameters, encodeEventTopics } from "viem";
 import { PoolManagerABI, UniV4LaunchRouterABI } from "@sof/contracts";
-import { attributeTrader, buildTradeRow, priceWeiPerToken } from "../buildTradeRow.js";
+import { attributeTrader, buildTradeRow, pricePerToken, tokenIsCurrency0 } from "../buildTradeRow.js";
 
 const TOKEN = "0x1111111111111111111111111111111111111111";
 const ROUTER = "0x7777777777777777777777777777777777777777";
@@ -24,10 +24,10 @@ describe("buildTradeRow", () => {
   // Sign convention pinned in contracts/test/UniV4LaunchRouter.t.sol:
   // amount0 < 0 means the caller PAID ETH in — a buy.
   it("classifies negative amount0 as a BUY, with unsigned amounts", () => {
-    const row = buildTradeRow(swap(-(10n ** 17n), 90544562424768864432372374n), { token: TOKEN, blockTimeSec: 1_700_000_000 });
+    const row = buildTradeRow(swap(-(10n ** 17n), 89729910215527505885256588n), { token: TOKEN, blockTimeSec: 1_700_000_000 });
     expect(row.side).toBe("BUY");
-    expect(row.eth_amount).toBe("100000000000000000");
-    expect(row.token_amount).toBe("90544562424768864432372374");
+    expect(row.quote_amount).toBe("100000000000000000");
+    expect(row.token_amount).toBe("89729910215527505885256588");
     expect(row.block_time).toBe(new Date(1_700_000_000 * 1000).toISOString());
   });
 
@@ -35,11 +35,32 @@ describe("buildTradeRow", () => {
     expect(buildTradeRow(swap(5n, -7n), { token: TOKEN }).side).toBe("SELL");
   });
 
-  it("records the price after the swap, in wei per whole token", () => {
+  it("records the price after the swap, in quote raw units per whole token", () => {
     const row = buildTradeRow(swap(-1n, 1n), { token: TOKEN });
     // ~1 gwei per token at the 1 ETH-FDV launch price
-    expect(BigInt(row.price_wei)).toBeGreaterThan(990_000_000n);
-    expect(BigInt(row.price_wei)).toBeLessThan(1_010_000_000n);
+    expect(BigInt(row.price)).toBeGreaterThan(990_000_000n);
+    expect(BigInt(row.price)).toBeLessThan(1_010_000_000n);
+  });
+
+  // An ERC-20 quote above the token makes the TOKEN currency0: the quote is
+  // amount1, so a negative amount1 is the BUY, and v4's price is quote per token.
+  it("reads the quote from amount1 when the token is currency0", () => {
+    const buy = buildTradeRow(swap(4_000_000n * 10n ** 18n, -100_000_000n), { token: TOKEN, tokenIsCurrency0: true });
+    expect(buy.side).toBe("BUY");
+    expect(buy.quote_amount).toBe("100000000");
+    expect(buy.token_amount).toBe("4000000000000000000000000");
+    expect(buildTradeRow(swap(-5n, 7n), { token: TOKEN, tokenIsCurrency0: true }).side).toBe("SELL");
+  });
+
+  it("inverts the price when the token is currency0", () => {
+    // sqrtPrice for 5 raw USDC per whole token (5e-18 per raw token): sqrt(5e-18) * 2^96
+    const sqrt = 177159557114295710296n;
+    const row = buildTradeRow({ ...swap(1n, -1n), args: { ...swap(1n, -1n).args, sqrtPriceX96: sqrt } }, {
+      token: TOKEN,
+      tokenIsCurrency0: true,
+    });
+    expect(BigInt(row.price)).toBeGreaterThanOrEqual(4n); // floors to 4 or 5
+    expect(BigInt(row.price)).toBeLessThanOrEqual(5n);
   });
 
   it("uses the attributed trader, falling back to the swap sender", () => {
@@ -54,9 +75,18 @@ describe("buildTradeRow", () => {
   });
 });
 
-describe("priceWeiPerToken", () => {
+describe("pricePerToken", () => {
   it("returns 0 for an empty price rather than dividing by zero", () => {
-    expect(priceWeiPerToken(0n)).toBe(0n);
+    expect(pricePerToken(0n)).toBe(0n);
+    expect(pricePerToken(0n, true)).toBe(0n);
+  });
+});
+
+describe("tokenIsCurrency0", () => {
+  it("is false for ETH (address 0 sorts first) and follows address order for ERC-20s", () => {
+    expect(tokenIsCurrency0(TOKEN, "0x0000000000000000000000000000000000000000")).toBe(false);
+    expect(tokenIsCurrency0(TOKEN, "0xffffffffffffffffffffffffffffffffffffffff")).toBe(true);
+    expect(tokenIsCurrency0(TOKEN, "0x0000000000000000000000000000000000100000")).toBe(false);
   });
 });
 
@@ -100,6 +130,15 @@ describe("attributeTrader", () => {
   it("credits a buy to the recipient named by the router", () => {
     const logs = [swapLog(0), routerLog("Bought", 1, { payer: ROUTER, recipient: TRADER })];
     expect(attributeTrader(logs, decodedSwap(0, -1n), ctx())).toBe(TRADER);
+  });
+
+  // With the token as currency0 the quote is amount1: a BUY pays amount1 in.
+  // Reading the side from amount0 here would pair the buy with a Sold.
+  it("reads the side from the quote when the token is currency0", () => {
+    const logs = [swapLog(0, { amount0: 1n, amount1: -1n }), routerLog("Bought", 1, { payer: ROUTER, recipient: TRADER })];
+    const decoded = { ...swap(1n, -1n), logIndex: 0 };
+    expect(attributeTrader(logs, decoded, ctx({ tokenIsCurrency0: true }))).toBe(TRADER);
+    expect(attributeTrader(logs, decoded, ctx())).toBeNull();
   });
 
   it("credits a sell to the payer", () => {

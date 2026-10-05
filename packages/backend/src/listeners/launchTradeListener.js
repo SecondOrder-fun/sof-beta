@@ -72,7 +72,7 @@ import { createBlockCursor } from "../lib/blockCursor.js";
 import { tokenLaunchesDb } from "../../shared/services/tokenLaunchesDb.js";
 import { getSSEChannelService } from "../services/sseChannelService.js";
 import { processTokenLaunchedLog } from "./tokenLaunchedListener.js";
-import { attributeTrader, buildTradeRow } from "./buildTradeRow.js";
+import { attributeTrader, buildTradeRow, tokenIsCurrency0 } from "./buildTradeRow.js";
 
 /** Pool ids per Swap getLogs. Past this, one range becomes several queries. */
 export const MAX_POOL_IDS_PER_QUERY = 100;
@@ -87,9 +87,10 @@ const maxBig = (a, b) => (a > b ? a : b);
 const minBig = (a, b) => (a < b ? a : b);
 
 /**
- * pool id (lowercase) -> { token, symbol }. Seeded from the DB, extended by
- * on-chain discovery. Module-level so the historical scan and the live poller
- * share it.
+ * pool id (lowercase) -> { token, symbol, quote, tokenIsCurrency0 }. Seeded from
+ * the DB, extended by on-chain discovery. Module-level so the historical scan
+ * and the live poller share it. `tokenIsCurrency0` (the launch token sorts below
+ * its ERC-20 quote) decides which side of each Swap is the quote.
  */
 const pools = new Map();
 
@@ -108,9 +109,15 @@ let routerHistoryFrom = /** @type {bigint | undefined} */ (undefined);
 let routerScannedTo = /** @type {bigint | null} */ (null);
 let routerCurrentRead = false;
 
-function rememberPool(poolId, token, symbol) {
+function rememberPool(poolId, token, symbol, quote) {
   if (!poolId || isZero(poolId)) return;
-  pools.set(lc(poolId), { token: lc(token), symbol: symbol ?? null });
+  const q = lc(quote ?? "0x0000000000000000000000000000000000000000");
+  pools.set(lc(poolId), {
+    token: lc(token),
+    symbol: symbol ?? null,
+    quote: q,
+    tokenIsCurrency0: tokenIsCurrency0(token, q),
+  });
 }
 
 function rememberRouter(address) {
@@ -226,10 +233,10 @@ async function discoverLaunches({ launchpad, totalSupply, fromBlock, toBlock, lo
     maxRetries: 5,
   });
   for (const log of launches) {
-    const { token, symbol, placementId } = log.args ?? {};
+    const { token, symbol, placementId, quoteToken } = log.args ?? {};
     if (!token || !placementId) continue;
     const status = await processTokenLaunchedLog(log, totalSupply, logger, sseService);
-    if (status !== "skipped") rememberPool(placementId, token, symbol);
+    if (status !== "skipped") rememberPool(placementId, token, symbol, quoteToken);
   }
   markLaunchesCovered(range.from, range.to);
 }
@@ -273,6 +280,7 @@ async function buildRows(logs, { launchpad, poolManager }) {
     const pool = pools.get(lc(log.args.id));
     const trader = attributeTrader(receipts.get(log.transactionHash) ?? [], log, {
       token: pool.token,
+      tokenIsCurrency0: pool.tokenIsCurrency0,
       routers: trusted,
       poolManager,
       poolManagerAbi: PoolManagerABI,
@@ -280,6 +288,7 @@ async function buildRows(logs, { launchpad, poolManager }) {
     });
     const row = buildTradeRow(log, {
       token: pool.token,
+      tokenIsCurrency0: pool.tokenIsCurrency0,
       blockTimeSec: blockTimes.get(log.blockNumber),
       trader,
     });
@@ -311,9 +320,10 @@ async function persist(logs, ctx, sseService) {
       symbol,
       side: row.side,
       trader: row.trader,
-      ethAmount: row.eth_amount,
+      quoteToken: pools.get(lc(row.pool_id))?.quote ?? null,
+      quoteAmount: row.quote_amount,
       tokenAmount: row.token_amount,
-      priceWei: row.price_wei,
+      price: row.price,
       blockNumber: row.block_number,
       txHash: row.tx_hash,
     });
@@ -340,7 +350,7 @@ export async function startLaunchTradeListener({ poolManager, launchpad, deployB
   });
 
   for (const p of await tokenLaunchesDb.listPoolIndex()) {
-    rememberPool(p.pool_id, p.token_address, p.symbol);
+    rememberPool(p.pool_id, p.token_address, p.symbol, p.quote_token);
   }
 
   const sseService = getSSEChannelService(logger);

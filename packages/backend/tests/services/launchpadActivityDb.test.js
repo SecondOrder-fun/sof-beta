@@ -47,7 +47,7 @@ beforeEach(() => {
 
 /** Trades newest first, as the DB returns them: block n, log index 0. */
 const newestFirst = (from, to) =>
-  Array.from({ length: from - to + 1 }, (_, i) => ({ block_number: from - i, log_index: 0, price_wei: String(from - i) }));
+  Array.from({ length: from - to + 1 }, (_, i) => ({ block_number: from - i, log_index: 0, price: String(from - i) }));
 
 describe("listTradesSince", () => {
   it("reads newest first by (block_number, log_index) and returns oldest first", async () => {
@@ -129,14 +129,26 @@ describe("listRecentTrades hides hidden tokens in the query", () => {
     await listRecentTrades(20);
     expect(queries).toHaveLength(1);
     const q = queries[0];
-    expect(q.find(([m]) => m === "select")[1]).toContain("token_launches!inner(is_hidden)");
+    expect(q.find(([m]) => m === "select")[1]).toContain("token_launches!inner(is_hidden, quote_symbol, quote_decimals)");
     expect(q).toContainEqual(["eq", "token_launches.is_hidden", false]);
     expect(q).toContainEqual(["limit", 20]);
   });
 
-  it("drops the join's column from the rows", async () => {
-    result = { data: [{ tx_hash: "0x1", log_index: 0, token_address: "0xt", token_launches: { is_hidden: false } }], error: null };
-    expect(await listRecentTrades(5)).toEqual([{ tx_hash: "0x1", log_index: 0, token_address: "0xt" }]);
+  it("flattens each trade's quote onto the row and drops the join's column", async () => {
+    result = {
+      data: [
+        {
+          tx_hash: "0x1",
+          log_index: 0,
+          token_address: "0xt",
+          token_launches: { is_hidden: false, quote_symbol: "USDC", quote_decimals: 6 },
+        },
+      ],
+      error: null,
+    };
+    expect(await listRecentTrades(5)).toEqual([
+      { tx_hash: "0x1", log_index: 0, token_address: "0xt", quote_symbol: "USDC", quote_decimals: 6 },
+    ]);
   });
 });
 

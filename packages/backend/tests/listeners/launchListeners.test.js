@@ -67,7 +67,7 @@ const launchLog = (over = {}) => ({
   transactionHash: "0xlaunch",
   args: {
     launchId: 0n, token: TOKEN, creator: "0x3333333333333333333333333333333333333333",
-    name: "Pond", symbol: "POND", metadataURI: "ipfs://x", startPriceWei: 1_000_000_000n, placementId: POOL,
+    name: "Pond", symbol: "POND", metadataURI: "ipfs://x", startFdv: 10n ** 18n, placementId: POOL,
   },
   ...over,
 });
@@ -578,5 +578,49 @@ describe("launchTradeListener.poolFilter", () => {
     const batches = poolFilter();
     expect(batches.map((b) => b.id.length)).toEqual([100, 100, 50]);
     expect(new Set(batches.flatMap((b) => b.id)).size).toBe(250);
+  });
+});
+
+describe("launches paired with an ERC-20 quote", () => {
+  const USDC = "0xffffffffffffffffffffffffffffffffffff0001"; // sorts above TOKEN: the token is currency0
+  const usdcLaunch = () => launchLog({ args: { ...launchLog().args, quoteToken: USDC, startFdv: 5_000_000_000n } });
+
+  it("reads the quote's symbol and decimals once and stores them with the launch", async () => {
+    publicClient.readContract.mockImplementation(async ({ functionName }) =>
+      functionName === "decimals" ? 6 : functionName === "symbol" ? "USDC" : SUPPLY,
+    );
+    await processTokenLaunchedLog(usdcLaunch(), SUPPLY, logger, sse);
+    await processTokenLaunchedLog(
+      launchLog({ args: { ...usdcLaunch().args, token: "0x1111111111111111111111111111111111111112" } }),
+      SUPPLY,
+      logger,
+      sse,
+    );
+    const row = tokenLaunchesDb.insertTokenLaunch.mock.calls[0][0];
+    expect(row).toMatchObject({ quote_token: USDC, quote_symbol: "USDC", quote_decimals: 6, start_fdv: "5000000000" });
+    const decimalsReads = publicClient.readContract.mock.calls.filter(([c]) => c.functionName === "decimals");
+    expect(decimalsReads).toHaveLength(1);
+  });
+
+  // Formatting with the wrong decimals is off by orders of magnitude, so a
+  // launch whose quote cannot be read is retried rather than stored.
+  it("fails the launch when the quote's decimals cannot be read", async () => {
+    const other = "0xffffffffffffffffffffffffffffffffffff0002";
+    publicClient.readContract.mockRejectedValue(new Error("rpc down"));
+    await expect(
+      processTokenLaunchedLog(launchLog({ args: { ...launchLog().args, quoteToken: other } }), SUPPLY, logger, sse),
+    ).rejects.toThrow("rpc down");
+    expect(tokenLaunchesDb.insertTokenLaunch).not.toHaveBeenCalled();
+  });
+
+  // The token is currency0, so the quote is amount1: a swap paying amount1 in
+  // is a BUY, and its quote amount comes from amount1.
+  it("indexes a swap on a token-is-currency0 pool from the quote side", async () => {
+    __test.rememberPool(POOL, TOKEN, "POND", USDC);
+    await __test.persist([swap(1, { args: { ...swap(1).args, amount0: 4n * 10n ** 24n, amount1: -100_000_000n } })], ctx, sse);
+    const [row] = tokenLaunchesDb.insertLaunchTrades.mock.calls[0][0];
+    expect(row).toMatchObject({ side: "BUY", quote_amount: "100000000", token_amount: "4000000000000000000000000" });
+    const [, event] = sse.broadcast.mock.calls.find(([, e]) => e.type === "TokenTrade");
+    expect(event).toMatchObject({ quoteToken: USDC, quoteAmount: "100000000", side: "BUY" });
   });
 });

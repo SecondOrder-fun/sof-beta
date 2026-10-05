@@ -41,7 +41,7 @@ at the route, 400 if malformed or repeated; hidden tokens excluded, total filter
 lists one creator's launches: the frontend's creator-fees list on the profile. It matches
 the launch's creator, not its current fee recipient — the placer's `FeeRecipientUpdated` is
 not indexed, so a launch whose fees were handed to an account does not list under it.
-Two things are specific to the listener:
+Three things are specific to the listener:
 
 - It is the **only** source for a token's name, symbol and metadata URI. The launchpad
   emits them but does not store them (a setter would let a creator swap the name after
@@ -49,6 +49,15 @@ Two things are specific to the listener:
   later — unlike every other listener here, whose state can be re-read.
 - The event's `placementId` **is** the Uniswap v4 PoolId, so `token_launches.pool_id`
   is the key `launchTradeListener` uses to attribute PoolManager `Swap` logs to a token.
+- **A launch has a quote token** (contracts 0.41.0): native ETH (`quote_token` =
+  0x000…000) or an allowlisted ERC-20 (USDC on Base Sepolia). Every amount is in that
+  quote's raw units — `start_fdv` (the opening valuation the launch takes), `start_price`
+  (per whole token), `launch_trades.quote_amount` / `price` (migration 029 renamed the
+  old `*_wei` / `eth_amount` columns). `resolveQuote` reads an ERC-20's `decimals` and
+  `symbol` once (cached) and stores them on the launch (`quote_decimals`,
+  `quote_symbol`); a failed `decimals` read throws so the launch is retried rather than
+  stored unformattable. The API returns `quoteToken`, `quoteSymbol`, `quoteDecimals`,
+  `startPrice`, `startFdv`, and trades' `quoteAmount` / `price`.
 
 Because a missed launch is unrecoverable, `processTokenLaunchedLog` lets a failed
 block-time read, or a transient (or unknown) insert failure, **throw** — there is no
@@ -97,9 +106,13 @@ PoolManager's `Swap` event. Rules it depends on:
   launch skipped as unstorable is not watched either — its trades could not be stored.
   The starting pool map (`tokenLaunchesDb.listPoolIndex`) is paged by keyset until
   exhausted: PostgREST caps a response at 1,000 rows by default.
-- **`amount0 < 0` is a BUY, and `sender` is the router.** Pinned against a real swap by
+- **A swap paying the QUOTE in is a BUY, and `sender` is the router.** Deltas are the
+  caller's (negative = paid in), pinned against a real swap by
   `contracts/test/UniV4LaunchRouter.t.sol:test_swapEventSignConvention_forTheIndexer`
-  (IPoolManager's own comment reads as the opposite sign). The real trader comes from
+  (IPoolManager's own comment reads as the opposite sign). The quote is `amount0` for ETH
+  and for an ERC-20 below the token, but `amount1` when the token sorts below its ERC-20
+  quote (`tokenIsCurrency0`, kept per pool in the listener's pool map); side, amounts,
+  price (`pricePerToken`) and attribution all read the quote side accordingly. The real trader comes from
   the router's `Bought`/`Sold` event in the same receipt, trusted only when the swap's
   sender has been a launch router **and** emitted the event. The trusted set is built
   from chain history, not memory, so it survives a restart: every

@@ -10,8 +10,14 @@
  * an ABI change, and it needs neither a chain nor a database to exercise.
  */
 
-/** Whole tokens in a launch supply, used to derive implied FDV. */
+/** Raw units in one whole launch token (launch tokens are always 18 dp). */
 const WAD = 10n ** 18n;
+
+/** The quote-token address TokenLaunchpad uses for native ETH. */
+export const NATIVE_QUOTE = "0x0000000000000000000000000000000000000000";
+
+/** What a launch's quote is, for display: native ETH unless resolved otherwise. */
+export const ETH_QUOTE = Object.freeze({ address: NATIVE_QUOTE, symbol: "ETH", decimals: 18 });
 
 /**
  * Text limits applied before insert. The columns are unbounded TEXT; these
@@ -44,22 +50,29 @@ export function storableText(value, max) {
  * Exported for testing: this is the mapping most likely to break on an ABI
  * change, and it needs no chain or database to exercise.
  *
+ * Values are in the launch's QUOTE token's raw units (wei for ETH, 1e-6 for
+ * USDC): the launch takes its opening valuation (`startFdv`) directly, and the
+ * per-whole-token start price is derived from it.
+ *
  * @param {object} log - viem decoded log
  * @param {bigint} totalSupply - TOKEN_SUPPLY, read once at listener start
  * @param {number | bigint} blockTimeSec - block timestamp. Required, with no
  *   fallback: a stored launched_at is never corrected (insert-if-absent)
+ * @param {{ address: string, symbol: string | null, decimals: number }} [quote]
+ *   the launch's quote token, resolved by the caller (ETH when omitted)
  * @returns {object | null} row, or null if the log is unusable
  * @throws if `blockTimeSec` is missing
  */
-export function buildLaunchRow(log, totalSupply, blockTimeSec) {
+export function buildLaunchRow(log, totalSupply, blockTimeSec, quote = ETH_QUOTE) {
   const args = log?.args;
   if (!args?.token || !args?.creator) return null;
   if (blockTimeSec == null) throw new Error("buildLaunchRow: block time is required");
 
-  const startPriceWei = BigInt(args.startPriceWei ?? 0n);
-  // Implied FDV is price * WHOLE tokens, not price * raw supply. Getting this
-  // wrong is an error of 1e18, which would look plausible in a column of wei.
-  const impliedFdvWei = startPriceWei * (BigInt(totalSupply) / WAD);
+  const startFdv = BigInt(args.startFdv ?? 0n);
+  // Price per WHOLE token, not per raw unit: dividing by the raw supply would be
+  // off by 1e18, which would look plausible in a column of wei.
+  const wholeSupply = BigInt(totalSupply) / WAD;
+  const startPrice = wholeSupply > 0n ? startFdv / wholeSupply : 0n;
 
   return {
     token_address: args.token,
@@ -73,8 +86,11 @@ export function buildLaunchRow(log, totalSupply, blockTimeSec) {
       Array.from(String(args.metadataURI ?? "")).length > MAX_METADATA_URI_CHARS
         ? null
         : storableText(args.metadataURI, MAX_METADATA_URI_CHARS),
-    start_price_wei: startPriceWei.toString(),
-    implied_fdv_wei: impliedFdvWei.toString(),
+    quote_token: String(args.quoteToken ?? NATIVE_QUOTE).toLowerCase(),
+    quote_symbol: quote.symbol,
+    quote_decimals: quote.decimals,
+    start_price: startPrice.toString(),
+    start_fdv: startFdv.toString(),
     total_supply: BigInt(totalSupply).toString(),
     // bytes32(0) means the placer returned no pool — not a real pool id, so
     // store NULL rather than a zero hash the trade listener would try to match.

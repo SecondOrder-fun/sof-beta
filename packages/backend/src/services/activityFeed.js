@@ -14,7 +14,8 @@
  *   buildTokenActivity  — the ticker's tokens row: buys, sells, launches
  *   buildRaffleActivity — the ticker's raffles row: entries, openings, closings, wins
  *
- * Wei values stay strings end to end; they do not survive a JS number.
+ * Amounts stay strings end to end (wei, or a launch quote token's raw units);
+ * they do not survive a JS number.
  */
 
 export const CHART_RANGES = { "1h": 3600, "6h": 6 * 3600, "24h": 24 * 3600, all: null };
@@ -27,11 +28,13 @@ const toSec = (value) => (value == null ? null : Math.floor(new Date(value).getT
 
 /**
  * @param {object} p
- * @param {{ price_wei: string, block_time: string }[]} p.trades  oldest first, within the range
- * @param {{ price_wei: string, block_time: string } | null} p.seed  the trade just before the
+ * Prices are the launch's quote token's raw units per whole token.
+ *
+ * @param {{ price: string, block_time: string }[]} p.trades  oldest first, within the range
+ * @param {{ price: string, block_time: string } | null} p.seed  the trade just before the
  *   first of `trades`: the last trade before the range or, when `truncated`, the newest one
  *   the cap left out
- * @param {{ launchedAt: string, startPriceWei: string }} p.launch
+ * @param {{ launchedAt: string, startPrice: string }} p.launch
  * @param {number | null} p.rangeSec   null = all history
  * @param {number} p.nowSec
  * @param {boolean} [p.truncated=false]  `trades` holds only the newest part of the range
@@ -41,7 +44,7 @@ export function buildChart({ trades, seed, launch, rangeSec, nowSec, truncated =
   const launchSec = toSec(launch.launchedAt);
   let since = rangeSec == null ? launchSec : Math.max(launchSec, nowSec - rangeSec);
 
-  /** @type {{ t: number, priceWei: string }[]} */
+  /** @type {{ t: number, price: string }[]} */
   const points = [];
 
   // Where the line enters: the price in force at that moment.
@@ -51,21 +54,21 @@ export function buildChart({ trades, seed, launch, rangeSec, nowSec, truncated =
   //    starting from the launch price (or the range's opening price) would draw
   //    a false jump. The line enters at the omitted trade just before the
   //    first returned one, at that trade's own time.
-  let entryPrice = rangeSec != null && seed ? seed.price_wei : launch.startPriceWei;
+  let entryPrice = rangeSec != null && seed ? seed.price : launch.startPrice;
   if (truncated && seed) {
     since = Math.max(since, toSec(seed.block_time) ?? since);
-    entryPrice = seed.price_wei;
+    entryPrice = seed.price;
   }
-  points.push({ t: since, priceWei: String(entryPrice) });
+  points.push({ t: since, price: String(entryPrice) });
 
   for (const tr of trades) {
     const t = toSec(tr.block_time);
     if (t == null || t < since) continue;
-    points.push({ t, priceWei: String(tr.price_wei) });
+    points.push({ t, price: String(tr.price) });
   }
 
   return {
-    launch: { t: launchSec, priceWei: String(launch.startPriceWei) },
+    launch: { t: launchSec, price: String(launch.startPrice) },
     points: downsample(points, maxPoints),
   };
 }
@@ -203,8 +206,10 @@ export function buildTokenActivity({ trades, launches, symbols, hidden = new Set
       who: t.trader,
       token: t.token_address,
       symbol: symbols[t.token_address] ?? null,
-      ethAmount: t.eth_amount,
-      priceWei: t.price_wei,
+      quoteAmount: t.quote_amount,
+      price: t.price,
+      quoteSymbol: t.quote_symbol ?? null,
+      quoteDecimals: t.quote_decimals ?? null,
       txHash: t.tx_hash,
       logIndex: t.log_index ?? null,
     })),
@@ -214,7 +219,9 @@ export function buildTokenActivity({ trades, launches, symbols, hidden = new Set
       who: l.creator_address,
       token: l.token_address,
       symbol: l.symbol ?? symbols[l.token_address] ?? null,
-      fdvWei: l.implied_fdv_wei,
+      fdv: l.start_fdv,
+      quoteSymbol: l.quote_symbol ?? null,
+      quoteDecimals: l.quote_decimals ?? null,
       txHash: l.tx_hash,
       logIndex: null,
     })),
