@@ -84,6 +84,32 @@
   },
   {
     "type": "function",
+    "name": "MAX_SNIPE_DURATION",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MAX_SNIPE_START_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MAX_TICK_SPACING",
     "inputs": [],
     "outputs": [
@@ -409,6 +435,38 @@
   },
   {
     "type": "function",
+    "name": "currentBuyFeeOf",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint24",
+        "internalType": "uint24"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "exemptNextBuy",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "feeRecipientOf",
     "inputs": [
       {
@@ -710,6 +768,25 @@
   },
   {
     "type": "function",
+    "name": "pendingSurcharge",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "place",
     "inputs": [
       {
@@ -880,6 +957,24 @@
   },
   {
     "type": "function",
+    "name": "setSnipeTax",
+    "inputs": [
+      {
+        "name": "startBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "duration",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setTickSpacing",
     "inputs": [
       {
@@ -890,6 +985,61 @@
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "snipeDuration",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "snipeStartBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "snipeTaxOf",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "startBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "duration",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "launchedAt",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -1060,6 +1210,12 @@
       },
       {
         "name": "recipientShare",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "snipeSurcharge",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -1255,6 +1411,25 @@
   },
   {
     "type": "event",
+    "name": "SnipeTaxUpdated",
+    "inputs": [
+      {
+        "name": "startBps",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
+      },
+      {
+        "name": "duration",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "TickSpacingUpdated",
     "inputs": [
       {
@@ -1284,6 +1459,12 @@
       },
       {
         "name": "fee",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "snipeSurcharge",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -1432,6 +1613,22 @@
         "name": "token",
         "type": "address",
         "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SnipeTaxOutOfRange",
+    "inputs": [
+      {
+        "name": "startBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "duration",
+        "type": "uint16",
+        "internalType": "uint16"
       }
     ]
   },

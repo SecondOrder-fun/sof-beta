@@ -35,4 +35,12 @@ interface ILiquidityPlacer {
     function place(address token, uint256 amount, address quoteToken, uint256 startFdv, uint24 tradeFee)
         external
         returns (bytes32 placementId);
+
+    /**
+     * @notice Let the next buy of `token` in this transaction skip any early-buy surcharge.
+     * @dev Launchpad-only, called right before the creator's buy inside the launch
+     *      transaction — which happens before anyone else can trade, so it is not a snipe.
+     *      Transient: it lasts until that buy or the end of the transaction.
+     */
+    function exemptNextBuy(address token) external;
 }

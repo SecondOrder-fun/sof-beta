@@ -104,7 +104,7 @@ Modular numbered scripts in `script/deploy/`:
   PoolManager is available; `launch()` then reverts `PlacerNotSet`. The placer is every
   launch pool's v4 hook, so it is deployed with CREATE2 through the standard factory at a salt
   mined by `HookMiner` for exactly `PLACER_HOOK_FLAGS` (the constructor re-checks). Trade-fee
-  floor 0.5% (`MIN_TRADE_FEE`). Also sets the placer's `feeTreasury` (`TREASURY_ADDRESS`, else
+  floor 0.5% (`MIN_TRADE_FEE`); snipe tax 80% decaying over 30 s. Also sets the placer's `feeTreasury` (`TREASURY_ADDRESS`, else
   the deployer) — the 12% platform share of trade fees; `collectFees` reverts until it is set.
 - `23_DeployLaunchRouter` — `UniV4LaunchRouter(poolManager, launchpad)`, then
   `launchpad.setRouter(...)`. The router finds each token's pool through the placer that
@@ -218,6 +218,14 @@ Version-controlled in `deployments/`:
 - **Indexers:** the PoolManager's `Swap` amounts are the pool's and exclude the fee. The hook
   emits `TradeFeeTaken(poolId, token, fee)` and the standard `HookFee` after `Swap` (and the
   fee's ERC-6909 `Transfer`): a buy cost `|quote amount| + fee`, a sell paid `quote - fee`.
+- **Snipe tax (buys only).** For `snipeDuration` seconds after a launch a buy pays a rate that
+  decays linearly from `snipeStartBps` to the launch's trade fee (`currentBuyFeeOf(token)`; the
+  schedule: `snipeTaxOf(token)`). Step 22 sets 80% over 30 s (`setSnipeTax`, CONFIG_ROLE, ≤ 99% /
+  1 h); each pool copies the schedule at placement. The part above the trade fee is
+  `pendingSurcharge`, paid to the treasury ALONE at `collectFees` (88/12 would let a creator
+  snipe their own launch for a ~10% net cost). The creator's buy inside the launch tx is exempt
+  (`TokenLaunchpad` calls `exemptNextBuy`, a transient flag the next buy consumes). Sells never
+  pay it. `TradeFeeTaken` carries `snipeSurcharge`; `FeesCollected` carries the surcharge too.
 - **No sweep.** Placement dust (a few raw launch-token units) stays in the placer for good.
 
 ## No smart accounts or paymaster

@@ -23,6 +23,8 @@ import {ILiquidityPlacer} from "../src/launchpad/ILiquidityPlacer.sol";
 
 /// @dev Consumes everything it is given, as the interface requires.
 contract MockPlacer is ILiquidityPlacer {
+    function exemptNextBuy(address) external {}
+
     address public lastToken;
     uint256 public lastAmount;
     address public lastQuoteToken;
@@ -46,6 +48,8 @@ contract MockPlacer is ILiquidityPlacer {
 
 /// @dev Leaves tokens behind. The launchpad must reject this rather than strand supply.
 contract LeakyPlacer is ILiquidityPlacer {
+    function exemptNextBuy(address) external {}
+
     function place(address token, uint256 amount, address, uint256, uint24) external returns (bytes32) {
         // Return half to the launchpad, simulating a partial placement.
         IERC20(token).transfer(msg.sender, amount / 2);

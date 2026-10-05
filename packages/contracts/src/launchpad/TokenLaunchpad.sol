@@ -261,6 +261,8 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
     {
         ILaunchRouter r = router;
         if (address(r) == address(0)) revert CreatorBuyNeedsRouter();
+        // The creator's buy comes before anyone can trade: not a snipe, so no surcharge.
+        ILiquidityPlacer(_launches[launchId].placer).exemptNextBuy(token);
 
         uint256 tokensOut;
         uint256 unspent;

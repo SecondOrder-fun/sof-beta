@@ -18,7 +18,9 @@ import {
     NoPlacement,
     FeeTreasuryNotSet,
     NotFeeRecipient,
-    NothingToClaim
+    NothingToClaim,
+    OnlyLaunchpad,
+    SnipeTaxOutOfRange
 } from "../src/launchpad/UniV4LiquidityPlacer.sol";
 import {UniV4LaunchRouter} from "../src/launchpad/UniV4LaunchRouter.sol";
 import {MockUSDC} from "../src/test-helpers/MockUSDC.sol";
@@ -264,6 +266,130 @@ contract LaunchTradeFeesTest is Test, PlacerDeployer {
     }
 
     // ------------------------------------------------------------------
+    // Snipe tax: a decaying surcharge on early buys
+    // ------------------------------------------------------------------
+
+    function _withSnipeTax() internal {
+        placer.setSnipeTax(8_000, 30); // 80% decaying to the trade fee over 30 s
+    }
+
+    function test_snipeTaxDecaysLinearlyToTheTradeFee() public {
+        _withSnipeTax();
+        address token = _launch(address(0), TEST_TRADE_FEE);
+        assertEq(placer.currentBuyFeeOf(token), 800_000, "80% at launch");
+
+        _swap(token, true, true, 1 ether);
+        assertEq(placer.pendingFees(token) + placer.pendingSurcharge(token), 0.8 ether, "80% of the buy");
+        assertEq(placer.pendingFees(token), 0.01 ether, "the 1% trade fee part");
+        assertEq(placer.pendingSurcharge(token), 0.79 ether, "the rest is surcharge");
+
+        // Half way: 80% - (80% - 1%) * 15/30 = 40.5%.
+        vm.warp(block.timestamp + 15);
+        assertEq(placer.currentBuyFeeOf(token), 405_000);
+        uint256 before = placer.pendingFees(token) + placer.pendingSurcharge(token);
+        _swap(token, true, true, 1 ether);
+        assertEq(placer.pendingFees(token) + placer.pendingSurcharge(token) - before, 0.405 ether);
+
+        // After the window: the trade fee alone.
+        vm.warp(block.timestamp + 15);
+        assertEq(placer.currentBuyFeeOf(token), TEST_TRADE_FEE);
+        uint256 surchargeBefore = placer.pendingSurcharge(token);
+        _swap(token, true, true, 1 ether);
+        assertEq(placer.pendingSurcharge(token), surchargeBefore, "no surcharge after the window");
+    }
+
+    /// Exact-out buys pay the same window rate (the fee that is that rate of the gross).
+    function test_snipeTaxAppliesToExactOutBuys() public {
+        _withSnipeTax();
+        address token = _launch(address(0), TEST_TRADE_FEE);
+        (uint256 paid,,) = _swap(token, true, false, 1e25);
+        uint256 fee = placer.pendingFees(token) + placer.pendingSurcharge(token);
+        assertEq(fee, FullMath.mulDivRoundingUp(paid - fee, 800_000, PIPS - 800_000));
+        assertApproxEqAbs(fee, (paid * 8) / 10, 1, "80% of the gross payment");
+    }
+
+    function test_sellsNeverPayTheSnipeTax() public {
+        _withSnipeTax();
+        address token = _launch(HIGH, TEST_TRADE_FEE);
+        vm.warp(block.timestamp + 30); // buy at the normal fee first
+        _swap(token, true, true, 1_000e6);
+        vm.warp(block.timestamp - 30); // back inside the window
+        uint256 before = placer.pendingFees(token);
+        (, uint256 received,) = _swap(token, false, true, 1e24);
+        uint256 fee = placer.pendingFees(token) - before;
+        assertEq(fee, FullMath.mulDivRoundingUp(received + fee, TEST_TRADE_FEE, PIPS), "1% on a sell");
+        assertEq(placer.pendingSurcharge(token), 0);
+    }
+
+    /// Split 88/12, a creator could snipe their own launch and get most of the tax back,
+    /// so the surcharge is the treasury's alone.
+    function test_surchargeGoesToTheTreasuryAlone() public {
+        _withSnipeTax();
+        address token = _launch(address(0), TEST_TRADE_FEE);
+        _swap(token, true, true, 1 ether);
+        assertEq(placer.collectFees(token), 0.8 ether);
+        uint256 creatorShare = (0.01 ether * 8_800) / 10_000;
+        assertEq(placer.claimable(address(0), creator), creatorShare, "88% of the 1% fee only");
+        assertEq(placer.claimable(address(0), treasury), 0.8 ether - creatorShare);
+        assertEq(placer.pendingSurcharge(token), 0);
+    }
+
+    /// The creator's buy inside the launch transaction comes before anyone can trade, so
+    /// it pays the trade fee; the next buy, even in the same block, pays the window rate.
+    function test_theCreatorsLaunchBuyIsExempt() public {
+        _withSnipeTax();
+        vm.deal(creator, 1 ether);
+        vm.prank(creator);
+        (, address token) = launchpad.launch{value: 0.1 ether}(
+            "Frog Pond", "POND", "", address(0), ETH_FDV, TEST_TRADE_FEE, 0.1 ether, 0
+        );
+        assertEq(placer.pendingFees(token), 0.001 ether, "1% of the creator's 0.1 ETH");
+        assertEq(placer.pendingSurcharge(token), 0);
+
+        _swap(token, true, true, 0.1 ether);
+        assertEq(placer.pendingSurcharge(token), 0.079 ether, "a sniper in the same block pays 80%");
+    }
+
+    function test_onlyTheLaunchpadCanExemptABuy() public {
+        address token = _launch(address(0), TEST_TRADE_FEE);
+        vm.prank(stranger);
+        vm.expectRevert(OnlyLaunchpad.selector);
+        placer.exemptNextBuy(token);
+    }
+
+    /// Each pool keeps the schedule it launched with.
+    function test_aLiveLaunchKeepsItsSchedule() public {
+        _withSnipeTax();
+        address token = _launch(address(0), TEST_TRADE_FEE);
+        placer.setSnipeTax(0, 0);
+        (uint16 startBps, uint16 duration, uint32 launchedAt) = placer.snipeTaxOf(token);
+        assertEq(startBps, 8_000);
+        assertEq(duration, 30);
+        assertEq(launchedAt, block.timestamp);
+        assertEq(placer.currentBuyFeeOf(token), 800_000);
+
+        address later = _launch(address(0), TEST_TRADE_FEE);
+        assertEq(placer.currentBuyFeeOf(later), TEST_TRADE_FEE, "the new setting applies to new launches");
+    }
+
+    /// A creator fee above the starting rate is never undercut by the schedule.
+    function test_aTradeFeeAboveTheStartIsNeverLowered() public {
+        placer.setSnipeTax(500, 30); // 5% start
+        address token = _launch(address(0), 100_000); // 10% fee
+        assertEq(placer.currentBuyFeeOf(token), 100_000);
+    }
+
+    function test_snipeTaxBounds() public {
+        vm.expectRevert(abi.encodeWithSelector(SnipeTaxOutOfRange.selector, uint16(9_901), uint16(30)));
+        placer.setSnipeTax(9_901, 30);
+        vm.expectRevert(abi.encodeWithSelector(SnipeTaxOutOfRange.selector, uint16(8_000), uint16(3_601)));
+        placer.setSnipeTax(8_000, 3_601);
+        vm.prank(stranger);
+        vm.expectRevert();
+        placer.setSnipeTax(8_000, 30);
+    }
+
+    // ------------------------------------------------------------------
     // Guards
     // ------------------------------------------------------------------
 
@@ -325,7 +451,9 @@ contract LaunchTradeFeesTest is Test, PlacerDeployer {
         assertEq(feeLog.topics[0], UniV4LiquidityPlacer.TradeFeeTaken.selector);
         assertEq(feeLog.topics[1], PoolId.unwrap(id));
         assertEq(feeLog.topics[2], bytes32(uint256(uint160(token))));
-        assertEq(abi.decode(feeLog.data, (uint256)), 0.01 ether);
+        (uint256 fee, uint256 surcharge) = abi.decode(feeLog.data, (uint256, uint256));
+        assertEq(fee, 0.01 ether);
+        assertEq(surcharge, 0, "no snipe tax configured");
 
         Vm.Log memory hookFee = logs[swapAt + 3];
         assertEq(hookFee.topics[0], UniV4LiquidityPlacer.HookFee.selector);

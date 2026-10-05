@@ -52,6 +52,7 @@ uint160 constant PLACER_HOOK_FLAGS = Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE
     | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG;
 error SwapTooSmallForFee(uint256 amount);
 error PartialFillWithFee(uint256 filled, uint256 expected);
+error SnipeTaxOutOfRange(uint16 startBps, uint16 duration);
 
 /**
  * @title UniV4LiquidityPlacer
@@ -149,6 +150,22 @@ error PartialFillWithFee(uint256 filled, uint256 expected);
  *      are collected, so changing the recipient or the treasury later does not move fees
  *      already credited.
  *
+ *      ## Snipe tax: a decaying surcharge on early buys
+ *
+ *      Bots buy in the first block of every launch. For `snipeDuration` seconds after a
+ *      launch, a BUY pays a higher rate that falls in a straight line from `snipeStartBps`
+ *      to the launch's own trade fee; after the window it is the trade fee alone. Sells
+ *      never pay it, so nobody is trapped. The schedule is CONFIG_ROLE's (`setSnipeTax`,
+ *      start at most 99%, window at most an hour) and is copied into each pool when it is
+ *      placed, so a later change never touches a live launch.
+ *
+ *      The part above the trade fee — the surcharge — goes entirely to the treasury
+ *      (`pendingSurcharge`). Split 88/12 like the fee, a creator could snipe their own
+ *      launch and get most of the tax back. The creator's first buy inside the launch
+ *      transaction is exempt (`exemptNextBuy`, launchpad-only, a transient flag the next
+ *      buy in the same transaction consumes): it happens before anyone else can trade, so
+ *      it is not a snipe.
+ *
  *      A swap made by this contract itself would skip the hook (v4 never calls a hook for
  *      its own swaps); it makes none.
  *
@@ -205,6 +222,12 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         address token;
         uint24 tradeFee;
         bool quoteIsCurrency0;
+        /// @dev When the pool was placed, for the snipe window.
+        uint32 launchedAt;
+        /// @dev The snipe surcharge's starting rate in basis points, and its window in
+        ///      seconds — copied from the config at placement. Zero window: none.
+        uint16 snipeStartBps;
+        uint16 snipeDuration;
     }
 
     mapping(PoolId poolId => PoolFee) private _poolFees;
@@ -222,6 +245,23 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
     /// @notice Trade fees taken in a launch's pool and not yet collected, in its quote
     ///         token's raw units.
     mapping(address token => uint256) public pendingFees;
+
+    /// @notice Snipe surcharges taken in a launch's pool and not yet collected, in its quote
+    ///         token's raw units. All of it goes to the treasury.
+    mapping(address token => uint256) public pendingSurcharge;
+
+    /// @notice The highest snipe-tax starting rate CONFIG_ROLE may set: 99%, so an exact-in
+    ///         buy always swaps something.
+    uint16 public constant MAX_SNIPE_START_BPS = 9_900;
+    /// @notice The longest snipe window CONFIG_ROLE may set: one hour.
+    uint16 public constant MAX_SNIPE_DURATION = 3_600;
+    /// @notice The snipe surcharge's starting rate (bps) for future launches.
+    uint16 public snipeStartBps;
+    /// @notice The snipe window (seconds) for future launches; zero disables the tax.
+    uint16 public snipeDuration;
+
+    /// @dev Transient-storage seed for the creator's exempt launch buy, per token.
+    bytes32 private constant EXEMPT_BUY_SEED = keccak256("UniV4LiquidityPlacer.exemptNextBuy");
 
     /// @notice Collected fees not yet claimed, per quote currency (`address(0)` = ETH) and
     ///         account. Each currency's balance pools every launch paired with it.
@@ -242,18 +282,23 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
     /// @notice One per fee-paying swap, emitted after the PoolManager's `Swap` log for it
     ///         (and the fee's ERC-6909 mint). `fee` is in the quote token; the trader paid `Swap`'s quote
     ///         amount plus `fee` on a buy and received it minus `fee` on a sell.
-    event TradeFeeTaken(PoolId indexed poolId, address indexed token, uint256 fee);
+    ///         `snipeSurcharge` is the part of `fee` above the launch's trade fee (an early
+    ///         buy's snipe tax), which goes to the treasury alone.
+    event TradeFeeTaken(PoolId indexed poolId, address indexed token, uint256 fee, uint256 snipeSurcharge);
     /// @notice The Uniswap Foundation's standard hook-fee event (as in OpenZeppelin's
     ///         uniswap-hooks), for explorers and hook indexers. `sender` is the router.
     event HookFee(bytes32 indexed poolId, address indexed sender, uint128 feeAmount0, uint128 feeAmount1);
     event TickSpacingUpdated(int24 tickSpacing);
     event MinTradeFeeUpdated(uint24 minTradeFee);
+    event SnipeTaxUpdated(uint16 startBps, uint16 duration);
+    /// @dev `fees` includes `snipeSurcharge`; the treasury got `fees - recipientShare`.
     event FeesCollected(
         address indexed token,
         address indexed recipient,
         address indexed quoteToken,
         uint256 fees,
-        uint256 recipientShare
+        uint256 recipientShare,
+        uint256 snipeSurcharge
     );
     event FeeRecipientUpdated(address indexed token, address indexed previous, address indexed current);
     event FeeTreasuryUpdated(address indexed treasury);
@@ -380,7 +425,14 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         PoolId poolId = key.toId();
 
         // Registered before initialize, so a swap can never find the pool unpriced.
-        _poolFees[poolId] = PoolFee({token: token, tradeFee: tradeFee, quoteIsCurrency0: !tokenIsCurrency0});
+        _poolFees[poolId] = PoolFee({
+            token: token,
+            tradeFee: tradeFee,
+            quoteIsCurrency0: !tokenIsCurrency0,
+            launchedAt: uint32(block.timestamp),
+            snipeStartBps: snipeStartBps,
+            snipeDuration: snipeDuration
+        });
 
         // Starting exactly at the token-only edge of the range is what makes the position
         // single-sided, so the pool owes us no quote token.
@@ -482,10 +534,11 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
     {
         if (msg.sender != address(poolManager)) revert NotPoolManager();
         PoolFee memory pf = _poolFee(key);
-        if (pf.tradeFee == 0 || !_quoteIsSpecified(pf, params)) {
+        uint24 rate = _swapRate(pf, params);
+        if (rate == 0 || !_quoteIsSpecified(pf, params)) {
             return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
         }
-        uint256 fee = _feeOnSpecified(pf.tradeFee, params.amountSpecified);
+        uint256 fee = _feeOnSpecified(rate, params.amountSpecified);
         // The fee rounds up, so an exact-in payment of a raw unit or so could be all fee
         // and swap nothing. Refuse it rather than charge for no trade.
         if (params.amountSpecified < 0 && fee >= uint256(-params.amountSpecified)) {
@@ -506,9 +559,13 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
     ) external returns (bytes4, int128) {
         if (msg.sender != address(poolManager)) revert NotPoolManager();
         PoolFee memory pf = _poolFee(key);
-        if (pf.tradeFee == 0) return (IHooks.afterSwap.selector, 0);
+        uint24 rate = _swapRate(pf, params);
+        // The exemption covers one buy: this one, whichever it was.
+        if (_isBuy(pf, params)) _clearExemptBuy(pf.token);
+        if (rate == 0) return (IHooks.afterSwap.selector, 0);
 
         uint256 fee;
+        uint256 baseFee;
         int128 unspecifiedDelta;
         // The pool's own quote amount, before any hook delta.
         int128 quoteDelta = pf.quoteIsCurrency0 ? delta.amount0() : delta.amount1();
@@ -518,16 +575,16 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
             // priced on the whole requested amount, so a fill that stopped short (a price
             // limit) would overcharge: require the pool to have swapped exactly the
             // adjusted amount — `X - fee` in, or `Y + fee` out.
-            fee = _feeOnSpecified(pf.tradeFee, params.amountSpecified);
+            fee = _feeOnSpecified(rate, params.amountSpecified);
+            baseFee = _feeOnSpecified(pf.tradeFee, params.amountSpecified);
             uint256 expected = params.amountSpecified < 0
                 ? uint256(-params.amountSpecified) - fee
                 : uint256(params.amountSpecified) + fee;
             if (quoteAmount != expected) revert PartialFillWithFee(quoteAmount, expected);
         } else {
             // What the pool paid a seller (exact-in) or charged a buyer (exact-out).
-            fee = params.amountSpecified < 0
-                ? _mulDivUp(quoteAmount, pf.tradeFee, PIPS)
-                : _mulDivUp(quoteAmount, pf.tradeFee, PIPS - pf.tradeFee);
+            fee = _feeOnUnspecified(rate, params.amountSpecified, quoteAmount);
+            baseFee = _feeOnUnspecified(pf.tradeFee, params.amountSpecified, quoteAmount);
             unspecifiedDelta = SafeCast.toInt128(fee);
         }
         if (fee == 0) return (IHooks.afterSwap.selector, unspecifiedDelta);
@@ -536,9 +593,12 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         // ERC-6909 claims rather than moving tokens on every swap.
         Currency quote = pf.quoteIsCurrency0 ? key.currency0 : key.currency1;
         poolManager.mint(address(this), quote.toId(), fee);
-        pendingFees[pf.token] += fee;
+        // A higher rate on the same amount never rounds to a smaller fee, so this is >= 0.
+        uint256 surcharge = fee - baseFee;
+        pendingFees[pf.token] += baseFee;
+        if (surcharge != 0) pendingSurcharge[pf.token] += surcharge;
         PoolId poolId = key.toId();
-        emit TradeFeeTaken(poolId, pf.token, fee);
+        emit TradeFeeTaken(poolId, pf.token, fee, surcharge);
         (uint128 fee0, uint128 fee1) = pf.quoteIsCurrency0 ? (uint128(fee), uint128(0)) : (uint128(0), uint128(fee));
         emit HookFee(PoolId.unwrap(poolId), sender, fee0, fee1);
 
@@ -551,10 +611,12 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
 
     /**
      * @notice Move a launch's pending trade fees into the claimable balances, 88% to its
-     *         fee recipient and 12% to the treasury.
+     *         fee recipient and 12% to the treasury, plus any snipe surcharge to the
+     *         treasury alone.
      * @dev Permissionless: anyone may trigger it, and it only ever moves fees into those
      *      two balances. Collecting when nothing is pending credits zero.
-     * @return fees the quote-token amount collected, in its raw units (wei for ETH)
+     * @return fees the quote-token amount collected, surcharge included, in its raw units
+     *         (wei for ETH)
      */
     function collectFees(address token) external nonReentrant returns (uint256 fees) {
         Placement storage p = _placements[token];
@@ -564,13 +626,16 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         address recipient = feeRecipientOf(token);
         address quote = _quoteOf(p);
 
-        fees = pendingFees[token];
+        uint256 tradeFees = pendingFees[token];
+        uint256 surcharge = pendingSurcharge[token];
         pendingFees[token] = 0;
-        uint256 recipientShare = (fees * CREATOR_FEE_BPS) / BPS;
+        pendingSurcharge[token] = 0;
+        uint256 recipientShare = (tradeFees * CREATOR_FEE_BPS) / BPS;
+        fees = tradeFees + surcharge;
         claimable[quote][recipient] += recipientShare;
         claimable[quote][treasury] += fees - recipientShare;
 
-        emit FeesCollected(token, recipient, quote, fees, recipientShare);
+        emit FeesCollected(token, recipient, quote, fees, recipientShare, surcharge);
     }
 
     /// @notice Withdraw the caller's collected fees in `currency` (`address(0)` = ETH) to
@@ -631,6 +696,36 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         return _placements[token].tradeFee;
     }
 
+    /// @notice What a buy in `token`'s pool pays right now, in pips: the trade fee, or more
+    ///         inside the snipe window. Sells always pay `tradeFeeOf`.
+    function currentBuyFeeOf(address token) external view returns (uint24) {
+        Placement storage p = _placements[token];
+        if (p.liquidity == 0) return 0;
+        return _buyRate(_poolFees[p.key.toId()]);
+    }
+
+    /// @notice A launch's snipe-tax schedule: starting rate (bps), window (seconds) and the
+    ///         time it started. A zero window means it has none.
+    function snipeTaxOf(address token) external view returns (uint16 startBps, uint16 duration, uint32 launchedAt) {
+        Placement storage p = _placements[token];
+        if (p.liquidity == 0) return (0, 0, 0);
+        PoolFee memory pf = _poolFees[p.key.toId()];
+        return (pf.snipeStartBps, pf.snipeDuration, pf.launchedAt);
+    }
+
+    // ------------------------------------------------------------------
+    // The creator's launch buy
+    // ------------------------------------------------------------------
+
+    /// @inheritdoc ILiquidityPlacer
+    function exemptNextBuy(address token) external override {
+        if (msg.sender != launchpad) revert OnlyLaunchpad();
+        bytes32 slot = _exemptSlot(token);
+        assembly ("memory-safe") {
+            tstore(slot, 1)
+        }
+    }
+
     // ------------------------------------------------------------------
     // Internals
     // ------------------------------------------------------------------
@@ -664,6 +759,58 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         return amountSpecified < 0
             ? _mulDivUp(uint256(-amountSpecified), rate, PIPS)
             : _mulDivUp(uint256(amountSpecified), rate, PIPS - rate);
+    }
+
+    /// @dev The fee on a quote-unspecified swap from the pool's own quote amount: `rate` of
+    ///      what it paid a seller (exact-in), or the fee that is `rate` of a buyer's gross
+    ///      payment behind what the pool charged (exact-out).
+    function _feeOnUnspecified(uint24 rate, int256 amountSpecified, uint256 quoteAmount)
+        private
+        pure
+        returns (uint256)
+    {
+        return amountSpecified < 0 ? _mulDivUp(quoteAmount, rate, PIPS) : _mulDivUp(quoteAmount, rate, PIPS - rate);
+    }
+
+    /// @dev Whether the swap spends the quote (a buy).
+    function _isBuy(PoolFee memory pf, IPoolManager.SwapParams calldata params) private pure returns (bool) {
+        return params.zeroForOne == pf.quoteIsCurrency0;
+    }
+
+    /// @dev The rate this swap pays: the trade fee, or for a buy the snipe-window rate —
+    ///      unless it is the creator's exempt launch buy.
+    function _swapRate(PoolFee memory pf, IPoolManager.SwapParams calldata params) private view returns (uint24) {
+        if (!_isBuy(pf, params) || _isExemptBuy(pf.token)) return pf.tradeFee;
+        return _buyRate(pf);
+    }
+
+    /// @dev Linear from `snipeStartBps` at launch to the trade fee at the window's end; the
+    ///      trade fee alone after it (or if the creator's fee is already higher).
+    function _buyRate(PoolFee memory pf) private view returns (uint24) {
+        uint256 base = pf.tradeFee;
+        uint256 elapsed = block.timestamp - pf.launchedAt;
+        if (elapsed >= pf.snipeDuration) return uint24(base);
+        uint256 start = uint256(pf.snipeStartBps) * 100; // bps -> pips
+        if (start <= base) return uint24(base);
+        return uint24(start - ((start - base) * elapsed) / pf.snipeDuration);
+    }
+
+    function _exemptSlot(address token) private pure returns (bytes32) {
+        return keccak256(abi.encode(token, EXEMPT_BUY_SEED));
+    }
+
+    function _isExemptBuy(address token) private view returns (bool exempt) {
+        bytes32 slot = _exemptSlot(token);
+        assembly ("memory-safe") {
+            exempt := tload(slot)
+        }
+    }
+
+    function _clearExemptBuy(address token) private {
+        bytes32 slot = _exemptSlot(token);
+        assembly ("memory-safe") {
+            tstore(slot, 0)
+        }
     }
 
     function _mulDivUp(uint256 a, uint256 b, uint256 denominator) private pure returns (uint256) {
@@ -760,6 +907,18 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         _checkMinTradeFee(_minTradeFee);
         minTradeFee = _minTradeFee;
         emit MinTradeFeeUpdated(_minTradeFee);
+    }
+
+    /// @notice The snipe tax for future launches: a buy surcharge starting at `startBps`
+    ///         that decays linearly to the launch's trade fee over `duration` seconds.
+    ///         `duration` 0 turns it off. Live launches keep the schedule they were placed with.
+    function setSnipeTax(uint16 startBps, uint16 duration) external onlyRole(CONFIG_ROLE) {
+        if (startBps > MAX_SNIPE_START_BPS || duration > MAX_SNIPE_DURATION) {
+            revert SnipeTaxOutOfRange(startBps, duration);
+        }
+        snipeStartBps = startBps;
+        snipeDuration = duration;
+        emit SnipeTaxUpdated(startBps, duration);
     }
 
     /// @notice Set who receives the platform's share of collected fees. Applies to fees

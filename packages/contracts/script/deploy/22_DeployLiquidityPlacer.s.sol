@@ -36,6 +36,14 @@ contract DeployLiquidityPlacer is Script {
     ///      §6.7), so a floor keeps every launch paying something. CONFIG_ROLE-adjustable.
     uint24 internal constant MIN_TRADE_FEE = 5_000;
 
+    /// @notice The snipe tax: early buys pay a surcharge that starts at 80% and decays
+    ///         linearly to the launch's own trade fee over 30 seconds (15 Base blocks).
+    /// @dev Snipers land in the launch's first block or two; a person who saw the launch
+    ///      and waits half a minute pays the normal fee. CONFIG_ROLE-adjustable
+    ///      (`setSnipeTax`); each pool keeps the schedule it launched with.
+    uint16 internal constant SNIPE_START_BPS = 8_000;
+    uint16 internal constant SNIPE_DURATION = 30;
+
     /// @notice Tick spacing. Must divide the position's ticks.
     int24 internal constant TICK_SPACING = 200;
 
@@ -77,6 +85,7 @@ contract DeployLiquidityPlacer is Script {
         // deployer when unset (local).
         address feeTreasury = vm.envOr("TREASURY_ADDRESS", admin);
         placer.setFeeTreasury(feeTreasury);
+        placer.setSnipeTax(SNIPE_START_BPS, SNIPE_DURATION);
 
         vm.stopBroadcast();
 
@@ -87,6 +96,7 @@ contract DeployLiquidityPlacer is Script {
         console2.log("  min trade fee (pips) / tickSpacing:", MIN_TRADE_FEE, uint256(int256(TICK_SPACING)));
         console2.log("  wired into TokenLaunchpad:", addrs.tokenLaunchpad);
         console2.log("  trade fee treasury (12%):", feeTreasury);
+        console2.log("  snipe tax (bps, seconds):", SNIPE_START_BPS, SNIPE_DURATION);
 
         return addrs;
     }

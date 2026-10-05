@@ -698,8 +698,19 @@ deployed at a mined address carrying its hook flags — is every pool's hook:
 The creator chooses `tradeFee` at launch (`launch(..., startFdv, tradeFee, ...)`), from
 `minTradeFee` (CONFIG_ROLE, 0.5% at deploy) up to the compiled-in `MAX_TRADE_FEE` of 10%,
 fixed for the pool's life. Pools are sell-floored at the launch price (no liquidity below),
-so exact-out sells beyond what the pool holds revert. Snipe protection (a decaying launch
-fee, as Clanker, Zora and Pons do) would live in the same hook and is not built.
+so exact-out sells beyond what the pool holds revert.
+
+#### Snipe tax
+
+Built 2026-10-05, in the same hook. Bots buy in a launch's first block; for a short window a
+BUY pays a rate decaying linearly from 80% to the launch's trade fee over 30 seconds (15 Base
+blocks), then the trade fee alone. Comparable: Clanker's descending MEV fee (up to 80%, up to
+2 minutes), Zora's 99%→1% over 10 seconds, Pons's reported 99% buy-only tax over ~5 seconds.
+Sells never pay it. The schedule is CONFIG_ROLE's (`setSnipeTax`, ≤ 99%, ≤ 1 hour) and each
+pool copies it at placement. The surcharge above the trade fee goes **entirely to the
+treasury**: split 88/12, a creator could snipe their own launch and recover most of the tax.
+The creator's own buy inside the launch transaction is exempt — it precedes any other trade
+(`exemptNextBuy`, a transient flag only the launchpad can set).
 
 #### The opening price is set as a valuation
 

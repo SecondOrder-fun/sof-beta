@@ -72,6 +72,8 @@ contract LaunchpadDeployWiringTest is Test {
         // The placer is every launch pool's hook, so it must sit at a mined address.
         assertEq(uint160(addrs.liquidityPlacer) & ((1 << 14) - 1), placer.HOOK_FLAGS(), "hook address flags");
         assertEq(placer.minTradeFee(), 5_000, "0.5% trade-fee floor");
+        assertEq(placer.snipeStartBps(), 8_000, "snipe tax starts at 80%");
+        assertEq(placer.snipeDuration(), 30, "and decays over 30 seconds");
     }
 
     function test_deployerHoldsTheAdminRolesOnBoth() public {
