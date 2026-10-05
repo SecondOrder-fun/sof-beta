@@ -18,6 +18,9 @@ import {
   swapFeeFor,
   tradeFeeOn,
   MAX_TRADE_FEE,
+  buyFeeAt,
+  hasSnipeTax,
+  snipeWindowEnd,
 } from "@/lib/v4PoolMath";
 
 // Every constant below was emitted by a REAL PoolManager swap in
@@ -658,5 +661,98 @@ describe("token is currency0 — mirrored against the ETH fixture", () => {
     const m = deriveMarketState({ slot0Word: pushed, liquidityWord: "0x0", placement, wholeSupply: WHOLE_SUPPLY });
     expect(m.sqrtPriceX96).toBe(launch);
     expect(m.multiple).toBe(1);
+  });
+});
+
+// UniV4LiquidityPlacer._buyRate: start − floor((start − tradeFee) × elapsed / duration)
+// in pips while elapsed < duration (start = startBps × 100), then the trade fee.
+describe("snipe tax — the buy rate in a launch's first seconds", () => {
+  const LAUNCHED = 1_700_000_000;
+  // The deploy default: 80% over 30 s.
+  const TAX = { startBps: 8_000, duration: 30, launchedAt: LAUNCHED };
+  const FEE = 10_000; // 1%
+
+  it("starts at the schedule's rate at launch", () => {
+    expect(buyFeeAt(FEE, TAX, LAUNCHED)).toBe(800_000);
+  });
+
+  it("falls linearly, floored to the pip like the contract", () => {
+    // 800_000 − floor(790_000 × 8 / 30) = 800_000 − 210_666
+    expect(buyFeeAt(FEE, TAX, LAUNCHED + 8)).toBe(589_334);
+    // 800_000 − 790_000 × 15 / 30 exactly
+    expect(buyFeeAt(FEE, TAX, LAUNCHED + 15)).toBe(405_000);
+    // 800_000 − floor(790_000 × 29 / 30) = 800_000 − 763_666
+    expect(buyFeeAt(FEE, TAX, LAUNCHED + 29)).toBe(36_334);
+    // A fractional "now" is the second it is in, as block.timestamp is.
+    expect(buyFeeAt(FEE, TAX, LAUNCHED + 8.9)).toBe(589_334);
+  });
+
+  it("never rises with time, so an earlier clock never quotes less", () => {
+    let prev = Infinity;
+    for (let t = -5; t <= 40; t++) {
+      const rate = buyFeeAt(FEE, TAX, LAUNCHED + t);
+      expect(rate).toBeLessThanOrEqual(prev);
+      expect(rate).toBeGreaterThanOrEqual(FEE);
+      prev = rate;
+    }
+  });
+
+  it("is the trade fee from the window's end on", () => {
+    expect(buyFeeAt(FEE, TAX, LAUNCHED + 30)).toBe(FEE);
+    expect(buyFeeAt(FEE, TAX, LAUNCHED + 3_600)).toBe(FEE);
+    expect(snipeWindowEnd(FEE, TAX)).toBe(LAUNCHED + 30);
+  });
+
+  it("counts a clock behind the launch block as elapsed 0 — the top rate", () => {
+    expect(buyFeeAt(FEE, TAX, LAUNCHED - 3)).toBe(800_000);
+  });
+
+  it("is the trade fee throughout when the start is at or below it", () => {
+    const low = { startBps: 100, duration: 30, launchedAt: LAUNCHED }; // 1% = 10_000 pips
+    expect(buyFeeAt(FEE, low, LAUNCHED)).toBe(FEE);
+    expect(buyFeeAt(50_000, low, LAUNCHED + 1)).toBe(50_000);
+    expect(hasSnipeTax(FEE, low)).toBe(false);
+    expect(snipeWindowEnd(FEE, low)).toBeNull();
+  });
+
+  it("is the trade fee throughout with a zero window or no schedule", () => {
+    const off = { startBps: 8_000, duration: 0, launchedAt: LAUNCHED };
+    expect(buyFeeAt(FEE, off, LAUNCHED)).toBe(FEE);
+    expect(hasSnipeTax(FEE, off)).toBe(false);
+    expect(buyFeeAt(FEE, null, LAUNCHED)).toBe(FEE);
+    expect(snipeWindowEnd(FEE, null)).toBeNull();
+  });
+
+  it("taxes a zero-fee launch too", () => {
+    expect(buyFeeAt(0, TAX, LAUNCHED + 15)).toBe(400_000);
+  });
+
+  it("quotes a buy in the window as the hook charges it: rate of the gross, rounded up", () => {
+    const rate = buyFeeAt(FEE, TAX, LAUNCHED + 8); // 58.9334%
+    const G = FIX.buy1.ethIn;
+    const fee = (G * BigInt(rate) + 999_999n) / 1_000_000n; // ceil(G·r/1e6)
+    const q = quoteBuy({ ...POOL, sqrtPriceX96: FIX.launchSqrt, tradeFee: rate, quoteIn: G });
+    // Direct: the pool swaps G − fee with no hook fee at all.
+    const direct = quoteBuy({ ...POOL, sqrtPriceX96: FIX.launchSqrt, tradeFee: 0, quoteIn: G - fee });
+    expect(q.fee).toBe(fee);
+    expect(q.fee).toBe(58933400000000000n);
+    expect(q.tokensOut).toBe(direct.tokensOut);
+    // And far fewer tokens than the same buy at the trade fee alone.
+    expect(q.tokensOut).toBeLessThan(FIX.buy1.tokensOut);
+  });
+
+  it("carries snipeTaxOf's positional result through deriveMarketState", () => {
+    const placement = {
+      tickLower: FIX.tickLower,
+      tickUpper: FIX.tickUpper,
+      liquidity: FIX.placementLiquidity,
+      tradeFee: FIX.tradeFee,
+      key: { tickSpacing: FIX.tickSpacing },
+    };
+    const base = { slot0Word: FIX.slot0Word, liquidityWord: "0x0", placement, wholeSupply: WHOLE_SUPPLY };
+    expect(deriveMarketState({ ...base, snipeTax: [8_000, 30, LAUNCHED] }).snipeTax).toEqual(TAX);
+    expect(deriveMarketState({ ...base, snipeTax: TAX }).snipeTax).toEqual(TAX);
+    // A placer from before the snipe tax: the read fails, there is none.
+    expect(deriveMarketState(base).snipeTax).toBeNull();
   });
 });

@@ -15,7 +15,10 @@
 // own bounds. The trade fee is the creator's choice too — presets or a typed
 // percentage, between the placer's minTradeFee() and 10% (useTradeFeeBounds),
 // sent to launch() in pips — charged on every buy and sell in the quote and fixed
-// for the pool's life. An optional first buy, in the same quote, is made inside
+// for the pool's life. For the pool's first seconds buys pay a snipe tax falling
+// to that fee (the placer's snipeStartBps() / snipeDuration(), via
+// useTradeFeeBounds); the summary says so, and that the creator's own first buy
+// is exempt. An optional first buy, in the same quote, is made inside
 // the launch transaction before anyone else can trade (an ERC-20 one is approved
 // in the same batch). The per-token price is derived and shown, never typed.
 
@@ -48,7 +51,7 @@ import {
   validateLaunchForm,
 } from "@/hooks/useTokenLaunchpad";
 import { ETH_QUOTE, isNativeQuote } from "@/config/launchQuoteTokens";
-import { MAX_TRADE_FEE } from "@/lib/v4PoolMath";
+import { MAX_TRADE_FEE, hasSnipeTax } from "@/lib/v4PoolMath";
 import {
   formatFdv,
   formatQuoteAmount,
@@ -57,6 +60,7 @@ import {
   formatTradeFee,
   parseQuoteAmount,
   parseTradeFeePct,
+  splitSeconds,
 } from "@/lib/launchFormat";
 
 const EMPTY_FORM = {
@@ -97,6 +101,10 @@ const Launch = () => {
   const tradeFee = useMemo(() => parseTradeFeePct(form.tradeFee), [form.tradeFee]);
   const maxTradeFee = feeBounds?.max ?? MAX_TRADE_FEE;
   const price = fdv != null && config ? formatTokenPrice(fdv, unit, config.wholeSupply) : null;
+  // The snipe tax the new pool will copy; none on a zero window (or a placer without one).
+  const snipe = { startBps: feeBounds?.snipeStartBps ?? 0, duration: feeBounds?.snipeDuration ?? 0 };
+  const showSnipeTax = hasSnipeTax(tradeFee ?? 0, snipe);
+  const snipeWindow = splitSeconds(snipe.duration);
 
   // The creator's balance of the chosen quote, so a first buy they cannot pay
   // for is caught here rather than by a revert.
@@ -438,6 +446,16 @@ const Launch = () => {
                       : "—"}
                   </dd>
                 </div>
+                {showSnipeTax && (
+                  <p className="text-xs text-muted-foreground" data-testid="summary-snipe-tax">
+                    {t("summary.snipeTax", {
+                      start: formatTradeFee(snipe.startBps * 100),
+                      duration: snipeWindow.minutes
+                        ? t("trade.snipeMinutes", snipeWindow)
+                        : t("trade.snipeSeconds", { seconds: snipeWindow.seconds }),
+                    })}
+                  </p>
+                )}
                 <div className="flex justify-between gap-4">
                   <dt className="text-muted-foreground">{t("summary.firstBuy")}</dt>
                   <dd className="font-medium text-foreground">

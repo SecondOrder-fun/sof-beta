@@ -14,6 +14,8 @@ import {
   formatEthAmount,
   tokensToEthWei,
   formatTradeFee,
+  formatFeeRate,
+  splitSeconds,
   parseTradeFeePct,
 } from "@/lib/launchFormat";
 import { getCountdownParts, timeUntil } from "@/lib/utils";
@@ -291,5 +293,25 @@ describe("formatTokenAmount", () => {
   it("accepts a wei string and dashes a missing amount", () => {
     expect(formatTokenAmount(String(3n * TOKEN))).toBe("3");
     expect(formatTokenAmount(null)).toBe("—");
+  });
+});
+
+describe("formatFeeRate", () => {
+  it("shows a moving rate to two decimals, rounded up so it never reads low", () => {
+    expect(formatFeeRate(800_000)).toBe("80");
+    expect(formatFeeRate(589_334)).toBe("58.94");
+    expect(formatFeeRate(405_000)).toBe("40.5");
+    expect(formatFeeRate(10_000)).toBe("1");
+    expect(formatFeeRate(10_001)).toBe("1.01");
+    expect(formatFeeRate(null)).toBe("—");
+  });
+});
+
+describe("splitSeconds", () => {
+  it("splits a countdown into minutes and seconds, rounding a fraction up", () => {
+    expect(splitSeconds(22)).toEqual({ minutes: 0, seconds: 22 });
+    expect(splitSeconds(90)).toEqual({ minutes: 1, seconds: 30 });
+    expect(splitSeconds(0.2)).toEqual({ minutes: 0, seconds: 1 });
+    expect(splitSeconds(-3)).toEqual({ minutes: 0, seconds: 0 });
   });
 });

@@ -11,6 +11,9 @@
 //     wait in `pendingFees(token)` until `collectFees(token)` — permissionless —
 //     credits CREATOR_FEE_BPS (88%) of them to the launch's current fee
 //     recipient and the rest to the treasury, the recipient's share floored.
+//     An early buy's snipe tax (its rate above the trade fee) waits apart, in
+//     `pendingSurcharge`, and goes to the treasury alone, so it is never in
+//     pendingFees or a recipient's share.
 //   - Credits are per currency and account (`claimable(currency, account)`,
 //     address 0 = ETH), and claimed by THAT account as msg.sender with
 //     `claim(currency, to)`. A quote currency's credits pool across every launch

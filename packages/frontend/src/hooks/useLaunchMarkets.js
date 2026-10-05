@@ -10,6 +10,10 @@
 //   2. <that placer>.getPlacement(token)         -> the position's tick range, its
 //                                                   orientation, its pool key (tick
 //                                                   spacing) and the launch's trade fee
+//      <that placer>.snipeTaxOf(token)           -> the early-buy snipe-tax schedule
+//                                                   (a placer from before it has none:
+//                                                   the read fails, the buy rate is the
+//                                                   trade fee)
 //   3. symbol() + decimals() of any quote token not listed in
 //      config/launchQuoteTokens.js (skipped when every quote is listed)
 // Each launch is read through ITS placer, not the deployment's current one: the
@@ -80,20 +84,21 @@ export function useLaunchMarkets(launches, { wholeSupply = 1_000_000_000n, enabl
         placers[i]?.status === 'success' && !ZERO_ADDRESS.test(placers[i].result) ? placers[i].result : null,
       );
       const lookups = priced.map((l, i) => ({ token: l.token, placer: placerFor[i], i })).filter((x) => x.placer);
+      // Two reads per launch, interleaved: getPlacement then snipeTaxOf.
       const placementResults = lookups.length
         ? await client.multicall({
-            contracts: lookups.map(({ token, placer }) => ({
-              address: placer,
-              abi: UniV4LiquidityPlacerAbi,
-              functionName: 'getPlacement',
-              args: [token],
-            })),
+            contracts: lookups.flatMap(({ token, placer }) => [
+              { address: placer, abi: UniV4LiquidityPlacerAbi, functionName: 'getPlacement', args: [token] },
+              { address: placer, abi: UniV4LiquidityPlacerAbi, functionName: 'snipeTaxOf', args: [token] },
+            ]),
             allowFailure: true,
           })
         : [];
       const placements = [];
+      const snipeTaxes = [];
       lookups.forEach(({ i }, j) => {
-        placements[i] = placementResults[j];
+        placements[i] = placementResults[2 * j];
+        snipeTaxes[i] = placementResults[2 * j + 1]?.status === 'success' ? placementResults[2 * j + 1].result : null;
       });
 
       // The quote is the pool currency that is not the token.
@@ -117,6 +122,7 @@ export function useLaunchMarkets(launches, { wholeSupply = 1_000_000_000n, enabl
           placement: placed[i],
           wholeSupply,
           quote: quoteMetaFor(quoteMeta, quoteAddressOf(placed[i])),
+          snipeTax: snipeTaxes[i],
         });
         if (market) out[l.token.toLowerCase()] = market;
       });

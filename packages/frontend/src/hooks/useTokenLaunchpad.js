@@ -14,11 +14,14 @@
 // The creator also picks the pool's trade fee (`tradeFee`, pips: 10_000 = 1%),
 // charged by the placer — the pool's v4 hook — on every buy and sell, always in
 // the quote token, and fixed for the pool's life. The placer bounds it:
-// `minTradeFee()` (CONFIG_ROLE) to `MAX_TRADE_FEE` (10%, compiled in).
+// `minTradeFee()` (CONFIG_ROLE) to `MAX_TRADE_FEE` (10%, compiled in). For the
+// pool's first seconds a buy pays more — a snipe tax falling to that fee, on the
+// schedule the placer holds for new launches (`snipeStartBps()` / `snipeDuration()`,
+// read with the bounds by useTradeFeeBounds).
 //
 // The creator may also make a first buy inside the launch transaction
 // (`creatorBuyIn`), executed right after the pool is placed and before anyone
-// else can trade.
+// else can trade; the snipe tax does not apply to it.
 
 import { useCallback, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -145,11 +148,14 @@ export function useLaunchpadReady() {
 }
 
 /**
- * The trade-fee range a new launch may choose, from the launchpad's current
- * placer: `minTradeFee()` (CONFIG_ROLE, 0.5% at deploy) to `MAX_TRADE_FEE()`
- * (10%, compiled in). Cold like the rest of the config. `data` is
- * `{ min, max }` in pips; while it loads (or with no placer) the form checks
- * only the compiled-in maximum.
+ * The fee terms a new launch gets from the launchpad's current placer: the
+ * trade-fee range it may choose, `minTradeFee()` (CONFIG_ROLE, 0.5% at deploy) to
+ * `MAX_TRADE_FEE()` (10%, compiled in), and the snipe tax its pool will copy at
+ * placement, `snipeStartBps()` / `snipeDuration()` (80% over 30 s at deploy).
+ * Cold like the rest of the config. `data` is `{ min, max, snipeStartBps,
+ * snipeDuration }` — pips, basis points, seconds; while it loads (or with no
+ * placer) the form checks only the compiled-in maximum. A placer from before the
+ * snipe tax has no such views: both read 0, which means none.
  */
 export function useTradeFeeBounds() {
   const client = usePublicClient();
@@ -163,14 +169,23 @@ export function useTradeFeeBounds() {
     queryFn: async () => {
       const placer = await client.readContract({ address: launchpad, abi: TokenLaunchpadAbi, functionName: 'placer' });
       if (!placer || /^0x0{40}$/i.test(placer)) return null;
-      const [min, max] = await client.multicall({
+      const [min, max, snipeStartBps, snipeDuration] = await client.multicall({
         contracts: [
           { address: placer, abi: UniV4LiquidityPlacerAbi, functionName: 'minTradeFee' },
           { address: placer, abi: UniV4LiquidityPlacerAbi, functionName: 'MAX_TRADE_FEE' },
+          { address: placer, abi: UniV4LiquidityPlacerAbi, functionName: 'snipeStartBps' },
+          { address: placer, abi: UniV4LiquidityPlacerAbi, functionName: 'snipeDuration' },
         ],
-        allowFailure: false,
+        allowFailure: true,
       });
-      return { min: Number(min), max: Number(max) };
+      if (min.status !== 'success' || max.status !== 'success') throw min.error ?? max.error;
+      const snipeOk = snipeStartBps.status === 'success' && snipeDuration.status === 'success';
+      return {
+        min: Number(min.result),
+        max: Number(max.result),
+        snipeStartBps: snipeOk ? Number(snipeStartBps.result) : 0,
+        snipeDuration: snipeOk ? Number(snipeDuration.result) : 0,
+      };
     },
   });
 }

@@ -38,7 +38,11 @@ vi.mock("react-i18next", async (importOriginal) => ({
   ...(await importOriginal()),
   useTranslation: () => ({
     t: (key, opts) =>
-      key === "summary.tradeFeeValue" || key === "form.tradeFeePercent" || key.startsWith("errors.tradeFee")
+      key === "summary.tradeFeeValue" ||
+      key === "form.tradeFeePercent" ||
+      key.startsWith("errors.tradeFee") ||
+      key === "summary.snipeTax" ||
+      key.startsWith("trade.snipe")
         ? `${key}(${Object.entries(opts ?? {}).map(([k, v]) => `${k}=${v}`).join(",")})`
         : opts?.unit
           ? `${key}:${opts.unit}`
@@ -209,6 +213,47 @@ describe("Launch form", () => {
       fireEvent.click(screen.getByRole("button", { name: "form.submit" }));
       expect(await screen.findByText("errors.tradeFeeInvalid(min=0.5,max=10)")).toBeInTheDocument();
       expect(launchMock).not.toHaveBeenCalled();
+    });
+  });
+
+  // The placer's snipe tax for new launches (deploy default: 80% over 30 s) is
+  // copied into the pool at placement; the summary states it.
+  describe("snipe tax", () => {
+    const bounds = { min: 5_000, max: 100_000, snipeStartBps: 8_000, snipeDuration: 30 };
+
+    it("tells the creator early buys pay a decaying tax and their first buy is exempt", () => {
+      setup({ feeBounds: bounds });
+      expect(screen.getByTestId("summary-snipe-tax")).toHaveTextContent(
+        "summary.snipeTax(start=80,duration=trade.snipeSeconds(seconds=30))",
+      );
+    });
+
+    it("says minutes for a longer window", () => {
+      setup({ feeBounds: { ...bounds, snipeStartBps: 5_000, snipeDuration: 90 } });
+      expect(screen.getByTestId("summary-snipe-tax")).toHaveTextContent(
+        "summary.snipeTax(start=50,duration=trade.snipeMinutes(minutes=1,seconds=30))",
+      );
+    });
+
+    it("is not mentioned when the window is zero", () => {
+      setup({ feeBounds: { ...bounds, snipeDuration: 0 } });
+      expect(screen.queryByTestId("summary-snipe-tax")).not.toBeInTheDocument();
+    });
+
+    it("is not mentioned when the placer has none", () => {
+      setup({ feeBounds: { min: 5_000, max: 100_000, snipeStartBps: 0, snipeDuration: 0 } });
+      expect(screen.queryByTestId("summary-snipe-tax")).not.toBeInTheDocument();
+    });
+
+    it("is not mentioned before the placer's terms are read", () => {
+      setup({ feeBounds: undefined });
+      expect(screen.queryByTestId("summary-snipe-tax")).not.toBeInTheDocument();
+    });
+
+    it("is not mentioned when it would start at or below the chosen fee", () => {
+      setup({ feeBounds: { ...bounds, snipeStartBps: 100 } });
+      fireEvent.change(screen.getByLabelText("form.tradeFee"), { target: { value: "2" } });
+      expect(screen.queryByTestId("summary-snipe-tax")).not.toBeInTheDocument();
     });
   });
 

@@ -49,6 +49,10 @@ const multicall = vi.fn(async ({ contracts }) =>
       const k = KEY_OF[c.args[0]] ?? { key: { currency0: ZERO, currency1: c.args[0] }, tokenIsCurrency0: false };
       return { status: "success", result: { placer: c.address, ...k } };
     }
+    // The old placer predates the snipe tax and has no snipeTaxOf.
+    if (c.functionName === "snipeTaxOf") {
+      return c.address === OLD_PLACER ? { status: "failure" } : { status: "success", result: [8000, 30, 1_700_000_000] };
+    }
     if (c.functionName === "symbol" || c.functionName === "decimals") {
       tokenReads.push(c.address);
       return { status: "success", result: c.functionName === "symbol" ? "ODD" : 8 };
@@ -71,7 +75,7 @@ vi.mock("@/lib/v4PoolMath", () => ({
   poolStateSlot: () => "0xs",
   poolLiquiditySlot: () => "0xl",
   // Echo which placer the placement came from, so the test can see the routing.
-  deriveMarketState: ({ placement, quote }) => ({ placer: placement.placer, quote }),
+  deriveMarketState: ({ placement, quote, snipeTax }) => ({ placer: placement.placer, quote, snipeTax }),
 }));
 
 import { useLaunchMarkets } from "@/hooks/useLaunchMarkets";
@@ -94,6 +98,17 @@ describe("useLaunchMarkets", () => {
     expect(result.current.markets[FOREIGN_TOKEN]).toBeUndefined();
     expect(placementReads.map((r) => r.token)).not.toContain(FOREIGN_TOKEN);
     expect(result.current.isAvailable).toBe(true);
+  });
+
+  it("reads each launch's snipe-tax schedule from its placer; one from before it has none", async () => {
+    const launches = [OLD_TOKEN, NEW_TOKEN].map((token) => ({ token, placementId: "0x1234" }));
+    const { result } = renderHook(() => useLaunchMarkets(launches), { wrapper });
+
+    await waitFor(() => expect(Object.keys(result.current.markets)).toHaveLength(2));
+
+    expect(result.current.markets[NEW_TOKEN].snipeTax).toEqual([8000, 30, 1_700_000_000]);
+    expect(result.current.markets[OLD_TOKEN].snipeTax).toBeNull();
+    expect(result.current.markets[OLD_TOKEN].placer).toBe(OLD_PLACER);
   });
 
   it("carries each launch's quote: ETH, a listed ERC-20 without a read, and an unlisted one read from the token", async () => {

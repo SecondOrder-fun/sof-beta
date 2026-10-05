@@ -1,8 +1,8 @@
-import { render, screen, fireEvent } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent, act } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import BuyPanel from "@/components/launchpad/BuyPanel";
-import { deriveMarketState } from "@/lib/v4PoolMath";
+import { buyFeeAt, deriveMarketState, minimumReceived, quoteBuy } from "@/lib/v4PoolMath";
 
 vi.mock("react-i18next", async (importOriginal) => ({
   ...(await importOriginal()),
@@ -10,7 +10,13 @@ vi.mock("react-i18next", async (importOriginal) => ({
     t: (key, opts) =>
       key === "trade.tradeFeeValue"
         ? `${opts.amount} ${opts.quote} (${opts.fee}%)`
-        : opts?.symbol
+        : key === "trade.snipeTax"
+          ? `Launch snipe tax: ${opts.rate}% now, falling to ${opts.fee}% in ${opts.time}`
+          : key === "trade.snipeSeconds"
+            ? `${opts.seconds} s`
+            : key === "trade.snipeMinutes"
+              ? `${opts.minutes} min ${opts.seconds} s`
+              : opts?.symbol
           ? `${key}:${opts.symbol}`
           : key,
   }),
@@ -42,6 +48,9 @@ vi.mock("@/hooks/useQuoteBalance", () => ({
   useQuoteBalance: (address) => ({ balance: address === USDC ? usdcBalance.current : tokenBalance.current }),
 }));
 vi.mock("@/lib/wagmi", () => ({ getStoredNetworkKey: () => "TESTNET" }));
+// The chain's clock (the backend's latest block time); null = not read yet.
+const chainAnchor = { current: null };
+vi.mock("@/hooks/useChainTime", () => ({ useChainTimeAnchor: () => chainAnchor.current }));
 
 // The launch state from test_fixture_quoteMathForFrontend: a real PoolManager,
 // 1 ETH FDV at a 1% trade fee, untouched. A 0.1 ETH buy from here delivered
@@ -79,6 +88,7 @@ describe("BuyPanel", () => {
     tradeState.isPending = false;
     tradeMock.mockReset().mockResolvedValue("0xhash");
     openLoginModal.mockReset();
+    chainAnchor.current = null;
   });
 
   it("quotes a buy at launch exactly as the real v4 swap filled it", () => {
@@ -271,5 +281,108 @@ describe("BuyPanel", () => {
     setup();
     typeAmount("abc");
     expect(screen.getByTestId("trade-receive")).toHaveTextContent("0");
+  });
+
+  // A fresh launch on the deploy-default schedule (80% falling to the 1% trade fee
+  // over 30 s), 10 s in by the chain's clock. The panel quotes 2 s behind the chain
+  // (SNIPE_CLOCK_MARGIN_SEC), so at elapsed 8: 800_000 − floor(790_000·8/30) pips.
+  describe("inside the launch's snipe-tax window", () => {
+    const LAUNCHED = 1_700_000_000;
+    const TAX = { startBps: 8_000, duration: 30, launchedAt: LAUNCHED };
+    const snipeMarket = { ...market, snipeTax: TAX };
+    const RATE = 589_334;
+    const at = (chainSec) => {
+      chainAnchor.current = { timestamp: chainSec, receivedAtMs: Date.now() };
+    };
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("warns with the live rate and how long until it is the trade fee", () => {
+      at(LAUNCHED + 10);
+      setup({ market: snipeMarket });
+      expect(screen.getByTestId("snipe-tax")).toHaveTextContent(
+        "Launch snipe tax: 58.94% now, falling to 1% in 22 s",
+      );
+      expect(screen.getByTestId("trade-fee")).toHaveTextContent("58.94%");
+    });
+
+    it("quotes the buy, its fee and its minimum at the window's rate", async () => {
+      expect(buyFeeAt(10_000, TAX, LAUNCHED + 8)).toBe(RATE);
+      at(LAUNCHED + 10);
+      setup({ market: snipeMarket });
+      typeAmount("0.1");
+      const G = 10n ** 17n;
+      // The hook's fee is ceil(G·r/1e6); the pool swaps the rest with no fee of its own.
+      const fee = (G * BigInt(RATE) + 999_999n) / 1_000_000n;
+      const direct = quoteBuy({
+        sqrtPriceX96: market.sqrtPriceX96,
+        liquidity: market.liquidity,
+        sqrtLowerX96: market.sqrtLowerX96,
+        sqrtUpperX96: market.sqrtUpperX96,
+        tickSpacing: market.tickSpacing,
+        tradeFee: 0,
+        quoteIn: G - fee,
+      });
+      expect(screen.getByTestId("trade-fee")).toHaveTextContent("0.058933 ETH (58.94%)");
+      fireEvent.click(screen.getByRole("button", { name: "trade.buyCta:POND" }));
+      await vi.waitFor(() => expect(tradeMock).toHaveBeenCalled());
+      expect(tradeMock.mock.calls[0][0]).toMatchObject({
+        side: "buy",
+        amountIn: G,
+        minOut: minimumReceived(direct.tokensOut, "1"),
+      });
+      expect(direct.tokensOut).toBeLessThan(89729910215527505885256588n);
+    });
+
+    it("counts down each second and clears when the rate reaches the trade fee", () => {
+      vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+      vi.setSystemTime(new Date("2026-10-05T12:00:00Z"));
+      at(LAUNCHED + 10);
+      setup({ market: snipeMarket });
+      expect(screen.getByTestId("snipe-tax")).toHaveTextContent("in 22 s");
+
+      act(() => vi.advanceTimersByTime(5_000));
+      // elapsed 13: 800_000 − floor(790_000·13/30) = 457_667 pips
+      expect(screen.getByTestId("snipe-tax")).toHaveTextContent("45.77% now, falling to 1% in 17 s");
+
+      act(() => vi.advanceTimersByTime(17_000));
+      expect(screen.queryByTestId("snipe-tax")).not.toBeInTheDocument();
+      expect(screen.getByTestId("trade-fee")).toHaveTextContent("1%");
+    });
+
+    it("runs on the wall clock until the chain's time is read", () => {
+      vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+      vi.setSystemTime((LAUNCHED + 10) * 1000);
+      setup({ market: snipeMarket });
+      expect(screen.getByTestId("snipe-tax")).toHaveTextContent("58.94% now, falling to 1% in 22 s");
+    });
+
+    it("shows minutes for a long window", () => {
+      at(LAUNCHED + 10);
+      setup({ market: { ...market, snipeTax: { ...TAX, duration: 600 } } });
+      // 600 − 8 = 592 s
+      expect(screen.getByTestId("snipe-tax")).toHaveTextContent("in 9 min 52 s");
+    });
+
+    it("never taxes a sell", () => {
+      tokenBalance.current = 1_000_000n * 10n ** 18n;
+      at(LAUNCHED + 10);
+      setup({ market: { ...snipeMarket, sqrtPriceX96: 2275703824434668340440887773871330n } });
+      fireEvent.mouseDown(screen.getByRole("tab", { name: "trade.sell" }));
+      fireEvent.click(screen.getByRole("tab", { name: "trade.sell" }));
+      expect(screen.queryByTestId("snipe-tax")).not.toBeInTheDocument();
+      expect(screen.getByTestId("trade-fee")).toHaveTextContent("1%");
+    });
+
+    it("shows nothing extra once the window has passed", () => {
+      at(LAUNCHED + 40);
+      setup({ market: snipeMarket });
+      typeAmount("0.1");
+      expect(screen.queryByTestId("snipe-tax")).not.toBeInTheDocument();
+      expect(screen.getByTestId("trade-fee")).toHaveTextContent("0.001 ETH (1%)");
+      expect(screen.getByTestId("trade-receive")).toHaveTextContent("89.72M");
+    });
   });
 });

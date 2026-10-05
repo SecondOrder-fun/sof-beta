@@ -17,6 +17,11 @@
 // TokenLaunchpad.router() advertises (useLaunchTrade), with minimum-out taken
 // from the quote and the slippage setting. An ERC-20 buy batches the router's
 // approval with the buy; an ETH buy sends the ETH with it.
+//
+// Snipe tax. For a launch's first seconds a buy pays more than the trade fee — a
+// rate falling to it (useLaunchBuyFee, live each second, never below what the
+// chain will charge). While that window is open the buy side quotes and shows the
+// fee at that rate and warns with a countdown; sells are never taxed.
 
 import PropTypes from "prop-types";
 import { useMemo, useState } from "react";
@@ -36,8 +41,16 @@ import { SlippageSettings } from "@/components/buysell";
 import { useQuoteBalance } from "@/hooks/useQuoteBalance";
 import { useLaunchTrade } from "@/hooks/useLaunchTrade";
 import { useLoginModal } from "@/hooks/useLoginModal";
+import { useLaunchBuyFee } from "@/hooks/useLaunchBuyFee";
 import { minimumReceived, quoteBuy, quoteSell } from "@/lib/v4PoolMath";
-import { formatSupply, formatTokenPrice, formatTradeFee, parseQuoteAmount } from "@/lib/launchFormat";
+import {
+  formatFeeRate,
+  formatSupply,
+  formatTokenPrice,
+  formatTradeFee,
+  parseQuoteAmount,
+  splitSeconds,
+} from "@/lib/launchFormat";
 import { DEFAULT_BUY_PRESETS, ETH_QUOTE, findLaunchQuote, isNativeQuote } from "@/config/launchQuoteTokens";
 import { getStoredNetworkKey } from "@/lib/wagmi";
 
@@ -65,6 +78,8 @@ const BuyPanel = ({ token, symbol, market, quote: quoteProp, className }) => {
   const { address, isConnected } = useAccount();
   const { openLoginModal } = useLoginModal();
   const { trade, isPending, error, reset, router } = useLaunchTrade();
+  // What a buy pays now: the trade fee, or the snipe-tax rate in the launch window.
+  const { buyFee, snipe } = useLaunchBuyFee(market);
 
   // What this launch trades against. The listed entry adds the quick amounts.
   const quote = market?.quote ?? quoteProp ?? ETH_QUOTE;
@@ -89,21 +104,26 @@ const BuyPanel = ({ token, symbol, market, quote: quoteProp, className }) => {
       sqrtLowerX96: market.sqrtLowerX96,
       sqrtUpperX96: market.sqrtUpperX96,
       tickSpacing: market.tickSpacing,
-      tradeFee: market.tradeFee,
     };
     return isBuy
-      ? quoteBuy({ ...pool, swapFee: market.buySwapFee, quoteIn: amountIn })
-      : quoteSell({ ...pool, swapFee: market.sellSwapFee, tokensIn: amountIn });
-  }, [market, amountIn, isBuy]);
+      ? quoteBuy({ ...pool, tradeFee: buyFee ?? market.tradeFee, swapFee: market.buySwapFee, quoteIn: amountIn })
+      : quoteSell({ ...pool, tradeFee: market.tradeFee, swapFee: market.sellSwapFee, tokensIn: amountIn });
+  }, [market, amountIn, isBuy, buyFee]);
 
   const out = swap ? (isBuy ? swap.tokensOut : swap.quoteOut) : null;
   const formatOut = (raw) => (isBuy ? formatSupply(raw) : formatPrecise(raw, quote.decimals));
   const receive = out == null ? "0" : formatOut(out);
   const minOut = out == null ? null : minimumReceived(out, slippagePct);
   const impactPct = swap ? swap.priceImpact * 100 : null;
-  // The launch's trade fee, always in the quote: off the payment on a buy, out of
-  // the proceeds on a sell.
-  const feePct = market?.tradeFee != null ? formatTradeFee(market.tradeFee) : null;
+  // The fee, always in the quote: off the payment on a buy, out of the proceeds on a
+  // sell. A buy inside the snipe window pays (and shows) the window's rate.
+  const snipeOpen = isBuy && snipe != null;
+  const feePct = snipeOpen
+    ? formatFeeRate(snipe.rate)
+    : market?.tradeFee != null
+      ? formatTradeFee(market.tradeFee)
+      : null;
+  const snipeEndsIn = snipeOpen ? splitSeconds(snipe.endsInSec) : null;
   const feeAmount = swap && out ? swap.fee : null;
   // With a trade fee, a buy the range cannot fill in full reverts (quoted as
   // nothing out); a sell, or a buy in a zero-fee pool, fills partly.
@@ -233,6 +253,18 @@ const BuyPanel = ({ token, symbol, market, quote: quoteProp, className }) => {
             <span className="text-sm font-semibold text-heading">{getUnit}</span>
           </div>
         </ContentBox>
+
+        {snipeOpen && (
+          <p className="text-xs font-medium text-destructive" data-testid="snipe-tax">
+            {t("trade.snipeTax", {
+              rate: feePct,
+              fee: formatTradeFee(market.tradeFee),
+              time: snipeEndsIn.minutes
+                ? t("trade.snipeMinutes", snipeEndsIn)
+                : t("trade.snipeSeconds", { seconds: snipeEndsIn.seconds }),
+            })}
+          </p>
+        )}
 
         <dl className="space-y-2 text-sm">
           <div className="flex justify-between">

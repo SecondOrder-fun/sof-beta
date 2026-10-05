@@ -127,6 +127,10 @@ needs `router()` set (`CreatorBuyNeedsRouter`), so the form checks it and the ba
 percentage, sent in pips (10_000 = 1%) and validated against the current placer's
 `minTradeFee()` and `MAX_TRADE_FEE()` (10%) — `useTradeFeeBounds`. It is fixed for the
 pool's life; the summary says it is paid in the quote and that 88% goes to the creator.
+`useTradeFeeBounds` also reads the placer's `snipeStartBps()` / `snipeDuration()` (the
+snipe tax a new pool copies; 0 from a placer without one), and the summary adds "Early
+buys: a snipe tax starting at 80%, falling to your trade fee over 30 s. Your first buy
+is exempt." — hidden when the window is 0 or the start is not above the chosen fee.
 
 A network with no launchpad in its deployment JSON renders an explanation, not an
 error. The raffle stack deploys independently of the launchpad.
@@ -146,9 +150,25 @@ state slot change with the placer's (hook's) address; the test only pins the pai
 **Trade fee, in the quote only.** Launch pools have LP fee 0; the placer is each
 pool's v4 hook and takes the launch's own `tradeFee` (pips) of the gross quote flow,
 rounded up: a buy of G swaps `G − ceil(G·f/1e6)`; a sell's pool payout O reaches the
-trader as `O − ceil(O·f/1e6)`. `quoteBuy` / `quoteSell` take `tradeFee` (market.tradeFee)
+trader as `O − ceil(O·f/1e6)`. `quoteBuy` / `quoteSell` take `tradeFee` (the rate)
 and return the `fee` in the quote, which the buy panel shows; v4's own fee inside the
 swap (`buySwapFee` / `sellSwapFee`: slot0's LP fee plus any protocol fee) is separate.
+**Snipe tax, buys only.** For `duration` seconds after launch a buy pays
+`r(t) = start − floor((start − tradeFee) × elapsed / duration)` pips (start = `startBps × 100`;
+the trade fee alone if start ≤ it or the window is 0), then `tradeFee`; sells never pay it,
+and the creator's buy inside the launch tx is exempt. `useLaunchMarkets` reads
+`snipeTaxOf(token)` with the placement (`market.snipeTax`, null from a placer without it)
+and `buyFeeAt(tradeFee, snipeTax, now)` (`v4PoolMath`) mirrors the contract's `_buyRate`;
+`useLaunchBuyFee` runs it live every second on the chain's clock (`useChainTimeAnchor`:
+the backend's latest block time, advanced on the wall clock between polls; the wall
+clock until it arrives), and the panel passes that rate to `quoteBuy` (`market.tradeFee`
+to `quoteSell`). **Err high:** the rate only falls with time and a buy is charged at the
+block it lands in, so the rate at the latest chain time is already an upper bound, and
+the quote clock is held a further `SNIPE_CLOCK_MARGIN_SEC` (2 s) behind it for a clock a
+block ahead. A high rate makes tokens-out and minimum-out low (the buy fills and delivers
+more); a low one would set minimum-out above the fill and revert. While the window is
+open the buy tab warns "Launch snipe tax: 63% now, falling to 1% in 12 s" (rate rounded
+up, `formatFeeRate`) and shows the fee at that rate; afterwards nothing extra.
 A buy the range cannot fill in full reverts on-chain (`PartialFillWithFee`), so it
 quotes nothing and the panel refuses it; a sell capped at launch fills partly.
 **Both orientations:** v4 sorts currencies by address. With the quote as currency0
@@ -225,6 +245,11 @@ market); the profile table shows it from the API launch row's `tradeFee`.
   activity ticker) carry `quoteAmount` = what the trader paid (buy, fee included) or
   received (sell, net of it) and `feeAmount` (null on older rows); launch rows carry
   `tradeFee` in pips. Quotes still use the placement's on-chain `tradeFee`.
+- **The snipe tax never reaches creator fees.** The part of an early buy's rate above
+  the trade fee is `pendingSurcharge`, paid to the treasury alone at `collectFees`; the
+  recipient's share is still 88% of `pendingFees`, which excludes it. Nothing here
+  decodes `TradeFeeTaken` / `FeesCollected` (both now carry `snipeSurcharge`); an indexed
+  buy's `feeAmount` includes the surcharge.
 
 ## Season quote token ("Priced in")
 

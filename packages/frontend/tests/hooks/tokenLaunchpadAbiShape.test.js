@@ -82,6 +82,21 @@ describe("TokenLaunchpad ABI decode shapes", () => {
     expect(p.key.fee).toBe(0);
   });
 
+  // useLaunchMarkets hands snipeTaxOf's result to deriveMarketState, which reads it
+  // positionally: [startBps, duration, launchedAt].
+  it("decodes snipeTaxOf as a positional [startBps, duration, launchedAt] triple", () => {
+    const data = encodeAbiParameters(parseAbiParameters("uint16, uint16, uint32"), [8000, 30, 1_700_000_000]);
+    const tax = decodeFunctionResult({ abi: UniV4LiquidityPlacerAbi, functionName: "snipeTaxOf", data });
+    expect(tax).toEqual([8000, 30, 1_700_000_000]);
+  });
+
+  it("exposes the placer views the launchpad reads", () => {
+    const names = new Set(UniV4LiquidityPlacerAbi.filter((e) => e.type === "function").map((e) => e.name));
+    for (const fn of ["getPlacement", "snipeTaxOf", "snipeStartBps", "snipeDuration", "minTradeFee", "MAX_TRADE_FEE"]) {
+      expect(names, `${fn} missing from the exported placer ABI`).toContain(fn);
+    }
+  });
+
   it("takes the trade fee in launch(), between startFdv and creatorBuyIn", () => {
     const launch = TokenLaunchpadAbi.find((e) => e.type === "function" && e.name === "launch");
     expect(launch.inputs.map((i) => i.type)).toEqual([

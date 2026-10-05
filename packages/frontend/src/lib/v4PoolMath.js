@@ -6,7 +6,8 @@
 //
 // Everything is derived from two reads with no quoter contract and no
 // indexer: the pool's slot0 and liquidity (via PoolManager.extsload), plus the
-// placement's tick range and orientation (UniV4LiquidityPlacer.getPlacement).
+// placement's tick range and orientation (UniV4LiquidityPlacer.getPlacement) and
+// its snipe-tax schedule (UniV4LiquidityPlacer.snipeTaxOf).
 //
 // Orientation — which side of the pool the launch token is on. v4 sorts the two
 // currencies by address and prices the pool as currency1/currency0 in raw units:
@@ -39,6 +40,13 @@
 //           receives O − fee.
 // The swap step itself charges only what v4 does (slot0's LP fee, 0 here, plus
 // any protocol fee — swapFeeFor).
+//
+// Snipe tax (buys only). For `duration` seconds after a launch a BUY pays a
+// higher rate that falls linearly from the schedule's start to the trade fee
+// (buyFeeAt, from UniV4LiquidityPlacer.snipeTaxOf); the fee is still that rate of
+// the gross payment, rounded up, so quoteBuy takes it as its `tradeFee`. Sells
+// always pay the trade fee. The creator's buy inside the launch transaction is
+// exempt; no in-app trade is.
 
 import { encodePacked, keccak256 } from 'viem';
 
@@ -49,6 +57,8 @@ const WAD = 10n ** 18n;
 const MAX_SWAP_FEE = 1_000_000n;
 /** UniV4LiquidityPlacer.MAX_TRADE_FEE — the highest trade fee a launch may choose: 10%. */
 export const MAX_TRADE_FEE = 100_000;
+/** Basis points -> pips. */
+const BPS_TO_PIPS = 100;
 /** StateLibrary.POOLS_SLOT — `pools` is the 7th storage slot of PoolManager. */
 const POOLS_SLOT = 6n;
 /** StateLibrary.LIQUIDITY_OFFSET — Pool.State.liquidity sits 3 slots in. */
@@ -436,9 +446,60 @@ export function tradeFeeOn(amount, tradeFee) {
   return mulDivRoundingUp(amount, BigInt(tradeFee), MAX_SWAP_FEE);
 }
 
+// ---------------------------------------------------------------------------
+// Snipe tax — the buy rate inside a launch's first seconds
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether a launch's schedule ever charges more than its trade fee: a window, and
+ * a starting rate above the fee (the hook charges the fee alone otherwise).
+ * @param {number} tradeFee  pips
+ * @param {{ startBps: number, duration: number, launchedAt: number } | null | undefined} snipeTax
+ */
+export function hasSnipeTax(tradeFee, snipeTax) {
+  if (!snipeTax || !(snipeTax.duration > 0)) return false;
+  return snipeTax.startBps * BPS_TO_PIPS > Number(tradeFee ?? 0);
+}
+
+/**
+ * The rate, in pips, a buy pays at `nowSec` — UniV4LiquidityPlacer._buyRate to the
+ * pip: `start − floor((start − tradeFee) × elapsed / duration)` while
+ * `elapsed < duration` (start = startBps × 100), then the trade fee. A start at or
+ * below the trade fee, a zero window or no schedule (a placer from before the
+ * snipe tax) is the trade fee throughout.
+ *
+ * The rate never rises with time, so evaluating it at an EARLIER time never
+ * quotes less than the chain will charge; callers pass a `nowSec` a little behind
+ * the chain's (useLaunchBuyFee) for that reason. A `nowSec` before the launch
+ * (a clock behind the block that placed it) counts as elapsed 0 — the top rate.
+ *
+ * @param {number} tradeFee  the launch's trade fee, pips
+ * @param {{ startBps: number, duration: number, launchedAt: number } | null | undefined} snipeTax
+ *   UniV4LiquidityPlacer.snipeTaxOf(token)
+ * @param {number} nowSec    unix seconds
+ * @returns {number} pips
+ */
+export function buyFeeAt(tradeFee, snipeTax, nowSec) {
+  const base = Number(tradeFee ?? 0);
+  if (!hasSnipeTax(base, snipeTax)) return base;
+  const elapsed = Math.max(0, Math.floor(nowSec) - Number(snipeTax.launchedAt));
+  if (elapsed >= snipeTax.duration) return base;
+  const start = snipeTax.startBps * BPS_TO_PIPS;
+  return start - Math.floor(((start - base) * elapsed) / snipeTax.duration);
+}
+
+/**
+ * When a launch's snipe window closes (unix seconds), or null when it has none.
+ * @param {number} tradeFee  pips
+ * @param {{ startBps: number, duration: number, launchedAt: number } | null | undefined} snipeTax
+ */
+export function snipeWindowEnd(tradeFee, snipeTax) {
+  return hasSnipeTax(tradeFee, snipeTax) ? Number(snipeTax.launchedAt) + snipeTax.duration : null;
+}
+
 /**
  * Quote a buy: exactly `quoteIn` raw quote units in, launch tokens out.
- * The hook takes the trade fee off the top (`fee` = tradeFee of quoteIn, rounded
+ * The hook takes the buy's fee off the top (`fee` = the rate of quoteIn, rounded
  * up) and the pool swaps the rest. Quote is currency0 → zeroForOne, toward the
  * range floor; token is currency0 → oneForZero, toward the ceiling.
  *
@@ -450,7 +511,9 @@ export function tradeFeeOn(amount, tradeFee) {
  * @param {object} p
  * @param {bigint} p.sqrtPriceX96       current price
  * @param {bigint} p.liquidity          from tradableLiquidity()
- * @param {number} [p.tradeFee=0]       the launch's trade fee in pips — market.tradeFee
+ * @param {number} [p.tradeFee=0]       the rate this buy pays, in pips: the launch's trade
+ *                                      fee (market.tradeFee) or, inside the snipe window,
+ *                                      buyFeeAt(market.tradeFee, market.snipeTax, now)
  * @param {number} [p.swapFee=0]        v4's own fee inside the swap — market.buySwapFee
  *                                      (LP fee, 0 on a launch pool, plus any protocol fee)
  * @param {bigint} p.quoteIn            raw quote units (wei for ETH), fee included
@@ -530,6 +593,15 @@ export function swapFeeFor(protocolFee, lpFee, zeroForOne) {
   return proto + lpFee - Math.floor((proto * lpFee) / 1_000_000);
 }
 
+/** snipeTaxOf's [startBps, duration, launchedAt] (or that object) as numbers; null for none. */
+function normalizeSnipeTax(raw) {
+  if (!raw) return null;
+  const [startBps, duration, launchedAt] = Array.isArray(raw)
+    ? raw
+    : [raw.startBps, raw.duration, raw.launchedAt];
+  return { startBps: Number(startBps ?? 0), duration: Number(duration ?? 0), launchedAt: Number(launchedAt ?? 0) };
+}
+
 /**
  * Turn the raw reads for one launch into display state.
  *
@@ -541,9 +613,12 @@ export function swapFeeFor(protocolFee, lpFee, zeroForOne) {
  * @param {bigint} p.wholeSupply               TOKEN_SUPPLY / 1e18
  * @param {{ address: string, symbol: string, decimals: number }} [p.quote]
  *   what the launch is paired with; carried through for formatting
+ * @param {readonly [number, number, number] | { startBps: number, duration: number, launchedAt: number } | null} [p.snipeTax]
+ *   UniV4LiquidityPlacer.snipeTaxOf(token) — positional as viem decodes it, or an
+ *   object; null for a placer without one (it charges the trade fee alone)
  * @returns {object | null} null when the pool is not initialised (no placement)
  */
-export function deriveMarketState({ slot0Word, liquidityWord, placement, wholeSupply, quote }) {
+export function deriveMarketState({ slot0Word, liquidityWord, placement, wholeSupply, quote, snipeTax }) {
   if (!placement || !slot0Word) return null;
   const { sqrtPriceX96: poolSqrtPriceX96, tick, lpFee, protocolFee } = decodeSlot0(slot0Word);
   if (poolSqrtPriceX96 === 0n) return null;
@@ -577,6 +652,10 @@ export function deriveMarketState({ slot0Word, liquidityWord, placement, wholeSu
     // The launch's trade fee in pips (10_000 = 1%), charged by the hook in the quote
     // token on every buy and sell; fixed for the pool's life.
     tradeFee: Number(placement.tradeFee ?? 0),
+    // The launch's snipe-tax schedule, { startBps, duration, launchedAt } (seconds), or
+    // null. A buy pays buyFeeAt(tradeFee, snipeTax, now): more than tradeFee for
+    // `duration` seconds after launch. Sells never pay it.
+    snipeTax: normalizeSnipeTax(snipeTax),
     // What v4 itself charges inside a buy / sell swap — the LP fee (0 on a launch pool)
     // plus any protocol fee. Quote with these as well as tradeFee, or a protocol fee
     // makes every quote (and its minimum-out) high. A buy is zeroForOne exactly when

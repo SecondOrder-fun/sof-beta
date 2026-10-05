@@ -130,6 +130,28 @@ export function formatTradeFee(pips) {
 }
 
 /**
+ * A moving fee rate in pips (a snipe-taxed buy's) as a percentage to at most two
+ * decimals, rounded UP so it never reads below the rate: 589_334 → "58.94",
+ * 10_000 → "1".
+ * @param {number | bigint | null | undefined} pips
+ */
+export function formatFeeRate(pips) {
+  if (pips == null) return '—';
+  return formatUnits(BigInt(Math.ceil(Number(pips) / 100)), 2);
+}
+
+/**
+ * Seconds as a short duration for a countdown: 12 → { seconds: 12 },
+ * 125 → { minutes: 2, seconds: 5 }. The component picks the string.
+ * @param {number} totalSeconds
+ * @returns {{ minutes: number, seconds: number }}
+ */
+export function splitSeconds(totalSeconds) {
+  const s = Math.max(0, Math.ceil(totalSeconds));
+  return { minutes: Math.floor(s / 60), seconds: s % 60 };
+}
+
+/**
  * Parse a typed trade-fee percentage ("1", "0.5") into pips. Null for anything
  * that is not a usable positive number or is finer than a pip (four decimals).
  * @param {string} input
