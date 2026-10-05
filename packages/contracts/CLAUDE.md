@@ -189,6 +189,12 @@ Version-controlled in `deployments/`:
   approve the router, which pulls only what filled. `sell(...)` pays out the launch's quote.
 - **Pool params are capped:** `setPoolParams` refuses a fee above `MAX_FEE` (3%, so never v4's
   dynamic-fee flag) and a tick spacing v4 would reject.
+- **Replacing the launchpad stack** (an interface change `setRouter`/`setPlacer` cannot carry):
+  `scripts/redeploy-launchpad.sh --network <n>` runs `script/ops/RedeployLaunchpad.s.sol`
+  (steps 21–23 against the recorded Raffle + PoolManager, `Raffle.setLaunchpad`, and USDC
+  allowlisted at 2,500–2,500,000 USDC FDV unless `--no-quote`), then
+  `extract-deployment-addresses.js --script RedeployLaunchpad.s.sol`, which overlays the new
+  addresses on the deployments file. Old launches keep their pools under the old placer.
 
 ## Launch LP fees
 

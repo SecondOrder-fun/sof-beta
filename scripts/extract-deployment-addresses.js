@@ -19,9 +19,14 @@
 // correct mapping.
 //
 // Usage:
-//   node scripts/extract-deployment-addresses.js --network <testnet|mainnet|local>
+//   node scripts/extract-deployment-addresses.js --network <testnet|mainnet|local> [--script <Name>.s.sol]
 //
 // Run after `forge script ... --broadcast` (or after a --resume completion).
+//
+// --script reads another script's broadcast (default DeployAll.s.sol). A partial
+// deploy such as script/ops/RedeployLaunchpad.s.sol creates only some contracts,
+// so its addresses are OVERLAID on the deployments file already on disk instead
+// of replacing it.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -68,7 +73,8 @@ const CONTRACT_NAME_MAP = {
 // pre-existing third-party contracts on the target chain.
 const STATIC = {
   testnet: {
-    USDC: "0x0000000000000000000000000000000000000000",
+    // Circle's USDC on Base Sepolia — allowlisted as a launch quote token.
+    USDC: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
     // Chainlink VRF v2.5 coordinator on Base Sepolia (constant)
     VRFCoordinator: "0x5C210eF41CD1a72de73bF76eC39637bB0d3d7BEE",
     // Per-season — populated when SeasonFactory creates the first season
@@ -143,6 +149,9 @@ export function deployBlocksFrom(bcast, contracts) {
   return out;
 }
 
+/** The script whose broadcast is the whole deployment; any other is a partial overlay. */
+const FULL_DEPLOY_SCRIPT = "DeployAll.s.sol";
+
 function outPathFor(repoRoot, network) {
   return path.join(repoRoot, `packages/contracts/deployments/${network}.json`);
 }
@@ -162,10 +171,13 @@ function readExistingContracts(filePath) {
 }
 
 function parseArgs(argv) {
-  const args = { network: null };
+  const args = { network: null, script: FULL_DEPLOY_SCRIPT };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--network") {
       args.network = argv[i + 1];
+      i++;
+    } else if (argv[i] === "--script") {
+      args.script = argv[i + 1];
       i++;
     }
   }
@@ -173,10 +185,10 @@ function parseArgs(argv) {
 }
 
 function main() {
-  const { network } = parseArgs(process.argv.slice(2));
-  if (!network || !NETWORKS[network]) {
+  const { network, script } = parseArgs(process.argv.slice(2));
+  if (!network || !NETWORKS[network] || !/^[A-Za-z0-9_]+\.s\.sol$/.test(script || "")) {
     console.error(
-      `Usage: node scripts/extract-deployment-addresses.js --network <${Object.keys(NETWORKS).join("|")}>`,
+      `Usage: node scripts/extract-deployment-addresses.js --network <${Object.keys(NETWORKS).join("|")}> [--script <Name>.s.sol]`,
     );
     process.exit(1);
   }
@@ -185,7 +197,8 @@ function main() {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const broadcastPath = path.join(
     repoRoot,
-    "packages/contracts/broadcast/DeployAll.s.sol",
+    "packages/contracts/broadcast",
+    script,
     String(cfg.chainId),
     "run-latest.json",
   );
@@ -198,8 +211,15 @@ function main() {
 
   const bcast = JSON.parse(fs.readFileSync(broadcastPath, "utf8"));
 
+  // A partial deploy starts from the recorded addresses; DeployAll replaces them all.
+  const partial = script !== FULL_DEPLOY_SCRIPT;
+  const contracts = partial ? { ...readExistingContracts(outPathFor(repoRoot, network)) } : {};
+  if (partial && Object.keys(contracts).length === 0) {
+    console.error(`No deployments file to overlay ${script} onto — run a full deploy first.`);
+    process.exit(1);
+  }
+
   // Pull every CREATE / CREATE2 with a known contract name
-  const contracts = {};
   let createCount = 0;
   let mappedCount = 0;
   for (const tx of bcast.transactions || []) {
