@@ -237,7 +237,7 @@ const FEE = 10n ** 15n; // 1% of a 0.1 ETH buy
 /** A raw TradeFeeTaken log from the placer (the pool's hook). */
 function feeLog(logIndex, fee, { poolId = POOL, address = PLACER } = {}) {
   const topics = encodeEventTopics({ abi: UniV4LiquidityPlacerABI, eventName: "TradeFeeTaken", args: { poolId, token: TOKEN } });
-  return { address, topics, data: encodeAbiParameters([{ type: "uint256" }], [fee]), logIndex };
+  return { address, topics, data: encodeAbiParameters([{ type: "uint256" }, { type: "uint256" }], [fee, 0n]), logIndex };
 }
 
 /** The PoolManager's ERC-6909 Transfer for the fee mint, which sits between Swap and TradeFeeTaken. */
@@ -313,12 +313,18 @@ describe("tradeFeeOf", () => {
     expect(buildTradeRow(swap, { token: TOKEN, fee }).quote_amount).toBe("99000000000000000");
   });
 
-  // A pool whose creator chose no fee emits no fee logs, so anything after its
-  // swap that looks like one was emitted by someone else.
-  it("is 0 on a zero-fee pool, even with a look-alike TradeFeeTaken after the swap", () => {
-    const logs = [swapLog(0, { amount0: -ETHER, lpFee: 0 }), feeLog(1, FEE, { address: OTHER_ROUTER })];
-    expect(tradeFeeOf(logs, hookSwap(0, -ETHER, 5n), feeCtx({ tradeFee: 0 }))).toBe(0n);
-    expect(buildTradeRow(hookSwap(0, -ETHER, 5n), { token: TOKEN, fee: 0n })).toMatchObject({ quote_amount: ETHER.toString(), fee_amount: "0" });
+  // A zero-fee pool takes nothing on a SELL (only a buy can pay the snipe tax),
+  // so anything after a sell that looks like a fee log was emitted by someone else.
+  it("is 0 for a sell on a zero-fee pool, even with a look-alike TradeFeeTaken after it", () => {
+    const logs = [swapLog(0, { amount0: ETHER, amount1: -5n, lpFee: 0 }), feeLog(1, FEE, { address: OTHER_ROUTER })];
+    expect(tradeFeeOf(logs, hookSwap(0, ETHER, -5n), feeCtx({ tradeFee: 0 }))).toBe(0n);
+    expect(buildTradeRow(hookSwap(0, ETHER, -5n), { token: TOKEN, fee: 0n })).toMatchObject({ quote_amount: ETHER.toString(), fee_amount: "0" });
+  });
+
+  // A buy in a launch's first seconds pays the snipe tax even at a 0% trade fee.
+  it("pairs a buy on a zero-fee pool with its snipe-tax fee", () => {
+    const logs = [swapLog(0, { amount0: -ETHER, lpFee: 0 }), feeLog(1, FEE)];
+    expect(tradeFeeOf(logs, hookSwap(0, -ETHER, 5n), feeCtx({ tradeFee: 0 }))).toBe(FEE);
   });
 
   it("is 0 when no TradeFeeTaken follows the swap", () => {
@@ -381,8 +387,10 @@ describe("mayPayTradeFee", () => {
     expect(mayPayTradeFee(hookSwap(0, -1n, 1n), {})).toBe(true);
   });
 
-  it("is false for a zero rate, an LP-fee pool, or a swap that moved no quote", () => {
-    expect(mayPayTradeFee(hookSwap(0, -1n, 1n), { tradeFee: 0 })).toBe(false);
+  it("is false for a sell at a zero rate, an LP-fee pool, or a swap that moved no quote", () => {
+    expect(mayPayTradeFee(hookSwap(0, 1n, -1n), { tradeFee: 0 })).toBe(false);
+    // A buy at a zero rate can still pay the snipe tax.
+    expect(mayPayTradeFee(hookSwap(0, -1n, 1n), { tradeFee: 0 })).toBe(true);
     expect(mayPayTradeFee(swap(-1n, 1n), { tradeFee: 10_000 })).toBe(false); // fee: 10000
     expect(mayPayTradeFee(hookSwap(0, 0n, 1n), { tradeFee: 10_000 })).toBe(false);
     // token is currency0: the quote is amount1

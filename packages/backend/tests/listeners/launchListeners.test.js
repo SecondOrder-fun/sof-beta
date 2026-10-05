@@ -546,9 +546,11 @@ describe("launchTradeListener.persist", () => {
 
   // A receipt is read to attribute a router swap or to find a swap's trade fee —
   // so on a pool that charges none, only router swaps need one.
-  it("fetches receipts only for router swaps on a zero-fee pool", async () => {
+  // On a zero-fee pool only a buy can pay (the snipe tax), so a non-router SELL needs no receipt.
+  it("fetches receipts only for router swaps and buys on a zero-fee pool", async () => {
     __test.rememberPool(POOL, TOKEN, "POND", undefined, 0);
-    await __test.persist([swap(1), swap(2, { args: { ...swap(2).args, sender: ROUTER } })], ctx, sse);
+    const sell = swap(1, { args: { ...swap(1).args, amount0: 1n, amount1: -5n } });
+    await __test.persist([sell, swap(2, { args: { ...swap(2).args, sender: ROUTER, amount0: 1n, amount1: -5n } })], ctx, sse);
     expect(publicClient.getTransactionReceipt).toHaveBeenCalledTimes(1);
     expect(publicClient.getTransactionReceipt).toHaveBeenCalledWith({ hash: "0xtx2" });
     const rows = tokenLaunchesDb.insertLaunchTrades.mock.calls[0][0];
@@ -585,7 +587,7 @@ describe("launchTradeListener.persist", () => {
     publicClient.getTransactionReceipt.mockResolvedValue({
       logs: [
         { address: POOL_MANAGER, topics: swapTopics, data: swapData, logIndex: 0 },
-        { address: PLACER, topics: feeTopics, data: encodeAbiParameters([{ type: "uint256" }], [fee]), logIndex: 2 },
+        { address: PLACER, topics: feeTopics, data: encodeAbiParameters([{ type: "uint256" }, { type: "uint256" }], [fee, 0n]), logIndex: 2 },
       ],
     });
     __test.rememberPool(POOL, TOKEN, "POND", undefined, 10_000);
@@ -607,7 +609,7 @@ describe("launchTradeListener.persist", () => {
     __test.reset();
     eventsByName({ TokenLaunched: [launchLog({ args: { ...launchLog().args, tradeFee: 0 } })] });
     await __test.discoverLaunches({ launchpad: LAUNCHPAD, totalSupply: SUPPLY, fromBlock: 0n, toBlock: 150n, logger, sseService: sse });
-    await __test.persist([swap(1)], ctx, sse);
+    await __test.persist([swap(1, { args: { ...swap(1).args, amount0: 1n, amount1: -5n } })], ctx, sse); // a sell
     expect(publicClient.getTransactionReceipt).not.toHaveBeenCalled();
     expect(tokenLaunchesDb.insertTokenLaunch.mock.calls[0][0].trade_fee).toBe(0);
     expect(launchedBroadcasts()[0][1]).toMatchObject({ tradeFee: 0 });

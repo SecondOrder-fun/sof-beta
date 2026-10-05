@@ -23,8 +23,10 @@
  *     Amounts, side and price are all read from the quote side accordingly.
  *   - Swap's amounts EXCLUDE the trade fee (contracts 0.42.0). Launch pools have
  *     a zero LP fee (`Swap.fee` = 0); the placer, as the pool's v4 hook, takes the
- *     creator's `tradeFee` in the quote token and emits `TradeFeeTaken(poolId,
- *     token, fee)` right after the Swap (tradeFeeOf pairs the two). The stored
+ *     creator's `tradeFee` in the quote token — plus, on a buy in a launch's first
+ *     seconds, the snipe tax — and emits `TradeFeeTaken(poolId, token, fee,
+ *     snipeSurcharge)` right after the Swap (tradeFeeOf pairs the two; `fee` is
+ *     the whole fee). The stored
  *     `quote_amount` is what the trader paid or got: a BUY is |pool quote| + fee,
  *     a SELL pool quote − fee; `fee_amount` is the fee. A pool from an earlier
  *     launchpad charged a 1% LP fee instead (`Swap.fee` ≠ 0), which is already
@@ -200,9 +202,11 @@ export function attributeTrader(
 /**
  * Whether this swap may have paid the placer's trade fee, so its receipt has to
  * be read for it: a hook-fee pool (`Swap.fee` 0 — an earlier launchpad's pools
- * charged an LP fee instead and have no hook fee) whose launch chose a non-zero
- * `tradeFee` (unknown counts as non-zero), and some quote moved (the hook takes
- * nothing, and emits nothing, on a zero quote amount).
+ * charged an LP fee instead and have no hook fee) where some quote moved (the
+ * hook takes nothing, and emits nothing, on a zero quote amount), and either the
+ * launch chose a non-zero `tradeFee` (unknown counts as non-zero) or the swap is
+ * a BUY — which can pay the snipe tax in the launch's first seconds even at a
+ * zero trade fee.
  * @param {object} swapLog  viem-decoded Swap log
  * @param {{ tradeFee?: number | null, tokenIsCurrency0?: boolean }} [pool]
  */
@@ -210,8 +214,11 @@ export function mayPayTradeFee(swapLog, { tradeFee, tokenIsCurrency0: tokenFirst
   const a = swapLog?.args;
   if (!a || a.amount0 == null || a.amount1 == null) return false;
   if (BigInt(a.fee ?? 0) !== 0n) return false;
-  if (tradeFee != null && Number(tradeFee) === 0) return false;
-  return sides(a, tokenFirst).quote !== 0n;
+  const { quote } = sides(a, tokenFirst);
+  if (quote === 0n) return false;
+  // The caller paid quote in (negative delta): a buy.
+  if (tradeFee != null && Number(tradeFee) === 0) return quote < 0n;
+  return true;
 }
 
 /**
@@ -219,7 +226,7 @@ export function mayPayTradeFee(swapLog, { tradeFee, tokenIsCurrency0: tokenFirst
  *
  * The placer is each launch pool's v4 hook. v4 calls its afterSwap right after
  * emitting Swap, and the hook mints the fee as ERC-6909 claims (the PoolManager's
- * `Transfer`) and emits `TradeFeeTaken(poolId, token, fee)` before control
+ * `Transfer`) and emits `TradeFeeTaken(poolId, token, fee, snipeSurcharge)` (`fee` is the whole fee, surcharge included) before control
  * returns to whoever called swap. So a swap's fee is the FIRST TradeFeeTaken for
  * its pool after it in log order, before the next PoolManager Swap on that pool
  * in the same transaction; none there means no fee (0). Nothing can emit between

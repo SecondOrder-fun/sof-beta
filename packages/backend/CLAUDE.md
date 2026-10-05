@@ -145,7 +145,7 @@ PoolManager's `Swap` event. Rules it depends on:
 - **`quote_amount` is what the trader paid or got; the trade fee is added from the
   receipt.** Since contracts 0.42.0 launch pools have a zero LP fee (`Swap.fee` = 0) and
   the placer, as the pool's v4 hook, takes `tradeFee` in the quote token, so `Swap`'s
-  amounts exclude it. The hook emits `TradeFeeTaken(poolId, token, fee)` right after the
+  amounts exclude it. The hook emits `TradeFeeTaken(poolId, token, fee, snipeSurcharge)` (`fee` is the whole fee: a buy in a launch's first seconds also pays the snipe tax, even at a 0% trade fee) right after the
   Swap (after the fee mint's ERC-6909 `Transfer`, before control returns to the caller);
   `buildTradeRow.tradeFeeOf` pairs a Swap with the first `TradeFeeTaken` for its pool
   after it and before that pool's next Swap in the transaction (none = 0). A BUY stores
@@ -153,8 +153,9 @@ PoolManager's `Swap` event. Rules it depends on:
   raw units; NULL on rows from before migration 029 and on an earlier launchpad's LP-fee
   pools, `Swap.fee` ≠ 0, whose fee is already inside the amounts). Token amounts and
   `price_e18` (the pool price) are unaffected. A swap that cannot have paid a hook fee —
-  LP-fee pool, `trade_fee` 0 (kept per pool in the pool map, from `listPoolIndex` and
-  `TokenLaunched`), or no quote moved — is never paired, so a look-alike event emitted
+  LP-fee pool, a SELL on a `trade_fee` 0 pool (kept per pool in the pool map, from
+  `listPoolIndex` and `TokenLaunched`; a buy there can still pay the snipe tax), or no
+  quote moved — is never paired, so a look-alike event emitted
   after it counts for nothing. The fee comes from the same receipt attribution reads
   (one fetch per transaction): router swaps cost nothing extra, a swap on a fee-paying
   pool through any other route costs one receipt. The router's `Bought.quoteIn` /
