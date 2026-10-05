@@ -3,7 +3,8 @@ import { encodeAbiParameters, decodeFunctionResult, parseAbiParameters } from "v
 import { TokenLaunchpadAbi } from "@/utils/abis";
 
 // useTokenLaunches reads decoded results by NAME (`record.token`, `record.creator`)
-// for getLaunch, and POSITIONALLY for the two-output views. Those are different
+// for getLaunch, and POSITIONALLY for the multi-output views (launchIdOf,
+// quoteConfig in useLaunchpadConfig). Those are different
 // viem behaviours — a single tuple output decodes to an object, multiple outputs
 // decode to an array — and nothing else in the suite would notice if a
 // regenerated ABI flipped one. The feed would just render blank cards.
@@ -12,11 +13,12 @@ describe("TokenLaunchpad ABI decode shapes", () => {
   const TOKEN = "0x1111111111111111111111111111111111111111";
   const CREATOR = "0x2222222222222222222222222222222222222222";
   const PLACER = "0x3333333333333333333333333333333333333333";
+  const USDC = "0x036cbd53842c5426634e7929541ec2318f3dcf7e";
 
   it("decodes getLaunch as an object with named fields", () => {
     const data = encodeAbiParameters(
-      parseAbiParameters("(address,address,uint64,uint256,bytes32,address)"),
-      [[TOKEN, CREATOR, 1700000000n, 1_000_000_000n, `0x${"ab".repeat(32)}`, PLACER]],
+      parseAbiParameters("(address,address,uint64,address,uint256,bytes32,address)"),
+      [[TOKEN, CREATOR, 1700000000n, USDC, 5_000_000_000n, `0x${"ab".repeat(32)}`, PLACER]],
     );
 
     const record = decodeFunctionResult({
@@ -28,7 +30,8 @@ describe("TokenLaunchpad ABI decode shapes", () => {
     expect(record.token.toLowerCase()).toBe(TOKEN);
     expect(record.creator.toLowerCase()).toBe(CREATOR);
     expect(record.launchedAt).toBe(1700000000n);
-    expect(record.startPriceWei).toBe(1_000_000_000n);
+    expect(record.quoteToken.toLowerCase()).toBe(USDC);
+    expect(record.startFdv).toBe(5_000_000_000n);
     expect(record.placer.toLowerCase()).toBe(PLACER);
   });
 
@@ -47,21 +50,23 @@ describe("TokenLaunchpad ABI decode shapes", () => {
     expect(exists).toBe(true);
   });
 
-  it("decodes startPriceBoundsAsFdvWei as a positional [min, max] pair", () => {
+  it("decodes quoteConfig as a positional [allowed, minStartFdv, maxStartFdv] triple", () => {
     const ONE_ETH = 10n ** 18n;
-    const data = encodeAbiParameters(parseAbiParameters("uint256, uint256"), [
+    const data = encodeAbiParameters(parseAbiParameters("bool, uint256, uint256"), [
+      true,
       ONE_ETH,
       1000n * ONE_ETH,
     ]);
 
-    const bounds = decodeFunctionResult({
+    const config = decodeFunctionResult({
       abi: TokenLaunchpadAbi,
-      functionName: "startPriceBoundsAsFdvWei",
+      functionName: "quoteConfig",
       data,
     });
 
-    expect(bounds[0]).toBe(ONE_ETH);
-    expect(bounds[1]).toBe(1000n * ONE_ETH);
+    expect(config[0]).toBe(true);
+    expect(config[1]).toBe(ONE_ETH);
+    expect(config[2]).toBe(1000n * ONE_ETH);
   });
 
   it("exposes every function the launch routes call", () => {
@@ -76,10 +81,10 @@ describe("TokenLaunchpad ABI decode shapes", () => {
       "isLaunchToken",
       "placer",
       "TOKEN_SUPPLY",
-      "minStartPriceWei",
-      "maxStartPriceWei",
-      "startPriceBoundsAsFdvWei",
-      "impliedFdvWei",
+      "quoteConfig",
+      "quoteTokenOf",
+      "placerOf",
+      "router",
     ]) {
       expect(names, `${fn} missing from the exported ABI`).toContain(fn);
     }

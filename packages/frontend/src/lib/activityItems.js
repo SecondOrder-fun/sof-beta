@@ -12,6 +12,9 @@
 // Pure (the translator is passed in), so each event kind's wording and link
 // target is tested without rendering the ticker.
 //
+// Token rows are in their launch's quote token (`quoteSymbol`, `quoteDecimals`;
+// a row without them predates quote tokens and is ETH).
+//
 // Keys must be unique within a row: one transaction can carry several events
 // (a batched buy, two entries by one wallet). The feed's `logIndex` is the
 // key when present; otherwise the next-best field stands in (the token for
@@ -20,7 +23,7 @@
 // its season.
 
 import { shortAddress } from '@/lib/format';
-import { formatEthAmount, formatFdvEth, formatSupply, formatTimeLeft } from '@/lib/launchFormat';
+import { formatFdv, formatQuoteAmount, formatSupply, formatTimeLeft } from '@/lib/launchFormat';
 import { DEFAULT_WHOLE_SUPPLY } from '@/lib/launchChart';
 import { grandPrizeWei } from '@/lib/prizeMath';
 
@@ -49,6 +52,8 @@ const seasonParts = (item, season, t) =>
  * @param {(key: string, opts?: object) => string} t  launchpad-namespace translator
  */
 export function describeTokenItem(item, t) {
+  const quote = item.quoteSymbol || 'ETH';
+  const decimals = Number(item.quoteDecimals ?? 18);
   const base = {
     key: `${item.kind}:${item.txHash}:${item.logIndex ?? item.token}`,
     href: `/tokens/${item.token}`,
@@ -60,22 +65,22 @@ export function describeTokenItem(item, t) {
       tone: 'launch',
       // With no symbol indexed yet, the address names the token.
       parts: [verb(t('ticker.launched')), item.symbol ? chip(item.symbol) : plain(shortAddress(item.token))],
-      tail: [t('ticker.fdv', { fdv: formatFdvEth(BigInt(item.fdvWei ?? 0), 1) })],
+      tail: [t('ticker.fdv', { fdv: formatFdv(BigInt(item.fdv ?? 0), decimals, 1), quote })],
     };
   }
   // A trade can be tiny; keep its significant digits rather than show "0 ETH".
-  const eth = formatEthAmount(item.ethAmount ?? 0);
-  const fdvWei = item.priceWei ? BigInt(item.priceWei) * DEFAULT_WHOLE_SUPPLY : null;
+  const amount = formatQuoteAmount(item.quoteAmount ?? 0, decimals);
+  const fdv = item.price ? BigInt(item.price) * DEFAULT_WHOLE_SUPPLY : null;
   return {
     ...base,
     tone: item.kind === 'buy' ? 'buy' : 'sell',
     parts: present([
       verb(t(item.kind === 'buy' ? 'ticker.bought' : 'ticker.sold')),
       // "0.4 ETH of $POND"; no dangling "of" when the symbol is unknown.
-      plain(item.symbol ? t('ticker.ethOf', { eth }) : t('ticker.eth', { eth })),
+      plain(item.symbol ? t('ticker.quoteOf', { amount, quote }) : t('ticker.amount', { amount, quote })),
       item.symbol ? chip(item.symbol) : null,
     ]),
-    tail: present([fdvWei != null ? t('ticker.fdv', { fdv: formatFdvEth(fdvWei, 1) }) : null]),
+    tail: present([fdv != null ? t('ticker.fdv', { fdv: formatFdv(fdv, decimals, 1), quote }) : null]),
   };
 }
 

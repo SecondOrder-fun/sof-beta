@@ -2,23 +2,30 @@
 //
 // The launchpad's configuration, and the launch transaction itself.
 //
-// The one thing this hook exists to get right is that a starting price is
-// meaningless on its own. Every launch mints the same supply, so what a creator
-// is really choosing is a valuation: `startPriceWei * wholeSupply`. With a 1e9
-// supply the two numbers are nine orders of magnitude apart, which is a very easy
-// factor to lose — the contract's own bounds are set in FDV terms for exactly that
-// reason (see TokenLaunchpad.sol). So the form works in FDV and converts, rather
-// than asking anyone to reason about wei per token.
+// A launch is paired with a quote token — native ETH or an ERC-20 on the
+// launchpad's allowlist — and opens at a valuation (`startFdv`) in that quote's
+// raw units. A starting price on its own would be meaningless: every launch
+// mints the same 1e9 supply, so a per-token price is nine orders of magnitude
+// smaller than the valuation and, in a 6-decimal quote like USDC, too coarse to
+// express. The contract takes the valuation directly and bounds it per quote
+// (`quoteConfig`), so the form works in valuations and passes them straight
+// through.
+//
+// The creator may also make a first buy inside the launch transaction
+// (`creatorBuyIn`), executed right after the pool is placed and before anyone
+// else can trade.
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAccount, usePublicClient } from 'wagmi';
-import { encodeFunctionData, parseEther } from 'viem';
+import { encodeFunctionData } from 'viem';
 
 import { getStoredNetworkKey } from '@/lib/wagmi';
 import { getContractAddresses } from '@/config/contracts';
+import { getLaunchQuoteTokens, isNativeQuote } from '@/config/launchQuoteTokens';
 import { TokenLaunchpadAbi } from '@/utils/abis';
 import { useSmartTransactions } from '@/hooks/useSmartTransactions';
+import { approveCall } from '@/lib/launchTrade';
 
 /**
  * Contract limits, mirrored so the form can validate before asking for a signature.
@@ -36,80 +43,54 @@ export function utf8Length(value) {
 }
 
 /**
- * Convert a valuation in wei to the per-token starting price the contract takes.
- * @param {bigint} fdvWei
- * @param {bigint} wholeSupply — whole tokens minted per launch (TOKEN_SUPPLY / 1e18)
- * @returns {bigint} wei of ETH per whole token
- */
-export function fdvWeiToStartPriceWei(fdvWei, wholeSupply) {
-  if (!wholeSupply) return 0n;
-  return fdvWei / wholeSupply;
-}
-
-/**
- * The inverse — what valuation a per-token price implies.
- * @param {bigint} startPriceWei
- * @param {bigint} wholeSupply
- * @returns {bigint} wei
- */
-export function startPriceWeiToFdvWei(startPriceWei, wholeSupply) {
-  return startPriceWei * wholeSupply;
-}
-
-/**
- * Parse a user-entered FDV in ETH ("2.5") into wei.
- * Returns null for anything that is not a usable positive number, so callers can
- * distinguish "not filled in yet" from "zero".
- * @param {string} input
- * @returns {bigint | null}
- */
-export function parseFdvEth(input) {
-  const trimmed = String(input ?? '').trim();
-  if (!trimmed) return null;
-  if (!/^\d*\.?\d*$/.test(trimmed)) return null;
-  try {
-    const wei = parseEther(trimmed);
-    return wei > 0n ? wei : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Launchpad config: supply, price bounds, and those bounds expressed as FDV.
+ * Launchpad config: the supply, and every quote token a launch may pair with —
+ * the network's candidates (config/launchQuoteTokens.js) that the launchpad
+ * reports `allowed` in `quoteConfig`, each with its valuation bounds in its own
+ * raw units.
  *
- * Everything here is immutable or admin-only, so it is cold — `staleTime: Infinity`.
- * A bounds change is rare enough that a page reload is an acceptable way to see it.
+ * Everything here is admin-only, so it is cold — `staleTime: Infinity`. A quote
+ * or bounds change is rare enough that a page reload is an acceptable way to see it.
  */
 export function useLaunchpadConfig() {
   const client = usePublicClient();
   const netKey = getStoredNetworkKey();
   const contracts = getContractAddresses(netKey);
   const launchpad = contracts.TOKEN_LAUNCHPAD;
+  const candidates = getLaunchQuoteTokens(netKey);
 
   const query = useQuery({
-    queryKey: ['launchpadConfig', launchpad],
+    queryKey: ['launchpadConfig', launchpad, candidates.map((q) => q.address).join(',')],
     enabled: Boolean(launchpad && client),
     staleTime: Infinity,
     queryFn: async () => {
-      const [supply, minPrice, maxPrice, bounds] = await client.multicall({
+      const [supply, ...configs] = await client.multicall({
         contracts: [
           { address: launchpad, abi: TokenLaunchpadAbi, functionName: 'TOKEN_SUPPLY' },
-          { address: launchpad, abi: TokenLaunchpadAbi, functionName: 'minStartPriceWei' },
-          { address: launchpad, abi: TokenLaunchpadAbi, functionName: 'maxStartPriceWei' },
-          { address: launchpad, abi: TokenLaunchpadAbi, functionName: 'startPriceBoundsAsFdvWei' },
+          ...candidates.map((q) => ({
+            address: launchpad,
+            abi: TokenLaunchpadAbi,
+            functionName: 'quoteConfig',
+            args: [q.address],
+          })),
         ],
-        allowFailure: false,
+        allowFailure: true,
       });
+      if (supply.status !== 'success') throw supply.error ?? new Error('TOKEN_SUPPLY read failed');
+
+      // quoteConfig returns (allowed, minStartFdv, maxStartFdv) positionally.
+      const quotes = candidates
+        .map((q, i) => {
+          const c = configs[i];
+          if (c?.status !== 'success' || !c.result[0]) return null;
+          return { ...q, minFdv: c.result[1], maxFdv: c.result[2] };
+        })
+        .filter(Boolean);
 
       return {
-        totalSupply: supply,
-        // Whole tokens, the unit FDV is computed in. Launch tokens are always 18 dp.
-        wholeSupply: supply / 10n ** 18n,
-        minStartPriceWei: minPrice,
-        maxStartPriceWei: maxPrice,
-        minFdvWei: bounds[0],
-        maxFdvWei: bounds[1],
+        totalSupply: supply.result,
+        // Whole tokens. Launch tokens are always 18 dp.
+        wholeSupply: supply.result / 10n ** 18n,
+        quotes,
       };
     },
   });
@@ -150,10 +131,56 @@ export function useLaunchpadReady() {
 }
 
 /**
- * The launch transaction.
+ * The calls for one launch, for executeBatch.
  *
- * Single call, but it still goes through `executeBatch` — per the repo rule that
- * all user-facing on-chain operations use that single write path.
+ * - ETH-paired: one call; a first buy is sent as its `value` (the contract
+ *   requires msg.value == creatorBuyIn exactly).
+ * - ERC-20-paired with a first buy: approve the LAUNCHPAD for creatorBuyIn, then
+ *   launch with no ETH — the launchpad pulls the quote and buys through the router.
+ * - ERC-20-paired without one: just the launch.
+ *
+ * `minTokensOut` defaults to 0, deliberately: the creator buy runs inside the
+ * launch transaction, right after the pool is created, so no other trade can
+ * come between the pool's creation and the buy — what it receives is fixed by
+ * the valuation and the pool fee, and a slippage floor would protect nothing.
+ *
+ * @param {object} p
+ * @param {`0x${string}`} p.launchpad
+ * @param {string} p.name
+ * @param {string} p.symbol
+ * @param {string} [p.metadataURI]
+ * @param {`0x${string}`} p.quoteToken     address 0 for ETH
+ * @param {bigint} p.startFdv              quote raw units
+ * @param {bigint} [p.creatorBuyIn=0n]     quote raw units
+ * @param {bigint} [p.minTokensOut=0n]
+ * @returns {{ to: `0x${string}`, data: `0x${string}`, value?: bigint }[]}
+ */
+export function buildLaunchCalls({
+  launchpad,
+  name,
+  symbol,
+  metadataURI,
+  quoteToken,
+  startFdv,
+  creatorBuyIn = 0n,
+  minTokensOut = 0n,
+}) {
+  const launch = {
+    to: launchpad,
+    data: encodeFunctionData({
+      abi: TokenLaunchpadAbi,
+      functionName: 'launch',
+      args: [name, symbol, metadataURI ?? '', quoteToken, startFdv, creatorBuyIn, minTokensOut],
+    }),
+  };
+  if (isNativeQuote(quoteToken)) return [creatorBuyIn > 0n ? { ...launch, value: creatorBuyIn } : launch];
+  return creatorBuyIn > 0n ? [approveCall(quoteToken, launchpad, creatorBuyIn), launch] : [launch];
+}
+
+/**
+ * The launch transaction, through `executeBatch` — per the repo rule that all
+ * user-facing on-chain operations use that single write path (and an ERC-20
+ * first buy needs its approval batched in anyway).
  */
 export function useLaunchToken() {
   const { isConnected } = useAccount();
@@ -166,24 +193,15 @@ export function useLaunchToken() {
   const [error, setError] = useState('');
 
   const mutation = useMutation({
-    mutationFn: async ({ name, symbol, metadataURI, startPriceWei }) => {
+    mutationFn: async ({ name, symbol, metadataURI, quoteToken, startFdv, creatorBuyIn }) => {
       if (!isConnected) throw new Error('Wallet not connected');
       if (!launchpad) throw new Error('No launchpad on this network');
 
       setError('');
 
-      const hash = await executeBatch([
-        {
-          to: launchpad,
-          data: encodeFunctionData({
-            abi: TokenLaunchpadAbi,
-            functionName: 'launch',
-            args: [name, symbol, metadataURI ?? '', startPriceWei],
-          }),
-        },
-      ]);
-
-      return hash;
+      return executeBatch(
+        buildLaunchCalls({ launchpad, name, symbol, metadataURI, quoteToken, startFdv, creatorBuyIn }),
+      );
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tokenLaunches'] });
@@ -208,14 +226,24 @@ export function useLaunchToken() {
 
 /**
  * Client-side validation mirroring the contract's guards, so a creator learns
- * about a bad name or an out-of-range valuation before a wallet prompt rather
- * than from a revert.
+ * about a bad name, an out-of-range valuation or a first buy that cannot go
+ * through before a wallet prompt rather than from a revert.
  *
- * @param {{ name: string, symbol: string, fdvWei: bigint | null }} form
- * @param {{ minFdvWei: bigint, maxFdvWei: bigint } | undefined} config
+ * @param {object} form
+ * @param {string} form.name
+ * @param {string} form.symbol
+ * @param {bigint | null} form.fdv            parsed valuation, quote raw units
+ * @param {string} [form.firstBuyInput]       the first-buy field as typed
+ * @param {bigint | null} [form.firstBuy]     parsed first buy, quote raw units
+ * @param {object} [ctx]
+ * @param {{ minFdv: bigint, maxFdv: bigint } | undefined} [ctx.quote]  the selected
+ *   quote's bounds; omitted while loading, when the range is not checked
+ * @param {boolean} [ctx.hasRouter=true]      a first buy needs TokenLaunchpad.router()
+ * @param {bigint | null} [ctx.balance]       the creator's balance of the quote, when known
  * @returns {Record<string, string>} field -> error key (empty when valid)
  */
-export function validateLaunchForm({ name, symbol, fdvWei }, config) {
+export function validateLaunchForm({ name, symbol, fdv, firstBuyInput, firstBuy }, ctx = {}) {
+  const { quote, hasRouter = true, balance = null } = ctx;
   /** @type {Record<string, string>} */
   const errors = {};
 
@@ -228,30 +256,18 @@ export function validateLaunchForm({ name, symbol, fdvWei }, config) {
   if (!trimmedSymbol) errors.symbol = 'errors.symbolRequired';
   else if (utf8Length(trimmedSymbol) > MAX_SYMBOL_LENGTH) errors.symbol = 'errors.symbolTooLong';
 
-  if (fdvWei == null) errors.fdv = 'errors.fdvRequired';
-  else if (config) {
-    if (fdvWei < config.minFdvWei) errors.fdv = 'errors.fdvTooLow';
-    else if (fdvWei > config.maxFdvWei) errors.fdv = 'errors.fdvTooHigh';
+  if (fdv == null) errors.fdv = 'errors.fdvRequired';
+  else if (quote) {
+    if (fdv < quote.minFdv) errors.fdv = 'errors.fdvTooLow';
+    else if (fdv > quote.maxFdv) errors.fdv = 'errors.fdvTooHigh';
+  }
+
+  // The first buy is optional: empty is fine, anything typed must parse.
+  if (String(firstBuyInput ?? '').trim() && firstBuy == null) errors.firstBuy = 'errors.firstBuyInvalid';
+  else if (firstBuy != null && firstBuy > 0n) {
+    if (!hasRouter) errors.firstBuy = 'errors.firstBuyNoRouter';
+    else if (balance != null && firstBuy > balance) errors.firstBuy = 'errors.firstBuyBalance';
   }
 
   return errors;
-}
-
-/**
- * Everything the launch form needs, assembled. Kept here rather than in the
- * component so the conversion and validation are testable without rendering.
- */
-export function useLaunchForm() {
-  const configQuery = useLaunchpadConfig();
-  const config = configQuery.data;
-
-  const toStartPriceWei = useCallback(
-    (fdvWei) => (config && fdvWei != null ? fdvWeiToStartPriceWei(fdvWei, config.wholeSupply) : null),
-    [config],
-  );
-
-  return useMemo(
-    () => ({ config, configQuery, toStartPriceWei }),
-    [config, configQuery, toStartPriceWei],
-  );
 }

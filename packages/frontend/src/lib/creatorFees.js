@@ -5,15 +5,17 @@
 // without a chain (tests/lib/creatorFees.test.js).
 //
 // How the placer (UniV4LiquidityPlacer) pays fees:
-//   - Swap fees accrue to the LP position the placer owns, in ETH (buys) and
-//     the launch token (sells). `collectFees(token)` — permissionless — moves
-//     them out of the pool and credits CREATOR_FEE_BPS (88%) to the launch's
-//     current fee recipient, the rest to the treasury, floored per side.
-//   - Credits are keyed by account, and claimed by THAT account as msg.sender:
-//     `claimEth(to)` takes the caller's ETH from every launch on the placer
-//     (pooled), `claimToken(token, to)` the caller's fees in one token. Both
-//     revert NothingToClaim on zero, so a call is only built when the amount
-//     it will find is non-zero.
+//   - Swap fees accrue to the LP position the placer owns, in the launch's QUOTE
+//     token (buys: ETH or an allowlisted ERC-20 such as USDC) and the launch token
+//     (sells). `collectFees(token)` — permissionless — moves them out of the pool
+//     and credits CREATOR_FEE_BPS (88%) to the launch's current fee recipient,
+//     the rest to the treasury, floored per side.
+//   - Credits are per currency and account (`claimable(currency, account)`,
+//     address 0 = ETH), and claimed by THAT account as msg.sender with
+//     `claim(currency, to)`. A quote currency's credits pool across every launch
+//     on the placer paired with it, so one claim takes them all; each launch
+//     token is its own currency. `claim` reverts NothingToClaim on zero, so a
+//     call is only built when the amount it will find is non-zero.
 //
 // So "earned" = already credited + the recipient's floored share of what a
 // simulated collectFees would pay out now, and a claim batch collects first.
@@ -25,12 +27,16 @@
 import { encodeFunctionData, isAddress } from 'viem';
 import { UniV4LiquidityPlacerAbi } from '@/utils/abis';
 import { formatSupply, formatTokenAmount } from '@/lib/launchFormat';
+import { NATIVE_QUOTE, isNativeQuote } from '@/config/launchQuoteTokens';
 
 const BPS = 10_000n;
 const ONE_TOKEN = 10n ** 18n;
 
 /** Case-insensitive address equality; false when either side is missing. */
 export const sameAddress = (a, b) => Boolean(a && b) && String(a).toLowerCase() === String(b).toLowerCase();
+
+/** A currency's key in the claimable maps: lowercased, with ETH as the zero address. */
+export const currencyKey = (currency) => (isNativeQuote(currency) ? NATIVE_QUOTE : String(currency).toLowerCase());
 
 /**
  * The fee recipient's share of a collection, floored exactly as the placer does.
@@ -48,8 +54,9 @@ const call = (to, functionName, args) => ({
 });
 
 export const collectFeesCall = (placer, token) => call(placer, 'collectFees', [token]);
-export const claimEthCall = (placer, to) => call(placer, 'claimEth', [to]);
-export const claimTokenCall = (placer, token, to) => call(placer, 'claimToken', [token, to]);
+/** Claim the caller's credits in `currency` (address 0 = ETH, else an ERC-20 or a launch token). */
+export const claimCall = (placer, currency, to) =>
+  call(placer, 'claim', [isNativeQuote(currency) ? NATIVE_QUOTE : currency, to]);
 export const setFeeRecipientCall = (placer, token, recipient) =>
   call(placer, 'setFeeRecipient', [token, recipient]);
 
@@ -57,23 +64,30 @@ export const setFeeRecipientCall = (placer, token, recipient) =>
  * @typedef {Object} LaunchFees  one launch, as useCreatorFees reads it
  * @property {string} token
  * @property {string} placer                 TokenLaunchpad.placerOf(token)
+ * @property {string} quoteToken             TokenLaunchpad.quoteTokenOf(token); address 0 = ETH
  * @property {string | null} recipient       feeRecipientOf(token)
- * @property {Record<string, bigint>} claimableToken  lowercased account -> credited tokens
- * @property {bigint | null} uncollectedEth  a simulated collectFees, whole (both
+ * @property {Record<string, bigint>} claimableTokens  lowercased account -> credited launch tokens
+ * @property {bigint | null} uncollectedQuote  a simulated collectFees, whole (both
  * @property {bigint | null} uncollectedTokens shares); null when it would revert
  *
  * @typedef {Object} PlacerFees
  * @property {string} address
  * @property {bigint} creatorFeeBps
- * @property {Record<string, bigint>} claimableEth  lowercased account -> credited ETH
+ * @property {Record<string, Record<string, bigint>>} claimable
+ *   currencyKey -> lowercased account -> credited amount, for the quote currencies read
  */
 
 const lc = (a) => String(a).toLowerCase();
 
+/** What `account` has credited in `currency` on a placer. */
+const creditedIn = (placerFees, currency, account) =>
+  placerFees?.claimable?.[currencyKey(currency)]?.[lc(account)] ?? 0n;
+
 /**
  * What `account` has earned from one launch, as the token page shows it.
- * ETH is pooled per placer, so `ethClaimable` is the account's ETH from every
- * launch on that placer — it is what claimEth will send.
+ * The quote side is pooled per currency per placer, so `quoteClaimable` is the
+ * account's credits in this launch's quote from every launch on that placer
+ * paired with it — what claim(quote) will send.
  *
  * @param {LaunchFees} launch
  * @param {PlacerFees} placerFees
@@ -82,29 +96,29 @@ const lc = (a) => String(a).toLowerCase();
 export function launchEarnings(launch, placerFees, account) {
   const bps = placerFees?.creatorFeeBps ?? 0n;
   const isRecipient = sameAddress(launch.recipient, account);
-  const ethClaimable = placerFees?.claimableEth?.[lc(account)] ?? 0n;
-  const tokensClaimable = launch.claimableToken?.[lc(account)] ?? 0n;
+  const quoteClaimable = creditedIn(placerFees, launch.quoteToken, account);
+  const tokensClaimable = launch.claimableTokens?.[lc(account)] ?? 0n;
   // Uncollected fees will be credited to whoever is the recipient when they are
   // collected, so they count only for the current recipient.
-  const ethInPool = isRecipient ? recipientShare(launch.uncollectedEth, bps) : 0n;
+  const quoteInPool = isRecipient ? recipientShare(launch.uncollectedQuote, bps) : 0n;
   const tokensInPool = isRecipient ? recipientShare(launch.uncollectedTokens, bps) : 0n;
   return {
     isRecipient,
-    ethClaimable,
+    quoteClaimable,
     tokensClaimable,
-    ethInPool,
+    quoteInPool,
     tokensInPool,
-    eth: ethClaimable + ethInPool,
+    quote: quoteClaimable + quoteInPool,
     tokens: tokensClaimable + tokensInPool,
   };
 }
 
-const hasUncollected = (launch) => (launch.uncollectedEth ?? 0n) > 0n || (launch.uncollectedTokens ?? 0n) > 0n;
+const hasUncollected = (launch) => (launch.uncollectedQuote ?? 0n) > 0n || (launch.uncollectedTokens ?? 0n) > 0n;
 
 /**
- * The token page's claim: [collectFees] + [claimEth] + [claimToken], each only
- * when it does something — collect when the pool holds fees, a claim only when
- * the amount it will find is non-zero (else NothingToClaim reverts the batch).
+ * The token page's claim: [collectFees] + [claim(quote)] + [claim(token)], each
+ * only when it does something — collect when the pool holds fees, a claim only
+ * when the amount it will find is non-zero (else NothingToClaim reverts the batch).
  *
  * @param {LaunchFees} launch
  * @param {PlacerFees} placerFees
@@ -114,9 +128,9 @@ export function buildLaunchClaimCalls(launch, placerFees, account) {
   const earned = launchEarnings(launch, placerFees, account);
   const calls = [];
   if (earned.isRecipient && hasUncollected(launch)) calls.push(collectFeesCall(launch.placer, launch.token));
-  if (earned.eth > 0n) calls.push(claimEthCall(launch.placer, account));
-  if (earned.tokens > 0n) calls.push(claimTokenCall(launch.placer, launch.token, account));
-  return { calls, eth: earned.eth, tokens: earned.tokens };
+  if (earned.quote > 0n) calls.push(claimCall(launch.placer, launch.quoteToken, account));
+  if (earned.tokens > 0n) calls.push(claimCall(launch.placer, launch.token, account));
+  return { calls, quote: earned.quote, tokens: earned.tokens };
 }
 
 /**
@@ -135,38 +149,41 @@ export function buildTransferCalls(launch, newRecipient) {
 }
 
 /**
- * The profile's "Claim all ETH": one batch that, per placer, collects every
- * launch whose pool holds ETH for `account`, then claims. The batch must be
- * sent from `account`, the claimant.
+ * The profile's "Claim all <SYMBOL>" for one quote currency: one batch that, per
+ * placer, collects every launch paired with `currency` whose pool holds quote
+ * fees for `account`, then claims that currency. The batch must be sent from
+ * `account`, the claimant.
  *
  * @param {{ launches: LaunchFees[], placers: Record<string, PlacerFees> }} fees
  * @param {string | null | undefined} account
- * @returns {{ calls: object[], eth: bigint }} no calls when there is nothing to claim
+ * @param {string} currency  address 0 for ETH
+ * @returns {{ calls: object[], amount: bigint }} no calls when there is nothing to claim
  */
-export function planClaimAllEth({ launches, placers }, account) {
+export function planClaimAllQuote({ launches, placers }, account, currency) {
   const calls = [];
-  let eth = 0n;
-  if (!account) return { calls, eth };
+  let amount = 0n;
+  if (!account) return { calls, amount };
   for (const placerFees of Object.values(placers)) {
     const placer = placerFees.address;
-    let expected = placerFees.claimableEth?.[lc(account)] ?? 0n;
+    let expected = creditedIn(placerFees, currency, account);
     const collects = [];
     for (const launch of launches) {
       if (!sameAddress(launch.placer, placer) || !sameAddress(launch.recipient, account)) continue;
-      if ((launch.uncollectedEth ?? 0n) <= 0n) continue;
-      expected += recipientShare(launch.uncollectedEth, placerFees.creatorFeeBps);
+      if (currencyKey(launch.quoteToken) !== currencyKey(currency)) continue;
+      if ((launch.uncollectedQuote ?? 0n) <= 0n) continue;
+      expected += recipientShare(launch.uncollectedQuote, placerFees.creatorFeeBps);
       collects.push(collectFeesCall(launch.placer, launch.token));
     }
     if (expected <= 0n) continue;
-    calls.push(...collects, claimEthCall(placer, account));
-    eth += expected;
+    calls.push(...collects, claimCall(placer, currency, account));
+    amount += expected;
   }
-  return { calls, eth };
+  return { calls, amount };
 }
 
 /**
  * The profile's per-launch "Claim {SYMBOL}": [collectFees if the pool holds
- * tokens for `account`] + claimToken, when `account` has fees in this token.
+ * tokens for `account`] + claim(token), when `account` has fees in this token.
  *
  * @param {LaunchFees} launch
  * @param {PlacerFees} placerFees
@@ -181,7 +198,7 @@ export function planClaimToken(launch, placerFees, account) {
   if (earned.isRecipient && (launch.uncollectedTokens ?? 0n) > 0n) {
     calls.push(collectFeesCall(launch.placer, launch.token));
   }
-  calls.push(claimTokenCall(launch.placer, launch.token, account));
+  calls.push(claimCall(launch.placer, launch.token, account));
   return { calls, tokens: earned.tokens };
 }
 
@@ -190,25 +207,48 @@ export function planClaimToken(launch, placerFees, account) {
  * it (it is the current recipient) or still holds tokens credited from it —
  * handing fees on does not move what was already credited.
  *
+ * Quote fees are totalled per currency: one entry for each quote a listed
+ * launch is paired with, plus any other currency the account has collected
+ * credits in — ETH first, then in order of appearance.
+ *
  * @param {{ launches: LaunchFees[], placers: Record<string, PlacerFees> }} fees
  * @param {string | null | undefined} account
+ * @returns {{
+ *   rows: { launch: LaunchFees, isRecipient: boolean, quoteInPool: bigint, tokens: bigint }[],
+ *   currencies: { currency: string, collected: bigint, inPool: bigint, total: bigint, launchCount: number }[],
+ * }}
  */
 export function summarizeCreatorFees({ launches, placers }, account) {
-  let ethInPool = 0n;
-  let ethCollected = 0n;
   const rows = [];
-  if (!account) return { rows, ethCollected, ethInPool, eth: 0n };
+  /** @type {Map<string, { currency: string, collected: bigint, inPool: bigint, total: bigint, launchCount: number }>} */
+  const byCurrency = new Map();
+  const entry = (currency) => {
+    const key = currencyKey(currency);
+    if (!byCurrency.has(key)) byCurrency.set(key, { currency: key, collected: 0n, inPool: 0n, total: 0n, launchCount: 0 });
+    return byCurrency.get(key);
+  };
+  if (!account) return { rows, currencies: [] };
+
   for (const launch of launches) {
     const placerFees = placers[lc(launch.placer)];
     const earned = launchEarnings(launch, placerFees, account);
     if (!earned.isRecipient && earned.tokens === 0n) continue;
-    ethInPool += earned.ethInPool;
-    rows.push({ launch, isRecipient: earned.isRecipient, ethInPool: earned.ethInPool, tokens: earned.tokens });
+    const e = entry(launch.quoteToken);
+    e.inPool += earned.quoteInPool;
+    e.launchCount += 1;
+    rows.push({ launch, isRecipient: earned.isRecipient, quoteInPool: earned.quoteInPool, tokens: earned.tokens });
   }
   for (const placerFees of Object.values(placers)) {
-    ethCollected += placerFees.claimableEth?.[lc(account)] ?? 0n;
+    for (const [currency, byAccount] of Object.entries(placerFees.claimable ?? {})) {
+      const amount = byAccount?.[lc(account)] ?? 0n;
+      if (amount > 0n) entry(currency).collected += amount;
+    }
   }
-  return { rows, ethCollected, ethInPool, eth: ethCollected + ethInPool };
+
+  const currencies = [...byCurrency.values()]
+    .map((e) => ({ ...e, total: e.collected + e.inPool }))
+    .sort((a, b) => (a.currency === NATIVE_QUOTE ? -1 : b.currency === NATIVE_QUOTE ? 1 : 0));
+  return { rows, currencies };
 }
 
 /**

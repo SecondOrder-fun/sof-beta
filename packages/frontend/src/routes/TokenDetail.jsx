@@ -5,7 +5,9 @@
 // fees card (only for the launch's fee recipient) and the raffle card. Desktop
 // puts the panel and both cards in a sticky side column; mobile opens the same
 // panel in the existing Sheet from a bar above the bottom nav, and the cards
-// stay in the page.
+// stay in the page. Every amount is in the launch's quote token (ETH or an
+// allowlisted ERC-20): the market's once the pool is read, the launch record's
+// until then.
 
 import { useState } from "react";
 import PropTypes from "prop-types";
@@ -104,7 +106,7 @@ const TokenDetail = () => {
     }
   };
 
-  const panel = <BuyPanel token={launch.token} symbol={launch.symbol} market={market} />;
+  const panel = <BuyPanel token={launch.token} symbol={launch.symbol} market={market} quote={launch.quote} />;
 
   return (
     <div className={compact ? "space-y-5 pb-20" : "space-y-6"}>
@@ -158,7 +160,7 @@ const TokenDetail = () => {
             <SupplySold market={market} totalSupply={launch.totalSupply} symbol={launch.symbol} />
           ) : null}
 
-          <LaunchTrades token={launch.token} />
+          <LaunchTrades token={launch.token} quote={market?.quote ?? launch.quote} />
         </div>
 
         <aside className="space-y-4 lg:sticky lg:top-4">

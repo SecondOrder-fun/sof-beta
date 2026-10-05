@@ -45,7 +45,8 @@ export function useLaunchRouter() {
 /**
  * Execute a buy or sell through the active router, via executeBatch. Sent from
  * and settled to the connected wallet — the account every in-app balance is
- * read from.
+ * read from. `quoteToken` is the launch's quote (address 0 for ETH): an ERC-20
+ * buy batches approve(router) + buy, an ETH buy sends the ETH as value.
  */
 export function useLaunchTrade() {
   const { executeBatch } = useSmartTransactions();
@@ -54,9 +55,9 @@ export function useLaunchTrade() {
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
-    mutationFn: async ({ side, token, amountIn, minOut }) => {
+    mutationFn: async ({ side, token, quoteToken, amountIn, minOut }) => {
       if (!address) throw new Error('Account not ready');
-      const calls = buildTradeCalls({ side, router, token, amountIn, minOut, recipient: address });
+      const calls = buildTradeCalls({ side, router, token, quoteToken, amountIn, minOut, recipient: address });
       return executeBatch(calls);
     },
     onSuccess: () => {

@@ -2,17 +2,18 @@
 //
 // "Creator fees" on the connected user's own profile (desktop ProfileContent,
 // mobile Creator tab), per the approved design: every launch the user earns
-// from, the ETH total with one "Claim all ETH", and a Table by launch with each
-// token's fees and its own claim.
+// from, a total per quote currency (ETH, USDC, …) with one "Claim all <SYMBOL>"
+// each, and a Table by launch with each token's fees and its own claim.
 //
 // Which launches: those the connected wallet created, from the
 // backend's creator index (useCreatorLaunches) — so a launch whose fees another
 // creator handed TO this account is not listed here (no recipient index yet; its
 // token page still shows the card). A listed launch stays while this account is
 // its fee recipient or still holds tokens credited from it; one handed on with
-// nothing left is dropped. ETH already collected is pooled per account on the
-// placer (claimEth takes it all), so it shows in the total only — the table's
-// ETH column is each pool's uncollected share.
+// nothing left is dropped. Quote fees already collected are pooled per account
+// and currency on the placer (one claim takes all of a currency), so they show
+// in that currency's total only — the table's "In pool" column is each pool's
+// uncollected share, in its launch's quote.
 //
 // Renders nothing with no launches, while loading, or when the backend or chain
 // read fails: most accounts never launch, and an "unavailable" box on every
@@ -42,8 +43,16 @@ import { ClaimedStatus } from "@/components/launchpad/CreatorFeesCard";
 import { useCreatorLaunches } from "@/hooks/useLaunchActivity";
 import { useCreatorFees, useCreatorFeeWrite } from "@/hooks/useCreatorFees";
 import { useLaunchMarkets } from "@/hooks/useLaunchMarkets";
-import { formatEthAmount } from "@/lib/launchFormat";
-import { formatFeeTokens, planClaimAllEth, planClaimToken, summarizeCreatorFees } from "@/lib/creatorFees";
+import { formatQuoteAmount } from "@/lib/launchFormat";
+import { tokensToQuote } from "@/lib/v4PoolMath";
+import { ETH_QUOTE } from "@/config/launchQuoteTokens";
+import {
+  currencyKey,
+  formatFeeTokens,
+  planClaimAllQuote,
+  planClaimToken,
+  summarizeCreatorFees,
+} from "@/lib/creatorFees";
 
 const CreatorFeesSection = () => {
   const { t } = useTranslation("launchpad");
@@ -66,10 +75,10 @@ const CreatorFeesSection = () => {
   if (!hasLaunches || !data) return null;
 
   const summary = summarizeCreatorFees(data, address);
-  if (!summary.rows.length && summary.eth === 0n) return null;
+  if (!summary.rows.length && summary.currencies.every((c) => c.total === 0n)) return null;
 
   const meta = Object.fromEntries(created.map((l) => [l.token.toLowerCase(), l]));
-  const ethPlan = planClaimAllEth(data, address);
+  const quoteOf = (currency) => data.quotes?.[currencyKey(currency)] ?? ETH_QUOTE;
 
   const send = async (key, calls, result) => {
     setSending(key);
@@ -87,7 +96,10 @@ const CreatorFeesSection = () => {
   const claimedTitle = (c) =>
     c.kind === "tokens"
       ? t("creatorFees.claimedTokens", { tokens: formatFeeTokens(c.tokens), symbol: c.symbol })
-      : t("creatorFees.claimedEth", { eth: formatEthAmount(c.eth) });
+      : t("creatorFees.claimedQuote", {
+          amount: formatQuoteAmount(c.amount, c.quote.decimals),
+          quote: c.quote.symbol,
+        });
 
   return (
     <Card role="region" aria-labelledby={titleId}>
@@ -99,31 +111,45 @@ const CreatorFeesSection = () => {
           <p className="text-sm text-muted-foreground">{t("creatorFees.profile.subtitle")}</p>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border bg-muted/40 px-4 py-3">
-          <div className="space-y-0.5">
-            <div className="text-xs text-muted-foreground">
-              {t("creatorFees.profile.ethAcross", { count: summary.rows.length })}
-            </div>
-            <div className="text-3xl font-semibold tracking-tight text-heading">
-              {formatEthAmount(summary.eth)} <span className="text-base font-medium text-muted-foreground">ETH</span>
-            </div>
-            {summary.ethCollected > 0n && summary.ethInPool > 0n ? (
-              <div className="text-xs text-muted-foreground">
-                {t("creatorFees.profile.ethBreakdown", {
-                  collected: formatEthAmount(summary.ethCollected),
-                  inPool: formatEthAmount(summary.ethInPool),
-                })}
+        {summary.currencies.map(({ currency, collected, inPool, total, launchCount }) => {
+          const quote = quoteOf(currency);
+          const plan = planClaimAllQuote(data, address, currency);
+          const key = `quote:${currency}`;
+          return (
+            <div
+              key={currency}
+              className="flex flex-wrap items-center justify-between gap-4 rounded-lg border bg-muted/40 px-4 py-3"
+            >
+              <div className="space-y-0.5">
+                <div className="text-xs text-muted-foreground">
+                  {t("creatorFees.profile.quoteAcross", { count: launchCount, quote: quote.symbol })}
+                </div>
+                <div className="text-3xl font-semibold tracking-tight text-heading">
+                  {formatQuoteAmount(total, quote.decimals)}{" "}
+                  <span className="text-base font-medium text-muted-foreground">{quote.symbol}</span>
+                </div>
+                {collected > 0n && inPool > 0n ? (
+                  <div className="text-xs text-muted-foreground">
+                    {t("creatorFees.profile.quoteBreakdown", {
+                      collected: formatQuoteAmount(collected, quote.decimals),
+                      inPool: formatQuoteAmount(inPool, quote.decimals),
+                      quote: quote.symbol,
+                    })}
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-          </div>
-          <Button
-            type="button"
-            disabled={!ethPlan.calls.length || write.isPending}
-            onClick={() => send("eth", ethPlan.calls, { kind: "eth", eth: ethPlan.eth })}
-          >
-            {sending === "eth" ? t("creatorFees.claiming") : t("creatorFees.profile.claimAllEth")}
-          </Button>
-        </div>
+              <Button
+                type="button"
+                disabled={!plan.calls.length || write.isPending}
+                onClick={() => send(key, plan.calls, { kind: "quote", amount: plan.amount, quote })}
+              >
+                {sending === key
+                  ? t("creatorFees.claiming")
+                  : t("creatorFees.profile.claimAllQuote", { quote: quote.symbol })}
+              </Button>
+            </div>
+          );
+        })}
 
         {claimed ? <ClaimedStatus title={claimedTitle(claimed)} address={claimed.to} hash={claimed.hash} /> : null}
         {write.error ? (
@@ -140,7 +166,7 @@ const CreatorFeesSection = () => {
             <TableHeader>
               <TableRow>
                 <TableHead className="px-2">{t("creatorFees.profile.colToken")}</TableHead>
-                <TableHead className="px-2 text-right">{t("creatorFees.profile.colEth")}</TableHead>
+                <TableHead className="px-2 text-right">{t("creatorFees.profile.colQuote")}</TableHead>
                 <TableHead className="px-2 text-right">{t("creatorFees.profile.colTokens")}</TableHead>
                 <TableHead className="px-2">
                   <span className="sr-only">{t("creatorFees.profile.colAction")}</span>
@@ -148,11 +174,12 @@ const CreatorFeesSection = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {summary.rows.map(({ launch, isRecipient, ethInPool, tokens }) => {
+              {summary.rows.map(({ launch, isRecipient, quoteInPool, tokens }) => {
                 const info = meta[launch.token.toLowerCase()] ?? {};
                 const symbol = info.symbol ?? "";
                 const market = markets[launch.token.toLowerCase()];
-                const tokensEthWei = market?.priceWei != null ? (tokens * market.priceWei) / 10n ** 18n : null;
+                const quote = quoteOf(launch.quoteToken);
+                const tokensInQuote = tokensToQuote(tokens, market);
                 const placerFees = data.placers[launch.placer.toLowerCase()];
                 const plan = planClaimToken(launch, placerFees, address);
                 return (
@@ -178,17 +205,20 @@ const CreatorFeesSection = () => {
                       </Link>
                     </TableCell>
                     <TableCell className="px-2 text-right font-mono text-sm">
-                      {ethInPool > 0n ? formatEthAmount(ethInPool) : "—"}
+                      {quoteInPool > 0n ? `${formatQuoteAmount(quoteInPool, quote.decimals)} ${quote.symbol}` : "—"}
                     </TableCell>
                     <TableCell className="px-2 text-right">
                       <span className="block font-mono text-sm">
                         {tokens > 0n ? `${formatFeeTokens(tokens)} ${symbol}` : "—"}
                       </span>
-                      {tokens > 0n && tokensEthWei != null ? (
+                      {tokens > 0n && tokensInQuote != null ? (
                         <span className="block text-xs text-muted-foreground">
-                          {t("creatorFees.tokensEth", { eth: formatEthAmount(tokensEthWei) })}
+                          {t("creatorFees.tokensQuote", {
+                            amount: formatQuoteAmount(tokensInQuote, quote.decimals),
+                            quote: quote.symbol,
+                          })}
                         </span>
-                      ) : tokens === 0n && ethInPool === 0n ? (
+                      ) : tokens === 0n && quoteInPool === 0n ? (
                         <span className="block text-xs text-muted-foreground">{t("creatorFees.profile.noFees")}</span>
                       ) : null}
                     </TableCell>

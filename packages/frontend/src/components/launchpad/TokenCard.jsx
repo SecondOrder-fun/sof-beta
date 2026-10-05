@@ -4,6 +4,9 @@
 // (useNow) rather than freezing at first render; the clock runs inside
 // RaffleTimeLeft, so a card with no countdown on it keeps no timer.
 //
+// The valuation is in the launch's own quote token (market.quote: ETH or an
+// allowlisted ERC-20 such as USDC).
+//
 // The strip's prize is the pool from the one batched badge request (the backend
 // reads a live season's from its curve), not a curve read per card. A pool of
 // zero — nothing sold yet, or not known — shows the season alone rather than
@@ -21,9 +24,10 @@ import TokenArt from "@/components/launchpad/TokenArt";
 import RaffleBadge from "@/components/launchpad/RaffleBadge";
 import { useNow } from "@/hooks/useNow";
 import { shortAddress } from "@/lib/format";
+import { ETH_QUOTE } from "@/config/launchQuoteTokens";
 import {
   formatAge,
-  formatFdvEth,
+  formatFdv,
   formatMultiple,
   formatPercent,
   formatSupply,
@@ -51,6 +55,7 @@ const raffleStripLabel = (raffle, symbol, t) => {
 
 const TokenCard = ({ launch, market, raffle }) => {
   const { t } = useTranslation("launchpad");
+  const quote = market?.quote ?? ETH_QUOTE;
 
   return (
     <Link
@@ -84,9 +89,9 @@ const TokenCard = ({ launch, market, raffle }) => {
             <>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-semibold text-heading tracking-tight">
-                  {formatFdvEth(market.fdvWei, 2)}
+                  {formatFdv(market.fdv, quote.decimals, 2)}
                 </span>
-                <span className="text-xs text-muted-foreground">{t("card.valuation")}</span>
+                <span className="text-xs text-muted-foreground">{t("card.valuation", { quote: quote.symbol })}</span>
                 <span className="ml-auto text-xs font-semibold text-fabric-red">
                   {t("card.multiple", { value: formatMultiple(market.multiple) })}
                 </span>
@@ -127,7 +132,8 @@ TokenCard.propTypes = {
     launchedAt: PropTypes.any,
   }).isRequired,
   market: PropTypes.shape({
-    fdvWei: PropTypes.any,
+    fdv: PropTypes.any,
+    quote: PropTypes.shape({ symbol: PropTypes.string, decimals: PropTypes.number }),
     multiple: PropTypes.number,
     soldFraction: PropTypes.number,
   }),

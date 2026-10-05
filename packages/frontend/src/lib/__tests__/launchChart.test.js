@@ -1,15 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { buildChartSeries, CHART_RANGES, ethToWei } from "@/lib/launchChart";
-import { formatFdvEth } from "@/lib/launchFormat";
+import { buildChartSeries, CHART_RANGES, unitsToRaw } from "@/lib/launchChart";
+import { formatFdv, formatFdvEth } from "@/lib/launchFormat";
 
 // 1 gwei per token at a 1e9 supply is a 1 ETH FDV — the deployed floor.
 const GWEI = 1_000_000_000n;
-const launch = { t: 1000, priceWei: String(GWEI) };
+const launch = { t: 1000, price: String(GWEI) };
 
 describe("buildChartSeries", () => {
-  it("plots FDV in ETH, with the multiple since launch on each point", () => {
+  it("plots FDV in the quote, with the multiple since launch on each point", () => {
     const { series, launchFdv } = buildChartSeries({
-      chart: { tradeCount: 2, launch, points: [{ t: 1000, priceWei: String(GWEI) }, { t: 1100, priceWei: String(3n * GWEI) }] },
+      chart: { tradeCount: 2, launch, points: [{ t: 1000, price: String(GWEI) }, { t: 1100, price: String(3n * GWEI) }] },
       nowSec: 1100,
     });
     expect(launchFdv).toBe(1);
@@ -19,8 +19,8 @@ describe("buildChartSeries", () => {
 
   it("carries the line to now at the live pool price", () => {
     const { series } = buildChartSeries({
-      chart: { tradeCount: 1, launch, points: [{ t: 1000, priceWei: String(2n * GWEI) }] },
-      currentPriceWei: 5n * GWEI,
+      chart: { tradeCount: 1, launch, points: [{ t: 1000, price: String(2n * GWEI) }] },
+      currentPrice: 5n * GWEI,
       nowSec: 2000,
     });
     expect(series.at(-1)).toMatchObject({ t: 2000, fdv: 5 });
@@ -28,7 +28,7 @@ describe("buildChartSeries", () => {
 
   it("carries a quiet line flat at the last price when no live price is known", () => {
     const { series } = buildChartSeries({
-      chart: { tradeCount: 0, launch, points: [{ t: 1500, priceWei: String(4n * GWEI) }] },
+      chart: { tradeCount: 0, launch, points: [{ t: 1500, price: String(4n * GWEI) }] },
       nowSec: 2000,
     });
     expect(series.map((p) => [p.t, p.fdv])).toEqual([[1500, 4], [2000, 4]]);
@@ -36,7 +36,7 @@ describe("buildChartSeries", () => {
 
   it("reports the change over the range, from where the line enters it", () => {
     const { changePct } = buildChartSeries({
-      chart: { tradeCount: 1, launch, points: [{ t: 1000, priceWei: String(2n * GWEI) }, { t: 1100, priceWei: String(3n * GWEI) }] },
+      chart: { tradeCount: 1, launch, points: [{ t: 1000, price: String(2n * GWEI) }, { t: 1100, price: String(3n * GWEI) }] },
       nowSec: 1100,
     });
     expect(changePct).toBeCloseTo(50);
@@ -44,7 +44,7 @@ describe("buildChartSeries", () => {
 
   it("has no trades when nothing traded and the line enters at the launch price", () => {
     const { hasTrades } = buildChartSeries({
-      chart: { tradeCount: 0, launch, points: [{ t: 1000, priceWei: String(GWEI) }] },
+      chart: { tradeCount: 0, launch, points: [{ t: 1000, price: String(GWEI) }] },
       nowSec: 2000,
     });
     expect(hasTrades).toBe(false);
@@ -52,8 +52,8 @@ describe("buildChartSeries", () => {
 
   it("has trades once the live pool price has left the launch price, even before the indexer sees one", () => {
     const { hasTrades } = buildChartSeries({
-      chart: { tradeCount: 0, launch, points: [{ t: 1000, priceWei: String(GWEI) }] },
-      currentPriceWei: 3n * GWEI,
+      chart: { tradeCount: 0, launch, points: [{ t: 1000, price: String(GWEI) }] },
+      currentPrice: 3n * GWEI,
       nowSec: 2000,
     });
     expect(hasTrades).toBe(true);
@@ -61,8 +61,8 @@ describe("buildChartSeries", () => {
 
   it("has no trades when the live pool price still sits at the launch price", () => {
     const { hasTrades } = buildChartSeries({
-      chart: { tradeCount: 0, launch, points: [{ t: 1000, priceWei: String(GWEI) }] },
-      currentPriceWei: GWEI,
+      chart: { tradeCount: 0, launch, points: [{ t: 1000, price: String(GWEI) }] },
+      currentPrice: GWEI,
       nowSec: 2000,
     });
     expect(hasTrades).toBe(false);
@@ -70,7 +70,7 @@ describe("buildChartSeries", () => {
 
   it("still has trades for a quiet range after earlier trading", () => {
     const { hasTrades } = buildChartSeries({
-      chart: { tradeCount: 0, launch, points: [{ t: 1500, priceWei: String(4n * GWEI) }] },
+      chart: { tradeCount: 0, launch, points: [{ t: 1500, price: String(4n * GWEI) }] },
       nowSec: 2000,
     });
     expect(hasTrades).toBe(true);
@@ -83,9 +83,9 @@ describe("buildChartSeries", () => {
 
     it("an untraded pool sitting at its tick-rounded launch price has no trades", () => {
       const { hasTrades } = buildChartSeries({
-        chart: { tradeCount: 0, launch, points: [{ t: 1000, priceWei: String(GWEI) }] },
-        launchPriceWei: POOL_LAUNCH,
-        currentPriceWei: POOL_LAUNCH,
+        chart: { tradeCount: 0, launch, points: [{ t: 1000, price: String(GWEI) }] },
+        launchPrice: POOL_LAUNCH,
+        currentPrice: POOL_LAUNCH,
         nowSec: 2000,
       });
       expect(hasTrades).toBe(false);
@@ -93,26 +93,40 @@ describe("buildChartSeries", () => {
 
     it("uses the pool's launch price for the baseline, the launch point and the multiples", () => {
       const { launchFdv, series } = buildChartSeries({
-        chart: { tradeCount: 1, launch, points: [{ t: 1000, priceWei: String(GWEI) }, { t: 1100, priceWei: String(2n * POOL_LAUNCH) }] },
-        launchPriceWei: POOL_LAUNCH,
-        currentPriceWei: 2n * POOL_LAUNCH,
+        chart: { tradeCount: 1, launch, points: [{ t: 1000, price: String(GWEI) }, { t: 1100, price: String(2n * POOL_LAUNCH) }] },
+        launchPrice: POOL_LAUNCH,
+        currentPrice: 2n * POOL_LAUNCH,
         nowSec: 1100,
       });
       expect(launchFdv).toBeCloseTo(0.995);
       // The launch point is drawn where the pool opened, at exactly 1x.
-      expect(series[0]).toMatchObject({ t: 1000, priceWei: String(POOL_LAUNCH), multiple: 1 });
+      expect(series[0]).toMatchObject({ t: 1000, price: String(POOL_LAUNCH), multiple: 1 });
       // The multiple agrees with the header's market.multiple (2x the pool's launch).
       expect(series.at(-1).multiple).toBe(2);
     });
 
     it("leaves a range's entry point alone when it is a traded price", () => {
       const { series } = buildChartSeries({
-        chart: { tradeCount: 0, launch, points: [{ t: 1500, priceWei: String(4n * GWEI) }] },
-        launchPriceWei: POOL_LAUNCH,
+        chart: { tradeCount: 0, launch, points: [{ t: 1500, price: String(4n * GWEI) }] },
+        launchPrice: POOL_LAUNCH,
         nowSec: 1500,
       });
-      expect(series[0].priceWei).toBe(String(4n * GWEI));
+      expect(series[0].price).toBe(String(4n * GWEI));
     });
+  });
+
+  // A USDC launch: prices in 1e-6 USDC per whole token, plotted in whole USDC.
+  it("plots a 6-decimal quote's FDV in whole units", () => {
+    const usdcLaunch = { t: 1000, price: "5" }; // 5e-6 USDC per token = 5,000 USDC FDV
+    const { series, launchFdv, launchFdvRaw } = buildChartSeries({
+      chart: { tradeCount: 1, launch: usdcLaunch, points: [{ t: 1000, price: "5" }, { t: 1100, price: "10" }] },
+      nowSec: 1100,
+      decimals: 6,
+    });
+    expect(launchFdv).toBe(5000);
+    expect(launchFdvRaw).toBe(5_000_000_000n);
+    expect(series.map((p) => p.fdv)).toEqual([5000, 10000]);
+    expect(formatFdv(series[1].fdvRaw, 6, 2)).toBe("10,000");
   });
 
   it("offers the ranges the backend accepts", () => {
@@ -120,16 +134,21 @@ describe("buildChartSeries", () => {
   });
 });
 
-describe("ethToWei", () => {
-  it("turns an axis tick back into wei without float noise", () => {
-    expect(ethToWei(0.3)).toBe(3n * 10n ** 17n);
-    expect(formatFdvEth(ethToWei(0.3), 2)).toBe("0.3");
-    expect(formatFdvEth(ethToWei(1250), 2)).toBe("1,250");
+describe("unitsToRaw", () => {
+  it("turns an axis tick back into raw units without float noise", () => {
+    expect(unitsToRaw(0.3)).toBe(3n * 10n ** 17n);
+    expect(formatFdvEth(unitsToRaw(0.3), 2)).toBe("0.3");
+    expect(formatFdvEth(unitsToRaw(1250), 2)).toBe("1,250");
+  });
+
+  it("uses the quote's decimals, dropping digits it cannot hold", () => {
+    expect(unitsToRaw(2500, 6)).toBe(2_500_000_000n);
+    expect(unitsToRaw(0.1234567, 6)).toBe(123_456n);
   });
 
   it("handles tiny values and non-positive input", () => {
-    expect(ethToWei(1e-9)).toBe(10n ** 9n);
-    expect(ethToWei(0)).toBe(0n);
-    expect(ethToWei(Number.NaN)).toBe(0n);
+    expect(unitsToRaw(1e-9)).toBe(10n ** 9n);
+    expect(unitsToRaw(0)).toBe(0n);
+    expect(unitsToRaw(Number.NaN)).toBe(0n);
   });
 });

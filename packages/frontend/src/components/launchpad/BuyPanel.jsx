@@ -1,22 +1,27 @@
 // src/components/launchpad/BuyPanel.jsx
 //
-// Buy or sell a launched token against ETH.
+// Buy or sell a launched token against its quote token — native ETH or the
+// allowlisted ERC-20 the launch was paired with (market.quote, else the `quote`
+// prop from the launch record while the pool is read). Buys are paid in the
+// quote and sells pay out in it; an ERC-20 quote's balance is its balanceOf.
 //
 // Composed entirely from existing primitives, following the ticket
 // BuySellWidget: Tabs for the buy/sell switch, SlippageSettings for tolerance,
 // ContentBox for the pay/receive boxes, ButtonGroup for quick amounts.
 //
 // Quotes are exact and live: lib/v4PoolMath reproduces v4's swap math from the
-// pool's own state, pinned against a real PoolManager swap — and the router
-// delivers exactly that amount, pinned by UniV4LaunchRouter.t.sol. Trades go
-// through whichever router TokenLaunchpad.router() advertises (useLaunchTrade),
-// with minimum-out taken from the quote and the slippage setting.
+// pool's own state in either orientation, pinned against a real PoolManager
+// swap — and the router delivers exactly that amount, pinned by
+// UniV4LaunchRouter.t.sol. Trades go through whichever router
+// TokenLaunchpad.router() advertises (useLaunchTrade), with minimum-out taken
+// from the quote and the slippage setting. An ERC-20 buy batches the router's
+// approval with the buy; an ETH buy sends the ETH with it.
 
 import PropTypes from "prop-types";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAccount, useBalance } from "wagmi";
-import { formatEther, parseEther } from "viem";
+import { formatUnits } from "viem";
 import { Settings } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,31 +36,22 @@ import { useQuoteBalance } from "@/hooks/useQuoteBalance";
 import { useLaunchTrade } from "@/hooks/useLaunchTrade";
 import { useLoginModal } from "@/hooks/useLoginModal";
 import { minimumReceived, quoteBuy, quoteSell } from "@/lib/v4PoolMath";
-import { formatPriceGwei, formatSupply } from "@/lib/launchFormat";
+import { formatSupply, formatTokenPrice, parseQuoteAmount } from "@/lib/launchFormat";
+import { DEFAULT_BUY_PRESETS, ETH_QUOTE, findLaunchQuote, isNativeQuote } from "@/config/launchQuoteTokens";
+import { getStoredNetworkKey } from "@/lib/wagmi";
 
-const BUY_PRESETS = ["0.05", "0.1", "0.5", "1"];
 const SELL_PRESETS = [25, 50, 75, 100];
+/** Launch tokens are always 18 decimals. */
+const TOKEN_DECIMALS = 18;
 
-/** "0.1" -> 1e17n; anything unusable -> null (so "not typed yet" differs from zero). */
-function parseAmount(input) {
-  const s = String(input ?? "").trim();
-  if (!s || !/^\d*\.?\d*$/.test(s)) return null;
-  try {
-    const v = parseEther(s);
-    return v > 0n ? v : null;
-  } catch {
-    return null;
-  }
-}
-
-/** ETH to at most 6 decimals, trailing zeros dropped. */
-function formatEth(wei) {
-  const [whole, frac = ""] = formatEther(wei).split(".");
+/** A raw amount to at most 6 decimals, trailing zeros dropped. */
+function formatPrecise(raw, decimals) {
+  const [whole, frac = ""] = formatUnits(raw, decimals).split(".");
   const kept = frac.slice(0, 6).replace(/0+$/, "");
   return kept ? `${whole}.${kept}` : whole;
 }
 
-const BuyPanel = ({ token, symbol, market, className }) => {
+const BuyPanel = ({ token, symbol, market, quote: quoteProp, className }) => {
   const { t } = useTranslation(["launchpad", "common"]);
   const [side, setSide] = useState("buy");
   const [amount, setAmount] = useState("");
@@ -68,37 +64,40 @@ const BuyPanel = ({ token, symbol, market, className }) => {
   const { address, isConnected } = useAccount();
   const { openLoginModal } = useLoginModal();
   const { trade, isPending, error, reset, router } = useLaunchTrade();
-  const { data: ethBalance } = useBalance({ address, query: { enabled: Boolean(address) } });
+
+  // What this launch trades against. The listed entry adds the quick amounts.
+  const quote = market?.quote ?? quoteProp ?? ETH_QUOTE;
+  const isNative = isNativeQuote(quote.address);
+  const buyPresets = findLaunchQuote(quote.address, getStoredNetworkKey())?.buyPresets ?? DEFAULT_BUY_PRESETS;
+  const { data: ethBalance } = useBalance({ address, query: { enabled: Boolean(address && isNative) } });
+  // An ERC-20 quote's balance; for ETH this reads the token again and is unused.
+  const { balance: erc20QuoteBalance } = useQuoteBalance(isNative ? token : quote.address);
   const { balance: tokenBalance } = useQuoteBalance(token);
+  const quoteBalance = isNative ? ethBalance?.value : erc20QuoteBalance;
 
   const isBuy = side === "buy";
-  const amountWei = parseAmount(amount);
+  const payDecimals = isBuy ? quote.decimals : TOKEN_DECIMALS;
+  const amountIn = parseQuoteAmount(amount, payDecimals);
 
-  const quote = useMemo(() => {
-    if (!market || amountWei == null) return null;
+  const swap = useMemo(() => {
+    if (!market || amountIn == null) return null;
+    const pool = {
+      sqrtPriceX96: market.sqrtPriceX96,
+      liquidity: market.liquidity,
+      tokenIsCurrency0: market.tokenIsCurrency0,
+      sqrtLowerX96: market.sqrtLowerX96,
+      sqrtUpperX96: market.sqrtUpperX96,
+    };
     return isBuy
-      ? quoteBuy({
-          sqrtPriceX96: market.sqrtPriceX96,
-          liquidity: market.liquidity,
-          lpFee: market.buyFee,
-          ethIn: amountWei,
-          sqrtLowerX96: market.sqrtLowerX96,
-          sqrtUpperX96: market.launchSqrtX96,
-        })
-      : quoteSell({
-          sqrtPriceX96: market.sqrtPriceX96,
-          liquidity: market.liquidity,
-          lpFee: market.sellFee,
-          tokensIn: amountWei,
-          sqrtUpperX96: market.launchSqrtX96,
-          sqrtLowerX96: market.sqrtLowerX96,
-        });
-  }, [market, amountWei, isBuy]);
+      ? quoteBuy({ ...pool, lpFee: market.buyFee, quoteIn: amountIn })
+      : quoteSell({ ...pool, lpFee: market.sellFee, tokensIn: amountIn });
+  }, [market, amountIn, isBuy]);
 
-  const out = quote ? (isBuy ? quote.tokensOut : quote.ethOut) : null;
-  const receive = out == null ? "0" : isBuy ? formatSupply(out) : formatEth(out);
+  const out = swap ? (isBuy ? swap.tokensOut : swap.quoteOut) : null;
+  const formatOut = (raw) => (isBuy ? formatSupply(raw) : formatPrecise(raw, quote.decimals));
+  const receive = out == null ? "0" : formatOut(out);
   const minOut = out == null ? null : minimumReceived(out, slippagePct);
-  const impactPct = quote ? quote.priceImpact * 100 : null;
+  const impactPct = swap ? swap.priceImpact * 100 : null;
   const feePct = market ? (isBuy ? market.buyFee : market.sellFee) / 10_000 : null;
 
   const onSide = (next) => {
@@ -108,15 +107,15 @@ const BuyPanel = ({ token, symbol, market, className }) => {
     reset();
   };
 
-  const available = isBuy ? ethBalance?.value : tokenBalance;
-  const insufficient = amountWei != null && available != null && amountWei > available;
+  const available = isBuy ? quoteBalance : tokenBalance;
+  const insufficient = amountIn != null && available != null && amountIn > available;
 
   // One state drives the button: label, whether it is clickable, and what it does.
   let cta;
   if (!router) cta = { label: isBuy ? t("trade.buyCta", { symbol }) : t("trade.sellCta", { symbol }), disabled: true };
   else if (!isConnected) cta = { label: t("trade.connect"), disabled: false, onClick: openLoginModal };
-  else if (amountWei == null) cta = { label: t("trade.enterAmount"), disabled: true };
-  else if (insufficient) cta = { label: t("trade.insufficient", { unit: isBuy ? "ETH" : symbol }), disabled: true };
+  else if (amountIn == null) cta = { label: t("trade.enterAmount"), disabled: true };
+  else if (insufficient) cta = { label: t("trade.insufficient", { unit: isBuy ? quote.symbol : symbol }), disabled: true };
   else if (isPending) cta = { label: t("trade.pending"), disabled: true };
   else if (!out) cta = { label: t("trade.enterAmount"), disabled: true };
   else {
@@ -126,7 +125,7 @@ const BuyPanel = ({ token, symbol, market, className }) => {
       onClick: async () => {
         setSubmitted(false);
         try {
-          await trade({ side, token, amountIn: amountWei, minOut });
+          await trade({ side, token, quoteToken: quote.address, amountIn, minOut });
           setAmount("");
           setSubmitted(true);
         } catch {
@@ -137,17 +136,18 @@ const BuyPanel = ({ token, symbol, market, className }) => {
   }
 
   const presets = isBuy
-    ? BUY_PRESETS.map((v) => ({ label: v, value: v }))
+    ? buyPresets.map((v) => ({ label: v, value: v }))
     : SELL_PRESETS.map((pct) => ({
         label: pct === 100 ? t("common:max", { defaultValue: "Max" }) : `${pct}%`,
-        value: tokenBalance ? formatEther((tokenBalance * BigInt(pct)) / 100n) : "",
+        value: tokenBalance ? formatUnits((tokenBalance * BigInt(pct)) / 100n, TOKEN_DECIMALS) : "",
       }));
 
-  const payUnit = isBuy ? "ETH" : symbol;
-  const getUnit = isBuy ? symbol : "ETH";
+  const payUnit = isBuy ? quote.symbol : symbol;
+  const getUnit = isBuy ? symbol : quote.symbol;
   const balanceLabel = isBuy
-    ? ethBalance ? `${formatEth(ethBalance.value)} ETH` : "—"
+    ? quoteBalance != null ? `${formatPrecise(quoteBalance, quote.decimals)} ${quote.symbol}` : "—"
     : `${formatSupply(tokenBalance ?? 0n)} ${symbol}`;
+  const price = market ? formatTokenPrice(market.fdv, quote) : null;
 
   return (
     <Card className={className}>
@@ -227,7 +227,7 @@ const BuyPanel = ({ token, symbol, market, className }) => {
         <dl className="space-y-2 text-sm">
           <div className="flex justify-between">
             <dt className="text-muted-foreground">{t("trade.price")}</dt>
-            <dd>{market ? t("trade.priceValue", { price: formatPriceGwei(market.priceWei), symbol }) : "—"}</dd>
+            <dd>{price ? t("trade.priceValue", { price: price.value, unit: price.unit, symbol }) : "—"}</dd>
           </div>
           <div className="flex justify-between">
             <dt className="text-muted-foreground">{t("trade.priceImpact")}</dt>
@@ -242,12 +242,12 @@ const BuyPanel = ({ token, symbol, market, className }) => {
           <div className="flex justify-between">
             <dt className="text-muted-foreground">{t("trade.minReceived")}</dt>
             <dd>
-              {minOut == null ? "—" : `${isBuy ? formatSupply(minOut) : formatEth(minOut)} ${getUnit}`}
+              {minOut == null ? "—" : `${formatOut(minOut)} ${getUnit}`}
             </dd>
           </div>
         </dl>
 
-        {quote?.exceedsRange && (
+        {swap?.exceedsRange && (
           <p className="text-xs text-fabric-red">{isBuy ? t("trade.exceedsBuy") : t("trade.exceedsSell")}</p>
         )}
 
@@ -278,6 +278,8 @@ BuyPanel.propTypes = {
   token: PropTypes.string.isRequired,
   symbol: PropTypes.string,
   market: PropTypes.object,
+  /** The launch's quote token ({ address, symbol, decimals }) until the market is read. */
+  quote: PropTypes.shape({ address: PropTypes.string, symbol: PropTypes.string, decimals: PropTypes.number }),
   className: PropTypes.string,
 };
 

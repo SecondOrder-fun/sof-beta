@@ -19,6 +19,7 @@ import { usePublicClient } from 'wagmi';
 import { getStoredNetworkKey } from '@/lib/wagmi';
 import { getContractAddresses } from '@/config/contracts';
 import { TokenLaunchpadAbi, ERC20Abi } from '@/utils/abis';
+import { quoteMetaFor, resolveQuoteMeta } from '@/lib/launchQuote';
 
 /** How many launches one page of the feed holds. */
 export const LAUNCHES_PAGE_SIZE = 24;
@@ -29,8 +30,12 @@ export const LAUNCHES_PAGE_SIZE = 24;
  * @property {string} token
  * @property {string} creator
  * @property {bigint} launchedAt        — unix seconds
- * @property {bigint} startPriceWei     — wei of ETH per whole token
- * @property {bigint} impliedFdvWei     — startPriceWei * wholeSupply
+ * @property {string} quoteToken        — what it trades against; address 0 is ETH
+ * @property {{ address: string, symbol: string, decimals: number }} quote
+ *                                      — that quote's symbol and decimals
+ * @property {bigint} startFdv          — the REQUESTED opening valuation, in the
+ *                                        quote's raw units (the pool opens at it
+ *                                        snapped to a tick; see useLaunchMarkets)
  * @property {string} name
  * @property {string} symbol
  */
@@ -59,18 +64,14 @@ export function useTokenLaunches({ limit = LAUNCHES_PAGE_SIZE, enabled = true } 
     // meanwhile instead of dropping back to skeletons.
     placeholderData: keepPreviousData,
     queryFn: async () => {
-      const [count, supply] = await client.multicall({
-        contracts: [
-          { address: launchpad, abi: TokenLaunchpadAbi, functionName: 'launchCount' },
-          { address: launchpad, abi: TokenLaunchpadAbi, functionName: 'TOKEN_SUPPLY' },
-        ],
-        allowFailure: false,
+      const count = await client.readContract({
+        address: launchpad,
+        abi: TokenLaunchpadAbi,
+        functionName: 'launchCount',
       });
 
       const total = Number(count);
       if (total === 0) return { launches: [], total: 0 };
-
-      const wholeSupply = supply / 10n ** 18n;
 
       // Newest first: the array is append-only, so the last index is the newest.
       const ids = [];
@@ -95,13 +96,20 @@ export function useTokenLaunches({ limit = LAUNCHES_PAGE_SIZE, enabled = true } 
         present.push({ launchId: ids[i], record: records[i].result });
       }
 
-      const metadata = await client.multicall({
-        contracts: present.flatMap(({ record }) => [
-          { address: record.token, abi: ERC20Abi, functionName: 'name' },
-          { address: record.token, abi: ERC20Abi, functionName: 'symbol' },
-        ]),
-        allowFailure: true,
-      });
+      const [metadata, quoteMeta] = await Promise.all([
+        client.multicall({
+          contracts: present.flatMap(({ record }) => [
+            { address: record.token, abi: ERC20Abi, functionName: 'name' },
+            { address: record.token, abi: ERC20Abi, functionName: 'symbol' },
+          ]),
+          allowFailure: true,
+        }),
+        resolveQuoteMeta(
+          client,
+          present.map(({ record }) => record.quoteToken),
+          netKey,
+        ),
+      ]);
 
       const launches = present.map(({ launchId, record }, i) => {
         const nameRes = metadata[i * 2];
@@ -111,8 +119,9 @@ export function useTokenLaunches({ limit = LAUNCHES_PAGE_SIZE, enabled = true } 
           token: record.token,
           creator: record.creator,
           launchedAt: record.launchedAt,
-          startPriceWei: record.startPriceWei,
-          impliedFdvWei: record.startPriceWei * wholeSupply,
+          quoteToken: record.quoteToken,
+          quote: quoteMetaFor(quoteMeta, record.quoteToken),
+          startFdv: record.startFdv,
           // The v4 PoolId — what useLaunchMarkets prices the token from.
           placementId: record.placementId,
           name: nameRes?.status === 'success' ? nameRes.result : '',
@@ -168,8 +177,6 @@ export function useTokenLaunch(tokenAddress) {
       const [launchId, exists] = idRes;
       if (!exists) return null;
 
-      const wholeSupply = supplyRes / 10n ** 18n;
-
       const [record, name, symbol] = await client.multicall({
         contracts: [
           { address: launchpad, abi: TokenLaunchpadAbi, functionName: 'getLaunch', args: [launchId] },
@@ -179,13 +186,16 @@ export function useTokenLaunch(tokenAddress) {
         allowFailure: false,
       });
 
+      const quoteMeta = await resolveQuoteMeta(client, [record.quoteToken], netKey);
+
       return {
         launchId: Number(launchId),
         token: record.token,
         creator: record.creator,
         launchedAt: record.launchedAt,
-        startPriceWei: record.startPriceWei,
-        impliedFdvWei: record.startPriceWei * wholeSupply,
+        quoteToken: record.quoteToken,
+        quote: quoteMetaFor(quoteMeta, record.quoteToken),
+        startFdv: record.startFdv,
         placementId: record.placementId,
         totalSupply: supplyRes,
         name,

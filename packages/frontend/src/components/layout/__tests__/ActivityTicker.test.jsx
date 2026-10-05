@@ -16,8 +16,8 @@ const WALLET = "0x3f000000000000000000000000000000000000a1";
 
 const feed = {
   tokens: [
-    { kind: "buy", at: "2026-09-30T00:00:02Z", who: WALLET, token: TOKEN, symbol: "POND", ethAmount: "400000000000000000", priceWei: "47000000000", txHash: "0x1" },
-    { kind: "launch", at: "2026-09-30T00:00:01Z", who: WALLET, token: TOKEN, symbol: "SALT", fdvWei: "1000000000000000000", txHash: "0x2" },
+    { kind: "buy", at: "2026-09-30T00:00:02Z", who: WALLET, token: TOKEN, symbol: "POND", quoteAmount: "400000000000000000", price: "47000000000", txHash: "0x1" },
+    { kind: "launch", at: "2026-09-30T00:00:01Z", who: WALLET, token: TOKEN, symbol: "SALT", fdv: "1000000000000000000", txHash: "0x2" },
   ],
   raffles: [{ kind: "entry", at: "2026-09-30T00:00:00Z", who: WALLET, tickets: "40", txHash: "0x3", seasonId: 2, seasonName: null, token: TOKEN, symbol: "LAMP" }],
 };

@@ -88,15 +88,33 @@ An InfoFi markets row slots in as a third `TickerRow`.
 (`raffleLive` / `raffleSoon` / `raffleEnded`) and the ticker's raffle row use
 `pastel-rose`, `pastel-rose-foreground` and `raffle` from `tailwind.css`. `raffle`
 is Pastel Rose in dark and Cochineal in light, because Pastel Rose text does not
-read on white. Prize pools show in the token with an ETH equivalent from the pool
-price, never USD, so there is no oracle.
+read on white. Prize pools show in the token with an equivalent in the launch's
+quote token (ETH, USDC, …) from the pool price, never USD, so there is no oracle.
 
-**The launch form takes a valuation, not a per-token price** (`src/lib/launchFormat.js`,
-`src/hooks/useTokenLaunchpad.js`). Every launch mints the same 1e9 supply, so the
-number that governs behaviour is `startPriceWei * supply`, nine orders of magnitude
-from the price — the contract's own bounds are set in FDV terms for that reason.
-Display valuations in ETH and per-token prices in gwei; at the 1 ETH floor the
-price is exactly 1 gwei per token.
+**A launch is paired with a quote token** — native ETH (address 0, the default) or
+an ERC-20 on the launchpad's allowlist. The allowlist cannot be enumerated on-chain,
+so the candidates per network live in `src/config/launchQuoteTokens.js` (ETH
+everywhere; USDC on testnet) and the form keeps those `TokenLaunchpad.quoteConfig(q)`
+reports `allowed`, with that quote's own valuation bounds. Every amount on the
+launchpad — valuations, prices, trades, fees — is in the launch's quote, with its
+decimals and symbol: from `market.quote` (useLaunchMarkets), the launch record's
+`quote` (useTokenLaunches), or the backend's `quoteSymbol` / `quoteDecimals`
+(`quoteFromApi`). An unlisted quote's symbol and decimals are read from the token
+(`lib/launchQuote.js`). Valuations in different quotes do not compare without an
+oracle, so "Top FDV" groups by quote (ETH first).
+
+**The launch form takes a valuation, not a per-token price** (`src/routes/Launch.jsx`,
+`src/hooks/useTokenLaunchpad.js`), and passes it to `launch(…, quoteToken, startFdv,
+creatorBuyIn, minTokensOut)` unconverted. Every launch mints the same 1e9 supply, so
+a per-token price is nine orders of magnitude from the valuation and, in a 6-decimal
+quote, too coarse to express. Display valuations in the quote and per-token prices
+in gwei for ETH (at the 1 ETH floor exactly 1 gwei per token), in the quote itself
+otherwise (`formatTokenPrice`, from the valuation so USDC keeps its precision). An
+optional first buy is made inside the launch transaction (`buildLaunchCalls`): ETH
+sends it as `value`; an ERC-20 batches `approve(launchpad, creatorBuyIn)` first.
+`minTokensOut` is 0 on purpose — the buy runs in the same transaction the pool is
+created in, so no trade can come between and a floor protects nothing. A first buy
+needs `router()` set (`CreatorBuyNeedsRouter`), so the form checks it and the balance.
 
 A network with no launchpad in its deployment JSON renders an explanation, not an
 error. The raffle stack deploys independently of the launchpad.
@@ -110,9 +128,16 @@ quoter contract in the stack. That math is pinned against a real `PoolManager`
 swap: `test_fixture_quoteMathForFrontend` in the contracts package emits the
 numbers `tests/lib/v4PoolMath.test.js` reproduces. If a contracts change moves
 them, re-run the fixture and update the constants — never loosen the tolerances.
-Two traps it encodes: out of range v4 reports **0 active liquidity** (at launch the
-price sits exactly on the upper edge; after a sell-out, on the lower one), so quote
-with the position's liquidity; and range
+**Both orientations:** v4 sorts currencies by address. With the quote as currency0
+(every ETH launch) a buy is zeroForOne, the range is `[minUsableTick, tickUpper]` and
+the pool opens at `tickUpper`; an ERC-20 quote above the token makes the TOKEN
+currency0 (`placement.tokenIsCurrency0`): buys are oneForZero, the range is
+`[tickLower, maxUsableTick]`, opening at `tickLower`. That case is pinned by symmetry
+against the ETH fixture. The range runs to the end of the price scale, so a token
+never sells out; "supply sold" is what has left the pool, from the position's own
+balance, and never reaches 100% (half at 4× the launch price). Traps it encodes: an
+edge outside v4's half-open range reports **0 active liquidity** (an ETH launch
+opens exactly on its upper edge), so quote with the position's liquidity; and range
 edges must use the exact `TickMath` port, not a float, or a capped quote promises
 more than the whole supply.
 
@@ -127,7 +152,9 @@ first — the raffle Badge variants, the price chart and the ticker were.
 **Trades go through whichever router the launchpad advertises.** `useLaunchTrade`
 reads `TokenLaunchpad.router()` and `lib/launchTrade.js` encodes against the
 `ILaunchRouter` interface ABI — never an implementation's — then sends through
-`executeBatch` (a sell batches approve + sell). So replacing the router is a
+`executeBatch`: an ETH buy sends `quoteIn` as value, an ERC-20 buy batches
+`approve(router, quoteIn)` + buy, a sell batches approve + sell and pays out in the
+launch's quote. So replacing the router is a
 `setRouter` transaction with no frontend change, and `setRouter(0)` switches in-app
 trading off (the panel keeps quoting and says trading is off). Minimum-out is the
 quote less the slippage setting; `UniV4LaunchRouter.t.sol` pins the router to the
@@ -136,8 +163,8 @@ same amounts the quote math is pinned to, so the quote shown is the trade made.
 ## Creator fees
 
 A launch's LP position belongs to its placer (`TokenLaunchpad.placerOf`), which
-credits 88% of the pool's 1% fee to the launch's fee recipient — ETH from buys,
-the launch token from sells. Two surfaces, from Card, Table, the outline Badge,
+credits 88% of the pool's 1% fee to the launch's fee recipient — the launch's quote
+token (ETH or its ERC-20) from buys, the launch token from sells. Two surfaces, from Card, Table, the outline Badge,
 Button, Separator, Dialog and Input: `CreatorFeesCard` on the token page (only for
 the current recipient) and `CreatorFeesSection` on the own profile (desktop
 `ProfileContent`, mobile Creator tab). Reads are `hooks/useCreatorFees.js` (three
@@ -145,15 +172,17 @@ multicalls, one of them `collectFees` **simulated** for what is still in the poo
 call-building and the earned/summary math are pure in `lib/creatorFees.js`.
 
 - **Earned = credited + the recipient's floored share of a simulated collect.** A
-  claim batch collects first (`collectFees` is permissionless), and a `claimEth` /
-  `claimToken` is only added when the amount it will find is non-zero — they revert
-  `NothingToClaim` on zero, which would fail the whole batch. Uncollected fees
+  claim batch collects first (`collectFees` is permissionless), and a
+  `claim(currency, to)` is only added when the amount it will find is non-zero — it
+  reverts `NothingToClaim` on zero, which would fail the whole batch. Uncollected fees
   count only for the current recipient: they are credited to whoever is recipient
   at collection, which is also why Transfer collects before `setFeeRecipient`.
-- **ETH is pooled per account per placer** (`claimEth` takes all of it), so the
-  token page's ETH includes other launches' collected ETH (it says so) and the
-  profile shows collected ETH only in the total; its table's ETH column is each
-  pool's uncollected share. Calls are grouped per placer.
+- **Quote fees are pooled per account, per currency, per placer**
+  (`claimable(currency, account)`, address 0 = ETH; one `claim(currency)` takes
+  them all), so the token page's quote amount includes other same-quote launches'
+  collected fees (it says so), and the profile shows one total and one "Claim all
+  <SYMBOL>" per quote currency — collected fees only in those totals; its table's
+  "In pool" column is each pool's uncollected share. Calls are grouped per placer.
 - **The claimant is `msg.sender`, so the batch must come from the credited
   account.** `executeBatch` sends from the connected wallet, so the card shows
   only when that wallet is the current recipient, and every claim plan is built
@@ -185,8 +214,9 @@ pasted token, or one preselected by `/create-season?quoteToken=0x…` (the token
 page's raffle card links there), goes through that check and blocks submission
 until it passes — so `QuoteTokenNotAllowed` and `QuoteTokenDecimals` never fire. A
 failed read blocks too; it is not read as "not allowed". The curve's prices take the chosen
-token's decimals and symbol, and a launch token's pool price
-(`useLaunchMarkets`) adds an "≈ X ETH" line. Submission is blocked until a token is chosen, so the forms
+token's decimals and symbol, and an ETH-paired launch token's pool price
+(`useLaunchMarkets`) adds an "≈ X ETH" line (a launch paired with an ERC-20 has no
+ETH price without an oracle, so it shows none). Submission is blocked until a token is chosen, so the forms
 always send `config.quoteToken` (`useRaffleWrite`'s `QUOTE_TOKEN` fallback serves
 other callers).
 

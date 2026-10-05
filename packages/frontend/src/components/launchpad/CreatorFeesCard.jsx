@@ -6,11 +6,12 @@
 // would flash on every visitor's page).
 //
 // States:
-//   fees      — ETH (from buys) and the launch token (from sells) the recipient
+//   fees      — the launch's quote token (from buys: ETH, or the ERC-20 it is
+//               paired with) and the launch token (from sells) the recipient
 //               has earned: credited + their 88% of what is still in the pool,
-//               with the token's ETH value at the pool price; one primary claim
-//               button. Uncollected fees get a line saying the claim collects
-//               them first (it does, in the same batch).
+//               with the token's value in the quote at the pool price; one
+//               primary claim button. Uncollected fees get a line saying the
+//               claim collects them first (it does, in the same batch).
 //   empty     — "No fees yet" and a disabled "Nothing to claim"
 //   claimed   — role=status "Claimed …" with a link to the transaction; shown
 //               until the card unmounts, above the fees state if new fees arrive
@@ -40,10 +41,13 @@ import { useCreatorFees, useCreatorFeeWrite } from "@/hooks/useCreatorFees";
 import { getNetworkByKey } from "@/config/networks";
 import { getStoredNetworkKey } from "@/lib/wagmi";
 import { shortAddress } from "@/lib/format";
-import { formatEthAmount } from "@/lib/launchFormat";
+import { formatQuoteAmount } from "@/lib/launchFormat";
+import { tokensToQuote } from "@/lib/v4PoolMath";
+import { ETH_QUOTE } from "@/config/launchQuoteTokens";
 import {
   buildLaunchClaimCalls,
   buildTransferCalls,
+  currencyKey,
   formatFeeTokens,
   launchEarnings,
   sameAddress,
@@ -56,9 +60,9 @@ function txUrl(hash) {
 }
 
 /** A claim's amounts in one of three phrasings, so a zero side is never named. */
-function amountsKey(prefix, eth, tokens) {
-  if (eth > 0n && tokens > 0n) return `${prefix}Both`;
-  return eth > 0n ? `${prefix}Eth` : `${prefix}Tokens`;
+function amountsKey(prefix, quote, tokens) {
+  if (quote > 0n && tokens > 0n) return `${prefix}Both`;
+  return quote > 0n ? `${prefix}Quote` : `${prefix}Tokens`;
 }
 
 const Amount = ({ label, value, unit, children }) => (
@@ -137,21 +141,25 @@ const CreatorFeesCard = ({ token, name, symbol, market }) => {
   if (!launch || !placerFees || !sameAddress(launch.recipient, address)) return null;
 
   const earned = launchEarnings(launch, placerFees, address);
+  // The currency buys pay this launch's fees in.
+  const quote = data.quotes?.[currencyKey(launch.quoteToken)] ?? market?.quote ?? ETH_QUOTE;
+  const formatQuote = (raw) => formatQuoteAmount(raw, quote.decimals);
   const share = Number(placerFees.creatorFeeBps) / 100;
   const fee = market?.lpFee != null ? Number(market.lpFee) / 10_000 : null;
-  const tokensEthWei = market?.priceWei != null ? (earned.tokens * market.priceWei) / 10n ** 18n : null;
-  const hasFees = earned.eth > 0n || earned.tokens > 0n;
+  const tokensInQuote = tokensToQuote(earned.tokens, market);
+  const hasFees = earned.quote > 0n || earned.tokens > 0n;
   const amounts = {
-    eth: formatEthAmount(earned.eth),
+    amount: formatQuote(earned.quote),
+    quote: quote.symbol,
     tokens: formatFeeTokens(earned.tokens),
     symbol,
   };
 
   const onClaim = async () => {
-    const { calls, eth, tokens } = buildLaunchClaimCalls(launch, placerFees, address);
+    const { calls, quote: quoteAmount, tokens } = buildLaunchClaimCalls(launch, placerFees, address);
     try {
       const hash = await claim.send(calls);
-      setClaimed({ eth, tokens, hash, to: address });
+      setClaimed({ quote: quoteAmount, tokens, hash, to: address });
     } catch {
       // Surfaced from claim.error below.
     }
@@ -176,8 +184,9 @@ const CreatorFeesCard = ({ token, name, symbol, market }) => {
 
         {claimed ? (
           <ClaimedStatus
-            title={t(amountsKey("creatorFees.claimed", claimed.eth, claimed.tokens), {
-              eth: formatEthAmount(claimed.eth),
+            title={t(amountsKey("creatorFees.claimed", claimed.quote, claimed.tokens), {
+              amount: formatQuote(claimed.quote),
+              quote: quote.symbol,
               tokens: formatFeeTokens(claimed.tokens),
               symbol,
             })}
@@ -189,20 +198,21 @@ const CreatorFeesCard = ({ token, name, symbol, market }) => {
         {hasFees ? (
           <>
             <div className="space-y-2">
-              <Amount label={t("creatorFees.fromBuys")} value={amounts.eth} unit="ETH">
-                {earned.eth > 0n ? t("creatorFees.ethPooled") : null}
+              <Amount label={t("creatorFees.fromBuys")} value={amounts.amount} unit={quote.symbol}>
+                {earned.quote > 0n ? t("creatorFees.quotePooled", { quote: quote.symbol }) : null}
               </Amount>
               <Amount label={t("creatorFees.fromSells")} value={amounts.tokens} unit={symbol}>
-                {earned.tokens > 0n && tokensEthWei != null
-                  ? t("creatorFees.tokensEth", { eth: formatEthAmount(tokensEthWei) })
+                {earned.tokens > 0n && tokensInQuote != null
+                  ? t("creatorFees.tokensQuote", { amount: formatQuote(tokensInQuote), quote: quote.symbol })
                   : null}
               </Amount>
             </div>
 
-            {earned.ethInPool > 0n || earned.tokensInPool > 0n ? (
+            {earned.quoteInPool > 0n || earned.tokensInPool > 0n ? (
               <p className="text-xs text-muted-foreground">
-                {t(amountsKey("creatorFees.inPool", earned.ethInPool, earned.tokensInPool), {
-                  eth: formatEthAmount(earned.ethInPool),
+                {t(amountsKey("creatorFees.inPool", earned.quoteInPool, earned.tokensInPool), {
+                  amount: formatQuote(earned.quoteInPool),
+                  quote: quote.symbol,
                   tokens: formatFeeTokens(earned.tokensInPool),
                   symbol,
                 })}
@@ -213,7 +223,7 @@ const CreatorFeesCard = ({ token, name, symbol, market }) => {
               <Button type="button" size="lg" className="w-full" disabled={claim.isPending} onClick={onClaim}>
                 {claim.isPending
                   ? t("creatorFees.claiming")
-                  : t(amountsKey("creatorFees.claim", earned.eth, earned.tokens), amounts)}
+                  : t(amountsKey("creatorFees.claim", earned.quote, earned.tokens), amounts)}
               </Button>
               <p className="text-center text-xs text-muted-foreground">{t("creatorFees.captionSent")}</p>
             </div>
@@ -222,8 +232,8 @@ const CreatorFeesCard = ({ token, name, symbol, market }) => {
           <>
             <p className="text-sm text-muted-foreground">
               {fee != null
-                ? t("creatorFees.emptyBody", { share, fee, name, symbol })
-                : t("creatorFees.emptyBodyPoolFee", { share, name, symbol })}
+                ? t("creatorFees.emptyBody", { share, fee, name, symbol, quote: quote.symbol })
+                : t("creatorFees.emptyBodyPoolFee", { share, name, symbol, quote: quote.symbol })}
             </p>
             <Button type="button" variant="outline" size="lg" className="w-full" disabled>
               {t("creatorFees.nothingToClaim")}
@@ -281,7 +291,7 @@ CreatorFeesCard.propTypes = {
   token: PropTypes.string.isRequired,
   name: PropTypes.string,
   symbol: PropTypes.string,
-  market: PropTypes.shape({ priceWei: PropTypes.any, lpFee: PropTypes.any }),
+  market: PropTypes.shape({ fdv: PropTypes.any, totalSupplyRaw: PropTypes.any, lpFee: PropTypes.any, quote: PropTypes.object }),
 };
 
 export default CreatorFeesCard;

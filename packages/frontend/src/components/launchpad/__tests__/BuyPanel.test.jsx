@@ -29,20 +29,27 @@ vi.mock("@/hooks/useLaunchTrade", () => ({
 const openLoginModal = vi.fn();
 vi.mock("@/hooks/useLoginModal", () => ({ useLoginModal: () => ({ openLoginModal }) }));
 const tokenBalance = { current: 0n };
+const usdcBalance = { current: 0n };
+const USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
 vi.mock("@/hooks/useQuoteBalance", () => ({
-  useQuoteBalance: () => ({ balance: tokenBalance.current }),
+  useQuoteBalance: (address) => ({ balance: address === USDC ? usdcBalance.current : tokenBalance.current }),
 }));
+vi.mock("@/lib/wagmi", () => ({ getStoredNetworkKey: () => "TESTNET" }));
 
 // The launch state from test_fixture_quoteMathForFrontend: a real PoolManager,
 // 1 ETH FDV, untouched. A 0.1 ETH buy from here delivered exactly
-// 90,544,562.424768864432372374 tokens on-chain.
+// 89,729,910.215527505885256588 tokens on-chain.
 const TOKEN = "0x1111111111111111111111111111111111111111";
-const market = deriveMarketState({
+const ETH = { address: "0x0000000000000000000000000000000000000000", symbol: "ETH", decimals: 18 };
+const fixture = {
   slot0Word: "0x0000000027100000000329600000000000007b42d530bfeef6c84ca32f6118a4",
   liquidityWord: "0x0", // v4 reports 0 active at launch — the panel must still quote
-  placement: { tickLower: 161200, tickUpper: 207200, liquidity: 35222655548218972599314n },
+  placement: { tickLower: -887200, tickUpper: 207200, liquidity: 31690866724818211737594n },
   wholeSupply: 1_000_000_000n,
-});
+};
+const market = deriveMarketState({ ...fixture, quote: ETH });
+// The same pool, but paired with USDC (6 decimals) as currency0.
+const usdcMarket = deriveMarketState({ ...fixture, quote: { address: USDC, symbol: "USDC", decimals: 6 } });
 
 const setup = (props = {}) =>
   render(<BuyPanel token={TOKEN} symbol="POND" market={market} {...props} />);
@@ -52,6 +59,7 @@ const typeAmount = (v) => fireEvent.change(screen.getByLabelText("trade.youPay")
 describe("BuyPanel", () => {
   beforeEach(() => {
     tokenBalance.current = 0n;
+    usdcBalance.current = 0n;
     account.isConnected = true;
     tradeState.router = "0x7777777777777777777777777777777777777777";
     tradeState.error = null;
@@ -63,8 +71,8 @@ describe("BuyPanel", () => {
   it("quotes a buy at launch exactly as the real v4 swap filled it", () => {
     setup();
     typeAmount("0.1");
-    // 90,544,562.42… tokens -> "90.54M"
-    expect(screen.getByTestId("trade-receive")).toHaveTextContent("90.54M");
+    // 89,729,910.21… tokens -> "89.72M"
+    expect(screen.getByTestId("trade-receive")).toHaveTextContent("89.72M");
   });
 
   it("shows price impact, and flags it once it is large", () => {
@@ -83,12 +91,20 @@ describe("BuyPanel", () => {
     setup();
     fireEvent.click(screen.getByRole("button", { name: "0.1" }));
     expect(screen.getByLabelText("trade.youPay")).toHaveValue("0.1");
-    expect(screen.getByTestId("trade-receive")).toHaveTextContent("90.54M");
+    expect(screen.getByTestId("trade-receive")).toHaveTextContent("89.72M");
   });
 
-  it("warns when a buy is larger than the supply left in the pool", () => {
+  // The range runs to the end of v4's price scale, so an ordinary pool never
+  // runs out; only a price already at the far edge can, and then it says so.
+  it("does not warn on a large buy, since the pool never sells out", () => {
     setup();
     typeAmount("500");
+    expect(screen.queryByText("trade.exceedsBuy")).not.toBeInTheDocument();
+  });
+
+  it("warns when a buy would run past the far end of the range", () => {
+    setup({ market: { ...market, sqrtPriceX96: market.sqrtLowerX96 * 2n } });
+    typeAmount("1000000000000000000000000000");
     expect(screen.getByText("trade.exceedsBuy")).toBeInTheDocument();
   });
 
@@ -117,20 +133,54 @@ describe("BuyPanel", () => {
     typeAmount("0.1");
     fireEvent.click(screen.getByRole("button", { name: "trade.buyCta:POND" }));
     await vi.waitFor(() => expect(tradeMock).toHaveBeenCalled());
-    const quoted = 90544562424768864432372374n;
+    const quoted = 89729910215527505885256588n;
     expect(tradeMock).toHaveBeenCalledWith({
       side: "buy",
       token: TOKEN,
+      quoteToken: ETH.address,
       amountIn: 10n ** 17n,
       minOut: (quoted * 9900n) / 10000n,
     });
+  });
+
+  // A USDC-paired launch: amounts in USDC's 6 decimals, the USDC balance from
+  // balanceOf, and the quote's address handed to the trade so it batches the
+  // router's approval with the buy.
+  it("buys a USDC-paired launch in USDC", async () => {
+    usdcBalance.current = 500n * 10n ** 6n;
+    setup({ market: usdcMarket });
+    expect(screen.getByText("trade.balance")).toBeInTheDocument();
+    expect(screen.getAllByText("USDC").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "100" })); // a USDC preset
+    fireEvent.click(screen.getByRole("button", { name: "trade.buyCta:POND" }));
+    await vi.waitFor(() => expect(tradeMock).toHaveBeenCalled());
+    expect(tradeMock.mock.calls[0][0]).toMatchObject({ side: "buy", quoteToken: USDC, amountIn: 100_000_000n });
+  });
+
+  it("checks a USDC buy against the USDC balance, not ETH", () => {
+    usdcBalance.current = 50n * 10n ** 6n;
+    setup({ market: usdcMarket });
+    typeAmount("100");
+    expect(screen.getByRole("button", { name: "trade.insufficient" })).toBeDisabled();
+  });
+
+  it("refuses more decimals than the quote has", () => {
+    setup({ market: usdcMarket });
+    typeAmount("1.0000001");
+    expect(screen.getByRole("button", { name: "trade.enterAmount" })).toBeDisabled();
+  });
+
+  it("uses the launch record's quote while the pool has not been read", () => {
+    setup({ market: undefined, quote: { address: USDC, symbol: "USDC", decimals: 6 } });
+    expect(screen.getByRole("button", { name: "500" })).toBeInTheDocument();
+    expect(screen.getAllByText("USDC").length).toBeGreaterThan(0);
   });
 
   // At a fresh launch there is nothing to sell into — the price is at the top of the
   // range. Sell against the pool as it stood after the fixture's first buy.
   it("sells the typed token amount", async () => {
     tokenBalance.current = 1_000_000n * 10n ** 18n;
-    setup({ market: { ...market, sqrtPriceX96: 2296364796274511973167666432089657n } });
+    setup({ market: { ...market, sqrtPriceX96: 2275703824434668340440887773871330n } });
     fireEvent.mouseDown(screen.getByRole("tab", { name: "trade.sell" }));
     fireEvent.click(screen.getByRole("tab", { name: "trade.sell" }));
     typeAmount("1000");
@@ -161,7 +211,7 @@ describe("BuyPanel", () => {
     typeAmount("0.1");
     expect(screen.getByRole("button", { name: "trade.buyCta:POND" })).toBeDisabled();
     expect(screen.getByText("trade.routerOff")).toBeInTheDocument();
-    expect(screen.getByTestId("trade-receive")).toHaveTextContent("90.54M");
+    expect(screen.getByTestId("trade-receive")).toHaveTextContent("89.72M");
   });
 
   it("shows a failed trade's reason", () => {

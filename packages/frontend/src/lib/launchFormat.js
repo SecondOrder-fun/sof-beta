@@ -4,18 +4,21 @@
 //
 // Kept separate from format.js because the choice of unit here is a judgement
 // about what a creator or buyer can actually reason about, not a generic number
-// format. Two decisions worth stating:
+// format. A launch is paired with a quote token — native ETH or an allowlisted
+// ERC-20 such as USDC — and every amount is shown in that quote, with its own
+// decimals and symbol. Two decisions worth stating:
 //
-//   - **Valuations are shown in ETH.** FDV is the number that governs how a
-//     launch behaves; the per-token price is a derived detail. The bounds on the
-//     contract are chosen in FDV for the same reason.
+//   - **Valuations come first.** FDV is the number that governs how a launch
+//     behaves; the per-token price is a derived detail. The contract's bounds
+//     are chosen in FDV for the same reason.
 //
-//   - **Per-token prices are shown in gwei.** At the deployed floor — a 1 ETH
+//   - **Per-token prices are shown in gwei for ETH.** At the ETH floor — a 1 ETH
 //     valuation against a 1e9 supply — the price is exactly 1 gwei per token, and
 //     the ceiling is 1000 gwei. In ETH those are 0.000000001 and 0.000001, which
-//     no one can compare at a glance.
+//     no one can compare at a glance. Other quotes show the price in the quote
+//     itself, to four significant digits ("0.0000025 USDC").
 
-import { formatEther, formatGwei, parseUnits } from 'viem';
+import { formatUnits, parseUnits } from 'viem';
 
 import { timeUntil } from '@/lib/utils';
 
@@ -32,15 +35,29 @@ function trimDecimals(value, maxDecimals) {
 }
 
 /**
- * An 18-decimal amount as a grouped decimal string, at most `maxDecimals`.
+ * A raw amount with `decimals` as a grouped decimal string, at most `maxDecimals`.
  * @param {bigint} raw
  * @param {number} maxDecimals
+ * @param {number} [decimals=18]
  */
-function formatDecimal18(raw, maxDecimals) {
-  const trimmed = trimDecimals(formatEther(raw), maxDecimals);
+function formatDecimal(raw, maxDecimals, decimals = 18) {
+  const trimmed = trimDecimals(formatUnits(raw, decimals), maxDecimals);
   const [whole, fraction] = trimmed.split('.');
   const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return fraction ? `${grouped}.${fraction}` : grouped;
+}
+
+/**
+ * A valuation in its quote's raw units, rendered in whole quote units with
+ * thousands separators.
+ * @param {bigint | null | undefined} raw
+ * @param {number} [decimals=18]   the quote's decimals (18 for ETH, 6 for USDC)
+ * @param {number} [maxDecimals=4]
+ * @returns {string} e.g. "1", "12.5", "1,000", "2,500"
+ */
+export function formatFdv(raw, decimals = 18, maxDecimals = 4) {
+  if (raw == null) return '—';
+  return formatDecimal(BigInt(raw), maxDecimals, decimals);
 }
 
 /**
@@ -50,25 +67,91 @@ function formatDecimal18(raw, maxDecimals) {
  * @returns {string} e.g. "1", "12.5", "1,000"
  */
 export function formatFdvEth(wei, maxDecimals = 4) {
-  if (wei == null) return '—';
-  return formatDecimal18(wei, maxDecimals);
+  return formatFdv(wei, 18, maxDecimals);
 }
 
 /**
- * An ETH amount in wei — a trade, a prize's ETH equivalent — with at most two
- * decimals from 0.01 ETH up, and three significant digits below that, so a
- * small amount reads "0.004" or "0.0000472" rather than rounding to "0".
- * @param {bigint | string | null | undefined} wei
+ * An amount in a quote's raw units — a trade, a fee balance, a prize's
+ * equivalent — with at most two decimals from 0.01 up, and three significant
+ * digits below that, so a small amount reads "0.004" or "0.0000472" rather
+ * than rounding to "0".
+ * @param {bigint | string | null | undefined} raw
+ * @param {number} [decimals=18]
  * @returns {string} e.g. "1,250", "0.4", "0.004", "0.0000472"
  */
-export function formatEthAmount(wei) {
-  if (wei == null) return '—';
-  const value = BigInt(wei);
+export function formatQuoteAmount(raw, decimals = 18) {
+  if (raw == null) return '—';
+  const value = BigInt(raw);
   const magnitude = value < 0n ? -value : value;
-  if (magnitude === 0n || magnitude >= 10n ** 16n) return formatDecimal18(value, 2);
-  const [whole, fraction] = formatEther(value).split('.');
+  const cent = decimals >= 2 ? 10n ** BigInt(decimals - 2) : 1n;
+  if (magnitude === 0n || magnitude >= cent) return formatDecimal(value, 2, decimals);
+  const [whole, fraction] = formatUnits(value, decimals).split('.');
   const firstDigit = fraction.search(/[1-9]/);
   return `${whole}.${fraction.slice(0, firstDigit + 3).replace(/0+$/, '')}`;
+}
+
+/**
+ * An ETH amount in wei — formatQuoteAmount for an 18-decimal quote.
+ * @param {bigint | string | null | undefined} wei
+ */
+export function formatEthAmount(wei) {
+  return formatQuoteAmount(wei, 18);
+}
+
+/**
+ * Parse a typed amount of a quote ("2.5") into its raw units. Null for anything
+ * that is not a usable positive number — including more decimals than the
+ * quote has — so callers can tell "not filled in yet" from zero.
+ * @param {string} input
+ * @param {number} [decimals=18]
+ * @returns {bigint | null}
+ */
+export function parseQuoteAmount(input, decimals = 18) {
+  const trimmed = String(input ?? '').trim();
+  if (!trimmed || !/^\d*\.?\d*$/.test(trimmed) || trimmed === '.') return null;
+  const fraction = trimmed.split('.')[1] ?? '';
+  if (fraction.length > decimals) return null;
+  try {
+    const raw = parseUnits(trimmed, decimals);
+    return raw > 0n ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The fixed-point digits kept when dividing a valuation down to a per-token price. */
+const PRICE_SCALE_DIGITS = 18;
+
+/**
+ * Four significant digits of a decimal string; at most four decimals once the
+ * value reaches 1.
+ * @param {string} value
+ */
+function significant(value) {
+  const [whole, fraction = ''] = value.split('.');
+  if (whole !== '0') return trimDecimals(value, 4);
+  const firstDigit = fraction.search(/[1-9]/);
+  if (firstDigit === -1) return '0';
+  return `0.${fraction.slice(0, firstDigit + 4).replace(/0+$/, '')}`;
+}
+
+/**
+ * A per-token price, from the valuation it implies, in the unit people read
+ * it in: gwei for ETH, the quote itself otherwise. Taking the valuation (not a
+ * floored per-token price) keeps a 6-decimal quote's precision.
+ * @param {bigint | string | null | undefined} fdvRaw  valuation, quote raw units
+ * @param {{ symbol: string, decimals: number } | null | undefined} quote  null → ETH
+ * @param {bigint} [wholeSupply=1_000_000_000n]
+ * @returns {{ value: string, unit: string }} e.g. { value: "1", unit: "gwei" },
+ *   { value: "0.0000025", unit: "USDC" }
+ */
+export function formatTokenPrice(fdvRaw, quote, wholeSupply = 1_000_000_000n) {
+  const isEth = !quote || (quote.symbol === 'ETH' && Number(quote.decimals) === 18);
+  const unit = isEth ? 'gwei' : quote.symbol;
+  if (fdvRaw == null || !wholeSupply) return { value: '—', unit };
+  const unitDecimals = isEth ? 9 : Number(quote.decimals);
+  const scaled = (BigInt(fdvRaw) * 10n ** BigInt(PRICE_SCALE_DIGITS)) / BigInt(wholeSupply);
+  return { value: significant(formatUnits(scaled, unitDecimals + PRICE_SCALE_DIGITS)), unit };
 }
 
 /**
@@ -92,18 +175,7 @@ export function tokensToEthWei(tokens, priceWei) {
  */
 export function formatTokenAmount(raw, maxDecimals = 4) {
   if (raw == null) return '—';
-  return formatDecimal18(BigInt(raw), maxDecimals);
-}
-
-/**
- * A per-token starting price in wei, rendered as gwei.
- * @param {bigint | null | undefined} wei
- * @param {number} [maxDecimals=4]
- * @returns {string}
- */
-export function formatPriceGwei(wei, maxDecimals = 4) {
-  if (wei == null) return '—';
-  return trimDecimals(formatGwei(wei), maxDecimals);
+  return formatDecimal(BigInt(raw), maxDecimals);
 }
 
 /**

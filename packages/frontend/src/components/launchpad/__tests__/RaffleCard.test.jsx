@@ -45,6 +45,9 @@ vi.mock("react-i18next", async (importOriginal) => {
 const TOKEN = "0x1111111111111111111111111111111111111111";
 const WINNER = "0x7a0000000000000000000000000000000000005d";
 const ETH = 10n ** 18n;
+const ETH_QUOTE = { address: "0x0000000000000000000000000000000000000000", symbol: "ETH", decimals: 18 };
+/** A market whose pool prices one token at `gwei` gwei, in ETH. */
+const pricedAt = (gwei) => ({ fdv: gwei * 10n ** 9n * 1_000_000_000n, totalSupplyRaw: 1_000_000_000n * ETH, quote: ETH_QUOTE });
 const NOW = Math.floor(Date.now() / 1000);
 
 const season = (over) => ({
@@ -165,14 +168,14 @@ describe("RaffleCard", () => {
 
   it("live: keeps a small pool's ETH equivalent instead of rounding it to 0", () => {
     // 80K tokens at 50 gwei each = 0.004 ETH.
-    setup({ curve: { hasState: true, curveReserves: 80_000n * ETH, curveSupply: 10n }, market: { priceWei: 50n * 10n ** 9n } });
-    expect(screen.getByText('raffle.prizeEth{"eth":"0.004"}')).toBeInTheDocument();
+    setup({ curve: { hasState: true, curveReserves: 80_000n * ETH, curveSupply: 10n }, market: pricedAt(50n) });
+    expect(screen.getByText('raffle.prizeQuote{"amount":"0.004","quote":"ETH"}')).toBeInTheDocument();
   });
 
   it("live: prices the pool in ETH from the live reserves", () => {
     // 25M tokens at 50 gwei each = 1.25 ETH.
-    setup({ curve: { hasState: true, curveReserves: 25_000_000n * ETH, curveSupply: 1800n }, market: { priceWei: 50n * 10n ** 9n } });
-    expect(screen.getByText('raffle.prizeEth{"eth":"1.25"}')).toBeInTheDocument();
+    setup({ curve: { hasState: true, curveReserves: 25_000_000n * ETH, curveSupply: 1800n }, market: pricedAt(50n) });
+    expect(screen.getByText('raffle.prizeQuote{"amount":"1.25","quote":"ETH"}')).toBeInTheDocument();
   });
 
   it("live: a skeleton only while the price is loading, a dash once it is known to be missing", () => {
@@ -192,13 +195,20 @@ describe("RaffleCard", () => {
 
   it("live: prices the pool in ETH from the pool price, never USD", () => {
     // 18.4M tokens at 50 gwei each = 0.92 ETH.
-    setup({ market: { priceWei: 50n * 10n ** 9n } });
-    expect(screen.getByText('raffle.prizeEth{"eth":"0.92"}')).toBeInTheDocument();
+    setup({ market: pricedAt(50n) });
+    expect(screen.getByText('raffle.prizeQuote{"amount":"0.92","quote":"ETH"}')).toBeInTheDocument();
+  });
+
+  it("live: prices the pool in a USDC-paired launch's USDC", () => {
+    // 18.4M tokens at 5,000 USDC FDV (5e-6 USDC each) = 92 USDC.
+    const usdc = { address: "0x036CbD53842c5426634e7929541eC2318f3dCF7e", symbol: "USDC", decimals: 6 };
+    setup({ market: { fdv: 5_000n * 10n ** 6n, totalSupplyRaw: 1_000_000_000n * ETH, quote: usdc } });
+    expect(screen.getByText('raffle.prizeQuote{"amount":"92","quote":"USDC"}')).toBeInTheDocument();
   });
 
   it("live: omits the ETH equivalent until the pool is priced", () => {
     setup();
-    expect(screen.queryByText(/raffle\.prizeEth/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/raffle\.prizeQuote/)).not.toBeInTheDocument();
   });
 
   it("live: shows your tickets and chance only when you hold some", () => {
