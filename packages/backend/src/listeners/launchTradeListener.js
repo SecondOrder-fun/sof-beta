@@ -323,7 +323,7 @@ async function persist(logs, ctx, sseService) {
       quoteToken: pools.get(lc(row.pool_id))?.quote ?? null,
       quoteAmount: row.quote_amount,
       tokenAmount: row.token_amount,
-      price: row.price,
+      priceE18: row.price_e18,
       blockNumber: row.block_number,
       txHash: row.tx_hash,
     });

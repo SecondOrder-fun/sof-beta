@@ -29,7 +29,7 @@ const iso = (msAgo) => new Date(Date.now() - msAgo).toISOString();
 describe("GET /api/activity", () => {
   it("returns a tokens row and a raffles row", async () => {
     db.listRecentTrades.mockResolvedValueOnce([
-      { side: "BUY", block_time: iso(1000), trader: "0xa", token_address: "0xt", eth_amount: "1", price_wei: "1", tx_hash: "0x1" },
+      { side: "BUY", block_time: iso(1000), trader: "0xa", token_address: "0xt", quote_amount: "1", price_e18: "1", tx_hash: "0x1" },
     ]);
     db.listRecentSeasons.mockResolvedValueOnce([
       { season_id: 3, status: 1, start_time: Math.floor(Date.now() / 1000) - 60, end_time: Math.floor(Date.now() / 1000) + 86400, quote_token_address: "0xt" },

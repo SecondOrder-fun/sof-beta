@@ -13,7 +13,8 @@
 // target is tested without rendering the ticker.
 //
 // Token rows are in their launch's quote token (`quoteSymbol`, `quoteDecimals`;
-// a row without them predates quote tokens and is ETH).
+// a row without them predates quote tokens and is ETH). A trade's `priceE18` is
+// quote raw units per whole token × 1e18.
 //
 // Keys must be unique within a row: one transaction can carry several events
 // (a batched buy, two entries by one wallet). The feed's `logIndex` is the
@@ -24,7 +25,7 @@
 
 import { shortAddress } from '@/lib/format';
 import { formatFdv, formatQuoteAmount, formatSupply, formatTimeLeft } from '@/lib/launchFormat';
-import { DEFAULT_WHOLE_SUPPLY } from '@/lib/launchChart';
+import { fdvFromPriceE18 } from '@/lib/launchChart';
 import { grandPrizeWei } from '@/lib/prizeMath';
 
 /** Tone -> text colour. Buys and sells use the trade colours; raffles take Pastel Rose. */
@@ -70,7 +71,7 @@ export function describeTokenItem(item, t) {
   }
   // A trade can be tiny; keep its significant digits rather than show "0 ETH".
   const amount = formatQuoteAmount(item.quoteAmount ?? 0, decimals);
-  const fdv = item.price ? BigInt(item.price) * DEFAULT_WHOLE_SUPPLY : null;
+  const fdv = item.priceE18 ? fdvFromPriceE18(item.priceE18) : null;
   return {
     ...base,
     tone: item.kind === 'buy' ? 'buy' : 'sell',

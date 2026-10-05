@@ -165,7 +165,7 @@ export async function processTokenLaunchedLog(log, totalSupply, logger, sseServi
       quoteToken: row.quote_token,
       quoteSymbol: row.quote_symbol,
       quoteDecimals: row.quote_decimals,
-      startPrice: row.start_price,
+      startPriceE18: row.start_price_e18,
       startFdv: row.start_fdv,
       blockNumber: row.block_number,
       txHash: row.tx_hash,

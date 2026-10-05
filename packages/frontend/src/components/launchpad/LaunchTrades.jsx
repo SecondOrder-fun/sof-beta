@@ -3,8 +3,11 @@
 // Recent trades for one token, from the backend indexer
 // (GET /api/launchpad/tokens/:address/trades). Empty until launchTradeListener
 // indexes pool swaps — the empty state says so plainly. Amounts and prices are
-// in the launch's quote token (each row's quoteSymbol / quoteDecimals; the
-// `quote` prop names the column before any row arrives).
+// in the launch's quote token: the `quote` prop (the token page's market or
+// launch record), unless a row names its own quoteToken / quoteSymbol /
+// quoteDecimals. Trade rows from this route do not carry them — the quote is on
+// the token — so without the prop a USDC launch's rows would print as ETH.
+// Prices arrive as `priceE18` (quote raw units per whole token × 1e18).
 
 import PropTypes from "prop-types";
 import { useTranslation } from "react-i18next";
@@ -15,13 +18,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useWarmRead } from "@/hooks/chain/useWarmRead";
 import { shortAddress } from "@/lib/format";
 import { formatAge, formatQuoteAmount, formatSupply, formatTokenPrice } from "@/lib/launchFormat";
-import { DEFAULT_WHOLE_SUPPLY } from "@/lib/launchChart";
+import { fdvFromPriceE18 } from "@/lib/launchChart";
 import { ETH_QUOTE, quoteFromApi } from "@/config/launchQuoteTokens";
 
-/** A trade's price (quote raw per whole token) in the unit people read it in. */
-function tradePrice(price, quote) {
-  if (!price) return "—";
-  const { value, unit } = formatTokenPrice(BigInt(price) * DEFAULT_WHOLE_SUPPLY, quote);
+/**
+ * A trade's price in the unit people read it in, via the valuation it implies
+ * (formatTokenPrice's input), so a 6-decimal quote keeps its precision.
+ * @param {string | null | undefined} priceE18  quote raw units per whole token × 1e18
+ */
+function tradePrice(priceE18, quote) {
+  if (!priceE18) return "—";
+  const { value, unit } = formatTokenPrice(fdvFromPriceE18(priceE18), quote);
   return `${value} ${unit}`;
 }
 
@@ -34,7 +41,9 @@ const LaunchTrades = ({ token, quote: quoteProp }) => {
     staleTime: 10_000,
   });
   const trades = data?.trades ?? [];
-  const columnQuote = trades[0] ? quoteFromApi(trades[0]) : (quoteProp ?? ETH_QUOTE);
+  const pageQuote = quoteProp ?? ETH_QUOTE;
+  const quoteOf = (tr) => (tr?.quoteToken != null ? quoteFromApi(tr) : pageQuote);
+  const columnQuote = trades[0] ? quoteOf(trades[0]) : pageQuote;
 
   return (
     <Card>
@@ -63,7 +72,7 @@ const LaunchTrades = ({ token, quote: quoteProp }) => {
             </TableHeader>
             <TableBody>
               {trades.map((tr) => {
-                const quote = quoteFromApi(tr);
+                const quote = quoteOf(tr);
                 return (
                 <TableRow key={`${tr.txHash}:${tr.logIndex}`}>
                   <TableCell className="text-muted-foreground">
@@ -74,7 +83,7 @@ const LaunchTrades = ({ token, quote: quoteProp }) => {
                   </TableCell>
                   <TableCell className="text-right">{formatQuoteAmount(tr.quoteAmount ?? 0, quote.decimals)}</TableCell>
                   <TableCell className="text-right">{formatSupply(BigInt(tr.tokenAmount))}</TableCell>
-                  <TableCell className="text-right">{tradePrice(tr.price, quote)}</TableCell>
+                  <TableCell className="text-right">{tradePrice(tr.priceE18, quote)}</TableCell>
                   <TableCell className="text-right font-mono text-xs">{shortAddress(tr.trader)}</TableCell>
                 </TableRow>
                 );
@@ -89,7 +98,7 @@ const LaunchTrades = ({ token, quote: quoteProp }) => {
 
 LaunchTrades.propTypes = {
   token: PropTypes.string.isRequired,
-  /** The launch's quote token, for the amount column's heading before rows load. */
+  /** The launch's quote token: the column heading and every row's formatting. */
   quote: PropTypes.shape({ symbol: PropTypes.string, decimals: PropTypes.number }),
 };
 

@@ -47,7 +47,7 @@ beforeEach(() => {
 
 /** Trades newest first, as the DB returns them: block n, log index 0. */
 const newestFirst = (from, to) =>
-  Array.from({ length: from - to + 1 }, (_, i) => ({ block_number: from - i, log_index: 0, price: String(from - i) }));
+  Array.from({ length: from - to + 1 }, (_, i) => ({ block_number: from - i, log_index: 0, price_e18: String(from - i) }));
 
 describe("listTradesSince", () => {
   it("reads newest first by (block_number, log_index) and returns oldest first", async () => {

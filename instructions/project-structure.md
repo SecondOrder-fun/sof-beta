@@ -183,8 +183,8 @@ Access levels: 0=public, 1=connected, 2=allowlist, 3=beta, 4=admin.
 
 | Table | Key Columns | Used By |
 |-------|------------|---------|
-| `token_launches` | token_address (PK), launch_id, creator_address, name, symbol, metadata_uri, quote_token / quote_symbol / quote_decimals (ETH or an allowlisted ERC-20), start_price, start_fdv (quote raw units), pool_id (v4 PoolId, unique), launched_at, is_hidden, is_verified (023, 029) | tokenLaunchedListener.js, launchTradeListener.js, tokenLaunchesDb.js, launchpadActivityDb.js |
-| `launch_trades` | (tx_hash, log_index) PK, token_address (FK token_launches), pool_id, trader, side, quote_amount, token_amount, price (quote raw units per whole token), block_number, block_time (023, 029); index (block_number DESC, log_index DESC) for the ticker (025) | launchTradeListener.js, tokenLaunchesDb.js, launchpadActivityDb.js |
+| `token_launches` | token_address (PK), launch_id, creator_address, name, symbol, metadata_uri, quote_token / quote_symbol / quote_decimals (ETH or an allowlisted ERC-20), start_price_e18 (quote raw units per whole token × 1e18), start_fdv (quote raw units), pool_id (v4 PoolId, unique), launched_at, is_hidden, is_verified (023, 029) | tokenLaunchedListener.js, launchTradeListener.js, tokenLaunchesDb.js, launchpadActivityDb.js |
+| `launch_trades` | (tx_hash, log_index) PK, token_address (FK token_launches), pool_id, trader, side, quote_amount, token_amount, price_e18 (quote raw units per whole token × 1e18), block_number, block_time (023, 029); index (block_number DESC, log_index DESC) for the ticker (025) | launchTradeListener.js, tokenLaunchesDb.js, launchpadActivityDb.js |
 
 #### Infrastructure
 

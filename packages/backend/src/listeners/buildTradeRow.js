@@ -25,20 +25,33 @@
 
 import { decodeEventLog } from "viem";
 
-const WAD = 10n ** 18n;
 const Q192 = 1n << 192n;
+/**
+ * 1e18 (raw token units per whole launch token, which is always 18 dp) times
+ * 1e18 (the e18 fixed-point scale of the stored price).
+ */
+const E36 = 10n ** 36n;
 
 /**
- * Quote raw units per WHOLE launch token at a sqrtPriceX96. v4's price is
- * currency1/currency0 in raw units: token per quote when the quote is currency0,
- * quote per token when the token is.
+ * The price at a sqrtPriceX96, as quote raw units per WHOLE launch token × 1e18
+ * (`launch_trades.price_e18`), floored. The 1e18 scale keeps a 6-decimal quote's
+ * precision: a 2,500 USDC launch is 2.5 raw USDC units per token, which an
+ * integer of raw units would floor to 2.
+ *
+ * v4's raw price is (sqrtPriceX96 / 2^96)^2 = currency1/currency0 in raw units:
+ * raw tokens per raw quote when the quote is currency0 (inverted here), raw quote
+ * per raw token when the token is. Both scales are applied before the one
+ * division, so nothing is lost to an intermediate floor:
+ *   token is currency0:  sqrt^2 * 1e36 / 2^192
+ *   quote is currency0:  2^192 * 1e36 / sqrt^2
  * @param {bigint | string | number} sqrtPriceX96
  * @param {boolean} [tokenIsCurrency0]
+ * @returns {bigint}
  */
-export function pricePerToken(sqrtPriceX96, tokenIsCurrency0 = false) {
+export function priceE18(sqrtPriceX96, tokenIsCurrency0 = false) {
   const s = BigInt(sqrtPriceX96 ?? 0);
   if (s === 0n) return 0n;
-  return tokenIsCurrency0 ? (WAD * s * s) / Q192 : (WAD * Q192) / (s * s);
+  return tokenIsCurrency0 ? (s * s * E36) / Q192 : (Q192 * E36) / (s * s);
 }
 
 /** Whether `token` sorts below `quote` — i.e. is currency0 of their v4 pool. */
@@ -80,7 +93,7 @@ export function buildTradeRow(log, { token, tokenIsCurrency0: tokenFirst = false
     side: quote < 0n ? "BUY" : "SELL",
     quote_amount: abs(quote).toString(),
     token_amount: abs(tokenDelta).toString(),
-    price: pricePerToken(a.sqrtPriceX96, tokenFirst).toString(),
+    price_e18: priceE18(a.sqrtPriceX96, tokenFirst).toString(),
     tick: a.tick != null ? Number(a.tick) : null,
     block_number: Number(log.blockNumber),
     block_time: blockTimeSec != null ? new Date(Number(blockTimeSec) * 1000).toISOString() : null,

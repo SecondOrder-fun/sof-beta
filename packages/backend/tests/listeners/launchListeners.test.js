@@ -597,7 +597,15 @@ describe("launches paired with an ERC-20 quote", () => {
       sse,
     );
     const row = tokenLaunchesDb.insertTokenLaunch.mock.calls[0][0];
-    expect(row).toMatchObject({ quote_token: USDC, quote_symbol: "USDC", quote_decimals: 6, start_fdv: "5000000000" });
+    // 5,000 USDC over 1e9 tokens: 5 raw units per whole token, × 1e18
+    expect(row).toMatchObject({
+      quote_token: USDC,
+      quote_symbol: "USDC",
+      quote_decimals: 6,
+      start_fdv: "5000000000",
+      start_price_e18: "5000000000000000000",
+    });
+    expect(launchedBroadcasts()[0][1]).toMatchObject({ startPriceE18: "5000000000000000000", quoteDecimals: 6 });
     const decimalsReads = publicClient.readContract.mock.calls.filter(([c]) => c.functionName === "decimals");
     expect(decimalsReads).toHaveLength(1);
   });
@@ -621,6 +629,7 @@ describe("launches paired with an ERC-20 quote", () => {
     const [row] = tokenLaunchesDb.insertLaunchTrades.mock.calls[0][0];
     expect(row).toMatchObject({ side: "BUY", quote_amount: "100000000", token_amount: "4000000000000000000000000" });
     const [, event] = sse.broadcast.mock.calls.find(([, e]) => e.type === "TokenTrade");
-    expect(event).toMatchObject({ quoteToken: USDC, quoteAmount: "100000000", side: "BUY" });
+    expect(event).toMatchObject({ quoteToken: USDC, quoteAmount: "100000000", side: "BUY", priceE18: row.price_e18 });
+    expect(BigInt(row.price_e18)).toBeGreaterThan(0n);
   });
 });

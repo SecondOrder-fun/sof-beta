@@ -5,12 +5,14 @@
 // area line with the launch valuation as a dashed baseline, and a tooltip
 // carrying FDV, price per token and the multiple since launch.
 //
-// Reads GET /api/launchpad/tokens/:address/chart. The live pool price (from
+// Reads GET /api/launchpad/tokens/:address/chart (prices as `priceE18`, quote raw
+// units per whole token × 1e18). The live pool valuation (market.fdv, from
 // useLaunchMarkets) extends the line to "now" — a clock (useNow) that moves on
 // its own, so a quiet token's line still reaches the present — and drives the
 // headline, so the headline matches the buy panel even between indexer ticks; the pool's own
-// launch price (not the requested one the indexer stores) anchors the launch
-// baseline and the multiples, so they agree with the header's multiple. With
+// launch valuation (market.launchFdv, not the requested price the indexer
+// stores) anchors the launch baseline and the multiples, so they agree with the
+// header's multiple. With
 // no trades, it shows the launch valuation and an empty state instead of a
 // flat line. A failed refetch keeps the cached history on screen; only a
 // failed read with nothing cached says the history is unavailable. The
@@ -91,13 +93,13 @@ const PriceChart = ({ token, market, isMarketLoading = false }) => {
       chart?.launch
         ? buildChartSeries({
             chart,
-            launchPrice: market?.launchPrice,
-            currentPrice: market?.price,
+            launchFdv: market?.launchFdv,
+            currentFdv: market?.fdv,
             nowSec: Math.floor(nowMs / 1000),
             decimals: quote.decimals,
           })
         : null,
-    [chart, market?.launchPrice, market?.price, nowMs, quote.decimals],
+    [chart, market?.launchFdv, market?.fdv, nowMs, quote.decimals],
   );
 
   const headline = market
@@ -247,8 +249,6 @@ PriceChart.propTypes = {
   market: PropTypes.shape({
     fdv: PropTypes.any,
     launchFdv: PropTypes.any,
-    launchPrice: PropTypes.any,
-    price: PropTypes.any,
     multiple: PropTypes.number,
     quote: PropTypes.shape({ symbol: PropTypes.string, decimals: PropTypes.number }),
   }),

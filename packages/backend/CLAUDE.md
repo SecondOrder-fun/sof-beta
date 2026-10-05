@@ -51,13 +51,24 @@ Three things are specific to the listener:
   is the key `launchTradeListener` uses to attribute PoolManager `Swap` logs to a token.
 - **A launch has a quote token** (contracts 0.41.0): native ETH (`quote_token` =
   0x000…000) or an allowlisted ERC-20 (USDC on Base Sepolia). Every amount is in that
-  quote's raw units — `start_fdv` (the opening valuation the launch takes), `start_price`
-  (per whole token), `launch_trades.quote_amount` / `price` (migration 029 renamed the
-  old `*_wei` / `eth_amount` columns). `resolveQuote` reads an ERC-20's `decimals` and
-  `symbol` once (cached) and stores them on the launch (`quote_decimals`,
-  `quote_symbol`); a failed `decimals` read throws so the launch is retried rather than
-  stored unformattable. The API returns `quoteToken`, `quoteSymbol`, `quoteDecimals`,
-  `startPrice`, `startFdv`, and trades' `quoteAmount` / `price`.
+  quote's raw units — `start_fdv` (the opening valuation the launch takes) and
+  `launch_trades.quote_amount` (migration 029 renamed the old `*_wei` / `eth_amount`
+  columns). **Prices are scaled by 1e18**: `start_price_e18` and `launch_trades.price_e18`
+  are quote raw units per WHOLE token × 1e18 (WAD fixed point, TEXT like every bigint
+  column), because a 6-decimal quote has too few raw units per token — a 2,500 USDC
+  launch is 2.5 raw USDC per token, which an integer floors to 2. Both are computed
+  exactly in BigInt, scaling before the one division: `buildLaunchRow` takes
+  `startFdv × 1e36 / totalSupplyRaw`; `buildTradeRow.priceE18` takes
+  `2^192 × 1e36 / sqrtPriceX96²` when the quote is currency0 and
+  `sqrtPriceX96² × 1e36 / 2^192` when the token is (0 for a zero price or supply).
+  Migration 029 multiplied existing rows by 1e18 in the same guarded step that renamed
+  the `*_wei` columns, so a re-run is a no-op. `resolveQuote` reads an ERC-20's
+  `decimals` and `symbol` once (cached) and stores them on the launch
+  (`quote_decimals`, `quote_symbol`); a failed `decimals` read throws so the launch is
+  retried rather than stored unformattable. The API (and the `TokenLaunched` /
+  `TokenTrade` SSE events) returns `quoteToken`, `quoteSymbol`, `quoteDecimals`,
+  `startPriceE18`, `startFdv`, trades' `quoteAmount` / `priceE18`, chart points
+  `{ t, priceE18 }`, and the ticker's trade items' `priceE18`.
 
 Because a missed launch is unrecoverable, `processTokenLaunchedLog` lets a failed
 block-time read, or a transient (or unknown) insert failure, **throw** — there is no
@@ -112,7 +123,7 @@ PoolManager's `Swap` event. Rules it depends on:
   (IPoolManager's own comment reads as the opposite sign). The quote is `amount0` for ETH
   and for an ERC-20 below the token, but `amount1` when the token sorts below its ERC-20
   quote (`tokenIsCurrency0`, kept per pool in the listener's pool map); side, amounts,
-  price (`pricePerToken`) and attribution all read the quote side accordingly. The real trader comes from
+  price (`priceE18`) and attribution all read the quote side accordingly. The real trader comes from
   the router's `Bought`/`Sold` event in the same receipt, trusted only when the swap's
   sender has been a launch router **and** emitted the event. The trusted set is built
   from chain history, not memory, so it survives a restart: every

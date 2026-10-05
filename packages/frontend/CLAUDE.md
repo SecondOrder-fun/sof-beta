@@ -100,7 +100,15 @@ launchpad — valuations, prices, trades, fees — is in the launch's quote, wit
 decimals and symbol: from `market.quote` (useLaunchMarkets), the launch record's
 `quote` (useTokenLaunches), or the backend's `quoteSymbol` / `quoteDecimals`
 (`quoteFromApi`). An unlisted quote's symbol and decimals are read from the token
-(`lib/launchQuote.js`). Valuations in different quotes do not compare without an
+(`lib/launchQuote.js`). The backend's trade rows carry no quote fields, so
+`LaunchTrades` formats them in the token page's quote. **Indexed prices are scaled by
+1e18**: the backend's `startPriceE18`, trades' and ticker items' `priceE18`, and the
+chart's points are quote raw units per whole token × 1e18 (a 2,500 USDC launch is 2.5
+raw units per token, which an unscaled integer could not hold).
+`fdvFromPriceE18` (`lib/launchChart.js`) turns one into the valuation it implies, which
+is what `formatFdv` / `formatTokenPrice` print; the chart compares indexed points with
+the live pool's `market.fdv` / `market.launchFdv`, not its integer `market.price`.
+Live pool numbers (`v4PoolMath`) stay unscaled. Valuations in different quotes do not compare without an
 oracle, so "Top FDV" groups by quote (ETH first).
 
 **The launch form takes a valuation, not a per-token price** (`src/routes/Launch.jsx`,

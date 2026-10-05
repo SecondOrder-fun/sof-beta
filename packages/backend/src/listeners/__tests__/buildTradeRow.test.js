@@ -2,7 +2,7 @@
 import { describe, it, expect } from "vitest";
 import { encodeAbiParameters, encodeEventTopics } from "viem";
 import { PoolManagerABI, UniV4LaunchRouterABI } from "@sof/contracts";
-import { attributeTrader, buildTradeRow, pricePerToken, tokenIsCurrency0 } from "../buildTradeRow.js";
+import { attributeTrader, buildTradeRow, priceE18, tokenIsCurrency0 } from "../buildTradeRow.js";
 
 const TOKEN = "0x1111111111111111111111111111111111111111";
 const ROUTER = "0x7777777777777777777777777777777777777777";
@@ -35,11 +35,12 @@ describe("buildTradeRow", () => {
     expect(buildTradeRow(swap(5n, -7n), { token: TOKEN }).side).toBe("SELL");
   });
 
-  it("records the price after the swap, in quote raw units per whole token", () => {
+  it("records the price after the swap, in quote raw units per whole token × 1e18", () => {
     const row = buildTradeRow(swap(-1n, 1n), { token: TOKEN });
-    // ~1 gwei per token at the 1 ETH-FDV launch price
-    expect(BigInt(row.price)).toBeGreaterThan(990_000_000n);
-    expect(BigInt(row.price)).toBeLessThan(1_010_000_000n);
+    // 2^192 * 1e36 / sqrt^2: ~1.0043 gwei per token at the 1 ETH-FDV launch
+    // price (tick 207200), every digit kept
+    expect(row.price_e18).toBe("1004311033770190170432878001");
+    expect(row).not.toHaveProperty("price");
   });
 
   // An ERC-20 quote above the token makes the TOKEN currency0: the quote is
@@ -52,15 +53,22 @@ describe("buildTradeRow", () => {
     expect(buildTradeRow(swap(-5n, 7n), { token: TOKEN, tokenIsCurrency0: true }).side).toBe("SELL");
   });
 
+  const atSqrt = (sqrtPriceX96) => ({ ...swap(1n, -1n), args: { ...swap(1n, -1n).args, sqrtPriceX96 } });
+
   it("inverts the price when the token is currency0", () => {
-    // sqrtPrice for 5 raw USDC per whole token (5e-18 per raw token): sqrt(5e-18) * 2^96
-    const sqrt = 177159557114295710296n;
-    const row = buildTradeRow({ ...swap(1n, -1n), args: { ...swap(1n, -1n).args, sqrtPriceX96: sqrt } }, {
-      token: TOKEN,
-      tokenIsCurrency0: true,
-    });
-    expect(BigInt(row.price)).toBeGreaterThanOrEqual(4n); // floors to 4 or 5
-    expect(BigInt(row.price)).toBeLessThanOrEqual(5n);
+    // sqrtPrice for 5 raw USDC per whole token (5e-18 per raw token): sqrt(5e-18) * 2^96,
+    // floored — so the price lands a hair under 5e18, not on 4 as raw units would
+    const row = buildTradeRow(atSqrt(177159557114295710296n), { token: TOKEN, tokenIsCurrency0: true });
+    expect(row.price_e18).toBe("4999999999999999999");
+  });
+
+  // The case the e18 scale exists for: a 2,500 USDC valuation of 1e9 tokens is
+  // 2.5 raw USDC units per token. In whole raw units that floored to 2 — every
+  // trade near the launch price read the same step.
+  it("keeps a 6-decimal quote's precision", () => {
+    // isqrt(2.5e-18 * 2^192): 2.5 raw USDC per whole token
+    const row = buildTradeRow(atSqrt(125270724187523965593n), { token: TOKEN, tokenIsCurrency0: true });
+    expect(row.price_e18).toBe("2499999999999999999");
   });
 
   it("uses the attributed trader, falling back to the swap sender", () => {
@@ -75,10 +83,23 @@ describe("buildTradeRow", () => {
   });
 });
 
-describe("pricePerToken", () => {
+describe("priceE18", () => {
   it("returns 0 for an empty price rather than dividing by zero", () => {
-    expect(pricePerToken(0n)).toBe(0n);
-    expect(pricePerToken(0n, true)).toBe(0n);
+    expect(priceE18(0n)).toBe(0n);
+    expect(priceE18(0n, true)).toBe(0n);
+    expect(priceE18(undefined)).toBe(0n);
+  });
+
+  // Both orientations of one price agree: Q96^2 is a raw price of exactly 1,
+  // i.e. 1e18 quote raw units per whole token either way round.
+  it("scales before dividing, in both orientations", () => {
+    const one = 1n << 96n;
+    expect(priceE18(one)).toBe(10n ** 36n);
+    expect(priceE18(one, true)).toBe(10n ** 36n);
+    // A sqrt price of 2^95 is a raw price of 1/4: the token-currency0 reading
+    // is 0.25e36 and the inverted one 4e36, exactly.
+    expect(priceE18(1n << 95n, true)).toBe(25n * 10n ** 34n);
+    expect(priceE18(1n << 95n)).toBe(4n * 10n ** 36n);
   });
 });
 

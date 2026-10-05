@@ -10,8 +10,11 @@
  * an ABI change, and it needs neither a chain nor a database to exercise.
  */
 
-/** Raw units in one whole launch token (launch tokens are always 18 dp). */
-const WAD = 10n ** 18n;
+/**
+ * 1e18 (raw units in one whole launch token — launch tokens are always 18 dp)
+ * times 1e18 (the e18 fixed-point scale of the stored price).
+ */
+const E36 = 10n ** 36n;
 
 /** The quote-token address TokenLaunchpad uses for native ETH. */
 export const NATIVE_QUOTE = "0x0000000000000000000000000000000000000000";
@@ -52,7 +55,8 @@ export function storableText(value, max) {
  *
  * Values are in the launch's QUOTE token's raw units (wei for ETH, 1e-6 for
  * USDC): the launch takes its opening valuation (`startFdv`) directly, and the
- * per-whole-token start price is derived from it.
+ * start price is derived from it as quote raw units per whole token × 1e18
+ * (`start_price_e18`) — the scale keeps a 6-decimal quote's precision.
  *
  * @param {object} log - viem decoded log
  * @param {bigint} totalSupply - TOKEN_SUPPLY, read once at listener start
@@ -69,10 +73,10 @@ export function buildLaunchRow(log, totalSupply, blockTimeSec, quote = ETH_QUOTE
   if (blockTimeSec == null) throw new Error("buildLaunchRow: block time is required");
 
   const startFdv = BigInt(args.startFdv ?? 0n);
-  // Price per WHOLE token, not per raw unit: dividing by the raw supply would be
-  // off by 1e18, which would look plausible in a column of wei.
-  const wholeSupply = BigInt(totalSupply) / WAD;
-  const startPrice = wholeSupply > 0n ? startFdv / wholeSupply : 0n;
+  // Per WHOLE token × 1e18: startFdv / (supplyRaw / 1e18) × 1e18, with both
+  // scales applied before the one division so nothing floors early.
+  const supplyRaw = BigInt(totalSupply);
+  const startPriceE18 = supplyRaw > 0n ? (startFdv * E36) / supplyRaw : 0n;
 
   return {
     token_address: args.token,
@@ -89,7 +93,7 @@ export function buildLaunchRow(log, totalSupply, blockTimeSec, quote = ETH_QUOTE
     quote_token: String(args.quoteToken ?? NATIVE_QUOTE).toLowerCase(),
     quote_symbol: quote.symbol,
     quote_decimals: quote.decimals,
-    start_price: startPrice.toString(),
+    start_price_e18: startPriceE18.toString(),
     start_fdv: startFdv.toString(),
     total_supply: BigInt(totalSupply).toString(),
     // bytes32(0) means the placer returned no pool — not a real pool id, so

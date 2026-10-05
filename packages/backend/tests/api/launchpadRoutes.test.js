@@ -50,7 +50,7 @@ const row = (over = {}) => ({
   quote_token: "0x0000000000000000000000000000000000000000",
   quote_symbol: "ETH",
   quote_decimals: 18,
-  start_price: "1000000000",
+  start_price_e18: "1000000000000000000000000000",
   start_fdv: ONE_ETH,
   total_supply: (1_000_000_000n * 10n ** 18n).toString(),
   pool_id: `0x${"ab".repeat(32)}`,
@@ -92,7 +92,7 @@ describe("GET /api/launchpad/tokens", () => {
       creator: CREATOR,
       name: "Second Order",
       symbol: "SOF",
-      startPrice: "1000000000",
+      startPriceE18: "1000000000000000000000000000",
       startFdv: ONE_ETH,
       quoteToken: "0x0000000000000000000000000000000000000000",
       quoteSymbol: "ETH",
@@ -107,7 +107,7 @@ describe("GET /api/launchpad/tokens", () => {
     const launch = res.json().launches[0];
 
     expect(typeof launch.startFdv).toBe("string");
-    expect(typeof launch.startPrice).toBe("string");
+    expect(typeof launch.startPriceE18).toBe("string");
     expect(typeof launch.totalSupply).toBe("string");
   });
 
@@ -272,7 +272,7 @@ describe("GET /api/launchpad/tokens/:address/trades", () => {
         side: "BUY",
         quote_amount: "100000000000000000",
         token_amount: "5000000000000000000000",
-        price: "1000000000",
+        price_e18: "1000000000000000000000000000",
         tick: -12345,
         block_number: 99,
         block_time: "2026-09-29T00:01:00.000Z",
@@ -290,7 +290,7 @@ describe("GET /api/launchpad/tokens/:address/trades", () => {
       side: "BUY",
       quoteAmount: "100000000000000000",
       tokenAmount: "5000000000000000000000",
-      price: "1000000000",
+      priceE18: "1000000000000000000000000000",
     });
   });
 
@@ -319,7 +319,7 @@ describe("GET /api/launchpad/tokens/:address/chart", () => {
   it("returns points that start at the launch for the 'all' range", async () => {
     getTokenLaunch.mockResolvedValueOnce(row());
     listTradesSince.mockResolvedValueOnce({
-      trades: [{ price: "2000000000", block_time: "2026-09-29T01:00:00.000Z" }],
+      trades: [{ price_e18: "2000000000000000000000000000", block_time: "2026-09-29T01:00:00.000Z" }],
       truncated: false,
       before: null,
     });
@@ -328,8 +328,8 @@ describe("GET /api/launchpad/tokens/:address/chart", () => {
 
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.points[0].price).toBe("1000000000"); // the launch price
-    expect(body.points.at(-1).price).toBe("2000000000");
+    expect(body.points[0].priceE18).toBe("1000000000000000000000000000"); // the launch price
+    expect(body.points.at(-1).priceE18).toBe("2000000000000000000000000000");
     expect(body.truncated).toBe(false);
     expect(listTradesSince).toHaveBeenCalledWith(TOKEN, null);
   });
@@ -340,11 +340,11 @@ describe("GET /api/launchpad/tokens/:address/chart", () => {
     getTokenLaunch.mockResolvedValueOnce(row());
     listTradesSince.mockResolvedValueOnce({
       trades: [
-        { price: "7000000000", block_time: "2026-09-29T05:00:00.000Z" },
-        { price: "7100000000", block_time: "2026-09-29T06:00:00.000Z" },
+        { price_e18: "7000000000000000000000000000", block_time: "2026-09-29T05:00:00.000Z" },
+        { price_e18: "7100000000000000000000000000", block_time: "2026-09-29T06:00:00.000Z" },
       ],
       truncated: true,
-      before: { price: "6900000000", block_time: "2026-09-29T04:00:00.000Z" },
+      before: { price_e18: "6900000000000000000000000000", block_time: "2026-09-29T04:00:00.000Z" },
     });
 
     const res = await app.inject({ method: "GET", url: `/api/launchpad/tokens/${TOKEN}/chart?range=all` });
@@ -353,33 +353,33 @@ describe("GET /api/launchpad/tokens/:address/chart", () => {
     expect(body.truncated).toBe(true);
     expect(body.points[0]).toEqual({
       t: Date.parse("2026-09-29T04:00:00.000Z") / 1000,
-      price: "6900000000",
+      priceE18: "6900000000000000000000000000",
     });
-    expect(body.points.map((p) => p.price)).not.toContain("1000000000");
-    expect(body.launch.price).toBe("1000000000");
+    expect(body.points.map((p) => p.priceE18)).not.toContain("1000000000000000000000000000");
+    expect(body.launch.priceE18).toBe("1000000000000000000000000000");
   });
 
   // The seed a truncated range would discard is not queried at all.
   it("does not read the last trade before the range when the range is truncated", async () => {
     getTokenLaunch.mockResolvedValueOnce(row());
     listTradesSince.mockResolvedValueOnce({
-      trades: [{ price: "7000000000", block_time: new Date().toISOString() }],
+      trades: [{ price_e18: "7000000000000000000000000000", block_time: new Date().toISOString() }],
       truncated: true,
-      before: { price: "6900000000", block_time: new Date(Date.now() - 60_000).toISOString() },
+      before: { price_e18: "6900000000000000000000000000", block_time: new Date(Date.now() - 60_000).toISOString() },
     });
     const res = await app.inject({ method: "GET", url: `/api/launchpad/tokens/${TOKEN}/chart?range=24h` });
     expect(res.statusCode).toBe(200);
     expect(lastTradeBefore).not.toHaveBeenCalled();
-    expect(res.json().points[0].price).toBe("6900000000");
+    expect(res.json().points[0].priceE18).toBe("6900000000000000000000000000");
   });
 
   it("enters a complete range at the last trade before it", async () => {
     getTokenLaunch.mockResolvedValueOnce(row());
-    lastTradeBefore.mockResolvedValueOnce({ price: "5000000000", block_time: "2026-01-01T00:00:00.000Z" });
+    lastTradeBefore.mockResolvedValueOnce({ price_e18: "5000000000000000000000000000", block_time: "2026-01-01T00:00:00.000Z" });
     const res = await app.inject({ method: "GET", url: `/api/launchpad/tokens/${TOKEN}/chart?range=1h` });
     expect(lastTradeBefore).toHaveBeenCalledTimes(1);
     expect(lastTradeBefore.mock.calls[0][1]).toBe(listTradesSince.mock.calls[0][1]);
-    expect(res.json().points[0].price).toBe("5000000000");
+    expect(res.json().points[0].priceE18).toBe("5000000000000000000000000000");
   });
 
   it("queries only the requested window", async () => {

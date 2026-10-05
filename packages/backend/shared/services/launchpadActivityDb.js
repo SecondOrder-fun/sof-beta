@@ -52,7 +52,7 @@ export async function listTradesSince(token, sinceIso, { cap = CHART_TRADE_CAP, 
     const take = Math.min(pageSize, want - rows.length);
     let q = supabase
       .from("launch_trades")
-      .select("price, block_time, block_number, log_index")
+      .select("price_e18, block_time, block_number, log_index")
       .eq("token_address", lc(token));
     if (sinceIso) q = q.gte("block_time", sinceIso);
     const last = rows.at(-1);
@@ -82,7 +82,7 @@ export async function lastTradeBefore(token, sinceIso) {
   if (!hasSupabase || !sinceIso) return null;
   const { data, error } = await supabase
     .from("launch_trades")
-    .select("price, block_time")
+    .select("price_e18, block_time")
     .eq("token_address", lc(token))
     .lt("block_time", sinceIso)
     .order("block_number", { ascending: false })
@@ -181,7 +181,7 @@ export async function listRecentTrades(limit = 20) {
   const { data, error } = await supabase
     .from("launch_trades")
     .select(
-      "tx_hash, log_index, token_address, trader, side, quote_amount, price, block_time, block_number, " +
+      "tx_hash, log_index, token_address, trader, side, quote_amount, price_e18, block_time, block_number, " +
         "token_launches!inner(is_hidden, quote_symbol, quote_decimals)",
     )
     .eq("token_launches.is_hidden", false)

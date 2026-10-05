@@ -62,12 +62,13 @@ function toLaunchResponse(row) {
     symbol: row.symbol,
     metadataURI: row.metadata_uri,
     // What the launch trades against (0x000…000 = native ETH), and how to format
-    // its amounts. startPrice (per whole token) and startFdv are in that quote's
-    // RAW units, as strings: they do not survive a JS number.
+    // its amounts. startFdv is in that quote's RAW units; startPriceE18 is raw
+    // units per whole token × 1e18. Both are strings: they do not survive a JS
+    // number.
     quoteToken: row.quote_token,
     quoteSymbol: row.quote_symbol,
     quoteDecimals: row.quote_decimals,
-    startPrice: row.start_price,
+    startPriceE18: row.start_price_e18,
     startFdv: row.start_fdv,
     totalSupply: row.total_supply,
     poolId: row.pool_id,
@@ -85,10 +86,11 @@ function toTradeResponse(row) {
     token: row.token_address,
     trader: row.trader,
     side: row.side,
-    // In the launch's quote token's raw units (its quote fields are on the token).
+    // In the launch's quote token's raw units (its quote fields are on the token);
+    // priceE18 is raw units per whole token × 1e18.
     quoteAmount: row.quote_amount,
     tokenAmount: row.token_amount,
-    price: row.price,
+    priceE18: row.price_e18,
     tick: row.tick,
     blockNumber: row.block_number,
     blockTime: row.block_time,
@@ -212,7 +214,9 @@ export default async function launchpadRoutes(fastify) {
   /**
    * GET /api/launchpad/tokens/:address/chart?range=1h|6h|24h|all
    *
-   * Price points for the chart, oldest first. The first point is the price in
+   * Price points for the chart, oldest first: `{ t, priceE18 }` (quote raw
+   * units per whole token × 1e18), plus `launch: { t, priceE18 }`, the requested
+   * start price. The first point is the price in
    * force when the range opens (the last earlier trade, or the launch price),
    * so a quiet range still draws a line. Built from every trade in range up to
    * 50,000 (launchpadActivityDb.CHART_TRADE_CAP); past it the oldest are
@@ -250,7 +254,7 @@ export default async function launchpadRoutes(fastify) {
         trades,
         seed,
         truncated,
-        launch: { launchedAt: launch.launched_at, startPrice: launch.start_price },
+        launch: { launchedAt: launch.launched_at, startPriceE18: launch.start_price_e18 },
         rangeSec,
         nowSec,
       });

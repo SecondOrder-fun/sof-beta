@@ -11,6 +11,8 @@ const TOKEN = "0x1111111111111111111111111111111111111111";
 const WALLET = "0x3f000000000000000000000000000000000000a1";
 const ETH = 10n ** 18n;
 const GWEI = 10n ** 9n;
+/** A price in quote raw units per whole token, as the feed's `priceE18`. */
+const e18 = (raw) => String(raw * 10n ** 18n);
 
 // A season on $POND, as the feed labels it; "Season 3" through the echo translator.
 const SEASON = 'raffle.season{"id":3}';
@@ -19,7 +21,7 @@ const SEASON_ON = `ticker.seasonOn{"season":"raffle.season{\\"id\\":3}"}`;
 describe("describeTokenItem", () => {
   it("shapes a buy: wallet, quote in, token, FDV after — linked to the token", () => {
     const d = describeTokenItem(
-      { kind: "buy", who: WALLET, token: TOKEN, symbol: "POND", quoteAmount: String(4n * ETH / 10n), price: String(47n * GWEI), txHash: "0xabc" },
+      { kind: "buy", who: WALLET, token: TOKEN, symbol: "POND", quoteAmount: String(4n * ETH / 10n), priceE18: e18(47n * GWEI), txHash: "0xabc" },
       t,
     );
     expect(d).toMatchObject({ href: `/tokens/${TOKEN}`, tone: "buy", tail: ['ticker.fdv{"fdv":"47","quote":"ETH"}'] });
@@ -32,19 +34,19 @@ describe("describeTokenItem", () => {
   });
 
   it("keeps a small trade's significant digits instead of rounding it to 0 ETH", () => {
-    const row = { kind: "buy", who: WALLET, token: TOKEN, symbol: "POND", price: String(47n * GWEI), txHash: "0x1" };
+    const row = { kind: "buy", who: WALLET, token: TOKEN, symbol: "POND", priceE18: e18(47n * GWEI), txHash: "0x1" };
     expect(describeTokenItem({ ...row, quoteAmount: String(4n * ETH / 1000n) }, t).parts[1].text).toBe('ticker.quoteOf{"amount":"0.004","quote":"ETH"}');
     expect(describeTokenItem({ ...row, quoteAmount: "47200000000000" }, t).parts[1].text).toBe('ticker.quoteOf{"amount":"0.0000472","quote":"ETH"}');
   });
 
   it("shapes a sell with the sell tone", () => {
-    const d = describeTokenItem({ kind: "sell", who: WALLET, token: TOKEN, symbol: "ORB", quoteAmount: "1", price: "1", txHash: "0x1" }, t);
+    const d = describeTokenItem({ kind: "sell", who: WALLET, token: TOKEN, symbol: "ORB", quoteAmount: "1", priceE18: e18(1n), txHash: "0x1" }, t);
     expect(d.tone).toBe("sell");
     expect(d.parts[0].text).toBe("ticker.sold");
   });
 
   it("leaves no dangling 'of' when a trade's token has no symbol", () => {
-    const d = describeTokenItem({ kind: "buy", who: WALLET, token: TOKEN, symbol: null, quoteAmount: String(ETH), price: "1", txHash: "0x1" }, t);
+    const d = describeTokenItem({ kind: "buy", who: WALLET, token: TOKEN, symbol: null, quoteAmount: String(ETH), priceE18: e18(1n), txHash: "0x1" }, t);
     expect(sentence(d)).toBe('ticker.bought ticker.amount{"amount":"1","quote":"ETH"}');
   });
 
@@ -63,15 +65,18 @@ describe("describeTokenItem", () => {
   // A USDC-paired launch: amounts and valuations in USDC's 6 decimals.
   it("speaks a trade's and a launch's own quote", () => {
     const usdc = { quoteToken: "0x036CbD53842c5426634e7929541eC2318f3dCF7e", quoteSymbol: "USDC", quoteDecimals: 6 };
-    const buy = describeTokenItem({ kind: "buy", who: WALLET, token: TOKEN, symbol: "POND", quoteAmount: "25000000", price: "9", txHash: "0x1", ...usdc }, t);
+    const buy = describeTokenItem({ kind: "buy", who: WALLET, token: TOKEN, symbol: "POND", quoteAmount: "25000000", priceE18: e18(9n), txHash: "0x1", ...usdc }, t);
     expect(buy.parts[1].text).toBe('ticker.quoteOf{"amount":"25","quote":"USDC"}');
     expect(buy.tail).toEqual(['ticker.fdv{"fdv":"9,000","quote":"USDC"}']);
+    // 2.5123… raw USDC per token: the fraction an integer price dropped (it read 2,000)
+    const fine = describeTokenItem({ kind: "buy", who: WALLET, token: TOKEN, symbol: "POND", quoteAmount: "1", priceE18: "2512345678901234567", txHash: "0x3", ...usdc }, t);
+    expect(fine.tail).toEqual(['ticker.fdv{"fdv":"2,512.3","quote":"USDC"}']);
     const launch = describeTokenItem({ kind: "launch", who: WALLET, token: TOKEN, symbol: "SALT", fdv: "2500000000", txHash: "0x2", ...usdc }, t);
     expect(launch.tail).toEqual(['ticker.fdv{"fdv":"2,500","quote":"USDC"}']);
   });
 
   it("keys each event of a batched transaction separately", () => {
-    const row = { kind: "buy", who: WALLET, token: TOKEN, symbol: "POND", quoteAmount: "1", price: "1", txHash: "0xabc" };
+    const row = { kind: "buy", who: WALLET, token: TOKEN, symbol: "POND", quoteAmount: "1", priceE18: e18(1n), txHash: "0xabc" };
     const a = describeTokenItem({ ...row, logIndex: 3 }, t);
     const b = describeTokenItem({ ...row, logIndex: 7 }, t);
     expect(a.key).not.toBe(b.key);

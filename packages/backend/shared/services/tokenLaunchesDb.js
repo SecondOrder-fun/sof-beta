@@ -17,12 +17,12 @@ const TRADES = "launch_trades";
 
 const LAUNCH_COLUMNS =
   "token_address, launch_id, creator_address, name, symbol, metadata_uri, " +
-  "quote_token, quote_symbol, quote_decimals, start_price, start_fdv, total_supply, pool_id, launched_at, " +
+  "quote_token, quote_symbol, quote_decimals, start_price_e18, start_fdv, total_supply, pool_id, launched_at, " +
   "block_number, tx_hash, is_hidden, is_verified, created_at, updated_at";
 
 const TRADE_COLUMNS =
   "tx_hash, log_index, token_address, pool_id, trader, side, quote_amount, " +
-  "token_amount, price, tick, block_number, block_time";
+  "token_amount, price_e18, tick, block_number, block_time";
 
 const lc = (v) => (v == null ? v : String(v).toLowerCase());
 
