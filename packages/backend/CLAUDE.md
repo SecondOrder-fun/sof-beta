@@ -214,6 +214,16 @@ Shaping for all of them is pure, in `src/services/activityFeed.js`. Rules they s
   known; season summaries carry `grandPrizeBps`. Entry items have no `logIndex`
   (`raffle_transactions` records none; it is unique on `tx_hash` + `season_id`).
 
+### Database Access
+The backend is the database's only client and connects with the service role key
+(`shared/supabaseClient.js`), which bypasses row level security. Every table in
+`public` keeps RLS on, with policies only where a read is meant to be public, so the
+anon key Supabase exposes reaches nothing else. RLS is per table: each
+`raffle_transactions_season_N` partition is a table of its own to PostgREST, and
+`create_raffle_tx_partition` enables RLS on every partition it makes (migration 031).
+A new table, or anything else that creates one, must do the same. SECURITY DEFINER
+functions are callable only by the service role.
+
 ### Error Handling
 - Return structured JSON: `reply.code(400).send({ error: "message" })`
 - Use Fastify logger (`fastify.log.error()`, `request.log.info()`)
