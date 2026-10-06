@@ -46,6 +46,10 @@ Test files covering:
 - The quote-only trade fee and the 88/12 split (`LaunchTradeFees.t.sol`, real `PoolManager`: all four swap shapes
   in every pool orientation, through our router and straight through the PoolManager, plus a fuzz test,
   partial-fill and tiny-swap guards, event order, collect/claim)
+- Liquidity presets (`LaunchLiquidityPresets.t.sol`: every preset in every orientation laid as
+  specified, buying to each boundary takes exactly the shares below it, router trades across
+  band edges, no preset sells out; `test_fixture_presetQuoteMathForFrontend` pins a Steady start
+  sequence for the frontend's multi-band quote math)
 - Launchpad (`TokenLaunchpad.t.sol`, `UniV4LiquidityPlacer.t.sol` — against a real v4
   `PoolManager`, not a mock — and `LaunchpadDeployWiring.t.sol`, which runs deploy steps
   20-23 and asserts the FDV bounds, the circular wiring and a trade through the advertised
@@ -168,7 +172,7 @@ Version-controlled in `deployments/`:
 ## Launch quote tokens
 
 - **A launch pairs with native ETH (`address(0)`, the default) or an allowlisted ERC-20.**
-  `TokenLaunchpad.launch(name, symbol, metadataURI, quoteToken, startFdv, tradeFee, creatorBuyIn, minTokensOut)`; `quoteConfig(quote)`
+  `TokenLaunchpad.launch(name, symbol, metadataURI, quoteToken, startFdv, tradeFee, liquidityPreset, creatorBuyIn, minTokensOut)`; `quoteConfig(quote)`
   holds each allowed quote's FDV bounds in its raw units (`setQuoteToken` / `removeQuoteToken`,
   CONFIG_ROLE). `quoteTokenOf(token)` and `Launch.quoteToken` record the pairing. List only
   plain ERC-20s (no fee-on-transfer, rebasing or callback tokens), and never WETH next to ETH.
@@ -177,9 +181,15 @@ Version-controlled in `deployments/`:
   pool starts at `tickLower` and buys move the tick UP (ETH, always currency0: `[minUsableTick,
   tickUpper]`, starting at `tickUpper`). `Placement.tokenIsCurrency0` records it and the router
   reads it for swap direction and price limits.
-- **The position never sells out.** It runs from the opening price to v4's last usable tick, so
-  there is liquidity at every price and no route can strand the pool in an empty range. There is
-  no range-width parameter any more (the old ~100x range sold out at a 100 ETH valuation).
+- **Liquidity presets; never sells out.** The creator picks one of four fixed ladders
+  (`liquidityPreset`): 0 Classic (100% from 1x to the end of the scale), 1 Steady start (30% 1x-3x,
+  55% 3x-30x, 15% after), 2 Thick middle (15% / 55% / 30% on the same bounds), 3 Wide open (40%
+  1x-2x, 60% after). Bounds are tick offsets from the start (2x 6,932, 3x 10,987, 30x 34,013)
+  snapped to the spacing; the last band always runs to v4's last usable tick, so no preset sells
+  out. `presetBands(preset)` returns the ladder; `bandsOf(token)` the placed positions;
+  `Placement.liquidityPreset` records it, `Placement.tickLower/tickUpper` span the whole ladder
+  and `Placement.liquidity` is the launch-price band's. Unknown preset: `UnknownLiquidityPreset`.
+  Custom ladders are not supported (a later UI could borrow the raffle bonding-curve editor).
 - **Creator buy in the launch transaction.** `creatorBuyIn > 0` buys for the creator through the
   active router right after placement, before anyone else can trade (ETH: send it as
   `msg.value`; ERC-20: approve the launchpad). `minTokensOut` reverts the whole launch; unspent

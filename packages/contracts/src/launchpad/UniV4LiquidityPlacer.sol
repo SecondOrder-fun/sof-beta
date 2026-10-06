@@ -53,6 +53,7 @@ uint160 constant PLACER_HOOK_FLAGS = Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE
 error SwapTooSmallForFee(uint256 amount);
 error PartialFillWithFee(uint256 filled, uint256 expected);
 error SnipeTaxOutOfRange(uint16 startBps, uint16 duration);
+error UnknownLiquidityPreset(uint8 preset);
 
 /**
  * @title UniV4LiquidityPlacer
@@ -88,15 +89,29 @@ error SnipeTaxOutOfRange(uint16 startBps, uint16 duration);
  *      `Placement.tokenIsCurrency0` records the case; the router reads it to pick the
  *      swap direction and the edge a swap may not cross.
  *
- *      ## One range, to the end of the price scale
+ *      ## Liquidity presets: how the supply is spread along the price scale
  *
- *      The position runs from the starting price all the way to v4's last usable tick, so
- *      the token never sells out: at any price there is still liquidity, and no route —
- *      ours or a third party's — can push it into an empty range where quoting breaks. A
- *      range that ended ~100x above launch would have sold out at a 100 ETH valuation for a
- *      1 ETH launch. The cost is small: liquidity scales with `1 / (sqrtB - sqrtA)`, and
- *      with the far edge effectively at zero (or infinity) the depth near the launch price
- *      is within ~10% of a 100x range's.
+ *      The creator picks one of four fixed ladders (`liquidityPreset`). Each is one to
+ *      three single-sided positions laid end to end from the starting price, with a share
+ *      of the supply in each; the LAST always runs to v4's last usable tick, so a token
+ *      never sells out under any preset and no route can strand the pool in an empty range.
+ *
+ *        0 Classic       100% from 1x to the end of the scale.
+ *        1 Steady start  30% 1x-3x, 55% 3x-30x, 15% 30x onward: a light front so the opening
+ *                        is not jumpy, then a deep middle where a project settles.
+ *        2 Thick middle  15% 1x-3x, 55% 3x-30x, 30% 30x onward: the calmest from 3x up, a
+ *                        fast first climb.
+ *        3 Wide open     40% 1x-2x, 60% 2x onward: deep at the launch price, thinner later.
+ *
+ *      Multiples are of the starting price, written as tick offsets (2x = 6,932 ticks,
+ *      3x = 10,987, 30x = 34,013 — ln(m)/ln(1.0001)) and snapped to the tick spacing, so a
+ *      boundary lands within half a spacing (~1%) of its multiple. The supply is a fixed
+ *      budget: a preset deeper than Classic somewhere is thinner somewhere else
+ *      (docs/05-features/launchpad/design.md §5.9). Custom ladders are not supported.
+ *
+ *      `Placement.tickLower/tickUpper` span the whole ladder (the router's price limits)
+ *      and `Placement.liquidity` is the launch-price position's; `bandsOf(token)` lists
+ *      every position for quoting.
  *
  *      ## This contract is the pool's hook
  *
@@ -213,7 +228,29 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         bool tokenIsCurrency0;
         /// @dev The pool's trade fee in pips, charged in the quote token. See "Trade fee".
         uint24 tradeFee;
+        /// @dev Which ladder the supply was placed with. See "Liquidity presets".
+        uint8 liquidityPreset;
     }
+
+    /// @notice One position of a launch's ladder.
+    struct Band {
+        int24 tickLower;
+        int24 tickUpper;
+        uint128 liquidity;
+    }
+
+    mapping(address token => Band[]) private _bands;
+
+    uint8 public constant PRESET_CLASSIC = 0;
+    uint8 public constant PRESET_STEADY_START = 1;
+    uint8 public constant PRESET_THICK_MIDDLE = 2;
+    uint8 public constant PRESET_WIDE_OPEN = 3;
+    uint8 public constant PRESET_COUNT = 4;
+
+    /// @dev Ticks from the starting price to 2x, 3x and 30x (ln(m) / ln(1.0001), rounded).
+    uint24 private constant TICKS_2X = 6_932;
+    uint24 private constant TICKS_3X = 10_987;
+    uint24 private constant TICKS_30X = 34_013;
 
     mapping(address token => Placement) private _placements;
 
@@ -277,7 +314,8 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         int24 tickUpper,
         uint128 liquidity,
         bool tokenIsCurrency0,
-        uint24 tradeFee
+        uint24 tradeFee,
+        uint8 liquidityPreset
     );
     /// @notice One per fee-paying swap, emitted after the PoolManager's `Swap` log for it
     ///         (and the fee's ERC-6909 mint). `fee` is in the quote token; the trader paid `Swap`'s quote
@@ -310,9 +348,7 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
     /// @dev Encoded through `unlock` for a placement.
     struct PlaceData {
         PoolKey key;
-        int24 tickLower;
-        int24 tickUpper;
-        uint128 liquidity;
+        Band[] bands;
         address token;
         bool tokenIsCurrency0;
     }
@@ -350,11 +386,14 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
     // ------------------------------------------------------------------
 
     /// @inheritdoc ILiquidityPlacer
-    function place(address token, uint256 amount, address quoteToken, uint256 startFdv, uint24 tradeFee)
-        external
-        override
-        returns (bytes32 placementId)
-    {
+    function place(
+        address token,
+        uint256 amount,
+        address quoteToken,
+        uint256 startFdv,
+        uint24 tradeFee,
+        uint8 liquidityPreset
+    ) external override returns (bytes32 placementId) {
         if (msg.sender != launchpad) revert OnlyLaunchpad();
         if (token == address(0)) revert ZeroAddress();
         if (quoteToken == token) revert QuoteIsLaunchToken(token);
@@ -362,6 +401,7 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         if (tradeFee < minTradeFee || tradeFee > MAX_TRADE_FEE) {
             revert TradeFeeOutOfRange(tradeFee, minTradeFee, MAX_TRADE_FEE);
         }
+        if (liquidityPreset >= PRESET_COUNT) revert UnknownLiquidityPreset(liquidityPreset);
 
         int24 spacing = tickSpacing;
         bool tokenIsCurrency0 = token < quoteToken;
@@ -371,40 +411,28 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         // slightly above the requested valuation (within one tick spacing, ~2%), never
         // cheaper than its creator chose. `LiquidityPlaced` carries the requested
         // valuation so the difference is visible off-chain rather than silent.
-        int24 tickLower;
-        int24 tickUpper;
-        uint160 startSqrtPrice;
-        uint128 liquidity;
+        // The starting tick, and the edge of the price scale the ladder runs out to.
+        int24 startTick;
+        int24 edgeTick;
         if (tokenIsCurrency0) {
             // Price is quote per token here, so dearer is a HIGHER tick: round up.
             uint256 sqrtStart = _sqrtPriceQuotePerToken(startFdv, amount);
             int24 tick = _tickForSqrtPrice(sqrtStart, startFdv);
             if (TickMath.getSqrtPriceAtTick(tick) < sqrtStart) tick += 1;
-            tickLower = _alignUpTick(tick, spacing);
-            tickUpper = TickMath.maxUsableTick(spacing);
-            uint160 sqrtLower = TickMath.getSqrtPriceAtTick(tickLower);
-            uint160 sqrtUpper = TickMath.getSqrtPriceAtTick(tickUpper);
-            // amount0 = L * Q96 * (sqrtB - sqrtA) / (sqrtA * sqrtB), so
-            // L = (amount0 * sqrtA / Q96) * sqrtB / (sqrtB - sqrtA). Both steps floor, so L
-            // never asks for more than `amount`; scaling `amount` first keeps the dust to a
-            // few raw units rather than flooring the small `sqrtA * sqrtB / Q96` factor.
-            liquidity = _toLiquidity(
-                FullMath.mulDiv(FullMath.mulDiv(amount, sqrtLower, Q96), sqrtUpper, uint256(sqrtUpper - sqrtLower))
-            );
-            startSqrtPrice = sqrtLower;
+            startTick = _alignUpTick(tick, spacing);
+            edgeTick = TickMath.maxUsableTick(spacing);
         } else {
             // Price is token per quote here, so dearer is a LOWER tick. getTickAtSqrtPrice
             // already floors; aligning down keeps rounding that way.
-            tickUpper = _alignDown(_tickForSqrtPrice(_sqrtPriceTokenPerQuote(startFdv, amount), startFdv), spacing);
-            tickLower = TickMath.minUsableTick(spacing);
-            uint160 sqrtLower = TickMath.getSqrtPriceAtTick(tickLower);
-            uint160 sqrtUpper = TickMath.getSqrtPriceAtTick(tickUpper);
-            // amount1 = L * (sqrtB - sqrtA) / Q96, so L = amount1 * Q96 / (sqrtB - sqrtA).
-            // Floors, leaving dust — see the contract docs.
-            liquidity = _toLiquidity(FullMath.mulDiv(amount, Q96, uint256(sqrtUpper - sqrtLower)));
-            startSqrtPrice = sqrtUpper;
+            startTick = _alignDown(_tickForSqrtPrice(_sqrtPriceTokenPerQuote(startFdv, amount), startFdv), spacing);
+            edgeTick = TickMath.minUsableTick(spacing);
         }
-        if (tickLower >= tickUpper) revert StartFdvUnreachable(startFdv);
+        Band[] memory bands = _ladder(liquidityPreset, startTick, edgeTick, spacing, tokenIsCurrency0, amount, startFdv);
+        // The whole ladder's span, for the router's price limits.
+        int24 tickLower = tokenIsCurrency0 ? startTick : edgeTick;
+        int24 tickUpper = tokenIsCurrency0 ? edgeTick : startTick;
+        // The pool starts exactly at the ladder's token-only edge, so it owes no quote token.
+        uint160 startSqrtPrice = TickMath.getSqrtPriceAtTick(startTick);
 
         // LP fee zero: the trade fee is this hook's, in the quote token only.
         PoolKey memory key = tokenIsCurrency0
@@ -441,16 +469,7 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         poolManager.unlock(
             abi.encode(
                 ACTION_PLACE,
-                abi.encode(
-                    PlaceData({
-                        key: key,
-                        tickLower: tickLower,
-                        tickUpper: tickUpper,
-                        liquidity: liquidity,
-                        token: token,
-                        tokenIsCurrency0: tokenIsCurrency0
-                    })
-                )
+                abi.encode(PlaceData({key: key, bands: bands, token: token, tokenIsCurrency0: tokenIsCurrency0}))
             )
         );
 
@@ -458,13 +477,28 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
             key: key,
             tickLower: tickLower,
             tickUpper: tickUpper,
-            liquidity: liquidity,
+            liquidity: bands[0].liquidity,
             tokenIsCurrency0: tokenIsCurrency0,
-            tradeFee: tradeFee
+            tradeFee: tradeFee,
+            liquidityPreset: liquidityPreset
         });
+        Band[] storage stored = _bands[token];
+        for (uint256 i; i < bands.length; ++i) {
+            stored.push(bands[i]);
+        }
 
         emit LiquidityPlaced(
-            token, poolId, quoteToken, amount, startFdv, tickLower, tickUpper, liquidity, tokenIsCurrency0, tradeFee
+            token,
+            poolId,
+            quoteToken,
+            amount,
+            startFdv,
+            tickLower,
+            tickUpper,
+            bands[0].liquidity,
+            tokenIsCurrency0,
+            tradeFee,
+            liquidityPreset
         );
 
         return PoolId.unwrap(poolId);
@@ -484,27 +518,31 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         }
 
         PlaceData memory cb = abi.decode(payload, (PlaceData));
-        (BalanceDelta delta,) = poolManager.modifyLiquidity(
-            cb.key,
-            IPoolManager.ModifyLiquidityParams({
-                tickLower: cb.tickLower,
-                tickUpper: cb.tickUpper,
-                liquidityDelta: int256(uint256(cb.liquidity)),
-                salt: bytes32(0)
-            }),
-            ""
-        );
+        uint256 owed;
+        for (uint256 i; i < cb.bands.length; ++i) {
+            (BalanceDelta delta,) = poolManager.modifyLiquidity(
+                cb.key,
+                IPoolManager.ModifyLiquidityParams({
+                    tickLower: cb.bands[i].tickLower,
+                    tickUpper: cb.bands[i].tickUpper,
+                    liquidityDelta: int256(uint256(cb.bands[i].liquidity)),
+                    salt: bytes32(0)
+                }),
+                ""
+            );
 
-        // The whole point of single-sided placement: we must owe no quote token. If we do,
-        // the orientation or the starting tick is wrong, and paying it would silently drain
-        // this contract, so fail loudly instead.
-        (int128 tokenDelta, int128 quoteDelta) =
-            cb.tokenIsCurrency0 ? (delta.amount0(), delta.amount1()) : (delta.amount1(), delta.amount0());
-        if (quoteDelta != 0) revert PlacementWouldCostQuote(quoteDelta);
+            // The whole point of single-sided placement: we must owe no quote token. If we
+            // do, the orientation or a band's ticks are wrong, and paying it would silently
+            // drain this contract, so fail loudly instead.
+            (int128 tokenDelta, int128 quoteDelta) =
+                cb.tokenIsCurrency0 ? (delta.amount0(), delta.amount1()) : (delta.amount1(), delta.amount0());
+            if (quoteDelta != 0) revert PlacementWouldCostQuote(quoteDelta);
+            // Negative delta means we owe the pool.
+            if (tokenDelta < 0) owed += uint256(uint128(-tokenDelta));
+        }
 
-        // Settle what we owe in the token. Negative delta means we owe the pool.
-        if (tokenDelta < 0) {
-            uint256 owed = uint256(uint128(-tokenDelta));
+        // Settle what the whole ladder owes in the token, once.
+        if (owed != 0) {
             poolManager.sync(Currency.wrap(cb.token));
             IERC20(cb.token).safeTransfer(address(poolManager), owed);
             poolManager.settle();
@@ -691,6 +729,37 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
         return p.liquidity == 0 ? address(0) : _quoteOf(p);
     }
 
+    /// @notice Every position of a launch's ladder, starting at the launch price. Empty for
+    ///         a token never placed.
+    function bandsOf(address token) external view returns (Band[] memory) {
+        return _bands[token];
+    }
+
+    /// @notice A preset's ladder: where each band ends, in ticks from the starting price
+    ///         (`type(uint24).max` = the edge of the price scale), and its share of the
+    ///         supply in basis points.
+    function presetBands(uint8 preset) public pure returns (uint24[] memory ends, uint16[] memory sharesBps) {
+        uint24 edge = type(uint24).max;
+        if (preset == PRESET_CLASSIC) {
+            ends = new uint24[](1);
+            sharesBps = new uint16[](1);
+            (ends[0], sharesBps[0]) = (edge, 10_000);
+        } else if (preset == PRESET_STEADY_START || preset == PRESET_THICK_MIDDLE) {
+            ends = new uint24[](3);
+            sharesBps = new uint16[](3);
+            (ends[0], ends[1], ends[2]) = (TICKS_3X, TICKS_30X, edge);
+            (sharesBps[0], sharesBps[1], sharesBps[2]) =
+                preset == PRESET_STEADY_START ? (3_000, 5_500, 1_500) : (1_500, 5_500, 3_000);
+        } else if (preset == PRESET_WIDE_OPEN) {
+            ends = new uint24[](2);
+            sharesBps = new uint16[](2);
+            (ends[0], ends[1]) = (TICKS_2X, edge);
+            (sharesBps[0], sharesBps[1]) = (4_000, 6_000);
+        } else {
+            revert UnknownLiquidityPreset(preset);
+        }
+    }
+
     /// @notice A launch's trade fee in pips (10_000 = 1%); zero for a token never placed.
     function tradeFeeOf(address token) external view returns (uint24) {
         return _placements[token].tradeFee;
@@ -729,6 +798,70 @@ contract UniV4LiquidityPlacer is ILiquidityPlacer, IUnlockCallback, AccessContro
     // ------------------------------------------------------------------
     // Internals
     // ------------------------------------------------------------------
+
+    /// @dev The preset's bands as ticks and liquidity. Boundaries are snapped to the spacing
+    ///      (nearest multiple, at least one spacing past the previous); each band gets its
+    ///      share of `amount` and the last gets the remainder. Every band lies on the
+    ///      token-only side of the starting tick, so placing it costs no quote token.
+    function _ladder(
+        uint8 preset,
+        int24 startTick,
+        int24 edgeTick,
+        int24 spacing,
+        bool tokenIsCurrency0,
+        uint256 amount,
+        uint256 startFdv
+    ) private pure returns (Band[] memory bands) {
+        (uint24[] memory ends, uint16[] memory sharesBps) = presetBands(preset);
+        bands = new Band[](ends.length);
+        int256 from; // ticks from the start where this band begins
+        uint256 placed;
+        for (uint256 i; i < ends.length; ++i) {
+            bool last = i == ends.length - 1;
+            int256 to;
+            if (!last) {
+                int256 s = int256(spacing);
+                to = ((int256(uint256(ends[i])) + s / 2) / s) * s;
+                if (to <= from) to = from + s;
+            }
+            int24 lo;
+            int24 hi;
+            if (tokenIsCurrency0) {
+                // Buys move the tick UP: bands climb from the start.
+                lo = int24(int256(startTick) + from);
+                hi = last ? edgeTick : int24(int256(startTick) + to);
+            } else {
+                // Buys move the tick DOWN: bands descend from the start.
+                hi = int24(int256(startTick) - from);
+                lo = last ? edgeTick : int24(int256(startTick) - to);
+            }
+            if (lo >= hi || lo < TickMath.minUsableTick(spacing) || hi > TickMath.maxUsableTick(spacing)) {
+                revert StartFdvUnreachable(startFdv);
+            }
+            uint256 share = last ? amount - placed : (amount * sharesBps[i]) / 10_000;
+            placed += share;
+            bands[i] = Band({tickLower: lo, tickUpper: hi, liquidity: _bandLiquidity(share, lo, hi, tokenIsCurrency0)});
+            from = to;
+        }
+    }
+
+    /// @dev Liquidity for a token-only position holding `amount` of the token.
+    function _bandLiquidity(uint256 amount, int24 lo, int24 hi, bool tokenIsCurrency0) private pure returns (uint128) {
+        uint160 sqrtLower = TickMath.getSqrtPriceAtTick(lo);
+        uint160 sqrtUpper = TickMath.getSqrtPriceAtTick(hi);
+        if (tokenIsCurrency0) {
+            // amount0 = L * Q96 * (sqrtB - sqrtA) / (sqrtA * sqrtB), so
+            // L = (amount0 * sqrtA / Q96) * sqrtB / (sqrtB - sqrtA). Both steps floor, so L
+            // never asks for more than `amount`; scaling `amount` first keeps the dust to a
+            // few raw units rather than flooring the small `sqrtA * sqrtB / Q96` factor.
+            return _toLiquidity(
+                FullMath.mulDiv(FullMath.mulDiv(amount, sqrtLower, Q96), sqrtUpper, uint256(sqrtUpper - sqrtLower))
+            );
+        }
+        // amount1 = L * (sqrtB - sqrtA) / Q96, so L = amount1 * Q96 / (sqrtB - sqrtA).
+        // Floors, leaving dust — see the contract docs.
+        return _toLiquidity(FullMath.mulDiv(amount, Q96, uint256(sqrtUpper - sqrtLower)));
+    }
 
     function _hookPermissions() private pure returns (Hooks.Permissions memory perms) {
         perms.beforeInitialize = true;

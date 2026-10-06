@@ -140,6 +140,7 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
         address quoteToken,
         uint256 startFdv,
         uint24 tradeFee,
+        uint8 liquidityPreset,
         bytes32 placementId
     );
     event PlacerUpdated(address indexed previous, address indexed current);
@@ -183,6 +184,8 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
      * @param tradeFee      The pool's trade fee in pips (10_000 = 1%), charged on every
      *                      buy and sell in the quote token and split 88/12 creator/platform.
      *                      Fixed for the pool's life; the placer bounds it (at most 10%).
+     * @param liquidityPreset How the supply is spread along the price scale: 0 Classic,
+     *                      1 Steady start, 2 Thick middle, 3 Wide open (see the placer).
      * @param creatorBuyIn  Optional first buy for the creator, in `quoteToken`'s raw units,
      *                      made in this transaction right after the pool is placed — before
      *                      anyone else can trade. ETH: send exactly this as `msg.value`.
@@ -199,6 +202,7 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
         address quoteToken,
         uint256 startFdv,
         uint24 tradeFee,
+        uint8 liquidityPreset,
         uint256 creatorBuyIn,
         uint256 minTokensOut
     ) external payable nonReentrant whenNotPaused returns (uint256 launchId, address token) {
@@ -223,7 +227,7 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
         // Hand the entire supply to the placer. Nothing is withheld for the creator or
         // for the protocol — see the contract docs.
         IERC20(token).safeTransfer(address(currentPlacer), TOKEN_SUPPLY);
-        bytes32 placementId = currentPlacer.place(token, TOKEN_SUPPLY, quoteToken, startFdv, tradeFee);
+        bytes32 placementId = currentPlacer.place(token, TOKEN_SUPPLY, quoteToken, startFdv, tradeFee, liquidityPreset);
 
         // The placer must consume everything it was given. A residual balance here would
         // mean supply is stranded in the launchpad, permanently outside both the market
@@ -246,7 +250,17 @@ contract TokenLaunchpad is AccessControl, ReentrancyGuard, Pausable {
         _launchIdPlusOne[token] = launchId + 1;
 
         emit TokenLaunched(
-            launchId, token, msg.sender, name, symbol, metadataURI, quoteToken, startFdv, tradeFee, placementId
+            launchId,
+            token,
+            msg.sender,
+            name,
+            symbol,
+            metadataURI,
+            quoteToken,
+            startFdv,
+            tradeFee,
+            liquidityPreset,
+            placementId
         );
 
         if (creatorBuyIn != 0) _creatorBuy(launchId, token, quoteToken, creatorBuyIn, minTokensOut);

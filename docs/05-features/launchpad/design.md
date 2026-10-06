@@ -655,14 +655,24 @@ would revert the launch. `Placement.tokenIsCurrency0` records the case for the r
 the clients. Both sides round the opening valuation toward the dearer tick, so a launch
 never opens cheaper than its creator chose (at most one spacing, ~2%, above).
 
-#### One range, to the end of the price scale
+#### Liquidity presets: how the supply is spread along the price scale
 
-The position runs from the opening price to v4's last usable tick, so the token never sells
-out: there is liquidity at every price and no route can strand the pool in an empty range.
-Decided 2026-10-05 after reviewing OpenLaunch; the earlier ~100x range (46,000 ticks) sold
-out at a 100 ETH valuation for a 1 ETH launch. The cost is small — depth near the launch
-price is within ~10% of the 100x range's. One range rather than a band staircase: a ladder
-*shapes* a curve, it is not needed to *have* one.
+Decided 2026-10-06. The creator picks one of four fixed ladders of single-sided positions laid
+end to end from the opening price; the last always runs to v4's last usable tick, so no
+preset sells out and no route can strand the pool in an empty range.
+
+| Preset | Ladder (share of supply) | Character |
+|---|---|---|
+| Classic | 100% from 1× to the end of the scale | The even split; the reference depth |
+| Steady start | 30% 1×–3×, 55% 3×–30×, 15% after | Light front (opening ~0.7× Classic's depth), middle ~1.2× Classic's |
+| Thick middle | 15% 1×–3×, 55% 3×–30×, 30% after | Calmest from 3× up; fast first climb |
+| Wide open | 40% 1×–2×, 60% after | Deep at launch, thinner later |
+
+The supply is a fixed budget: a preset deeper than Classic somewhere is thinner somewhere else
+(the explainer page compares them). Bounds are tick offsets snapped to the spacing (within ~1%
+of each multiple). Custom ladders are deferred; a UI for them would borrow the raffle
+bonding-curve editor. The earlier single range (now Classic) replaced a ~100× range on
+2026-10-05 after reviewing OpenLaunch.
 
 Deployed parameters (step 22): tick spacing 200 (`setTickSpacing`, v4-valid only), LP fee
 zero (see the trade fee below), trade-fee floor 0.5%.

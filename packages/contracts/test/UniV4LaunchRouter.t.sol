@@ -59,7 +59,7 @@ contract UniV4LaunchRouterTest is Test, PlacerDeployer {
         router = new UniV4LaunchRouter(address(manager), address(launchpad));
         launchpad.setRouter(address(router));
 
-        (, token) = launchpad.launch("Frog Pond", "POND", "", address(0), PRICE * 1e9, TEST_TRADE_FEE, 0, 0);
+        (, token) = launchpad.launch("Frog Pond", "POND", "", address(0), PRICE * 1e9, TEST_TRADE_FEE, CLASSIC, 0, 0);
         vm.deal(buyer, 100 ether);
     }
 
@@ -308,7 +308,7 @@ contract UniV4LaunchRouterTest is Test, PlacerDeployer {
         assertEq(launchpad.placerOf(token), address(placer), "the old launch keeps its placer");
         assertEq(_buy(0.1 ether, 0), FIXTURE_BUY1_OUT, "and still routes through it");
 
-        (, address newer) = launchpad.launch("Newer", "NEW", "", address(0), PRICE * 1e9, TEST_TRADE_FEE, 0, 0);
+        (, address newer) = launchpad.launch("Newer", "NEW", "", address(0), PRICE * 1e9, TEST_TRADE_FEE, CLASSIC, 0, 0);
         assertEq(launchpad.placerOf(newer), address(next));
         vm.prank(buyer);
         assertEq(router.buy{value: 0.1 ether}(newer, 0.1 ether, 0, buyer, block.timestamp), FIXTURE_BUY1_OUT);

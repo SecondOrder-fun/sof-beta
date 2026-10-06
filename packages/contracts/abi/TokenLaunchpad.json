@@ -310,6 +310,11 @@
         "internalType": "uint24"
       },
       {
+        "name": "liquidityPreset",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
         "name": "creatorBuyIn",
         "type": "uint256",
         "internalType": "uint256"
@@ -866,6 +871,12 @@
         "type": "uint24",
         "indexed": false,
         "internalType": "uint24"
+      },
+      {
+        "name": "liquidityPreset",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
       },
       {
         "name": "placementId",
