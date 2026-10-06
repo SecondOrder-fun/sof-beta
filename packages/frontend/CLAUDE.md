@@ -113,7 +113,7 @@ oracle, so "Top FDV" groups by quote (ETH first).
 
 **The launch form takes a valuation, not a per-token price** (`src/routes/Launch.jsx`,
 `src/hooks/useTokenLaunchpad.js`), and passes it to `launch(…, quoteToken, startFdv,
-tradeFee, creatorBuyIn, minTokensOut)` unconverted. Every launch mints the same 1e9 supply, so
+tradeFee, liquidityPreset, creatorBuyIn, minTokensOut)` unconverted. Every launch mints the same 1e9 supply, so
 a per-token price is nine orders of magnitude from the valuation and, in a 6-decimal
 quote, too coarse to express. Display valuations in the quote and per-token prices
 in gwei for ETH (at the 1 ETH floor exactly 1 gwei per token), in the quote itself
@@ -131,22 +131,45 @@ pool's life; the summary says it is paid in the quote and that 88% goes to the c
 snipe tax a new pool copies; 0 from a placer without one), and the summary adds "Early
 buys: a snipe tax starting at 80%, falling to your trade fee over 30 s. Your first buy
 is exempt." — hidden when the window is 0 or the start is not above the chosen fee.
+**The creator picks a liquidity preset**, after the trade fee (`LiquidityPresetPicker`):
+how the placer lays the supply along the price scale, as one to three single-sided
+positions ("bands") end to end from the launch price. 0 Classic (the default, one band
+to the end of the scale), 1 Steady start (30% 1×–3×, 55% 3×–30×, 15% after), 2 Thick
+middle (15% / 55% / 30%), 3 Wide open (40% 1×–2×, 60% after). `src/lib/liquidityPresets.js`
+is the one frontend source for ids, i18n keys (`liquidityPresets.<key>.name/description`),
+ladders (`presetBands`' tick offsets 6,932 / 10,987 / 34,013 and shares, snapped like
+`_ladder`) and the cards' depth charts (a band's liquidity relative to Classic, one
+shared scale, log price axis to 100×); `tests/lib/liquidityPresets.test.js` reads the
+contract source to keep it equal to `presetBands`. The cards are a radio group (one tab
+stop, arrows / Home / End move the choice); `buildLaunchCalls` refuses an unknown id
+(`UnknownLiquidityPreset`). The summary's Liquidity row names the preset.
 
 A network with no launchpad in its deployment JSON renders an explanation, not an
 error. The raffle stack deploys independently of the launchpad.
 
 **Live pool state comes straight from Uniswap v4, not the indexer.**
 `useLaunchMarkets` reads each pool's slot0 and liquidity via `PoolManager.extsload`
-plus the placement (tick range, pool key, `tradeFee`) from the placer that placed that launch (`TokenLaunchpad.placerOf`
+plus the placement (the ladder's tick span, pool key, `tradeFee`, `liquidityPreset`) and
+its bands (`bandsOf`, same multicall) from the placer that placed that launch (`TokenLaunchpad.placerOf`
 — never the deployment's `LiquidityPlacer`, which is only where new launches go), and `src/lib/v4PoolMath.js` turns that into price,
 FDV, multiple since launch, supply sold, and exact buy/sell quotes. There is no
 quoter contract in the stack. That math is pinned to the wei against real `PoolManager`
-swaps: `test_fixture_quoteMathForFrontend` in the contracts package emits the
-numbers `tests/lib/v4PoolMath.test.js` reproduces. If a contracts change moves
+swaps: `test_fixture_quoteMathForFrontend` (one band) and
+`test_fixture_presetQuoteMathForFrontend` (Steady start, three bands) in the contracts
+package emit the numbers `tests/lib/v4PoolMath.test.js` and
+`tests/lib/v4PoolMathBands.test.js` reproduce. If a contracts change moves
 them, re-run the fixture and update the constants — never loosen the tolerances.
+The fixture's poolId and state slot change with the placer's (hook's) address; the
+test only pins the pair.
 The quote steps where v4 does — at each tick-bitmap word edge, from the pool key's
-tick spacing — or a swap crossing one is off by rounding. The fixture's poolId and
-state slot change with the placer's (hook's) address; the test only pins the pair.
+tick spacing, and at every band edge, where the active liquidity (the sum of the bands
+containing the price) changes like v4 crossing an initialized tick — or a swap
+crossing one is off by rounding (or, at a band edge, plainly wrong). Quotes use the
+placer's bands only: liquidity anyone else adds can only improve an exact-input fill.
+**Placers from before presets** (contracts < 0.43) have no `bandsOf`, and their
+`getPlacement` struct lacks `liquidityPreset`, which the current ABI cannot decode:
+`useLaunchMarkets` re-reads those placements with the ABI's struct minus that field and
+treats them as one band (the placement's range and `liquidity`) — Classic, preset 0.
 **Trade fee, in the quote only.** Launch pools have LP fee 0; the placer is each
 pool's v4 hook and takes the launch's own `tradeFee` (pips) of the gross quote flow,
 rounded up: a buy of G swaps `G − ceil(G·f/1e6)`; a sell's pool payout O reaches the
@@ -169,20 +192,21 @@ block ahead. A high rate makes tokens-out and minimum-out low (the buy fills and
 more); a low one would set minimum-out above the fill and revert. While the window is
 open the buy tab warns "Launch snipe tax: 63% now, falling to 1% in 12 s" (rate rounded
 up, `formatFeeRate`) and shows the fee at that rate; afterwards nothing extra.
-A buy the range cannot fill in full reverts on-chain (`PartialFillWithFee`), so it
+A buy the ladder cannot fill in full reverts on-chain (`PartialFillWithFee`), so it
 quotes nothing and the panel refuses it; a sell capped at launch fills partly.
 **Both orientations:** v4 sorts currencies by address. With the quote as currency0
-(every ETH launch) a buy is zeroForOne, the range is `[minUsableTick, tickUpper]` and
-the pool opens at `tickUpper`; an ERC-20 quote above the token makes the TOKEN
-currency0 (`placement.tokenIsCurrency0`): buys are oneForZero, the range is
+(every ETH launch) a buy is zeroForOne, the ladder spans `[minUsableTick, tickUpper]`
+and the pool opens at `tickUpper`; an ERC-20 quote above the token makes the TOKEN
+currency0 (`placement.tokenIsCurrency0`): buys are oneForZero, the ladder spans
 `[tickLower, maxUsableTick]`, opening at `tickLower`. That case is pinned by symmetry
-against the ETH fixture. The range runs to the end of the price scale, so a token
-never sells out; "supply sold" is what has left the pool, from the position's own
-balance, and never reaches 100% (half at 4× the launch price). Traps it encodes: an
-edge outside v4's half-open range reports **0 active liquidity** (an ETH launch
-opens exactly on its upper edge), so quote with the position's liquidity; and range
-edges must use the exact `TickMath` port, not a float, or a capped quote promises
-more than the whole supply.
+against the ETH fixtures, and a band-edge crossing against the SqrtPriceMath formulas.
+Every preset's last band runs to the end of the price scale, so a token never sells
+out; "supply sold" is what has left the pool, summed over the bands' own balances
+(`bandsSoldFraction`), and never reaches 100% (under Classic, half at 4× the launch
+price). Traps it encodes: an edge outside v4's half-open range reports **0 active
+liquidity** (an ETH launch opens exactly on its upper edge), so quote with the bands'
+liquidity (`liquidityAt`), never v4's active figure alone; and band edges must use the
+exact `TickMath` port, not a float, or a capped quote promises more than the whole supply.
 
 **The launchpad UI is composed only from existing primitives** (see the UI Gym):
 Tabs for buy/sell, sort and chart range, Card, Avatar for token art, Badge,
@@ -190,7 +214,10 @@ Progress for supply sold, ButtonGroup, Input, ContentBox, Table, Sheet,
 SlippageSettings, MiniCurveChart for a raffle's ticket ladder, CountdownTimer, and
 Dialog and Separator for creator fees. New
 visual elements are confirmed with the product owner and designed on the canvas
-first — the raffle Badge variants, the price chart and the ticker were.
+first — the raffle Badge variants, the price chart and the ticker were. The liquidity
+preset cards (`LiquidityPresetPicker`: Label, card-styled radio buttons, a small inline
+SVG depth chart in the raffle bonding-curve editor's primary stroke-and-fill style) are
+the newest and still to be confirmed there.
 
 **Trades go through whichever router the launchpad advertises.** `useLaunchTrade`
 reads `TokenLaunchpad.router()` and `lib/launchTrade.js` encodes against the
@@ -215,7 +242,10 @@ the current recipient) and `CreatorFeesSection` on the own profile (desktop
 multicalls; taken-but-uncollected fees are the public view `pendingFees(token)`, so
 nothing is simulated); call-building and the earned/summary math are pure in
 `lib/creatorFees.js`. The token page's facts show the launch's trade fee (from the
-market); the profile table shows it from the API launch row's `tradeFee`.
+market) and its liquidity preset (the market's placement; when the pool cannot be read,
+the backend's row, `useTokenLaunchRow` → `GET /api/launchpad/tokens/:address`
+`liquidityPreset`; a row without it shows "—"); the profile table shows the trade fee
+from the API launch row's `tradeFee`.
 
 - **Earned = credited + the recipient's floored share of `pendingFees`.** A
   claim batch collects first (`collectFees` is permissionless, returns one `fees`

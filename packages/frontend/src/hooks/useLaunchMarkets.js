@@ -4,16 +4,23 @@
 // supply sold, and what a quote needs — straight from the Uniswap v4 pool, in
 // each launch's own quote token (ETH or an allowlisted ERC-20).
 //
-// Two or three multicalls for any number of tokens, no indexer and no quoter contract:
-//   1. TokenLaunchpad.placerOf(token)            -> the placer holding the position
+// Two to four multicalls for any number of tokens, no indexer and no quoter contract:
+//   1. TokenLaunchpad.placerOf(token)            -> the placer holding the positions
 //      PoolManager.extsload([slot0, liquidity])  -> the pool's current state (in parallel)
-//   2. <that placer>.getPlacement(token)         -> the position's tick range, its
+//   2. <that placer>.getPlacement(token)         -> the ladder's tick span, its
 //                                                   orientation, its pool key (tick
-//                                                   spacing) and the launch's trade fee
+//                                                   spacing), the launch's trade fee and
+//                                                   its liquidity preset
 //      <that placer>.snipeTaxOf(token)           -> the early-buy snipe-tax schedule
 //                                                   (a placer from before it has none:
 //                                                   the read fails, the buy rate is the
 //                                                   trade fee)
+//      <that placer>.bandsOf(token)              -> every position of the ladder, which
+//                                                   the quotes step across
+//   2b. Only for a placer from before liquidity presets: getPlacement again, decoded
+//      without `liquidityPreset` (its struct has no such field, so the current ABI
+//      cannot decode it). It has no bandsOf either; its one position is the
+//      placement's range and liquidity — the Classic ladder, so it reads as preset 0.
 //   3. symbol() + decimals() of any quote token not listed in
 //      config/launchQuoteTokens.js (skipped when every quote is listed)
 // Each launch is read through ITS placer, not the deployment's current one: the
@@ -30,6 +37,18 @@ import { deriveMarketState, poolLiquiditySlot, poolStateSlot } from '@/lib/v4Poo
 import { quoteMetaFor, resolveQuoteMeta } from '@/lib/launchQuote';
 
 const ZERO_POOL = /^0x0+$/;
+
+/**
+ * getPlacement as a placer from before liquidity presets returns it: the current
+ * ABI's struct without its trailing `liquidityPreset`. Derived from the exported
+ * ABI, never copied; null when the ABI has no getPlacement.
+ */
+function legacyGetPlacementAbi() {
+  const fn = (UniV4LiquidityPlacerAbi ?? []).find((e) => e.type === 'function' && e.name === 'getPlacement');
+  const out = fn?.outputs?.[0];
+  if (!out?.components) return null;
+  return [{ ...fn, outputs: [{ ...out, components: out.components.filter((c) => c.name !== 'liquidityPreset') }] }];
+}
 const ZERO_ADDRESS = /^0x0{40}$/i;
 
 /**
@@ -84,22 +103,52 @@ export function useLaunchMarkets(launches, { wholeSupply = 1_000_000_000n, enabl
         placers[i]?.status === 'success' && !ZERO_ADDRESS.test(placers[i].result) ? placers[i].result : null,
       );
       const lookups = priced.map((l, i) => ({ token: l.token, placer: placerFor[i], i })).filter((x) => x.placer);
-      // Two reads per launch, interleaved: getPlacement then snipeTaxOf.
+      // Three reads per launch, interleaved: getPlacement, snipeTaxOf, bandsOf.
+      const READS = 3;
       const placementResults = lookups.length
         ? await client.multicall({
             contracts: lookups.flatMap(({ token, placer }) => [
               { address: placer, abi: UniV4LiquidityPlacerAbi, functionName: 'getPlacement', args: [token] },
               { address: placer, abi: UniV4LiquidityPlacerAbi, functionName: 'snipeTaxOf', args: [token] },
+              { address: placer, abi: UniV4LiquidityPlacerAbi, functionName: 'bandsOf', args: [token] },
             ]),
             allowFailure: true,
           })
         : [];
       const placements = [];
       const snipeTaxes = [];
+      const bandLists = [];
+      const ok = (r) => (r?.status === 'success' ? r.result : null);
       lookups.forEach(({ i }, j) => {
-        placements[i] = placementResults[2 * j];
-        snipeTaxes[i] = placementResults[2 * j + 1]?.status === 'success' ? placementResults[2 * j + 1].result : null;
+        placements[i] = placementResults[READS * j];
+        snipeTaxes[i] = ok(placementResults[READS * j + 1]);
+        bandLists[i] = ok(placementResults[READS * j + 2]);
       });
+
+      // A placer from before liquidity presets: its placement has no preset field and
+      // fails to decode against the current ABI, and it has no bandsOf. Read the
+      // placement again without the field.
+      const legacyAbi = legacyGetPlacementAbi();
+      const legacy = legacyAbi
+        ? lookups.filter(({ i }) => placements[i]?.status !== 'success' && bandLists[i] == null)
+        : [];
+      if (legacy.length) {
+        const retried = await client.multicall({
+          contracts: legacy.map(({ token, placer }) => ({
+            address: placer,
+            abi: legacyAbi,
+            functionName: 'getPlacement',
+            args: [token],
+          })),
+          allowFailure: true,
+        });
+        legacy.forEach(({ i }, j) => {
+          // One position from the launch price to the end of the scale: Classic.
+          if (retried[j]?.status === 'success') {
+            placements[i] = { status: 'success', result: { ...retried[j].result, liquidityPreset: 0 } };
+          }
+        });
+      }
 
       // The quote is the pool currency that is not the token.
       const quoteAddressOf = (placement) =>
@@ -120,6 +169,7 @@ export function useLaunchMarkets(launches, { wholeSupply = 1_000_000_000n, enabl
           slot0Word,
           liquidityWord,
           placement: placed[i],
+          bands: bandLists[i],
           wholeSupply,
           quote: quoteMetaFor(quoteMeta, quoteAddressOf(placed[i])),
           snipeTax: snipeTaxes[i],

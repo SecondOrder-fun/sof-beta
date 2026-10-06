@@ -4,10 +4,10 @@
 //
 // This is the launchpad's progress metric in place of a graduation bar: the pool
 // is the market from block one, so there is no threshold to cross. The share is
-// what has actually left the pool, from the position's own token balance
-// (v4PoolMath.soldFraction) — not a distance across a price range. The position
-// runs to the end of v4's price scale, so the bar never fills: there is
-// liquidity at every price and nothing to "sell out". The left end carries the
+// what has actually left the pool, summed over the ladder's bands' own token
+// balances (v4PoolMath.bandsSoldFraction) — not a distance across a price range.
+// Every liquidity preset's last band runs to the end of v4's price scale, so the
+// bar never fills: there is liquidity at every price and nothing to "sell out". The left end carries the
 // launch valuation, in the launch's quote; the note under the bar says why there
 // is no sellout valuation on the right.
 

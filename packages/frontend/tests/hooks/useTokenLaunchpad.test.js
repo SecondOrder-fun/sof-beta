@@ -159,13 +159,37 @@ describe("buildLaunchCalls", () => {
   const decodeLaunch = (data) => decodeFunctionData({ abi: TokenLaunchpadAbi, data });
 
   // The valuation goes to the contract as-is — no conversion to a per-token price —
-  // and the trade fee in pips, between startFdv and creatorBuyIn.
-  it("passes the valuation straight through as startFdv, the trade fee, and a 0 slippage floor", () => {
+  // then the trade fee in pips and the liquidity preset, before creatorBuyIn.
+  it("passes the valuation straight through as startFdv, the trade fee, Classic, and a 0 slippage floor", () => {
     const [call] = buildLaunchCalls({ ...base, quoteToken: ZERO, startFdv: 2n * ONE_ETH });
     const { functionName, args } = decodeLaunch(call.data);
     expect(functionName).toBe("launch");
-    expect(args).toEqual(["Second Order", "SOF", "ipfs://x", ZERO, 2n * ONE_ETH, 10_000, 0n, 0n]);
+    expect(args).toEqual(["Second Order", "SOF", "ipfs://x", ZERO, 2n * ONE_ETH, 10_000, 0, 0n, 0n]);
     expect(call.value).toBeUndefined();
+  });
+
+  it("sends the chosen liquidity preset between the trade fee and the first buy", () => {
+    const calls = buildLaunchCalls({
+      ...base,
+      quoteToken: USDC,
+      startFdv: 5_000n * 10n ** 6n,
+      liquidityPreset: 1,
+      creatorBuyIn: 50n * 10n ** 6n,
+    });
+    expect(decodeLaunch(calls[1].data).args.slice(5)).toEqual([10_000, 1, 50n * 10n ** 6n, 0n]);
+    for (const id of [0, 2, 3]) {
+      const [call] = buildLaunchCalls({ ...base, quoteToken: ZERO, startFdv: 2n * ONE_ETH, liquidityPreset: id });
+      expect(decodeLaunch(call.data).args[6]).toBe(id);
+    }
+  });
+
+  // UnknownLiquidityPreset on-chain; refused before the wallet prompt.
+  it("refuses an unknown liquidity preset", () => {
+    for (const liquidityPreset of [4, -1, 1.5, null]) {
+      expect(() => buildLaunchCalls({ ...base, quoteToken: ZERO, startFdv: 2n * ONE_ETH, liquidityPreset })).toThrow(
+        /liquidity preset/,
+      );
+    }
   });
 
   it("sends the creator's chosen trade fee", () => {
@@ -182,7 +206,7 @@ describe("buildLaunchCalls", () => {
     const calls = buildLaunchCalls({ ...base, quoteToken: ZERO, startFdv: 2n * ONE_ETH, creatorBuyIn: ONE_ETH / 10n });
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ to: LAUNCHPAD, value: ONE_ETH / 10n });
-    expect(decodeLaunch(calls[0].data).args.slice(3)).toEqual([ZERO, 2n * ONE_ETH, 10_000, ONE_ETH / 10n, 0n]);
+    expect(decodeLaunch(calls[0].data).args.slice(3)).toEqual([ZERO, 2n * ONE_ETH, 10_000, 0, ONE_ETH / 10n, 0n]);
   });
 
   // ERC-20 launch: no ETH at all, and the LAUNCHPAD (not the router) is approved
@@ -193,13 +217,13 @@ describe("buildLaunchCalls", () => {
     expect(calls.every((c) => c.value === undefined)).toBe(true);
     const approve = decodeFunctionData({ abi: ERC20Abi, data: calls[0].data });
     expect(approve).toMatchObject({ functionName: "approve", args: [LAUNCHPAD, 50n * 10n ** 6n] });
-    expect(decodeLaunch(calls[1].data).args.slice(3)).toEqual([USDC, 5_000n * 10n ** 6n, 10_000, 50n * 10n ** 6n, 0n]);
+    expect(decodeLaunch(calls[1].data).args.slice(3)).toEqual([USDC, 5_000n * 10n ** 6n, 10_000, 0, 50n * 10n ** 6n, 0n]);
   });
 
   it("sends just the launch for an ERC-20 pairing without a first buy", () => {
     const calls = buildLaunchCalls({ ...base, quoteToken: USDC, startFdv: 5_000n * 10n ** 6n });
     expect(calls).toHaveLength(1);
     expect(calls[0].value).toBeUndefined();
-    expect(decodeLaunch(calls[0].data).args.slice(3)).toEqual([USDC, 5_000n * 10n ** 6n, 10_000, 0n, 0n]);
+    expect(decodeLaunch(calls[0].data).args.slice(3)).toEqual([USDC, 5_000n * 10n ** 6n, 10_000, 0, 0n, 0n]);
   });
 });
