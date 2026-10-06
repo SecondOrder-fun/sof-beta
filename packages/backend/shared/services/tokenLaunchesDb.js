@@ -17,8 +17,8 @@ const TRADES = "launch_trades";
 
 const LAUNCH_COLUMNS =
   "token_address, launch_id, creator_address, name, symbol, metadata_uri, " +
-  "quote_token, quote_symbol, quote_decimals, start_price_e18, start_fdv, trade_fee, total_supply, pool_id, launched_at, " +
-  "block_number, tx_hash, is_hidden, is_verified, created_at, updated_at";
+  "quote_token, quote_symbol, quote_decimals, start_price_e18, start_fdv, trade_fee, liquidity_preset, " +
+  "total_supply, pool_id, launched_at, block_number, tx_hash, is_hidden, is_verified, created_at, updated_at";
 
 const TRADE_COLUMNS =
   "tx_hash, log_index, token_address, pool_id, trader, side, quote_amount, fee_amount, " +

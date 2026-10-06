@@ -74,6 +74,10 @@ function toLaunchResponse(row) {
     // quote token and fixed for the pool's life. 10000 on launches from before
     // contracts 0.42.0, whose pools charged a 1% LP fee instead.
     tradeFee: row.trade_fee,
+    // How the launch's liquidity is shaped: 0 Classic, 1 Steady start, 2 Thick
+    // middle, 3 Wide open (contracts 0.43.0). 0 on earlier launches, which all
+    // placed the single Classic range.
+    liquidityPreset: row.liquidity_preset,
     totalSupply: row.total_supply,
     poolId: row.pool_id,
     launchedAt: row.launched_at,

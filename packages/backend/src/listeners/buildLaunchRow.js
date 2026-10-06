@@ -58,7 +58,10 @@ export function storableText(value, max) {
  * start price is derived from it as quote raw units per whole token × 1e18
  * (`start_price_e18`) — the scale keeps a 6-decimal quote's precision.
  * `trade_fee` is the creator's per-launch trade fee in pips (10_000 = 1%),
- * fixed for the pool's life (contracts 0.42.0); a log without one is unusable.
+ * fixed for the pool's life (contracts 0.42.0); `liquidity_preset` is the
+ * shape of the launch's liquidity (contracts 0.43.0: 0 Classic, 1 Steady start,
+ * 2 Thick middle, 3 Wide open). A log without either is unusable: the columns'
+ * defaults describe launches from before those versions and would misstate it.
  *
  * @param {object} log - viem decoded log
  * @param {bigint} totalSupply - TOKEN_SUPPLY, read once at listener start
@@ -71,7 +74,9 @@ export function storableText(value, max) {
  */
 export function buildLaunchRow(log, totalSupply, blockTimeSec, quote = ETH_QUOTE) {
   const args = log?.args;
-  if (!args?.token || !args?.creator || args.tradeFee == null) return null;
+  if (!args?.token || !args?.creator || args.tradeFee == null || args.liquidityPreset == null) {
+    return null;
+  }
   if (blockTimeSec == null) throw new Error("buildLaunchRow: block time is required");
 
   const startFdv = BigInt(args.startFdv ?? 0n);
@@ -98,6 +103,7 @@ export function buildLaunchRow(log, totalSupply, blockTimeSec, quote = ETH_QUOTE
     start_price_e18: startPriceE18.toString(),
     start_fdv: startFdv.toString(),
     trade_fee: Number(args.tradeFee),
+    liquidity_preset: Number(args.liquidityPreset),
     total_supply: BigInt(totalSupply).toString(),
     // bytes32(0) means the placer returned no pool — not a real pool id, so
     // store NULL rather than a zero hash the trade listener would try to match.

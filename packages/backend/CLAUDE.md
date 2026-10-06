@@ -41,7 +41,7 @@ at the route, 400 if malformed or repeated; hidden tokens excluded, total filter
 lists one creator's launches: the frontend's creator-fees list on the profile. It matches
 the launch's creator, not its current fee recipient — the placer's `FeeRecipientUpdated` is
 not indexed, so a launch whose fees were handed to an account does not list under it.
-Three things are specific to the listener:
+Five things are specific to the listener:
 
 - It is the **only** source for a token's name, symbol and metadata URI. The launchpad
   emits them but does not store them (a setter would let a creator swap the name after
@@ -67,14 +67,21 @@ Three things are specific to the listener:
   (`quote_decimals`, `quote_symbol`); a failed `decimals` read throws so the launch is
   retried rather than stored unformattable. The API (and the `TokenLaunched` /
   `TokenTrade` SSE events) returns `quoteToken`, `quoteSymbol`, `quoteDecimals`,
-  `startPriceE18`, `startFdv`, `tradeFee`, trades' `quoteAmount` / `feeAmount` /
-  `priceE18`, chart points `{ t, priceE18 }`, and the ticker's trade items'
-  `quoteAmount` / `feeAmount` / `priceE18`.
+  `startPriceE18`, `startFdv`, `tradeFee`, `liquidityPreset`, trades' `quoteAmount` /
+  `feeAmount` / `priceE18`, chart points `{ t, priceE18 }`, and the ticker's trade
+  items' `quoteAmount` / `feeAmount` / `priceE18`.
 - **A launch has a trade fee** (contracts 0.42.0): `TokenLaunched.tradeFee`, pips
   (10,000 = 1%), the creator's choice, fixed for the pool's life, stored as
   `token_launches.trade_fee` (migration 029; launches from before 0.42 default to
   10,000 — their pools charged a 1% LP fee). `buildLaunchRow` treats a log without it
   as unusable rather than let the column's default misstate it.
+- **A launch has a liquidity preset** (contracts 0.43.0): `TokenLaunched.liquidityPreset`,
+  `uint8` — 0 Classic, 1 Steady start, 2 Thick middle, 3 Wide open — stored as
+  `token_launches.liquidity_preset` (migration 030, SMALLINT; launches from before 0.43
+  default to 0 — they all placed the single Classic range) and served as
+  `liquidityPreset` by the launch routes and the `TokenLaunched` SSE event. Like
+  `tradeFee`, `buildLaunchRow` treats a log without it as unusable (0 is a real preset,
+  not a missing one).
 
 Because a missed launch is unrecoverable, `processTokenLaunchedLog` lets a failed
 block-time read, or a transient (or unknown) insert failure, **throw** — there is no
