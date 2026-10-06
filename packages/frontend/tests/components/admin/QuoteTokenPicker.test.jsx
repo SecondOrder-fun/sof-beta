@@ -50,6 +50,7 @@ beforeAll(() => {
 });
 
 const ETH = 10n ** 18n;
+const ETH_Q = { address: "0x0000000000000000000000000000000000000000", symbol: "ETH", decimals: 18 };
 const GWEI = 10n ** 9n;
 const NOW = Math.floor(Date.now() / 1000);
 const tokenAt = (i) => `0x${String(i).padStart(2, "0").repeat(20)}`;
@@ -139,10 +140,20 @@ describe("useQuoteTokenChoice", () => {
   });
 
   it("carries a launch token's live FDV and pool price", () => {
-    setupReads({ markets: { [tokenAt(9)]: { fdvWei: 47_200_000_000_000_000_000n, priceWei: 47n * GWEI } } });
+    setupReads({ markets: { [tokenAt(9)]: { fdv: 47_200_000_000_000_000_000n, price: 47n * GWEI, quote: ETH_Q } } });
     const { result } = renderHook(() => useQuoteTokenChoice());
     act(() => result.current.selectFromList(tokenAt(9)));
     expect(result.current.selected).toMatchObject({ fdvWei: 47_200_000_000_000_000_000n, priceWei: 47n * GWEI });
+  });
+
+  // The forms show an ETH equivalent; a USDC-paired launch has no ETH price
+  // without an oracle, so it carries none rather than a USDC figure called ETH.
+  it("carries no ETH figures for a launch paired with an ERC-20 quote", () => {
+    const usdc = { address: "0x036CbD53842c5426634e7929541eC2318f3dCF7e", symbol: "USDC", decimals: 6 };
+    setupReads({ markets: { [tokenAt(9)]: { fdv: 5_000_000_000n, price: 5n, quote: usdc } } });
+    const { result } = renderHook(() => useQuoteTokenChoice());
+    act(() => result.current.selectFromList(tokenAt(9)));
+    expect(result.current.selected).toMatchObject({ fdvWei: null, priceWei: null });
   });
 
   it("a pasted approved token is chosen", () => {
@@ -182,7 +193,7 @@ describe("useQuoteTokenChoice", () => {
   });
 
   it("preselects a token handed in (from ?quoteToken=) through the same check", () => {
-    setupReads({ markets: { [OLD_LAUNCH.toLowerCase()]: { fdvWei: 3n * ETH, priceWei: 3n * GWEI } } });
+    setupReads({ markets: { [OLD_LAUNCH.toLowerCase()]: { fdv: 3n * ETH, price: 3n * GWEI, quote: ETH_Q } } });
     const { result } = renderHook(() => useQuoteTokenChoice({ initialToken: OLD_LAUNCH }));
     expect(useQuoteTokenInfo).toHaveBeenCalledWith(OLD_LAUNCH);
     expect(result.current).toMatchObject({ status: "eligible", quoteToken: OLD_LAUNCH, pasteText: OLD_LAUNCH });
@@ -212,7 +223,7 @@ describe("QuoteTokenPicker", () => {
   });
 
   it("shows a launch token on the trigger with its FDV", () => {
-    setupReads({ markets: { [tokenAt(9)]: { fdvWei: 47_200_000_000_000_000_000n, priceWei: 47n * GWEI } } });
+    setupReads({ markets: { [tokenAt(9)]: { fdv: 47_200_000_000_000_000_000n, price: 47n * GWEI, quote: ETH_Q } } });
     const { choice } = renderPicker();
     act(() => choice().selectFromList(tokenAt(9)));
     const trigger = screen.getByRole("combobox", { name: "quoteToken.label" });
@@ -221,7 +232,7 @@ describe("QuoteTokenPicker", () => {
   });
 
   it("lists my launches, then the platform's approved tokens, then the newest launches, with separators", () => {
-    setupReads({ markets: { [tokenAt(12)]: { fdvWei: 2n * ETH, priceWei: 2n * GWEI } } });
+    setupReads({ markets: { [tokenAt(12)]: { fdv: 2n * ETH, price: 2n * GWEI, quote: ETH_Q } } });
     renderPicker();
     const list = openList();
     const groups = within(list).getAllByRole("group");

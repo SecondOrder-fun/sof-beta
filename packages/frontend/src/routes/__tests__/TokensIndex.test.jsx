@@ -35,9 +35,9 @@ const launches = [
 ];
 
 const markets = {
-  [A]: { fdvWei: 50n * ONE_ETH, multiple: 25, soldFraction: 0.7 },
-  [B]: { fdvWei: 90n * ONE_ETH, multiple: 3, soldFraction: 0.2 },
-  [C]: { fdvWei: 2n * ONE_ETH, multiple: 1.2, soldFraction: 0.05 },
+  [A]: { fdv: 50n * ONE_ETH, multiple: 25, soldFraction: 0.7 },
+  [B]: { fdv: 90n * ONE_ETH, multiple: 3, soldFraction: 0.2 },
+  [C]: { fdv: 2n * ONE_ETH, multiple: 1.2, soldFraction: 0.05 },
 };
 
 const setup = ({ list = launches, isLoading = false, isAvailable = true, priced = markets, raffles = {} } = {}) => {
@@ -99,7 +99,7 @@ describe("TokensIndex", () => {
     expect(cardOrder()).toEqual([C, B, A]);
   });
 
-  it("re-sorts by biggest climb, top FDV and near sellout", () => {
+  it("re-sorts by biggest climb, top FDV and most sold", () => {
     setup();
     fireEvent.mouseDown(screen.getByRole("tab", { name: "sort.climb" }));
     fireEvent.click(screen.getByRole("tab", { name: "sort.climb" }));
@@ -109,8 +109,8 @@ describe("TokensIndex", () => {
     fireEvent.click(screen.getByRole("tab", { name: "sort.fdv" }));
     expect(cardOrder()).toEqual([B, A, C]);
 
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "sort.sellout" }));
-    fireEvent.click(screen.getByRole("tab", { name: "sort.sellout" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "sort.sold" }));
+    fireEvent.click(screen.getByRole("tab", { name: "sort.sold" }));
     expect(cardOrder()).toEqual([A, B, C]);
   });
 

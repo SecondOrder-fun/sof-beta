@@ -14,13 +14,17 @@ import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {
-    UniV4LiquidityPlacer, OnlyLaunchpad, NotPoolManager, ZeroAmount, GateNotSet, InvalidGate
+    UniV4LiquidityPlacer,
+    OnlyLaunchpad,
+    NotPoolManager,
+    TradeFeeOutOfRange,
+    TickSpacingOutOfRange
 } from "../src/launchpad/UniV4LiquidityPlacer.sol";
+import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
-import {LaunchPoolGate} from "../src/launchpad/LaunchPoolGate.sol";
 import {TokenLaunchpad} from "../src/launchpad/TokenLaunchpad.sol";
 import {LaunchToken} from "../src/launchpad/LaunchToken.sol";
-import {LaunchPoolGateDeployer} from "./helpers/LaunchPoolGateDeployer.sol";
+import {PlacerDeployer} from "./helpers/PlacerDeployer.sol";
 
 /// @notice The v4 placement path against a REAL PoolManager, not a mock.
 ///
@@ -28,7 +32,7 @@ import {LaunchPoolGateDeployer} from "./helpers/LaunchPoolGateDeployer.sol";
 ///         pool initialises, that the position is genuinely single-sided, that we owe no
 ///         ETH, that the tokens actually land in the pool — is a property of v4's own
 ///         accounting. So this deploys PoolManager itself.
-contract UniV4LiquidityPlacerTest is Test, LaunchPoolGateDeployer {
+contract UniV4LiquidityPlacerTest is Test, PlacerDeployer {
     using StateLibrary for IPoolManager;
 
     PoolManager internal manager;
@@ -38,9 +42,7 @@ contract UniV4LiquidityPlacerTest is Test, LaunchPoolGateDeployer {
     address internal admin = address(this);
     address internal creator = address(0xC0FFEE);
 
-    uint24 internal constant FEE = 10_000; // 1%
     int24 internal constant SPACING = 200;
-    int24 internal constant RANGE_WIDTH = 46_000; // ~100x climb
 
     uint256 internal constant MIN_PRICE = 1;
     uint256 internal constant MAX_PRICE = 1 ether;
@@ -55,17 +57,15 @@ contract UniV4LiquidityPlacerTest is Test, LaunchPoolGateDeployer {
     function setUp() public {
         manager = new PoolManager(admin);
 
-        launchpad = new TokenLaunchpad(admin, address(0), MIN_PRICE, MAX_PRICE);
-        placer = new UniV4LiquidityPlacer(
-            address(manager), address(launchpad), admin, FEE, SPACING, RANGE_WIDTH
-        );
+        launchpad = new TokenLaunchpad(admin, address(0), MIN_PRICE * 1e9, MAX_PRICE * 1e9);
+        placer = _deployPlacer(address(manager), address(launchpad), admin, SPACING);
         launchpad.setPlacer(address(placer));
-        placer.setGate(_deployGate(address(placer)));
     }
 
     function _launch(uint256 startPriceWei) internal returns (address token) {
         vm.prank(creator);
-        (, token) = launchpad.launch("Launched", "LNCH", "ipfs://m", startPriceWei);
+        (, token) =
+            launchpad.launch("Launched", "LNCH", "ipfs://m", address(0), startPriceWei * 1e9, TEST_TRADE_FEE, 0, 0);
     }
 
     // ------------------------------------------------------------------
@@ -142,7 +142,7 @@ contract UniV4LiquidityPlacerTest is Test, LaunchPoolGateDeployer {
     function test_cheaperStartPriceGivesHigherTick() public {
         address cheap = _launch(1_000_000_000); // FDV 1 ETH
         vm.prank(creator);
-        (, address dear) = launchpad.launch("Dear", "DEAR", "", 100_000_000_000); // FDV 100 ETH
+        (, address dear) = launchpad.launch("Dear", "DEAR", "", address(0), 100_000_000_000 * 1e9, TEST_TRADE_FEE, 0, 0); // FDV 100 ETH
 
         int24 cheapTick = placer.getPlacement(cheap).tickUpper;
         int24 dearTick = placer.getPlacement(dear).tickUpper;
@@ -167,7 +167,6 @@ contract UniV4LiquidityPlacerTest is Test, LaunchPoolGateDeployer {
         assertEq(poolId, PoolId.unwrap(placer.getPlacement(token).key.toId()));
         assertEq(placer.poolIdOf(address(0xDEAD)), bytes32(0), "unknown token has no pool");
     }
-
 
     /// The property that makes a launch a launch: a stranger can buy the token with ETH
     /// immediately, with no graduation step and nothing else to wait for.
@@ -285,7 +284,7 @@ contract UniV4LiquidityPlacerTest is Test, LaunchPoolGateDeployer {
     function test_onlyLaunchpadCanPlace() public {
         vm.prank(address(0xBAD));
         vm.expectRevert(OnlyLaunchpad.selector);
-        placer.place(address(0x1234), 1e18, PRICE);
+        placer.place(address(0x1234), 1e18, address(0), PRICE * 1e9, TEST_TRADE_FEE);
     }
 
     function test_unlockCallbackRejectsNonPoolManager() public {
@@ -297,7 +296,7 @@ contract UniV4LiquidityPlacerTest is Test, LaunchPoolGateDeployer {
     function test_twoLaunchesGetSeparatePools() public {
         address a = _launch(PRICE);
         vm.prank(creator);
-        (, address b) = launchpad.launch("Second", "SEC", "", PRICE);
+        (, address b) = launchpad.launch("Second", "SEC", "", address(0), PRICE * 1e9, TEST_TRADE_FEE, 0, 0);
 
         assertTrue(placer.poolIdOf(a) != placer.poolIdOf(b), "distinct pools");
         assertGt(IERC20(a).balanceOf(address(manager)), 0);
@@ -305,19 +304,19 @@ contract UniV4LiquidityPlacerTest is Test, LaunchPoolGateDeployer {
     }
 
     // ------------------------------------------------------------------
-    // Pool-initialization gate (anti-DoS)
+    // The placer is the pool hook: initialization gate (anti-DoS)
     // ------------------------------------------------------------------
 
     /// The attack the gate exists for: the next token's address is predictable, so an
-    /// attacker initializes its pool first. With the gate in the key they cannot.
+    /// attacker initializes its pool first. With the placer as the key's hook they cannot.
     function test_attackerCannotPreinitializeTheNextLaunchPool() public {
         address nextToken = vm.computeCreateAddress(address(launchpad), vm.getNonce(address(launchpad)));
         PoolKey memory key = PoolKey({
             currency0: Currency.wrap(address(0)),
             currency1: Currency.wrap(nextToken),
-            fee: FEE,
+            fee: 0,
             tickSpacing: SPACING,
-            hooks: placer.gate()
+            hooks: IHooks(address(placer))
         });
         vm.prank(address(0xBAD));
         vm.expectRevert();
@@ -333,7 +332,7 @@ contract UniV4LiquidityPlacerTest is Test, LaunchPoolGateDeployer {
         PoolKey memory hookless = PoolKey({
             currency0: Currency.wrap(address(0)),
             currency1: Currency.wrap(nextToken),
-            fee: FEE,
+            fee: 0,
             tickSpacing: SPACING,
             hooks: IHooks(address(0))
         });
@@ -343,76 +342,106 @@ contract UniV4LiquidityPlacerTest is Test, LaunchPoolGateDeployer {
         assertEq(_launch(PRICE), nextToken);
     }
 
-    function test_launchPoolsAreKeyedWithTheGate() public {
+    /// Launch pools charge nothing as an LP fee: the trade fee is the hook's.
+    function test_launchPoolsAreKeyedWithThePlacerAndNoLpFee() public {
         address token = _launch(PRICE);
-        assertEq(address(placer.getPlacement(token).key.hooks), address(placer.gate()));
+        PoolKey memory key = placer.getPlacement(token).key;
+        assertEq(address(key.hooks), address(placer));
+        assertEq(key.fee, 0);
     }
 
-    function test_placeRevertsUntilAGateIsSet() public {
-        UniV4LiquidityPlacer fresh = new UniV4LiquidityPlacer(
-            address(manager), address(launchpad), admin, FEE, SPACING, RANGE_WIDTH
+    /// v4 reads permissions from the address, so a placer anywhere but a mined address
+    /// would be called for the wrong hooks (or none); the constructor refuses.
+    function test_constructorRejectsAnAddressWithoutExactlyTheHookFlags() public {
+        vm.expectRevert(); // Hooks.HookAddressNotValid
+        new UniV4LiquidityPlacer(address(manager), address(launchpad), admin, SPACING, TEST_MIN_TRADE_FEE);
+    }
+
+    function test_hookFlagsAreExactlyInitializeAndSwapWithDeltas() public view {
+        uint160 flags = uint160(address(placer)) & Hooks.ALL_HOOK_MASK;
+        assertEq(flags, placer.HOOK_FLAGS());
+        assertEq(
+            flags,
+            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
+                | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
         );
-        launchpad.setPlacer(address(fresh));
-        vm.prank(creator);
-        vm.expectRevert(GateNotSet.selector);
-        launchpad.launch("Launched", "LNCH", "ipfs://m", PRICE);
     }
 
-    function test_setGateRejectsAnAddressWithoutExactlyTheInitializeBit() public {
-        // A gate for this placer, but at an ordinary CREATE address: its low bits are
-        // arbitrary, so v4 would not call it (or would call the wrong hooks).
-        LaunchPoolGate plain = new LaunchPoolGate(address(placer));
-        if (uint160(address(plain)) & uint160((1 << 14) - 1) == uint160(1 << 13)) return; // 1-in-16384 fluke
-        vm.expectRevert(abi.encodeWithSelector(InvalidGate.selector, address(plain)));
-        placer.setGate(address(plain));
+    function test_hookCallbacksRejectAnyoneButThePoolManager() public {
+        address token = _launch(PRICE);
+        PoolKey memory key = placer.getPlacement(token).key;
+        IPoolManager.SwapParams memory params =
+            IPoolManager.SwapParams({zeroForOne: true, amountSpecified: -1e18, sqrtPriceLimitX96: 0});
+        vm.startPrank(address(0xBAD));
+        vm.expectRevert(NotPoolManager.selector);
+        placer.beforeInitialize(address(placer), key, 0);
+        vm.expectRevert(NotPoolManager.selector);
+        placer.beforeSwap(address(0xBAD), key, params, "");
+        vm.expectRevert(NotPoolManager.selector);
+        placer.afterSwap(address(0xBAD), key, params, BalanceDelta.wrap(0), "");
+        vm.stopPrank();
     }
 
-    function test_setGateRejectsAGateForAnotherPlacer() public {
-        address foreign = _deployGate(address(0xF00D));
-        vm.expectRevert(abi.encodeWithSelector(InvalidGate.selector, foreign));
-        placer.setGate(foreign);
-    }
+    // ------------------------------------------------------------------
+    // Config
+    // ------------------------------------------------------------------
 
-    function test_onlyConfigRoleCanSetTheGate() public {
-        address gate = _deployGate(address(placer));
-        vm.prank(address(0xBAD));
+    function test_onlyConfigRoleCanSetTickSpacingAndMinFee() public {
+        vm.startPrank(address(0xBAD));
         vm.expectRevert();
-        placer.setGate(gate);
-    }
-
-    function test_onlyConfigRoleCanSetPoolParams() public {
-        vm.prank(address(0xBAD));
+        placer.setTickSpacing(10);
         vm.expectRevert();
-        placer.setPoolParams(500, 10, 1000);
+        placer.setMinTradeFee(0);
+        vm.stopPrank();
     }
 
     function test_configChangeAffectsSubsequentLaunches() public {
-        placer.setPoolParams(3000, 60, 12_000);
+        placer.setTickSpacing(60);
 
         address token = _launch(PRICE);
         UniV4LiquidityPlacer.Placement memory p = placer.getPlacement(token);
 
-        assertEq(p.key.fee, 3000);
+        assertEq(p.key.fee, 0);
         assertEq(p.key.tickSpacing, 60);
         assertEq(p.tickUpper % 60, 0, "aligned to the new spacing");
     }
 
-    function test_sweepDustRecoversTheRemainder() public {
-        address token = _launch(PRICE);
-        uint256 dust = IERC20(token).balanceOf(address(placer));
-        vm.assume(dust > 0);
-
-        placer.sweepDust(token, admin);
-        assertEq(IERC20(token).balanceOf(address(placer)), 0);
-        assertEq(IERC20(token).balanceOf(admin), dust);
+    function test_tickSpacingBounds() public {
+        vm.expectRevert(abi.encodeWithSelector(TickSpacingOutOfRange.selector, int24(0)));
+        placer.setTickSpacing(0);
+        vm.expectRevert(abi.encodeWithSelector(TickSpacingOutOfRange.selector, int24(32_768)));
+        placer.setTickSpacing(32_768);
     }
 
-    function test_sweepDustRevertsWhenNothingToSweep() public {
-        // A real token the placer holds none of. An EOA address would revert inside
-        // balanceOf's abi.decode instead, which would pass for the wrong reason.
-        LaunchToken unrelated = new LaunchToken("Unrelated", "UNR", 1e18, admin);
-        vm.expectRevert(ZeroAmount.selector);
-        placer.sweepDust(address(unrelated), admin);
+    /// The creator picks the fee, from the configured floor up to the compiled-in 10%.
+    function test_tradeFeeBounds() public {
+        uint24 max = placer.MAX_TRADE_FEE();
+        assertEq(max, 100_000, "10%");
+
+        vm.startPrank(creator);
+        vm.expectRevert(abi.encodeWithSelector(TradeFeeOutOfRange.selector, max + 1, TEST_MIN_TRADE_FEE, max));
+        launchpad.launch("Greedy", "GRD", "", address(0), PRICE * 1e9, max + 1, 0, 0);
+        vm.expectRevert(
+            abi.encodeWithSelector(TradeFeeOutOfRange.selector, TEST_MIN_TRADE_FEE - 1, TEST_MIN_TRADE_FEE, max)
+        );
+        launchpad.launch("Cheap", "CHP", "", address(0), PRICE * 1e9, TEST_MIN_TRADE_FEE - 1, 0, 0);
+
+        (, address atMax) = launchpad.launch("Max", "MAX", "", address(0), PRICE * 1e9, max, 0, 0);
+        (, address atMin) = launchpad.launch("Min", "MIN", "", address(0), PRICE * 1e9, TEST_MIN_TRADE_FEE, 0, 0);
+        vm.stopPrank();
+        assertEq(placer.tradeFeeOf(atMax), max);
+        assertEq(placer.getPlacement(atMin).tradeFee, TEST_MIN_TRADE_FEE);
+    }
+
+    function test_minTradeFeeIsCappedAtTheMaximum() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(TradeFeeOutOfRange.selector, uint24(100_001), uint24(0), uint24(100_000))
+        );
+        placer.setMinTradeFee(100_001);
+        placer.setMinTradeFee(0);
+        vm.prank(creator);
+        (, address free) = launchpad.launch("Free", "FRE", "", address(0), PRICE * 1e9, 0, 0, 0);
+        assertEq(placer.tradeFeeOf(free), 0);
     }
 }
 
@@ -446,9 +475,7 @@ contract TestSwapRouter is IUnlockCallback {
         BalanceDelta delta = manager.swap(
             key,
             IPoolManager.SwapParams({
-                zeroForOne: true,
-                amountSpecified: -int256(ethIn),
-                sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+                zeroForOne: true, amountSpecified: -int256(ethIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
             }),
             ""
         );
@@ -472,9 +499,7 @@ contract TestSwapRouter is IUnlockCallback {
         BalanceDelta delta = manager.swap(
             key,
             IPoolManager.SwapParams({
-                zeroForOne: false,
-                amountSpecified: -int256(tokensIn),
-                sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
+                zeroForOne: false, amountSpecified: -int256(tokensIn), sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
             }),
             ""
         );

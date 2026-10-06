@@ -22,7 +22,7 @@ import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {LaunchPoolGateDeployer} from "./helpers/LaunchPoolGateDeployer.sol";
+import {PlacerDeployer} from "./helpers/PlacerDeployer.sol";
 
 /// @notice The launch router against a REAL PoolManager.
 ///
@@ -30,7 +30,7 @@ import {LaunchPoolGateDeployer} from "./helpers/LaunchPoolGateDeployer.sol";
 ///         quote math (frontend lib/v4PoolMath.js) is pinned to 90,544,562.424768864432372374
 ///         tokens for 0.1 ETH at a fresh 1 ETH-FDV launch. The router must deliver that
 ///         to the wei, or the quote a user sees is not the trade they get.
-contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
+contract UniV4LaunchRouterTest is Test, PlacerDeployer {
     using StateLibrary for IPoolManager;
     using PoolIdLibrary for PoolKey;
 
@@ -45,28 +45,27 @@ contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
     uint256 internal constant PRICE = 1_000_000_000; // 1 gwei/token = 1 ETH FDV
 
     // From test_fixture_quoteMathForFrontend (UniV4LiquidityPlacer.t.sol), and the frontend.
-    uint256 internal constant FIXTURE_BUY1_OUT = 90544562424768864432372374;
-    uint256 internal constant FIXTURE_BUY2_OUT = 458314310870065520885587454;
-    uint256 internal constant FIXTURE_SELL_OUT = 633721166099902280;
+    uint256 internal constant FIXTURE_BUY1_OUT = 89729910215527505885256588;
+    uint256 internal constant FIXTURE_BUY2_OUT = 430498561536536844228747640;
+    uint256 internal constant FIXTURE_SELL_OUT = 641819427148231841;
 
     address internal token;
 
     function setUp() public {
         manager = new PoolManager(address(this));
-        launchpad = new TokenLaunchpad(address(this), address(0), 1, 1 ether);
-        placer = new UniV4LiquidityPlacer(address(manager), address(launchpad), address(this), 10_000, 200, 46_000);
+        launchpad = new TokenLaunchpad(address(this), address(0), 1e9, 1e27);
+        placer = _deployPlacer(address(manager), address(launchpad), address(this), 200);
         launchpad.setPlacer(address(placer));
-        placer.setGate(_deployGate(address(placer)));
         router = new UniV4LaunchRouter(address(manager), address(launchpad));
         launchpad.setRouter(address(router));
 
-        (, token) = launchpad.launch("Frog Pond", "POND", "", PRICE);
+        (, token) = launchpad.launch("Frog Pond", "POND", "", address(0), PRICE * 1e9, TEST_TRADE_FEE, 0, 0);
         vm.deal(buyer, 100 ether);
     }
 
     function _buy(uint256 ethIn, uint256 minOut) internal returns (uint256) {
         vm.prank(buyer);
-        return router.buy{value: ethIn}(token, minOut, buyer, block.timestamp);
+        return router.buy{value: ethIn}(token, ethIn, minOut, buyer, block.timestamp);
     }
 
     function _sell(uint256 tokensIn, uint256 minOut) internal returns (uint256) {
@@ -100,7 +99,7 @@ contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
     function test_buyRevertsBelowMinimumOut() public {
         vm.prank(buyer);
         vm.expectRevert(abi.encodeWithSelector(InsufficientOutput.selector, FIXTURE_BUY1_OUT, FIXTURE_BUY1_OUT + 1));
-        router.buy{value: 0.1 ether}(token, FIXTURE_BUY1_OUT + 1, buyer, block.timestamp);
+        router.buy{value: 0.1 ether}(token, 0.1 ether, FIXTURE_BUY1_OUT + 1, buyer, block.timestamp);
     }
 
     function test_sellRevertsBelowMinimumOut() public {
@@ -119,35 +118,34 @@ contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
         vm.warp(1_000_001);
         vm.prank(buyer);
         vm.expectRevert(abi.encodeWithSelector(Expired.selector, deadline));
-        router.buy{value: 0.1 ether}(token, 0, buyer, deadline);
+        router.buy{value: 0.1 ether}(token, 0.1 ether, 0, buyer, deadline);
     }
 
     // ------------------------------------------------------------------
-    // Partial fills: nothing may stay in the router
+    // The position never sells out
     // ------------------------------------------------------------------
 
-    /// A single 1 ETH-FDV range sells out for roughly 10 ETH, so 50 ETH cannot all be
-    /// spent. The unspent ETH must come back, and the router must end holding nothing.
-    function test_oversizedBuyRefundsUnspentEth() public {
+    /// The position runs to v4's last usable tick, so even a buy 50x the opening valuation
+    /// fills in full: there is liquidity at every price, the router keeps nothing, and the
+    /// pool still holds supply to sell. (With a ~100x range this 50 ETH buy used to empty
+    /// the position and come back mostly refunded.)
+    function test_aHugeBuyFillsInFullAndNeverSellsOut() public {
         uint256 before = buyer.balance;
         uint256 out = _buy(50 ether, 0);
         uint256 spent = before - buyer.balance;
 
-        assertLt(spent, 50 ether, "the range could not absorb it all");
-        assertGt(out, (launchpad.TOKEN_SUPPLY() * 999) / 1000, "essentially the whole supply");
+        assertEq(spent, 50 ether, "every wei was spent: no ceiling to hit");
+        assertLt(out, launchpad.TOKEN_SUPPLY(), "supply is left in the pool");
+        assertGt(IERC20(token).balanceOf(address(manager)), 0);
         assertEq(address(router).balance, 0, "router keeps no ETH");
         assertEq(address(manager).balance, spent, "the pool holds exactly what was spent");
     }
 
-    /// A buy that exhausts the range stops at the position's floor, not at v4's global
-    /// MIN_SQRT_PRICE: past the floor there is no liquidity to fill, and a price stranded
-    /// at the minimum reads as zero liquidity (so nothing can be quoted to sell back into)
-    /// and an absurd token price.
-    function test_exhaustingBuyLeavesThePriceAtTheRangeFloor() public {
+    /// After a huge buy the pool still quotes and still takes the whole balance back.
+    function test_afterAHugeBuyThePoolStillTakesEverythingBack() public {
         _buy(50 ether, 0);
         UniV4LiquidityPlacer.Placement memory p = placer.getPlacement(token);
-        (uint160 sqrtPriceX96,,,) = IPoolManager(address(manager)).getSlot0(p.key.toId());
-        assertEq(sqrtPriceX96, TickMath.getSqrtPriceAtTick(p.tickLower), "price parked at the floor");
+        assertGt(IPoolManager(address(manager)).getLiquidity(p.key.toId()), 0, "liquidity is still in range");
         assertGt(_sell(IERC20(token).balanceOf(buyer), 0), 0, "the whole position can be sold back into");
     }
 
@@ -192,12 +190,12 @@ contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
         MockERC20 foreign = new MockERC20("Foreign", "FRN", 1e24);
         vm.prank(buyer);
         vm.expectRevert(abi.encodeWithSelector(NotALaunchToken.selector, address(foreign)));
-        router.buy{value: 0.1 ether}(address(foreign), 0, buyer, block.timestamp);
+        router.buy{value: 0.1 ether}(address(foreign), 0.1 ether, 0, buyer, block.timestamp);
     }
 
     function test_sendsTokensToTheRecipientNotTheCaller() public {
         vm.prank(buyer);
-        uint256 out = router.buy{value: 0.1 ether}(token, 0, other, block.timestamp);
+        uint256 out = router.buy{value: 0.1 ether}(token, 0.1 ether, 0, other, block.timestamp);
         assertEq(IERC20(token).balanceOf(other), out);
         assertEq(IERC20(token).balanceOf(buyer), 0);
     }
@@ -212,13 +210,13 @@ contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
     function test_rejectsZeroAmountsAndZeroRecipient() public {
         vm.startPrank(buyer);
         vm.expectRevert(RouterZeroAmount.selector);
-        router.buy{value: 0}(token, 0, buyer, block.timestamp);
+        router.buy{value: 0}(token, 0, 0, buyer, block.timestamp);
 
         vm.expectRevert(RouterZeroAmount.selector);
         router.sell(token, 0, 0, buyer, block.timestamp);
 
         vm.expectRevert(RouterZeroAddress.selector);
-        router.buy{value: 0.1 ether}(token, 0, address(0), block.timestamp);
+        router.buy{value: 0.1 ether}(token, 0.1 ether, 0, address(0), block.timestamp);
         vm.stopPrank();
     }
 
@@ -253,12 +251,18 @@ contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
         bool found;
         for (uint256 i; i < logs.length; i++) {
             if (logs[i].emitter != address(manager) || logs[i].topics[0] != swapSig) continue;
-            (int128 amount0, int128 amount1,,,,) = abi.decode(logs[i].data, (int128, int128, uint160, uint128, int24, uint24));
+            (int128 amount0, int128 amount1,,,,) =
+                abi.decode(logs[i].data, (int128, int128, uint160, uint128, int24, uint24));
             assertLt(amount0, 0, "a BUY emits NEGATIVE amount0 (ETH the caller paid in)");
             assertGt(amount1, 0, "and POSITIVE amount1 (tokens the caller received)");
-            assertEq(uint256(uint128(-amount0)), ethSpent, "|amount0| is the ETH spent");
+            // Swap amounts are the POOL's and exclude the hook's fee: the trader paid
+            // |amount0| plus the TradeFeeTaken that follows (1% of 0.1 ETH).
+            assertEq(uint256(uint128(-amount0)) + 0.001 ether, ethSpent, "|amount0| + fee is the ETH spent");
+            assertEq(placer.pendingFees(token), 0.001 ether);
             assertEq(uint256(uint128(amount1)), tokensOut, "amount1 is the tokens out");
-            assertEq(address(uint160(uint256(logs[i].topics[2]))), address(router), "sender is the router, not the trader");
+            assertEq(
+                address(uint160(uint256(logs[i].topics[2]))), address(router), "sender is the router, not the trader"
+            );
             found = true;
         }
         assertTrue(found, "PoolManager emitted a Swap");
@@ -280,7 +284,12 @@ contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
 
         // The replacement routes identically — the interface is the contract clients rely on.
         vm.prank(buyer);
-        assertEq(ILaunchRouter(address(launchpad.router())).buy{value: 0.1 ether}(token, 0, buyer, block.timestamp), FIXTURE_BUY1_OUT);
+        assertEq(
+            ILaunchRouter(address(launchpad.router())).buy{value: 0.1 ether}(
+                token, 0.1 ether, 0, buyer, block.timestamp
+            ),
+            FIXTURE_BUY1_OUT
+        );
 
         launchpad.setRouter(address(0));
         assertEq(address(launchpad.router()), address(0));
@@ -293,18 +302,16 @@ contract UniV4LaunchRouterTest is Test, LaunchPoolGateDeployer {
     /// Swapping the launchpad's placer changes where NEW launches go. A token launched
     /// under the old one keeps its pool, and the router must still find it there.
     function test_launchesUnderAReplacedPlacerStayTradeable() public {
-        UniV4LiquidityPlacer next =
-            new UniV4LiquidityPlacer(address(manager), address(launchpad), address(this), 10_000, 200, 46_000);
-        next.setGate(_deployGate(address(next)));
+        UniV4LiquidityPlacer next = _deployPlacer(address(manager), address(launchpad), address(this), 200);
         launchpad.setPlacer(address(next));
 
         assertEq(launchpad.placerOf(token), address(placer), "the old launch keeps its placer");
         assertEq(_buy(0.1 ether, 0), FIXTURE_BUY1_OUT, "and still routes through it");
 
-        (, address newer) = launchpad.launch("Newer", "NEW", "", PRICE);
+        (, address newer) = launchpad.launch("Newer", "NEW", "", address(0), PRICE * 1e9, TEST_TRADE_FEE, 0, 0);
         assertEq(launchpad.placerOf(newer), address(next));
         vm.prank(buyer);
-        assertEq(router.buy{value: 0.1 ether}(newer, 0, buyer, block.timestamp), FIXTURE_BUY1_OUT);
+        assertEq(router.buy{value: 0.1 ether}(newer, 0.1 ether, 0, buyer, block.timestamp), FIXTURE_BUY1_OUT);
     }
 
     function test_placerOfIsZeroForForeignTokens() public view {

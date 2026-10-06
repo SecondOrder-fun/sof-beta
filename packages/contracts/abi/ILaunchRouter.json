@@ -9,6 +9,11 @@
         "internalType": "address"
       },
       {
+        "name": "quoteIn",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
         "name": "minTokensOut",
         "type": "uint256",
         "internalType": "uint256"
@@ -48,7 +53,7 @@
         "internalType": "uint256"
       },
       {
-        "name": "minEthOut",
+        "name": "minQuoteOut",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -65,7 +70,7 @@
     ],
     "outputs": [
       {
-        "name": "ethOut",
+        "name": "quoteOut",
         "type": "uint256",
         "internalType": "uint256"
       }

@@ -52,7 +52,7 @@ export async function listTradesSince(token, sinceIso, { cap = CHART_TRADE_CAP, 
     const take = Math.min(pageSize, want - rows.length);
     let q = supabase
       .from("launch_trades")
-      .select("price_wei, block_time, block_number, log_index")
+      .select("price_e18, block_time, block_number, log_index")
       .eq("token_address", lc(token));
     if (sinceIso) q = q.gte("block_time", sinceIso);
     const last = rows.at(-1);
@@ -82,7 +82,7 @@ export async function lastTradeBefore(token, sinceIso) {
   if (!hasSupabase || !sinceIso) return null;
   const { data, error } = await supabase
     .from("launch_trades")
-    .select("price_wei, block_time")
+    .select("price_e18, block_time")
     .eq("token_address", lc(token))
     .lt("block_time", sinceIso)
     .order("block_number", { ascending: false })
@@ -181,16 +181,21 @@ export async function listRecentTrades(limit = 20) {
   const { data, error } = await supabase
     .from("launch_trades")
     .select(
-      "tx_hash, log_index, token_address, trader, side, eth_amount, price_wei, block_time, block_number, " +
-        "token_launches!inner(is_hidden)",
+      "tx_hash, log_index, token_address, trader, side, quote_amount, fee_amount, price_e18, block_time, block_number, " +
+        "token_launches!inner(is_hidden, quote_symbol, quote_decimals)",
     )
     .eq("token_launches.is_hidden", false)
     .order("block_number", { ascending: false })
     .order("log_index", { ascending: false })
     .limit(limit);
   if (error) fail("listRecentTrades", error);
-  // The join is only a filter; drop its column from the rows.
-  return (data || []).map(({ token_launches: _join, ...trade }) => trade);
+  // The join filters out hidden tokens and carries each trade's quote, so the
+  // ticker can format its amount; flatten the quote onto the row.
+  return (data || []).map(({ token_launches: launch, ...trade }) => ({
+    ...trade,
+    quote_symbol: launch?.quote_symbol ?? null,
+    quote_decimals: launch?.quote_decimals ?? null,
+  }));
 }
 
 /** Recent launches. */
@@ -198,7 +203,7 @@ export async function listRecentLaunches(limit = 10) {
   if (!hasSupabase) return [];
   const { data, error } = await supabase
     .from("token_launches")
-    .select("token_address, creator_address, symbol, implied_fdv_wei, launched_at, tx_hash")
+    .select("token_address, creator_address, symbol, start_fdv, quote_symbol, quote_decimals, launched_at, tx_hash")
     .eq("is_hidden", false)
     .order("launched_at", { ascending: false })
     .limit(limit);

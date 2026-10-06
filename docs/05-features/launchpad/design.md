@@ -617,7 +617,7 @@ tradeable in the launch transaction.
 
 ```solidity
 interface ILiquidityPlacer {
-    function place(address token, uint256 amount, uint256 startPriceWei)
+    function place(address token, uint256 amount, address quoteToken, uint256 startFdv, uint24 tradeFee)
         external returns (bytes32 placementId);
 }
 ```
@@ -628,45 +628,112 @@ is expected to move again (Base now, Robinhood Chain next), and because it keeps
 the launchpad transfers the supply in, then asserts it holds nothing afterwards, so a
 placer that consumed only part of a launch fails the launch rather than stranding supply.
 
+#### Quote tokens
+
+A launch is paired with native ETH (`address(0)`, the default) or with an ERC-20 on the
+launchpad's allowlist (`setQuoteToken` / `removeQuoteToken`, CONFIG_ROLE) — USDC on Base
+Sepolia. Each allowed quote has its own opening-valuation bounds in its raw units. Only
+plain ERC-20s qualify (no fee-on-transfer, rebasing or callback tokens), and WETH is never
+listed next to ETH, which would split every ETH market in two. Decided 2026-10-05.
+
 #### Orientation — the part that is easy to get backwards
 
-ETH is `address(0)`, numerically below every token address, so **ETH is always `currency0`
-and the launch token always `currency1`**. v4 prices are `currency1/currency0`, i.e. *token
-per ETH*. Therefore a **high tick means a cheap token**, and buying the token moves the
-tick **down**. "Number go up" is a falling tick.
+v4 sorts a pool's currencies by address and prices it `currency1/currency0` in raw units.
 
-A position holds only `currency1` when the current tick is at or above its upper tick. So
-the position spans `[tickUpper - rangeWidthTicks, tickUpper]` and the pool is initialised
-exactly **at** `tickUpper`. That is what makes it single-sided: the placer is never funded
-with ETH, so a position that required any would revert the launch. Buyers then walk the
-tick down through the range, paying progressively more per token.
+- **Quote is currency0** — always for ETH (`address(0)` sorts first), and for an ERC-20
+  below the launch token. Price is *token per quote*: a **high tick is a cheap token** and
+  buying moves the tick **down**. The position holds only the token while the tick is at or
+  above its upper tick, so it spans `[minUsableTick, tickUpper]` and the pool starts **at**
+  `tickUpper`.
+- **Token is currency0** — an ERC-20 quote above the launch token. Price is *quote per
+  token*: a high tick is an expensive token and buying moves the tick **up**. The position
+  spans `[tickLower, maxUsableTick]` and the pool starts **at** `tickLower`.
 
-#### One range, not a band staircase
+Either way the pool starts exactly at the edge where it owes no quote token, which is what
+makes it single-sided: the placer is never funded, so a position that required any quote
+would revert the launch. `Placement.tokenIsCurrency0` records the case for the router and
+the clients. Both sides round the opening valuation toward the dearer tick, so a launch
+never opens cheaper than its creator chose (at most one spacing, ~2%, above).
 
-Clanker and Pons both spread liquidity across several bands. A ladder *shapes* a curve; it
-is not needed to *have* one. One wide range is continuous and monotonic with less gas,
-fewer `modifyLiquidity` calls and no per-band rounding. Bands stay an easy extension — the
-range parameters are already config — and should be added only for a shape one range
-cannot express.
+#### One range, to the end of the price scale
 
-Deployed parameters (step 22): fee 1%, tick spacing 200, range width 46,000 ticks
-(`1.0001**46_000` ≈ 100x climb before the supply is fully sold).
+The position runs from the opening price to v4's last usable tick, so the token never sells
+out: there is liquidity at every price and no route can strand the pool in an empty range.
+Decided 2026-10-05 after reviewing OpenLaunch; the earlier ~100x range (46,000 ticks) sold
+out at a 100 ETH valuation for a 1 ETH launch. The cost is small — depth near the launch
+price is within ~10% of the 100x range's. One range rather than a band staircase: a ladder
+*shapes* a curve, it is not needed to *have* one.
 
-#### Start prices are only meaningful as FDV
+Deployed parameters (step 22): tick spacing 200 (`setTickSpacing`, v4-valid only), LP fee
+zero (see the trade fee below), trade-fee floor 0.5%.
 
-Every launch mints the same 1e9 tokens, so `startPriceWei * 1e9` — the implied
-fully-diluted valuation — is the number that governs behaviour, nine orders of magnitude
-from the price. `TokenLaunchpad.impliedFdvWei` / `startPriceBoundsAsFdvWei` exist so the
-bounds are set in that unit. This is not theoretical: 1e6 wei/token looks like a
-reasonable "small" price and is an FDV of 0.001 ETH, where a single 0.1 ETH buy consumes
-the whole position and drives the pool to `MIN_TICK`. Deployed bounds are a **1 ETH floor
-and a 1000 ETH ceiling**, both `CONFIG_ROLE`-adjustable.
+#### Trade fee: the placer is the pool's hook, and charges only the quote token
+
+Decided 2026-10-05. A plain LP fee accrues in whichever token the trader pays in: the quote
+on buys, the **launch token on sells**. That handed creators their own token to sell (fee
+income that looks like dumping) and left the treasury holding one coin per launch. Mint.club
+charges only the reserve token because a bonding curve only ever moves the reserve; on a v4
+pool the same result needs a hook. So launch pools have a **zero LP fee**, and the placer —
+deployed at a mined address carrying its hook flags — is every pool's hook:
+
+- `beforeInitialize`: only the placer may initialize a pool keyed with it (the anti-DoS gate
+  that `LaunchPoolGate` used to be).
+- `beforeSwap` / `afterSwap` with return deltas: the fee is `tradeFee` of the **gross quote
+  flow**, charged in the quote token on every swap, through any router. When the quote is
+  the specified side (exact-in buy, exact-out sell) `beforeSwap` takes it from the specified
+  amount; otherwise (exact-in sell, exact-out buy) `afterSwap` takes it from the unspecified
+  amount. All four shapes charge the same rate; fees round up; a quote-specified swap that
+  fills short of its amount (a price limit) reverts rather than overcharge, and one too small
+  to carry its fee is refused. The same split as Clanker v4's protocol fee; Flaunch, Zora and
+  OpenZeppelin's `BaseHookFee` charge the unspecified side instead, which cannot fix one
+  currency.
+- The hook settles its credit as ERC-6909 claims (`PoolManager.mint`), no transfer per swap,
+  adds to `pendingFees[token]` and emits `TradeFeeTaken` plus the standard `HookFee` after
+  the PoolManager's `Swap` log — whose amounts are the pool's and exclude the fee, which
+  indexers must add back (buys) or subtract (sells).
+- `collectFees(token)` (permissionless) splits pending fees 88/12 to the fee recipient and
+  treasury per quote currency; `claim(currency, to)` burns claims and has the PoolManager pay
+  `to` directly.
+
+The creator chooses `tradeFee` at launch (`launch(..., startFdv, tradeFee, ...)`), from
+`minTradeFee` (CONFIG_ROLE, 0.5% at deploy) up to the compiled-in `MAX_TRADE_FEE` of 10%,
+fixed for the pool's life. Pools are sell-floored at the launch price (no liquidity below),
+so exact-out sells beyond what the pool holds revert.
+
+#### Snipe tax
+
+Built 2026-10-05, in the same hook. Bots buy in a launch's first block; for a short window a
+BUY pays a rate decaying linearly from 80% to the launch's trade fee over 30 seconds (15 Base
+blocks), then the trade fee alone. Comparable: Clanker's descending MEV fee (up to 80%, up to
+2 minutes), Zora's 99%→1% over 10 seconds, Pons's reported 99% buy-only tax over ~5 seconds.
+Sells never pay it. The schedule is CONFIG_ROLE's (`setSnipeTax`, ≤ 99%, ≤ 1 hour) and each
+pool copies it at placement. The surcharge above the trade fee goes **entirely to the
+treasury**: split 88/12, a creator could snipe their own launch and recover most of the tax.
+The creator's own buy inside the launch transaction is exempt — it precedes any other trade
+(`exemptNextBuy`, a transient flag only the launchpad can set).
+
+#### The opening price is set as a valuation
+
+Every launch mints the same 1e9 tokens, so the launch takes the opening fully-diluted
+valuation (`startFdv`) rather than a per-token price, which is nine orders of magnitude
+smaller and, in a 6-decimal quote, too coarse to express (a 5,000 USDC valuation is 5 raw
+units per token). This is not theoretical: an FDV of 0.001 ETH looks like a reasonable
+"small" launch and a single 0.1 ETH buy would consume most of its depth. Deployed ETH
+bounds are a **1 ETH floor and a 1000 ETH ceiling**; USDC's are 2,500 to 2,500,000.
+
+#### Creator buy in the launch transaction
+
+`launch(..., creatorBuyIn, minTokensOut)` optionally buys for the creator through the
+active router right after placement, in the same transaction, so nobody can buy ahead of
+them. It is an ordinary router buy — pool price, the launch's trade fee — so it is not a free allocation;
+`minTokensOut` reverts the whole launch and any unspent quote is refunded.
 
 #### Dust
 
-Liquidity is an integer, so flooring it leaves a remainder of at most
-`(sqrtB - sqrtA) / 2**96` raw units — around 1e-12 whole tokens at realistic prices. It
-stays in the placer, and `sweepDust` makes it recoverable rather than silently stuck.
+Liquidity is an integer, so flooring it leaves a remainder of a few raw units — around
+1e-12 whole tokens at realistic prices. It stays in the placer for good: launch tokens
+belong to their launches (and the raffles and markets built on them), not to the platform,
+so there is no sweep (removed 2026-10-05).
 
 ### 5.10 `launchpad/ILaunchRouter.sol` + `launchpad/UniV4LaunchRouter.sol`
 

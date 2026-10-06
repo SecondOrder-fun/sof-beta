@@ -31,7 +31,7 @@ vi.mock("@/components/launchpad/CreatorFeesCard", async () => {
 });
 vi.mock("react-i18next", async (importOriginal) => ({
   ...(await importOriginal()),
-  useTranslation: () => ({ t: (key) => key }),
+  useTranslation: () => ({ t: (key, opts) => (key === "detail.factTradeFeeValue" ? `${opts.fee}% in ${opts.quote}` : key) }),
 }));
 
 const TOKEN = "0x1111111111111111111111111111111111111111";
@@ -46,10 +46,11 @@ const launch = {
   totalSupply: 1_000_000_000n * 10n ** 18n,
 };
 const market = deriveMarketState({
-  slot0Word: "0x0000000027100000000329600000000000007b42d530bfeef6c84ca32f6118a4",
+  slot0Word: "0x0000000000000000000329600000000000007b42d530bfeef6c84ca32f6118a4",
   liquidityWord: "0x0",
-  placement: { tickLower: 161200, tickUpper: 207200, liquidity: 35222655548218972599314n },
+  placement: { tickLower: -887200, tickUpper: 207200, liquidity: 31690866724818211737594n, tradeFee: 20_000 },
   wholeSupply: 1_000_000_000n,
+  quote: { address: "0x0000000000000000000000000000000000000000", symbol: "ETH", decimals: 18 },
 });
 
 const setup = ({ data = launch, mobile = false, path = `/tokens/${TOKEN}`, featured = null } = {}) => {
@@ -142,6 +143,12 @@ describe("TokenDetail", () => {
     setup();
     expect(screen.getByText("detail.factAllocationValue")).toBeInTheDocument();
     expect(screen.getByText("detail.factControlsValue")).toBeInTheDocument();
+  });
+
+  it("states the launch's own trade fee, in its quote", () => {
+    setup();
+    expect(screen.getByText("detail.factTradeFee")).toBeInTheDocument();
+    expect(screen.getByText("2% in ETH")).toBeInTheDocument();
   });
 
   it("renders not-found for an address that is not a launch", () => {

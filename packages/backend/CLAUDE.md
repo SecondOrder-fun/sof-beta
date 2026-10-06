@@ -41,7 +41,7 @@ at the route, 400 if malformed or repeated; hidden tokens excluded, total filter
 lists one creator's launches: the frontend's creator-fees list on the profile. It matches
 the launch's creator, not its current fee recipient — the placer's `FeeRecipientUpdated` is
 not indexed, so a launch whose fees were handed to an account does not list under it.
-Two things are specific to the listener:
+Three things are specific to the listener:
 
 - It is the **only** source for a token's name, symbol and metadata URI. The launchpad
   emits them but does not store them (a setter would let a creator swap the name after
@@ -49,6 +49,32 @@ Two things are specific to the listener:
   later — unlike every other listener here, whose state can be re-read.
 - The event's `placementId` **is** the Uniswap v4 PoolId, so `token_launches.pool_id`
   is the key `launchTradeListener` uses to attribute PoolManager `Swap` logs to a token.
+- **A launch has a quote token** (contracts 0.41.0): native ETH (`quote_token` =
+  0x000…000) or an allowlisted ERC-20 (USDC on Base Sepolia). Every amount is in that
+  quote's raw units — `start_fdv` (the opening valuation the launch takes) and
+  `launch_trades.quote_amount` (migration 029 renamed the old `*_wei` / `eth_amount`
+  columns). **Prices are scaled by 1e18**: `start_price_e18` and `launch_trades.price_e18`
+  are quote raw units per WHOLE token × 1e18 (WAD fixed point, TEXT like every bigint
+  column), because a 6-decimal quote has too few raw units per token — a 2,500 USDC
+  launch is 2.5 raw USDC per token, which an integer floors to 2. Both are computed
+  exactly in BigInt, scaling before the one division: `buildLaunchRow` takes
+  `startFdv × 1e36 / totalSupplyRaw`; `buildTradeRow.priceE18` takes
+  `2^192 × 1e36 / sqrtPriceX96²` when the quote is currency0 and
+  `sqrtPriceX96² × 1e36 / 2^192` when the token is (0 for a zero price or supply).
+  Migration 029 multiplied existing rows by 1e18 in the same guarded step that renamed
+  the `*_wei` columns, so a re-run is a no-op. `resolveQuote` reads an ERC-20's
+  `decimals` and `symbol` once (cached) and stores them on the launch
+  (`quote_decimals`, `quote_symbol`); a failed `decimals` read throws so the launch is
+  retried rather than stored unformattable. The API (and the `TokenLaunched` /
+  `TokenTrade` SSE events) returns `quoteToken`, `quoteSymbol`, `quoteDecimals`,
+  `startPriceE18`, `startFdv`, `tradeFee`, trades' `quoteAmount` / `feeAmount` /
+  `priceE18`, chart points `{ t, priceE18 }`, and the ticker's trade items'
+  `quoteAmount` / `feeAmount` / `priceE18`.
+- **A launch has a trade fee** (contracts 0.42.0): `TokenLaunched.tradeFee`, pips
+  (10,000 = 1%), the creator's choice, fixed for the pool's life, stored as
+  `token_launches.trade_fee` (migration 029; launches from before 0.42 default to
+  10,000 — their pools charged a 1% LP fee). `buildLaunchRow` treats a log without it
+  as unusable rather than let the column's default misstate it.
 
 Because a missed launch is unrecoverable, `processTokenLaunchedLog` lets a failed
 block-time read, or a transient (or unknown) insert failure, **throw** — there is no
@@ -97,9 +123,14 @@ PoolManager's `Swap` event. Rules it depends on:
   launch skipped as unstorable is not watched either — its trades could not be stored.
   The starting pool map (`tokenLaunchesDb.listPoolIndex`) is paged by keyset until
   exhausted: PostgREST caps a response at 1,000 rows by default.
-- **`amount0 < 0` is a BUY, and `sender` is the router.** Pinned against a real swap by
+- **A swap paying the QUOTE in is a BUY, and `sender` is the router.** Deltas are the
+  caller's (negative = paid in) and the POOL's — they exclude the hook's trade fee (next
+  rule) — pinned against a real swap by
   `contracts/test/UniV4LaunchRouter.t.sol:test_swapEventSignConvention_forTheIndexer`
-  (IPoolManager's own comment reads as the opposite sign). The real trader comes from
+  (IPoolManager's own comment reads as the opposite sign). The quote is `amount0` for ETH
+  and for an ERC-20 below the token, but `amount1` when the token sorts below its ERC-20
+  quote (`tokenIsCurrency0`, kept per pool in the listener's pool map); side, amounts,
+  price (`priceE18`) and attribution all read the quote side accordingly. The real trader comes from
   the router's `Bought`/`Sold` event in the same receipt, trusted only when the swap's
   sender has been a launch router **and** emitted the event. The trusted set is built
   from chain history, not memory, so it survives a restart: every
@@ -111,6 +142,25 @@ PoolManager's `Swap` event. Rules it depends on:
   newest swap before each batch is attributed. Each Swap pairs with the router event
   that follows it in log order (a batched buy-then-sell attributes both), and a Bought
   only names a BUY, a Sold only a SELL.
+- **`quote_amount` is what the trader paid or got; the trade fee is added from the
+  receipt.** Since contracts 0.42.0 launch pools have a zero LP fee (`Swap.fee` = 0) and
+  the placer, as the pool's v4 hook, takes `tradeFee` in the quote token, so `Swap`'s
+  amounts exclude it. The hook emits `TradeFeeTaken(poolId, token, fee, snipeSurcharge)` (`fee` is the whole fee: a buy in a launch's first seconds also pays the snipe tax, even at a 0% trade fee) right after the
+  Swap (after the fee mint's ERC-6909 `Transfer`, before control returns to the caller);
+  `buildTradeRow.tradeFeeOf` pairs a Swap with the first `TradeFeeTaken` for its pool
+  after it and before that pool's next Swap in the transaction (none = 0). A BUY stores
+  `|pool quote| + fee`, a SELL `pool quote − fee`, and `fee_amount` the fee (TEXT, quote
+  raw units; NULL on rows from before migration 029 and on an earlier launchpad's LP-fee
+  pools, `Swap.fee` ≠ 0, whose fee is already inside the amounts). Token amounts and
+  `price_e18` (the pool price) are unaffected. A swap that cannot have paid a hook fee —
+  LP-fee pool, a SELL on a `trade_fee` 0 pool (kept per pool in the pool map, from
+  `listPoolIndex` and `TokenLaunched`; a buy there can still pay the snipe tax), or no
+  quote moved — is never paired, so a look-alike event emitted
+  after it counts for nothing. The fee comes from the same receipt attribution reads
+  (one fetch per transaction): router swaps cost nothing extra, a swap on a fee-paying
+  pool through any other route costs one receipt. The router's `Bought.quoteIn` /
+  `Sold.quoteOut` already include the fee. The placer's own events (`LiquidityPlaced`,
+  `FeesCollected`, `HookFee`) are not indexed.
 - **Never store a half-built row.** A failed block-time read, receipt read, router-history
   read or trade insert throws, so the range is retried; a row written with `block_time`
   NULL or the router as trader would never be repaired, since the insert ignores

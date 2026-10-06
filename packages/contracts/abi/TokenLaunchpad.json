@@ -13,17 +13,21 @@
         "internalType": "address"
       },
       {
-        "name": "_minStartPriceWei",
+        "name": "_minEthStartFdv",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "_maxStartPriceWei",
+        "name": "_maxEthStartFdv",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "receive",
+    "stateMutability": "payable"
   },
   {
     "type": "function",
@@ -92,6 +96,19 @@
   },
   {
     "type": "function",
+    "name": "NATIVE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "TOKEN_SUPPLY",
     "inputs": [],
     "outputs": [
@@ -154,7 +171,12 @@
             "internalType": "uint64"
           },
           {
-            "name": "startPriceWei",
+            "name": "quoteToken",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "startFdv",
             "type": "uint256",
             "internalType": "uint256"
           },
@@ -236,25 +258,6 @@
   },
   {
     "type": "function",
-    "name": "impliedFdvWei",
-    "inputs": [
-      {
-        "name": "startPriceWei",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "pure"
-  },
-  {
-    "type": "function",
     "name": "isLaunchToken",
     "inputs": [
       {
@@ -292,7 +295,27 @@
         "internalType": "string"
       },
       {
-        "name": "startPriceWei",
+        "name": "quoteToken",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "startFdv",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "tradeFee",
+        "type": "uint24",
+        "internalType": "uint24"
+      },
+      {
+        "name": "creatorBuyIn",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minTokensOut",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -309,7 +332,7 @@
         "internalType": "address"
       }
     ],
-    "stateMutability": "nonpayable"
+    "stateMutability": "payable"
   },
   {
     "type": "function",
@@ -344,32 +367,6 @@
         "name": "exists",
         "type": "bool",
         "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "maxStartPriceWei",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "minStartPriceWei",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -425,6 +422,67 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "quoteConfig",
+    "inputs": [
+      {
+        "name": "quoteToken",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "allowed",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "minStartFdv",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxStartFdv",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "quoteTokenOf",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "removeQuoteToken",
+    "inputs": [
+      {
+        "name": "quoteToken",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -490,6 +548,29 @@
   },
   {
     "type": "function",
+    "name": "setQuoteToken",
+    "inputs": [
+      {
+        "name": "quoteToken",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "minStartFdv",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxStartFdv",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setRouter",
     "inputs": [
       {
@@ -500,42 +581,6 @@
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setStartPriceBounds",
-    "inputs": [
-      {
-        "name": "minWei",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "maxWei",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "startPriceBoundsAsFdvWei",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "minFdvWei",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "maxFdvWei",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -565,6 +610,43 @@
   },
   {
     "type": "event",
+    "name": "CreatorBought",
+    "inputs": [
+      {
+        "name": "launchId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "creator",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "quoteSpent",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "tokensOut",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Paused",
     "inputs": [
       {
@@ -591,6 +673,44 @@
         "type": "address",
         "indexed": true,
         "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "QuoteTokenRemoved",
+    "inputs": [
+      {
+        "name": "quoteToken",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "QuoteTokenSet",
+    "inputs": [
+      {
+        "name": "quoteToken",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "minStartFdv",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxStartFdv",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -691,25 +811,6 @@
   },
   {
     "type": "event",
-    "name": "StartPriceBoundsUpdated",
-    "inputs": [
-      {
-        "name": "minWei",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "maxWei",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
     "name": "TokenLaunched",
     "inputs": [
       {
@@ -749,10 +850,22 @@
         "internalType": "string"
       },
       {
-        "name": "startPriceWei",
+        "name": "quoteToken",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "startFdv",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      },
+      {
+        "name": "tradeFee",
+        "type": "uint24",
+        "indexed": false,
+        "internalType": "uint24"
       },
       {
         "name": "placementId",
@@ -799,6 +912,11 @@
   },
   {
     "type": "error",
+    "name": "CreatorBuyNeedsRouter",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "EmptyName",
     "inputs": []
   },
@@ -814,6 +932,22 @@
   },
   {
     "type": "error",
+    "name": "EthAmountMismatch",
+    "inputs": [
+      {
+        "name": "sent",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "expected",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ExpectedPause",
     "inputs": []
   },
@@ -824,7 +958,7 @@
   },
   {
     "type": "error",
-    "name": "InvalidPriceBounds",
+    "name": "InvalidFdvBounds",
     "inputs": []
   },
   {
@@ -845,12 +979,44 @@
   },
   {
     "type": "error",
+    "name": "OnlyRouter",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "PlacerNotSet",
     "inputs": []
   },
   {
     "type": "error",
+    "name": "QuoteTokenNotAContract",
+    "inputs": [
+      {
+        "name": "quoteToken",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "QuoteTokenNotAllowed",
+    "inputs": [
+      {
+        "name": "quoteToken",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ReentrancyGuardReentrantCall",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "RefundFailed",
     "inputs": []
   },
   {
@@ -866,10 +1032,10 @@
   },
   {
     "type": "error",
-    "name": "StartPriceOutOfRange",
+    "name": "StartFdvOutOfRange",
     "inputs": [
       {
-        "name": "startPriceWei",
+        "name": "startFdv",
         "type": "uint256",
         "internalType": "uint256"
       },

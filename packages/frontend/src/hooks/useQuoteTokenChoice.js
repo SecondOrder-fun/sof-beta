@@ -21,6 +21,7 @@ import { getContractAddresses } from '@/config/contracts';
 import { useTokenLaunch, useTokenLaunches } from '@/hooks/useTokenLaunches';
 import { useLaunchMarkets } from '@/hooks/useLaunchMarkets';
 import { useQuoteTokenInfo } from '@/hooks/useQuoteTokenInfo';
+import { isNativeQuote } from '@/config/launchQuoteTokens';
 
 /** How many of the newest launches the list offers. */
 export const NEWEST_LAUNCH_OPTIONS = 8;
@@ -29,6 +30,12 @@ export const NEWEST_LAUNCH_OPTIONS = 8;
 const LAUNCH_DECIMALS = 18;
 
 const lower = (a) => (a ? a.toLowerCase() : '');
+
+/** A market's live ETH figures — only when the launch is ETH-paired. */
+const ethFigures = (market) =>
+  market && isNativeQuote(market.quote?.address)
+    ? { fdvWei: market.fdv ?? null, priceWei: market.price ?? null }
+    : { fdvWei: null, priceWei: null };
 
 /**
  * @typedef {Object} QuoteTokenOption
@@ -39,8 +46,13 @@ const lower = (a) => (a ? a.toLowerCase() : '');
  * @property {'launch' | 'approved'} kind
  * @property {boolean} [isPlatformDefault]
  * @property {bigint} [launchedAt]      launch tokens: unix seconds
- * @property {bigint | null} [fdvWei]   launch tokens: live FDV, when the pool is priced
- * @property {bigint | null} [priceWei] launch tokens: live wei of ETH per whole token
+ * @property {bigint | null} [fdvWei]   launch tokens: live FDV in wei, when the pool is
+ *                                      priced and ETH-paired
+ * @property {bigint | null} [priceWei] launch tokens: live wei of ETH per whole token,
+ *                                      likewise. Null for a launch paired with an ERC-20
+ *                                      quote (e.g. USDC): the forms show an ETH
+ *                                      equivalent, and there is no ETH price for it
+ *                                      without an oracle.
  */
 
 /**
@@ -105,8 +117,7 @@ export function useQuoteTokenChoice({ initialToken } = {}) {
         decimals: LAUNCH_DECIMALS,
         kind: 'launch',
         launchedAt: l.launchedAt,
-        fdvWei: market?.fdvWei ?? null,
-        priceWei: market?.priceWei ?? null,
+        ...ethFigures(market),
       };
     };
 
@@ -162,8 +173,7 @@ export function useQuoteTokenChoice({ initialToken } = {}) {
         kind: pasteInfo.data.kind,
         isPlatformDefault: lower(pasteAddress) === lower(platformToken),
         launchedAt: listedOption?.launchedAt ?? pastedLaunch?.launchedAt,
-        fdvWei: market?.fdvWei ?? null,
-        priceWei: market?.priceWei ?? null,
+        ...ethFigures(market),
       };
     }
   } else {

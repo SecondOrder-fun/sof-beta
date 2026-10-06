@@ -25,6 +25,11 @@
         "internalType": "address"
       },
       {
+        "name": "quoteIn",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
         "name": "minTokensOut",
         "type": "uint256",
         "internalType": "uint256"
@@ -90,7 +95,7 @@
         "internalType": "uint256"
       },
       {
-        "name": "minEthOut",
+        "name": "minQuoteOut",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -107,7 +112,7 @@
     ],
     "outputs": [
       {
-        "name": "ethOut",
+        "name": "quoteOut",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -156,7 +161,7 @@
         "internalType": "address"
       },
       {
-        "name": "ethIn",
+        "name": "quoteIn",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -199,13 +204,29 @@
         "internalType": "uint256"
       },
       {
-        "name": "ethOut",
+        "name": "quoteOut",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
       }
     ],
     "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "EthAmountMismatch",
+    "inputs": [
+      {
+        "name": "sent",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "quoteIn",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",

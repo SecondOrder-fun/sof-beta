@@ -2,6 +2,8 @@
 import { describe, it, expect } from "vitest";
 import {
   buildLaunchRow,
+  ETH_QUOTE,
+  NATIVE_QUOTE,
   storableText,
   MAX_NAME_CHARS,
   MAX_SYMBOL_CHARS,
@@ -23,7 +25,9 @@ const log = ({ args: argOverrides, ...logOverrides } = {}) => ({
     name: "Second Order",
     symbol: "SOF",
     metadataURI: "ipfs://meta",
-    startPriceWei: 1_000_000_000n, // 1 gwei per token
+    quoteToken: NATIVE_QUOTE,
+    startFdv: WAD, // a 1 ETH valuation: 1 gwei per token
+    tradeFee: 25_000, // 2.5%
     placementId: `0x${"ab".repeat(32)}`,
     ...argOverrides,
   },
@@ -42,26 +46,74 @@ describe("buildLaunchRow", () => {
     expect(row.block_number).toBe(1234);
     expect(row.tx_hash).toBe("0xDEADBEEF");
     expect(row.launched_at).toBe(new Date(1_700_000_000 * 1000).toISOString());
+    expect(row.trade_fee).toBe(25_000);
   });
 
-  // Implied FDV is price * WHOLE tokens. Multiplying by the raw 18-decimal
-  // supply instead is an error of 1e18 that would look perfectly plausible
-  // sitting in a column of wei.
-  it("derives implied FDV from whole tokens, not raw supply", () => {
+  // Every 0.42 TokenLaunched carries the rate; a row without one would take the
+  // column's pre-0.42 default (1%) and misstate the launch's fee for good.
+  it("treats a log without a trade fee as unusable", () => {
+    expect(buildLaunchRow(log({ args: { tradeFee: undefined } }), TOTAL_SUPPLY, 1)).toBeNull();
+    expect(buildLaunchRow(log({ args: { tradeFee: 0 } }), TOTAL_SUPPLY, 1).trade_fee).toBe(0);
+  });
+
+  // The start price is per WHOLE token, scaled by 1e18. Dividing by the raw
+  // 18-decimal supply instead (or dropping the scale) is an error of 1e18 that
+  // would look perfectly plausible sitting in a column of big integers.
+  it("derives the start price per whole token × 1e18 from the valuation", () => {
     const row = buildLaunchRow(log(), TOTAL_SUPPLY, 1_700_000_000);
-    // 1 gwei/token * 1e9 tokens = 1e18 wei = 1 ETH
-    expect(row.implied_fdv_wei).toBe(WAD.toString());
+    // 1e18 wei / 1e9 tokens = 1 gwei (1e9 wei) per token, × 1e18
+    expect(row.start_fdv).toBe(WAD.toString());
+    expect(row.start_price_e18).toBe("1000000000000000000000000000");
+    expect(row).not.toHaveProperty("start_price");
   });
 
-  it("keeps wei values as strings so precision survives", () => {
+  it("keeps values as strings so precision survives", () => {
+    const row = buildLaunchRow(log({ args: { startFdv: 999_999_999_999_999_999_999n } }), TOTAL_SUPPLY, 1);
+    expect(typeof row.start_fdv).toBe("string");
+    expect(row.start_fdv).toBe("999999999999999999999");
+    // 999.999…999 gwei per token: the digits a plain wei price floored away survive
+    expect(row.start_price_e18).toBe("999999999999999999999000000000");
+  });
+
+  it("records an ETH launch's quote as ETH by default", () => {
+    const row = buildLaunchRow(log(), TOTAL_SUPPLY, 1);
+    expect(row.quote_token).toBe(NATIVE_QUOTE);
+    expect(row.quote_symbol).toBe(ETH_QUOTE.symbol);
+    expect(row.quote_decimals).toBe(18);
+  });
+
+  // A 6-decimal quote: the valuation is in USDC raw units, and the quote's
+  // symbol and decimals come from the caller (read once from the token).
+  it("records an ERC-20 launch in its quote's raw units", () => {
+    const USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
     const row = buildLaunchRow(
-      log({ args: { startPriceWei: 999_999_999_999n } }),
+      log({ args: { quoteToken: USDC, startFdv: 5_000_000_000n } }), // 5,000 USDC
       TOTAL_SUPPLY,
       1,
+      { address: USDC.toLowerCase(), symbol: "USDC", decimals: 6 },
     );
-    expect(row.start_price_wei).toBe("999999999999");
-    expect(typeof row.implied_fdv_wei).toBe("string");
-    expect(row.implied_fdv_wei).toBe((999_999_999_999n * 1_000_000_000n).toString());
+    expect(row.quote_token).toBe(USDC.toLowerCase());
+    expect(row.quote_symbol).toBe("USDC");
+    expect(row.quote_decimals).toBe(6);
+    expect(row.start_fdv).toBe("5000000000");
+    expect(row.start_price_e18).toBe("5000000000000000000"); // 5 raw USDC units per whole token, × 1e18
+  });
+
+  // The case the e18 scale exists for: 2,500 USDC over 1e9 tokens is 2.5 raw
+  // units per token, which an integer of raw units would floor to 2.
+  it("keeps a 6-decimal quote's fractional raw units in the start price", () => {
+    const USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
+    const row = buildLaunchRow(
+      log({ args: { quoteToken: USDC, startFdv: 2_500_000_000n } }), // 2,500 USDC
+      TOTAL_SUPPLY,
+      1,
+      { address: USDC.toLowerCase(), symbol: "USDC", decimals: 6 },
+    );
+    expect(row.start_price_e18).toBe("2500000000000000000"); // 2.5 raw units per whole token
+  });
+
+  it("returns a zero start price for a zero supply rather than dividing by zero", () => {
+    expect(buildLaunchRow(log(), 0n, 1).start_price_e18).toBe("0");
   });
 
   // placementId is the v4 PoolId, and the trade listener matches Swap logs on

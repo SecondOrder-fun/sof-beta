@@ -23,7 +23,7 @@ SecondOrder.fun transforms memecoins from chaotic, scam-prone infinite games int
 
 - Creators launch fixed-supply ERC-20 tokens through `TokenLaunchpad`; the whole supply is placed as single-sided liquidity in a Uniswap v4 pool, with starting price bounds set as implied FDV
 - In-app buy/sell goes through the swappable `UniV4LaunchRouter` (the app reads `TokenLaunchpad.router()`, never a hardcoded address)
-- The pool's 1% swap fee is split 88% to the launch's fee recipient (the creator) and 12% to the platform treasury, claimed in-app
+- Each pool's trade fee (creator-chosen at launch, 0.5%–10%, charged only in the quote token by the placer acting as the pool's v4 hook) is split 88% to the launch's fee recipient (the creator) and 12% to the platform treasury, claimed in-app
 - Launched tokens can price raffle seasons; the backend indexes launches and trades for the token pages, price chart and activity ticker
 
 ### Layer 2: InfoFi Markets (Prediction Markets)
@@ -78,7 +78,7 @@ Wallet sign-in only: connect a wallet, then sign a one-time SIWE message. Users 
 | `SeasonGating.sol` | Per-season access control (signatures, passwords) |
 | `SponsorOnboarding.sol` | Prize pool sponsorship via Hats Protocol |
 | `TokenLaunchpad.sol`, `LaunchToken.sol` | Token launches (fixed supply, immutable name/symbol) |
-| `UniV4LiquidityPlacer.sol`, `LaunchPoolGate.sol` | Owns each launch's v4 position, collects and splits LP fees; the hook stops anyone else initializing a launch pool |
+| `UniV4LiquidityPlacer.sol` | Owns each launch's v4 position and is every launch pool's hook: only it can initialize a pool, and it takes the trade fee in the quote token, then splits it 88/12 |
 | `UniV4LaunchRouter.sol` | In-app buy/sell against launch pools |
 
 The `$SOF` token, its exchange, faucet and airdrop contracts were removed: seasons are priced in per-season quote tokens instead.
@@ -93,7 +93,7 @@ There is no single platform currency. Each season names its quote token at creat
 
 1. **Raffle fees**: set per season on the bonding curve (`buyFeeBps` / `sellFeeBps`); the admin season form defaults to 0.1% on entries and 0.7% on exits
 2. **InfoFi market fees**: 2% (`InfoFiFPMMV2.FEE_BPS`)
-3. **Launch LP fees**: 12% platform share of each launch pool's 1% swap fee
+3. **Launch trade fees**: 12% platform share of each launch pool's trade fee (creator-chosen, 0.5%–10%, in the quote token)
 
 ## On-Chain Transaction Flow
 

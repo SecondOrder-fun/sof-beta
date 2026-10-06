@@ -1,5 +1,6 @@
 // src/components/launchpad/TokensTable.jsx
-// The discovery feed's list view — the existing Table primitive.
+// The discovery feed's list view — the existing Table primitive. Each
+// valuation is in its own launch's quote token.
 
 import PropTypes from "prop-types";
 import { Link } from "react-router-dom";
@@ -7,7 +8,8 @@ import { useTranslation } from "react-i18next";
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import TokenArt from "@/components/launchpad/TokenArt";
-import { formatAge, formatFdvEth, formatMultiple, formatPercent } from "@/lib/launchFormat";
+import { formatAge, formatFdv, formatMultiple, formatPercent } from "@/lib/launchFormat";
+import { ETH_QUOTE } from "@/config/launchQuoteTokens";
 
 const TokensTable = ({ launches, markets }) => {
   const { t } = useTranslation("launchpad");
@@ -26,6 +28,7 @@ const TokensTable = ({ launches, markets }) => {
       <TableBody>
         {launches.map((launch) => {
           const market = markets[launch.token.toLowerCase()];
+          const quote = market?.quote ?? ETH_QUOTE;
           return (
             <TableRow key={launch.token}>
               <TableCell>
@@ -43,7 +46,7 @@ const TokensTable = ({ launches, markets }) => {
                   </span>
                 </Link>
               </TableCell>
-              <TableCell className="text-right">{market ? `${formatFdvEth(market.fdvWei, 2)} ETH` : "—"}</TableCell>
+              <TableCell className="text-right">{market ? `${formatFdv(market.fdv, quote.decimals, 2)} ${quote.symbol}` : "—"}</TableCell>
               <TableCell className="text-right text-fabric-red">
                 {market ? `${formatMultiple(market.multiple)}×` : "—"}
               </TableCell>

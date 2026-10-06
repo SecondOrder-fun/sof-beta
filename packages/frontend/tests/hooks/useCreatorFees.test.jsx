@@ -18,18 +18,24 @@ const FOREIGN_TOKEN = "0xcccc00000000000000000000000000000000cccc";
 const WALLET = "0x5555555555555555555555555555555555555555";
 const OTHER = "0x6666666666666666666666666666666666666666";
 
-const PLACER_OF = { [OLD_TOKEN]: OLD_PLACER, [NEW_TOKEN]: CURRENT_PLACER, [FOREIGN_TOKEN]: ZERO };
+// Listed for TESTNET in config/launchQuoteTokens.js.
+const USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
 
-// Per placer, per account: credited ETH. Per token, per account: credited tokens.
-const ETH = { [OLD_PLACER]: { [WALLET]: 7n }, [CURRENT_PLACER]: { [WALLET]: 3n } };
-const TOKENS = { [OLD_TOKEN]: { [WALLET]: 11n }, [NEW_TOKEN]: { [WALLET]: 0n } };
+const PLACER_OF = { [OLD_TOKEN]: OLD_PLACER, [NEW_TOKEN]: CURRENT_PLACER, [FOREIGN_TOKEN]: ZERO };
+// OLD_TOKEN is ETH-paired, NEW_TOKEN USDC-paired.
+const QUOTE_OF = { [OLD_TOKEN]: ZERO, [NEW_TOKEN]: USDC, [FOREIGN_TOKEN]: ZERO };
+
+// Per placer, per quote currency, per account: credited quote. Per token: pending fees (quote).
+const QUOTE_CREDITS = {
+  [OLD_PLACER]: { [ZERO]: { [WALLET]: 7n }, [USDC]: { [WALLET]: 0n } },
+  [CURRENT_PLACER]: { [ZERO]: { [WALLET]: 3n }, [USDC]: { [WALLET]: 5n } },
+};
+const PENDING = { [OLD_TOKEN]: 100n, [NEW_TOKEN]: 0n };
 const RECIPIENT = { [OLD_TOKEN]: WALLET, [NEW_TOKEN]: OTHER };
 
-const state = { collect: {}, collectThrows: false };
 const calls = [];
 const multicall = vi.fn(async ({ contracts, allowFailure }) => {
   calls.push({ fns: contracts.map((c) => c.functionName), allowFailure, contracts });
-  if (contracts[0]?.functionName === "collectFees" && state.collectThrows) throw new Error("rpc down");
   return contracts.map((c) => {
     const result = (() => {
       switch (c.functionName) {
@@ -37,16 +43,16 @@ const multicall = vi.fn(async ({ contracts, allowFailure }) => {
           return CURRENT_PLACER;
         case "placerOf":
           return PLACER_OF[c.args[0]];
+        case "quoteTokenOf":
+          return QUOTE_OF[c.args[0]];
         case "CREATOR_FEE_BPS":
           return 8800n;
-        case "claimableEth":
-          return ETH[c.address][c.args[0]];
+        case "claimable":
+          return QUOTE_CREDITS[c.address][c.args[0]][c.args[1]];
         case "feeRecipientOf":
           return RECIPIENT[c.args[0]];
-        case "claimableToken":
-          return TOKENS[c.args[0]][c.args[1]];
-        case "collectFees":
-          return state.collect[c.args[0]];
+        case "pendingFees":
+          return PENDING[c.args[0]];
         default:
           throw new Error(`unexpected ${c.functionName}`);
       }
@@ -76,8 +82,6 @@ beforeEach(() => {
   calls.length = 0;
   multicall.mockClear();
   executeBatch.mockReset();
-  state.collect = { [OLD_TOKEN]: [100n, 200n] }; // NEW_TOKEN's collect reverts
-  state.collectThrows = false;
 });
 
 const launches = [OLD_TOKEN, NEW_TOKEN, FOREIGN_TOKEN].map((token) => ({ token }));
@@ -93,55 +97,59 @@ describe("useCreatorFees", () => {
       [OLD_TOKEN, OLD_PLACER],
       [NEW_TOKEN, CURRENT_PLACER],
     ]);
-    expect(calls.flatMap((c) => c.contracts).some((c) => c.args?.[0] === FOREIGN_TOKEN && c.functionName !== "placerOf")).toBe(false);
+    expect(calls.flatMap((c) => c.contracts).some((c) => c.args?.[0] === FOREIGN_TOKEN && !["placerOf", "quoteTokenOf"].includes(c.functionName))).toBe(false);
 
+    // Quote credits per currency: ETH and the network's listed USDC on every placer.
     expect(placers[OLD_PLACER.toLowerCase()]).toEqual({
       address: OLD_PLACER,
       creatorFeeBps: 8800n,
-      claimableEth: { [WALLET]: 7n },
+      claimable: { [ZERO]: { [WALLET]: 7n }, [USDC.toLowerCase()]: { [WALLET]: 0n } },
     });
     expect(placers[CURRENT_PLACER.toLowerCase()]).toMatchObject({
-      claimableEth: { [WALLET]: 3n },
+      claimable: { [ZERO]: { [WALLET]: 3n }, [USDC.toLowerCase()]: { [WALLET]: 5n } },
     });
 
-    expect(out[0]).toMatchObject({
-      recipient: WALLET,
-      claimableToken: { [WALLET]: 11n },
-      uncollectedEth: 100n,
-      uncollectedTokens: 200n,
-    });
-    // A collect that would revert reads as unknown, not zero — and not as a failed query.
-    expect(out[1]).toMatchObject({ recipient: OTHER, uncollectedEth: null, uncollectedTokens: null });
+    expect(out[0]).toEqual({ token: OLD_TOKEN, placer: OLD_PLACER, quoteToken: ZERO, recipient: WALLET, pendingFees: 100n });
+    expect(out[1]).toEqual({ token: NEW_TOKEN, placer: CURRENT_PLACER, quoteToken: USDC, recipient: OTHER, pendingFees: 0n });
+    // Symbol and decimals for every currency read, without asking listed tokens.
+    expect(result.current.data.quotes[USDC.toLowerCase()]).toMatchObject({ symbol: "USDC", decimals: 6 });
+    expect(result.current.data.quotes[ZERO]).toMatchObject({ symbol: "ETH", decimals: 18 });
   });
 
-  it("uses three multicalls: placers, then the reads and the simulated collects", async () => {
+  it("uses two multicalls: placers, then the reads — pendingFees, no simulated collect", async () => {
     const { result } = renderHook(() => useCreatorFees(launches, { account: WALLET }), { wrapper });
     await waitFor(() => expect(result.current.data).toBeDefined());
-    expect(multicall).toHaveBeenCalledTimes(3);
-    expect(calls[0].fns).toEqual(["placer", "placerOf", "placerOf", "placerOf"]);
-    const collect = calls.find((c) => c.fns[0] === "collectFees");
-    expect(collect.allowFailure).toBe(true);
-    expect(collect.contracts.map((c) => [c.address, c.args[0]])).toEqual([
+    expect(multicall).toHaveBeenCalledTimes(2);
+    expect(calls[0].fns).toEqual([
+      "placer",
+      "placerOf",
+      "quoteTokenOf",
+      "placerOf",
+      "quoteTokenOf",
+      "placerOf",
+      "quoteTokenOf",
+    ]);
+    expect(calls.some((c) => c.fns.includes("collectFees"))).toBe(false);
+    // The balances must all read, or the claim would be built on guesses.
+    const reads = calls.find((c) => c.fns.includes("claimable"));
+    expect(reads.allowFailure).toBe(false);
+    expect(reads.contracts.filter((c) => c.functionName === "pendingFees").map((c) => [c.address, c.args[0]])).toEqual([
       [OLD_PLACER, OLD_TOKEN],
       [CURRENT_PLACER, NEW_TOKEN],
     ]);
-    // The balances must all read, or the claim would be built on guesses.
-    const reads = calls.find((c) => c.fns.includes("claimableEth"));
-    expect(reads.allowFailure).toBe(false);
-  });
-
-  it("treats a failed collect simulation as unknown for every launch", async () => {
-    state.collectThrows = true;
-    const { result } = renderHook(() => useCreatorFees(launches, { account: WALLET }), { wrapper });
-    await waitFor(() => expect(result.current.data).toBeDefined());
-    expect(result.current.data.launches.map((l) => l.uncollectedEth)).toEqual([null, null]);
+    // Fees are only ever in the quote: no launch token is read as a claimable currency.
+    const claimCurrencies = reads.contracts.filter((c) => c.functionName === "claimable").map((c) => c.args[0]);
+    expect(claimCurrencies).not.toContain(OLD_TOKEN);
+    expect(claimCurrencies).not.toContain(NEW_TOKEN);
   });
 
   it("reads the connected account lower-cased", async () => {
     const { result } = renderHook(() => useCreatorFees(launches, { account: WALLET.toUpperCase().replace("0X", "0x") }), { wrapper });
     await waitFor(() => expect(result.current.data).toBeDefined());
-    const reads = calls.find((c) => c.fns.includes("claimableEth"));
-    expect(reads.contracts.filter((c) => c.functionName === "claimableEth").map((c) => c.args[0])).toEqual([WALLET, WALLET]);
+    const reads = calls.find((c) => c.fns.includes("claimable"));
+    const accounts = reads.contracts.filter((c) => c.functionName === "claimable").map((c) => c.args[1]);
+    expect(accounts.length).toBeGreaterThan(0);
+    expect(accounts.every((a) => a === WALLET)).toBe(true);
   });
 
   it("reads nothing without an account or a launch", async () => {

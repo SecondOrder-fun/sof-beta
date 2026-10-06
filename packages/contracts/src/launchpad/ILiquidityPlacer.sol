@@ -19,14 +19,28 @@ pragma solidity ^0.8.20;
  */
 interface ILiquidityPlacer {
     /**
-     * @notice Place `amount` of `token` as liquidity, quoted against native ETH.
-     * @dev Called by the launchpad with the tokens already transferred in. The
-     *      implementation must consume exactly what it was given or revert; the
-     *      launchpad asserts it holds nothing afterwards.
-     * @param token          The launched token.
-     * @param amount         Token amount to place (the whole sale supply).
-     * @param startPriceWei  Creator-chosen starting price, in wei of ETH per whole token.
-     * @return placementId   Venue-specific handle (a v4 pool id, an LP token id, …).
+     * @notice Place `amount` of `token` as liquidity, quoted against `quoteToken`.
+     * @dev Called by the launchpad with the tokens already transferred in, and only with
+     *      a quote token on its allowlist. The implementation must consume exactly what it
+     *      was given or revert; the launchpad asserts it holds nothing afterwards.
+     * @param token       The launched token.
+     * @param amount      Token amount to place (the whole sale supply).
+     * @param quoteToken  What it trades against: address(0) for native ETH, else an ERC-20.
+     * @param startFdv    Creator-chosen opening valuation of `amount`, in `quoteToken`'s
+     *                    raw units: the starting price is `startFdv / amount`.
+     * @param tradeFee    The creator-chosen trade fee in pips (10_000 = 1%), charged in
+     *                    `quoteToken` on every swap; the implementation bounds it.
+     * @return placementId Venue-specific handle (a v4 pool id, an LP token id, …).
      */
-    function place(address token, uint256 amount, uint256 startPriceWei) external returns (bytes32 placementId);
+    function place(address token, uint256 amount, address quoteToken, uint256 startFdv, uint24 tradeFee)
+        external
+        returns (bytes32 placementId);
+
+    /**
+     * @notice Let the next buy of `token` in this transaction skip any early-buy surcharge.
+     * @dev Launchpad-only, called right before the creator's buy inside the launch
+     *      transaction — which happens before anyone else can trade, so it is not a snipe.
+     *      Transient: it lasts until that buy or the end of the transaction.
+     */
+    function exemptNextBuy(address token) external;
 }

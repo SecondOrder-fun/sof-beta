@@ -3,6 +3,8 @@
 // index complete — nothing stored half-built, nothing skipped past, and every
 // launch broadcast exactly once whichever listener indexes it.
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { encodeAbiParameters, encodeEventTopics } from "viem";
+import { PoolManagerABI, UniV4LiquidityPlacerABI } from "@sof/contracts";
 
 const publicClient = {
   getBlock: vi.fn(),
@@ -67,7 +69,7 @@ const launchLog = (over = {}) => ({
   transactionHash: "0xlaunch",
   args: {
     launchId: 0n, token: TOKEN, creator: "0x3333333333333333333333333333333333333333",
-    name: "Pond", symbol: "POND", metadataURI: "ipfs://x", startPriceWei: 1_000_000_000n, placementId: POOL,
+    name: "Pond", symbol: "POND", metadataURI: "ipfs://x", startFdv: 10n ** 18n, tradeFee: 10_000, placementId: POOL,
   },
   ...over,
 });
@@ -542,11 +544,75 @@ describe("launchTradeListener.persist", () => {
     expect(sse.broadcast.mock.calls.filter(([, e]) => e.type === "TokenTrade")).toHaveLength(2);
   });
 
-  it("fetches receipts only for swaps sent by the launch router", async () => {
-    await __test.persist([swap(1), swap(2, { args: { ...swap(2).args, sender: ROUTER } })], ctx, sse);
+  // A receipt is read to attribute a router swap or to find a swap's trade fee —
+  // so on a pool that charges none, only router swaps need one.
+  // On a zero-fee pool only a buy can pay (the snipe tax), so a non-router SELL needs no receipt.
+  it("fetches receipts only for router swaps and buys on a zero-fee pool", async () => {
+    __test.rememberPool(POOL, TOKEN, "POND", undefined, 0);
+    const sell = swap(1, { args: { ...swap(1).args, amount0: 1n, amount1: -5n } });
+    await __test.persist([sell, swap(2, { args: { ...swap(2).args, sender: ROUTER, amount0: 1n, amount1: -5n } })], ctx, sse);
     expect(publicClient.getTransactionReceipt).toHaveBeenCalledTimes(1);
     expect(publicClient.getTransactionReceipt).toHaveBeenCalledWith({ hash: "0xtx2" });
-    expect(tokenLaunchesDb.insertLaunchTrades.mock.calls[0][0]).toHaveLength(2);
+    const rows = tokenLaunchesDb.insertLaunchTrades.mock.calls[0][0];
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.fee_amount)).toEqual(["0", "0"]);
+  });
+
+  it("fetches no receipt for a non-router swap on an LP-fee pool (an earlier launchpad's)", async () => {
+    await __test.persist([swap(1, { args: { ...swap(1).args, fee: 10_000 } })], ctx, sse);
+    expect(publicClient.getTransactionReceipt).not.toHaveBeenCalled();
+    const [row] = tokenLaunchesDb.insertLaunchTrades.mock.calls[0][0];
+    expect(row).toMatchObject({ quote_amount: "1", fee_amount: null });
+  });
+
+  it("fetches each transaction's receipt once for the trade fee, whoever sent the swaps", async () => {
+    __test.rememberPool(POOL, TOKEN, "POND", undefined, 10_000);
+    const second = swap(1, { logIndex: 3 });
+    await __test.persist([swap(1), second, swap(2)], ctx, sse);
+    expect(publicClient.getTransactionReceipt.mock.calls.map(([p]) => p.hash).sort()).toEqual(["0xtx1", "0xtx2"]);
+  });
+
+  // Swap's amounts exclude the hook's fee; the stored and broadcast amount is
+  // what the trader paid, read from the TradeFeeTaken in the same receipt.
+  it("stores and broadcasts the trader-facing amount and the fee from the receipt", async () => {
+    const PLACER = "0x8888888888888888888888888888888888888888";
+    const fee = 10n ** 15n;
+    const pool = -(99n * 10n ** 18n) / 1000n;
+    const swapTopics = encodeEventTopics({ abi: PoolManagerABI, eventName: "Swap", args: { id: POOL, sender: ROUTER } });
+    const swapData = encodeAbiParameters(
+      [{ type: "int128" }, { type: "int128" }, { type: "uint160" }, { type: "uint128" }, { type: "int24" }, { type: "uint24" }],
+      [pool, 5n, 2n ** 96n, 1n, 0, 0],
+    );
+    const feeTopics = encodeEventTopics({ abi: UniV4LiquidityPlacerABI, eventName: "TradeFeeTaken", args: { poolId: POOL, token: TOKEN } });
+    publicClient.getTransactionReceipt.mockResolvedValue({
+      logs: [
+        { address: POOL_MANAGER, topics: swapTopics, data: swapData, logIndex: 0 },
+        { address: PLACER, topics: feeTopics, data: encodeAbiParameters([{ type: "uint256" }, { type: "uint256" }], [fee, 0n]), logIndex: 2 },
+      ],
+    });
+    __test.rememberPool(POOL, TOKEN, "POND", undefined, 10_000);
+    await __test.persist([swap(1, { args: { ...swap(1).args, sender: ROUTER, amount0: pool, fee: 0 } })], ctx, sse);
+    const [row] = tokenLaunchesDb.insertLaunchTrades.mock.calls[0][0];
+    expect(row).toMatchObject({ side: "BUY", quote_amount: "100000000000000000", fee_amount: "1000000000000000" });
+    const [, event] = sse.broadcast.mock.calls.find(([, e]) => e.type === "TokenTrade");
+    expect(event).toMatchObject({ quoteAmount: "100000000000000000", feeAmount: "1000000000000000" });
+  });
+
+  it("throws, storing nothing, when a fee-paying swap's receipt is unavailable", async () => {
+    __test.rememberPool(POOL, TOKEN, "POND", undefined, 10_000);
+    publicClient.getTransactionReceipt.mockRejectedValueOnce(new Error("receipt unavailable"));
+    await expect(__test.persist([swap(1)], ctx, sse)).rejects.toThrow("receipt unavailable");
+    expect(tokenLaunchesDb.insertLaunchTrades).not.toHaveBeenCalled();
+  });
+
+  it("knows a discovered launch's trade fee (a zero fee needs no receipt)", async () => {
+    __test.reset();
+    eventsByName({ TokenLaunched: [launchLog({ args: { ...launchLog().args, tradeFee: 0 } })] });
+    await __test.discoverLaunches({ launchpad: LAUNCHPAD, totalSupply: SUPPLY, fromBlock: 0n, toBlock: 150n, logger, sseService: sse });
+    await __test.persist([swap(1, { args: { ...swap(1).args, amount0: 1n, amount1: -5n } })], ctx, sse); // a sell
+    expect(publicClient.getTransactionReceipt).not.toHaveBeenCalled();
+    expect(tokenLaunchesDb.insertTokenLaunch.mock.calls[0][0].trade_fee).toBe(0);
+    expect(launchedBroadcasts()[0][1]).toMatchObject({ tradeFee: 0 });
   });
 
   it(`fetches blocks concurrently, at most ${FETCH_CONCURRENCY} at a time`, async () => {
@@ -578,5 +644,58 @@ describe("launchTradeListener.poolFilter", () => {
     const batches = poolFilter();
     expect(batches.map((b) => b.id.length)).toEqual([100, 100, 50]);
     expect(new Set(batches.flatMap((b) => b.id)).size).toBe(250);
+  });
+});
+
+describe("launches paired with an ERC-20 quote", () => {
+  const USDC = "0xffffffffffffffffffffffffffffffffffff0001"; // sorts above TOKEN: the token is currency0
+  const usdcLaunch = () => launchLog({ args: { ...launchLog().args, quoteToken: USDC, startFdv: 5_000_000_000n } });
+
+  it("reads the quote's symbol and decimals once and stores them with the launch", async () => {
+    publicClient.readContract.mockImplementation(async ({ functionName }) =>
+      functionName === "decimals" ? 6 : functionName === "symbol" ? "USDC" : SUPPLY,
+    );
+    await processTokenLaunchedLog(usdcLaunch(), SUPPLY, logger, sse);
+    await processTokenLaunchedLog(
+      launchLog({ args: { ...usdcLaunch().args, token: "0x1111111111111111111111111111111111111112" } }),
+      SUPPLY,
+      logger,
+      sse,
+    );
+    const row = tokenLaunchesDb.insertTokenLaunch.mock.calls[0][0];
+    // 5,000 USDC over 1e9 tokens: 5 raw units per whole token, × 1e18
+    expect(row).toMatchObject({
+      quote_token: USDC,
+      quote_symbol: "USDC",
+      quote_decimals: 6,
+      start_fdv: "5000000000",
+      start_price_e18: "5000000000000000000",
+    });
+    expect(launchedBroadcasts()[0][1]).toMatchObject({ startPriceE18: "5000000000000000000", quoteDecimals: 6 });
+    const decimalsReads = publicClient.readContract.mock.calls.filter(([c]) => c.functionName === "decimals");
+    expect(decimalsReads).toHaveLength(1);
+  });
+
+  // Formatting with the wrong decimals is off by orders of magnitude, so a
+  // launch whose quote cannot be read is retried rather than stored.
+  it("fails the launch when the quote's decimals cannot be read", async () => {
+    const other = "0xffffffffffffffffffffffffffffffffffff0002";
+    publicClient.readContract.mockRejectedValue(new Error("rpc down"));
+    await expect(
+      processTokenLaunchedLog(launchLog({ args: { ...launchLog().args, quoteToken: other } }), SUPPLY, logger, sse),
+    ).rejects.toThrow("rpc down");
+    expect(tokenLaunchesDb.insertTokenLaunch).not.toHaveBeenCalled();
+  });
+
+  // The token is currency0, so the quote is amount1: a swap paying amount1 in
+  // is a BUY, and its quote amount comes from amount1.
+  it("indexes a swap on a token-is-currency0 pool from the quote side", async () => {
+    __test.rememberPool(POOL, TOKEN, "POND", USDC);
+    await __test.persist([swap(1, { args: { ...swap(1).args, amount0: 4n * 10n ** 24n, amount1: -100_000_000n } })], ctx, sse);
+    const [row] = tokenLaunchesDb.insertLaunchTrades.mock.calls[0][0];
+    expect(row).toMatchObject({ side: "BUY", quote_amount: "100000000", token_amount: "4000000000000000000000000" });
+    const [, event] = sse.broadcast.mock.calls.find(([, e]) => e.type === "TokenTrade");
+    expect(event).toMatchObject({ quoteToken: USDC, quoteAmount: "100000000", side: "BUY", priceE18: row.price_e18 });
+    expect(BigInt(row.price_e18)).toBeGreaterThan(0n);
   });
 });

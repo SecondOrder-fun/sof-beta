@@ -61,9 +61,19 @@ function toLaunchResponse(row) {
     name: row.name,
     symbol: row.symbol,
     metadataURI: row.metadata_uri,
-    // Strings, not numbers: these are wei and do not survive a JS number.
-    startPriceWei: row.start_price_wei,
-    impliedFdvWei: row.implied_fdv_wei,
+    // What the launch trades against (0x000…000 = native ETH), and how to format
+    // its amounts. startFdv is in that quote's RAW units; startPriceE18 is raw
+    // units per whole token × 1e18. Both are strings: they do not survive a JS
+    // number.
+    quoteToken: row.quote_token,
+    quoteSymbol: row.quote_symbol,
+    quoteDecimals: row.quote_decimals,
+    startPriceE18: row.start_price_e18,
+    startFdv: row.start_fdv,
+    // The creator's fee on every buy and sell, in pips (10000 = 1%), taken in the
+    // quote token and fixed for the pool's life. 10000 on launches from before
+    // contracts 0.42.0, whose pools charged a 1% LP fee instead.
+    tradeFee: row.trade_fee,
     totalSupply: row.total_supply,
     poolId: row.pool_id,
     launchedAt: row.launched_at,
@@ -80,9 +90,15 @@ function toTradeResponse(row) {
     token: row.token_address,
     trader: row.trader,
     side: row.side,
-    ethAmount: row.eth_amount,
+    // In the launch's quote token's raw units (its quote fields are on the token);
+    // priceE18 is raw units per whole token × 1e18. quoteAmount is what the trader
+    // paid (buy) or received (sell), the trade fee included; feeAmount is that fee
+    // (null for trades indexed before it was recorded, and on pre-0.42 pools whose
+    // LP fee is inside the amounts).
+    quoteAmount: row.quote_amount,
+    feeAmount: row.fee_amount ?? null,
     tokenAmount: row.token_amount,
-    priceWei: row.price_wei,
+    priceE18: row.price_e18,
     tick: row.tick,
     blockNumber: row.block_number,
     blockTime: row.block_time,
@@ -206,7 +222,9 @@ export default async function launchpadRoutes(fastify) {
   /**
    * GET /api/launchpad/tokens/:address/chart?range=1h|6h|24h|all
    *
-   * Price points for the chart, oldest first. The first point is the price in
+   * Price points for the chart, oldest first: `{ t, priceE18 }` (quote raw
+   * units per whole token × 1e18), plus `launch: { t, priceE18 }`, the requested
+   * start price. The first point is the price in
    * force when the range opens (the last earlier trade, or the launch price),
    * so a quiet range still draws a line. Built from every trade in range up to
    * 50,000 (launchpadActivityDb.CHART_TRADE_CAP); past it the oldest are
@@ -244,11 +262,19 @@ export default async function launchpadRoutes(fastify) {
         trades,
         seed,
         truncated,
-        launch: { launchedAt: launch.launched_at, startPriceWei: launch.start_price_wei },
+        launch: { launchedAt: launch.launched_at, startPriceE18: launch.start_price_e18 },
         rangeSec,
         nowSec,
       });
-      return { range, tradeCount: trades.length, truncated, ...chart };
+      return {
+        range,
+        tradeCount: trades.length,
+        truncated,
+        quoteToken: launch.quote_token,
+        quoteSymbol: launch.quote_symbol,
+        quoteDecimals: launch.quote_decimals,
+        ...chart,
+      };
     } catch (err) {
       request.log.error({ err, address }, "launchpad chart failed");
       return reply.code(500).send({ error: "failed to load chart" });

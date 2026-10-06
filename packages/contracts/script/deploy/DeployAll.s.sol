@@ -294,7 +294,6 @@ contract DeployAll is Script {
         json = string.concat(json, '    "PoolManager": "', vm.toString(addrs.poolManager), '",\n');
         json = string.concat(json, '    "TokenLaunchpad": "', vm.toString(addrs.tokenLaunchpad), '",\n');
         json = string.concat(json, '    "LiquidityPlacer": "', vm.toString(addrs.liquidityPlacer), '",\n');
-        json = string.concat(json, '    "LaunchPoolGate": "', vm.toString(addrs.launchPoolGate), '",\n');
         json = string.concat(json, '    "LaunchRouter": "', vm.toString(addrs.launchRouter), '"');
         json = string.concat(json, preservedSection, "\n  }\n}");
 

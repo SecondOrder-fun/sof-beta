@@ -10,8 +10,17 @@
  * an ABI change, and it needs neither a chain nor a database to exercise.
  */
 
-/** Whole tokens in a launch supply, used to derive implied FDV. */
-const WAD = 10n ** 18n;
+/**
+ * 1e18 (raw units in one whole launch token — launch tokens are always 18 dp)
+ * times 1e18 (the e18 fixed-point scale of the stored price).
+ */
+const E36 = 10n ** 36n;
+
+/** The quote-token address TokenLaunchpad uses for native ETH. */
+export const NATIVE_QUOTE = "0x0000000000000000000000000000000000000000";
+
+/** What a launch's quote is, for display: native ETH unless resolved otherwise. */
+export const ETH_QUOTE = Object.freeze({ address: NATIVE_QUOTE, symbol: "ETH", decimals: 18 });
 
 /**
  * Text limits applied before insert. The columns are unbounded TEXT; these
@@ -44,22 +53,32 @@ export function storableText(value, max) {
  * Exported for testing: this is the mapping most likely to break on an ABI
  * change, and it needs no chain or database to exercise.
  *
+ * Values are in the launch's QUOTE token's raw units (wei for ETH, 1e-6 for
+ * USDC): the launch takes its opening valuation (`startFdv`) directly, and the
+ * start price is derived from it as quote raw units per whole token × 1e18
+ * (`start_price_e18`) — the scale keeps a 6-decimal quote's precision.
+ * `trade_fee` is the creator's per-launch trade fee in pips (10_000 = 1%),
+ * fixed for the pool's life (contracts 0.42.0); a log without one is unusable.
+ *
  * @param {object} log - viem decoded log
  * @param {bigint} totalSupply - TOKEN_SUPPLY, read once at listener start
  * @param {number | bigint} blockTimeSec - block timestamp. Required, with no
  *   fallback: a stored launched_at is never corrected (insert-if-absent)
+ * @param {{ address: string, symbol: string | null, decimals: number }} [quote]
+ *   the launch's quote token, resolved by the caller (ETH when omitted)
  * @returns {object | null} row, or null if the log is unusable
  * @throws if `blockTimeSec` is missing
  */
-export function buildLaunchRow(log, totalSupply, blockTimeSec) {
+export function buildLaunchRow(log, totalSupply, blockTimeSec, quote = ETH_QUOTE) {
   const args = log?.args;
-  if (!args?.token || !args?.creator) return null;
+  if (!args?.token || !args?.creator || args.tradeFee == null) return null;
   if (blockTimeSec == null) throw new Error("buildLaunchRow: block time is required");
 
-  const startPriceWei = BigInt(args.startPriceWei ?? 0n);
-  // Implied FDV is price * WHOLE tokens, not price * raw supply. Getting this
-  // wrong is an error of 1e18, which would look plausible in a column of wei.
-  const impliedFdvWei = startPriceWei * (BigInt(totalSupply) / WAD);
+  const startFdv = BigInt(args.startFdv ?? 0n);
+  // Per WHOLE token × 1e18: startFdv / (supplyRaw / 1e18) × 1e18, with both
+  // scales applied before the one division so nothing floors early.
+  const supplyRaw = BigInt(totalSupply);
+  const startPriceE18 = supplyRaw > 0n ? (startFdv * E36) / supplyRaw : 0n;
 
   return {
     token_address: args.token,
@@ -73,8 +92,12 @@ export function buildLaunchRow(log, totalSupply, blockTimeSec) {
       Array.from(String(args.metadataURI ?? "")).length > MAX_METADATA_URI_CHARS
         ? null
         : storableText(args.metadataURI, MAX_METADATA_URI_CHARS),
-    start_price_wei: startPriceWei.toString(),
-    implied_fdv_wei: impliedFdvWei.toString(),
+    quote_token: String(args.quoteToken ?? NATIVE_QUOTE).toLowerCase(),
+    quote_symbol: quote.symbol,
+    quote_decimals: quote.decimals,
+    start_price_e18: startPriceE18.toString(),
+    start_fdv: startFdv.toString(),
+    trade_fee: Number(args.tradeFee),
     total_supply: BigInt(totalSupply).toString(),
     // bytes32(0) means the placer returned no pool — not a real pool id, so
     // store NULL rather than a zero hash the trade listener would try to match.

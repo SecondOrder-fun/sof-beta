@@ -5,10 +5,8 @@ import { UniV4LiquidityPlacerAbi } from "@/utils/abis";
 import {
   buildLaunchClaimCalls,
   buildTransferCalls,
-  formatFeeTokens,
   launchEarnings,
-  planClaimAllEth,
-  planClaimToken,
+  planClaimAllQuote,
   recipientShare,
   sameAddress,
   summarizeCreatorFees,
@@ -23,8 +21,11 @@ const TOKEN_C = getAddress("0xcccc00000000000000000000000000000000cccc");
 const WALLET = getAddress("0x5555555555555555555555555555555555555555");
 const SECOND = getAddress("0x6666666666666666666666666666666666666666");
 const OTHER = getAddress("0x7777777777777777777777777777777777777777");
+const ZERO = "0x0000000000000000000000000000000000000000";
+const USDC = getAddress("0x036CbD53842c5426634e7929541eC2318f3dCF7e");
 const BPS = 8800n;
 const E = 10n ** 18n;
+const ABI_FUNCTIONS = new Set(UniV4LiquidityPlacerAbi.filter((e) => e.type === "function").map((e) => e.name));
 
 /** What each call does: [target, function, ...args] — the batch, readable. */
 const decode = (calls) =>
@@ -36,13 +37,17 @@ const decode = (calls) =>
 const launch = (over = {}) => ({
   token: TOKEN,
   placer: PLACER,
+  quoteToken: ZERO,
   recipient: WALLET,
-  claimableToken: {},
-  uncollectedEth: 0n,
-  uncollectedTokens: 0n,
+  pendingFees: 0n,
   ...over,
 });
-const placer = (claimableEth = {}, address = PLACER) => ({ address, creatorFeeBps: BPS, claimableEth });
+/** A placer with ETH credits, and optionally credits in other currencies keyed by lowercased address. */
+const placer = (ethCredits = {}, address = PLACER, others = {}) => ({
+  address,
+  creatorFeeBps: BPS,
+  claimable: { [ZERO]: ethCredits, ...others },
+});
 const lc = (a) => a.toLowerCase();
 
 describe("recipientShare", () => {
@@ -60,77 +65,55 @@ describe("recipientShare", () => {
 });
 
 describe("launchEarnings", () => {
-  it("adds the recipient's share of what is still in the pool to what is credited", () => {
-    const e = launchEarnings(
-      launch({ claimableToken: { [lc(WALLET)]: 5n * E }, uncollectedEth: 10n * E, uncollectedTokens: 100n * E }),
-      placer({ [lc(WALLET)]: 1n * E }),
-      WALLET,
-    );
-    expect(e).toMatchObject({
+  it("adds the recipient's share of the pending fees to what is credited — all in the quote", () => {
+    const e = launchEarnings(launch({ pendingFees: 10n * E }), placer({ [lc(WALLET)]: 1n * E }), WALLET);
+    expect(e).toEqual({
       isRecipient: true,
-      ethClaimable: 1n * E,
-      ethInPool: 8_800_000_000_000_000_000n,
-      eth: 9_800_000_000_000_000_000n,
-      tokensClaimable: 5n * E,
-      tokensInPool: 88n * E,
-      tokens: 93n * E,
+      quoteClaimable: 1n * E,
+      quotePending: 8_800_000_000_000_000_000n,
+      quote: 9_800_000_000_000_000_000n,
     });
   });
 
   // collectFees credits whoever is the recipient AT collection.
-  it("counts uncollected fees only for the current recipient", () => {
-    const e = launchEarnings(
-      launch({ recipient: OTHER, claimableToken: { [lc(WALLET)]: 5n }, uncollectedEth: 10n * E, uncollectedTokens: 10n * E }),
-      placer({ [lc(WALLET)]: 7n }),
-      WALLET,
-    );
-    expect(e).toMatchObject({ isRecipient: false, eth: 7n, tokens: 5n, ethInPool: 0n, tokensInPool: 0n });
+  it("counts pending fees only for the current recipient", () => {
+    const e = launchEarnings(launch({ recipient: OTHER, pendingFees: 10n * E }), placer({ [lc(WALLET)]: 7n }), WALLET);
+    expect(e).toMatchObject({ isRecipient: false, quote: 7n, quotePending: 0n });
   });
 
-  it("treats an unknown uncollected amount (collect would revert) as nothing in the pool", () => {
-    const e = launchEarnings(launch({ uncollectedEth: null, uncollectedTokens: null }), placer({ [lc(WALLET)]: 3n }), WALLET);
-    expect(e).toMatchObject({ eth: 3n, tokens: 0n, ethInPool: 0n });
+  it("treats an unread pending amount as nothing pending", () => {
+    const e = launchEarnings(launch({ pendingFees: null }), placer({ [lc(WALLET)]: 3n }), WALLET);
+    expect(e).toMatchObject({ quote: 3n, quotePending: 0n });
+  });
+
+  // Fees are only ever in the quote: nothing in the result names the launch token.
+  it("has no launch-token side", () => {
+    const e = launchEarnings(launch({ pendingFees: 100n }), placer(), WALLET);
+    expect(Object.keys(e).some((k) => /token/i.test(k))).toBe(false);
   });
 });
 
 describe("buildLaunchClaimCalls (token page)", () => {
   const build = (l, credits = {}) => buildLaunchClaimCalls(launch(l), placer(credits), WALLET);
 
-  it("collects, then claims both sides, when the pool holds both", () => {
-    const { calls, eth, tokens } = build({ uncollectedEth: 100n, uncollectedTokens: 1000n });
+  it("collects, then claims the quote, when fees are pending", () => {
+    const { calls, quote } = build({ pendingFees: 100n });
     expect(decode(calls)).toEqual([
       [PLACER, "collectFees", TOKEN],
-      [PLACER, "claimEth", WALLET],
-      [PLACER, "claimToken", TOKEN, WALLET],
+      [PLACER, "claim", ZERO, WALLET],
     ]);
-    expect(eth).toBe(88n);
-    expect(tokens).toBe(880n);
+    expect(quote).toBe(88n);
   });
 
-  it("claims credited fees without a collect when the pool holds nothing", () => {
+  it("claims credited fees without a collect when nothing is pending", () => {
     const { calls } = build({}, { [lc(WALLET)]: 5n });
-    expect(decode(calls)).toEqual([[PLACER, "claimEth", WALLET]]);
+    expect(decode(calls)).toEqual([[PLACER, "claim", ZERO, WALLET]]);
   });
 
-  it("claims only tokens when only tokens are earned", () => {
-    const { calls } = build({ claimableToken: { [lc(WALLET)]: 9n } });
-    expect(decode(calls)).toEqual([[PLACER, "claimToken", TOKEN, WALLET]]);
-  });
-
-  it("collects ETH only, then claims ETH but not the token", () => {
-    const { calls } = build({ uncollectedEth: 100n });
-    expect(decode(calls).map((c) => c[1])).toEqual(["collectFees", "claimEth"]);
-  });
-
-  it("collects tokens only, then claims the token but not ETH", () => {
-    const { calls } = build({ uncollectedTokens: 100n });
-    expect(decode(calls).map((c) => c[1])).toEqual(["collectFees", "claimToken"]);
-  });
-
-  // claimEth / claimToken revert NothingToClaim on zero, which would revert the batch.
-  it("never claims a side whose share floors to zero", () => {
-    const { calls, eth } = build({ uncollectedEth: 1n, uncollectedTokens: 1n });
-    expect(eth).toBe(0n);
+  // claim reverts NothingToClaim on zero, which would revert the batch.
+  it("never claims when the share floors to zero", () => {
+    const { calls, quote } = build({ pendingFees: 1n });
+    expect(quote).toBe(0n);
     expect(decode(calls)).toEqual([[PLACER, "collectFees", TOKEN]]);
   });
 
@@ -138,160 +121,204 @@ describe("buildLaunchClaimCalls (token page)", () => {
     expect(build({}).calls).toEqual([]);
   });
 
-  it("skips the collect when it could not be simulated, and claims what is credited", () => {
-    const { calls } = build({ uncollectedEth: null, uncollectedTokens: null, claimableToken: { [lc(WALLET)]: 4n } }, { [lc(WALLET)]: 2n });
-    expect(decode(calls).map((c) => c[1])).toEqual(["claimEth", "claimToken"]);
+  it("never claims the launch token", () => {
+    const { calls } = build({ pendingFees: 10n * E }, { [lc(WALLET)]: 5n });
+    expect(decode(calls).filter(([, fn, currency]) => fn === "claim" && currency === TOKEN)).toEqual([]);
+  });
+
+  it("skips the collect when pending is unread, and claims what is credited", () => {
+    const { calls } = build({ pendingFees: null }, { [lc(WALLET)]: 2n });
+    expect(decode(calls)).toEqual([[PLACER, "claim", ZERO, WALLET]]);
   });
 
   it("sends the claim to the claimant", () => {
-    const { calls } = buildLaunchClaimCalls(
-      launch({ recipient: SECOND, uncollectedEth: 100n }),
-      placer({}),
-      SECOND,
+    const { calls } = buildLaunchClaimCalls(launch({ recipient: SECOND, pendingFees: 100n }), placer({}), SECOND);
+    expect(decode(calls)).toEqual([
+      [PLACER, "collectFees", TOKEN],
+      [PLACER, "claim", ZERO, SECOND],
+    ]);
+  });
+});
+
+describe("buildLaunchClaimCalls — a USDC-paired launch", () => {
+  it("claims the launch's quote currency — USDC — not ETH", () => {
+    const { calls, quote } = buildLaunchClaimCalls(
+      launch({ quoteToken: USDC, pendingFees: 1_000_000n }),
+      placer({ [lc(WALLET)]: 9n * E }, PLACER, { [lc(USDC)]: { [lc(WALLET)]: 500_000n } }),
+      WALLET,
     );
     expect(decode(calls)).toEqual([
       [PLACER, "collectFees", TOKEN],
-      [PLACER, "claimEth", SECOND],
+      [PLACER, "claim", USDC, WALLET],
     ]);
+    // 0.5 USDC credited + 88% of 1 USDC pending; the 9 ETH is not this launch's.
+    expect(quote).toBe(1_380_000n);
   });
 });
 
 describe("buildTransferCalls", () => {
   // Without the collect, fees earned before the transfer would be credited to
   // the new recipient — the dialog promises they stay with the old one.
-  it("collects first when the pool holds fees", () => {
-    expect(decode(buildTransferCalls(launch({ uncollectedTokens: 5n }), OTHER))).toEqual([
+  it("collects first when fees are pending", () => {
+    expect(decode(buildTransferCalls(launch({ pendingFees: 5n }), OTHER))).toEqual([
       [PLACER, "collectFees", TOKEN],
       [PLACER, "setFeeRecipient", TOKEN, OTHER],
     ]);
   });
 
   it("only sets the recipient when there is nothing to collect", () => {
-    expect(decode(buildTransferCalls(launch({ uncollectedEth: null }), OTHER))).toEqual([
+    expect(decode(buildTransferCalls(launch({ pendingFees: null }), OTHER))).toEqual([
       [PLACER, "setFeeRecipient", TOKEN, OTHER],
     ]);
   });
 });
 
-describe("planClaimAllEth (profile)", () => {
+describe("planClaimAllQuote (profile)", () => {
   const fees = {
     launches: [
-      launch({ token: TOKEN, uncollectedEth: 100n }),
-      launch({ token: TOKEN_B, uncollectedEth: 0n, uncollectedTokens: 50n }),
-      launch({ token: TOKEN_C, placer: OLD_PLACER, uncollectedEth: 200n }),
+      launch({ token: TOKEN, pendingFees: 100n }),
+      launch({ token: TOKEN_B, pendingFees: 0n }),
+      launch({ token: TOKEN_C, placer: OLD_PLACER, pendingFees: 200n }),
     ],
     placers: { [lc(PLACER)]: placer({ [lc(WALLET)]: 10n }), [lc(OLD_PLACER)]: placer({}, OLD_PLACER) },
   };
 
-  it("groups by placer: each placer's collects, then its claimEth, in one batch", () => {
-    const plan = planClaimAllEth(fees, WALLET);
+  it("groups by placer: each placer's collects for launches with pending fees, then its claim", () => {
+    const plan = planClaimAllQuote(fees, WALLET, ZERO);
     expect(decode(plan.calls)).toEqual([
       [PLACER, "collectFees", TOKEN],
-      [PLACER, "claimEth", WALLET],
+      [PLACER, "claim", ZERO, WALLET],
       [OLD_PLACER, "collectFees", TOKEN_C],
-      [OLD_PLACER, "claimEth", WALLET],
+      [OLD_PLACER, "claim", ZERO, WALLET],
     ]);
     // 10 credited + 88 + 176
-    expect(plan.eth).toBe(274n);
+    expect(plan.amount).toBe(274n);
   });
 
-  it("does not collect a launch whose pool holds no ETH", () => {
-    const calls = decode(planClaimAllEth(fees, WALLET).calls);
+  it("does not collect a launch with nothing pending", () => {
+    const calls = decode(planClaimAllQuote(fees, WALLET, ZERO).calls);
     expect(calls).not.toContainEqual([PLACER, "collectFees", TOKEN_B]);
   });
 
   it("claims a placer's pooled ETH even with no listed launch on it", () => {
-    const plan = planClaimAllEth(
+    const plan = planClaimAllQuote(
       { launches: [], placers: { [lc(PLACER)]: placer({ [lc(WALLET)]: 3n }) } },
       WALLET,
+      ZERO,
     );
-    expect(decode(plan.calls)).toEqual([[PLACER, "claimEth", WALLET]]);
+    expect(decode(plan.calls)).toEqual([[PLACER, "claim", ZERO, WALLET]]);
   });
 
   it("skips a placer with nothing for the account — no NothingToClaim", () => {
-    const plan = planClaimAllEth(
-      { launches: [launch({ uncollectedEth: 1n })], placers: { [lc(PLACER)]: placer({}) } },
+    const plan = planClaimAllQuote(
+      { launches: [launch({ pendingFees: 1n })], placers: { [lc(PLACER)]: placer({}) } },
       WALLET,
+      ZERO,
     );
-    expect(plan).toEqual({ calls: [], eth: 0n });
+    expect(plan).toEqual({ calls: [], amount: 0n });
   });
 
   it("does not collect a launch whose fees now go to someone else", () => {
-    const plan = planClaimAllEth(
-      { launches: [launch({ recipient: OTHER, uncollectedEth: 100n })], placers: { [lc(PLACER)]: placer({ [lc(WALLET)]: 1n }) } },
+    const plan = planClaimAllQuote(
+      { launches: [launch({ recipient: OTHER, pendingFees: 100n })], placers: { [lc(PLACER)]: placer({ [lc(WALLET)]: 1n }) } },
       WALLET,
+      ZERO,
     );
-    expect(decode(plan.calls)).toEqual([[PLACER, "claimEth", WALLET]]);
+    expect(decode(plan.calls)).toEqual([[PLACER, "claim", ZERO, WALLET]]);
   });
 
   it("plans nothing with nobody connected", () => {
-    expect(planClaimAllEth(fees, undefined)).toEqual({ calls: [], eth: 0n });
+    expect(planClaimAllQuote(fees, undefined, ZERO)).toEqual({ calls: [], amount: 0n });
   });
-});
 
-describe("planClaimToken (profile row)", () => {
-  it("collects when the pool holds tokens, then claims the token", () => {
-    const plan = planClaimToken(launch({ uncollectedTokens: 100n }), placer(), WALLET);
-    expect(decode(plan.calls)).toEqual([
+  // One claim per currency: the ETH plan never touches a USDC launch or USDC
+  // credits, and the USDC plan claims USDC only.
+  it("keeps each quote currency to its own plan", () => {
+    const mixed = {
+      launches: [
+        launch({ token: TOKEN, pendingFees: 100n }),
+        launch({ token: TOKEN_B, quoteToken: USDC, pendingFees: 1_000_000n }),
+      ],
+      placers: { [lc(PLACER)]: placer({ [lc(WALLET)]: 10n }, PLACER, { [lc(USDC)]: { [lc(WALLET)]: 2n } }) },
+    };
+    const eth = planClaimAllQuote(mixed, WALLET, ZERO);
+    expect(decode(eth.calls)).toEqual([
       [PLACER, "collectFees", TOKEN],
-      [PLACER, "claimToken", TOKEN, WALLET],
+      [PLACER, "claim", ZERO, WALLET],
     ]);
-    expect(plan.tokens).toBe(88n);
-  });
-
-  it("does not collect for ETH alone — the row claims tokens", () => {
-    const plan = planClaimToken(
-      launch({ uncollectedEth: 100n, claimableToken: { [lc(WALLET)]: 4n } }),
-      placer(),
-      WALLET,
-    );
-    expect(decode(plan.calls)).toEqual([[PLACER, "claimToken", TOKEN, WALLET]]);
-  });
-
-  it("claims tokens credited before the fees were handed on, without collecting for the new recipient", () => {
-    const plan = planClaimToken(
-      launch({ recipient: OTHER, uncollectedTokens: 100n, claimableToken: { [lc(WALLET)]: 4n } }),
-      placer(),
-      WALLET,
-    );
-    expect(decode(plan.calls)).toEqual([[PLACER, "claimToken", TOKEN, WALLET]]);
-  });
-
-  it("plans nothing when no tokens are earned", () => {
-    expect(planClaimToken(launch({ uncollectedTokens: 1n }), placer(), WALLET)).toEqual({ calls: [], tokens: 0n });
+    expect(eth.amount).toBe(98n);
+    const usdc = planClaimAllQuote(mixed, WALLET, USDC);
+    expect(decode(usdc.calls)).toEqual([
+      [PLACER, "collectFees", TOKEN_B],
+      [PLACER, "claim", USDC, WALLET],
+    ]);
+    expect(usdc.amount).toBe(880_002n);
   });
 });
 
 describe("summarizeCreatorFees", () => {
-  it("lists launches the account earns from, totals pooled + in-pool ETH", () => {
+  it("lists launches the account is recipient of, totals credited + pending quote per currency", () => {
     const summary = summarizeCreatorFees(
       {
         launches: [
-          launch({ token: TOKEN, uncollectedEth: 100n, uncollectedTokens: 1000n }),
+          launch({ token: TOKEN, pendingFees: 100n }),
           launch({ token: TOKEN_B }),
-          // handed on, but tokens credited before still claimable: listed
-          launch({ token: TOKEN_C, recipient: OTHER, uncollectedEth: 999n, claimableToken: { [lc(WALLET)]: 7n } }),
-          // handed on with nothing left: dropped
-          launch({ token: getAddress("0xdddd00000000000000000000000000000000dddd"), recipient: OTHER, uncollectedEth: 999n }),
+          // handed on: dropped (its collected fees are in the ETH total)
+          launch({ token: TOKEN_C, recipient: OTHER, pendingFees: 999n }),
         ],
         placers: { [lc(PLACER)]: placer({ [lc(WALLET)]: 12n }) },
       },
       WALLET,
     );
-    expect(summary.rows.map((r) => [r.launch.token, r.isRecipient, r.ethInPool, r.tokens])).toEqual([
-      [TOKEN, true, 88n, 880n],
-      [TOKEN_B, true, 0n, 0n],
-      [TOKEN_C, false, 0n, 7n],
+    expect(summary.rows.map((r) => [r.launch.token, r.quotePending])).toEqual([
+      [TOKEN, 88n],
+      [TOKEN_B, 0n],
     ]);
-    expect(summary).toMatchObject({ ethCollected: 12n, ethInPool: 88n, eth: 100n });
+    expect(summary.currencies).toEqual([{ currency: ZERO, collected: 12n, pending: 88n, total: 100n, launchCount: 2 }]);
   });
 
   it("is empty with nobody connected", () => {
     const summary = summarizeCreatorFees(
-      { launches: [launch({ claimableToken: { [lc(WALLET)]: 1n } })], placers: { [lc(PLACER)]: placer({ [lc(WALLET)]: 1n }) } },
+      { launches: [launch({ pendingFees: 100n })], placers: { [lc(PLACER)]: placer({ [lc(WALLET)]: 1n }) } },
       undefined,
     );
-    expect(summary).toEqual({ rows: [], ethCollected: 0n, ethInPool: 0n, eth: 0n });
+    expect(summary).toEqual({ rows: [], currencies: [] });
+  });
+
+  it("totals each quote currency apart, ETH first, including credits from launches not listed", () => {
+    const summary = summarizeCreatorFees(
+      {
+        launches: [
+          launch({ token: TOKEN_B, quoteToken: USDC, pendingFees: 1_000_000n }),
+          launch({ token: TOKEN, pendingFees: 100n }),
+        ],
+        placers: {
+          [lc(PLACER)]: placer({ [lc(WALLET)]: 12n }, PLACER, { [lc(USDC)]: { [lc(WALLET)]: 5n } }),
+          // Another placer with ETH credited from a launch this list does not show.
+          [lc(OLD_PLACER)]: placer({ [lc(WALLET)]: 3n }, OLD_PLACER),
+        },
+      },
+      WALLET,
+    );
+    expect(summary.currencies).toEqual([
+      { currency: ZERO, collected: 15n, pending: 88n, total: 103n, launchCount: 1 },
+      { currency: lc(USDC), collected: 5n, pending: 880_000n, total: 880_005n, launchCount: 1 },
+    ]);
+    expect(summary.rows.map((r) => [r.launch.token, r.quotePending])).toEqual([
+      [TOKEN_B, 880_000n],
+      [TOKEN, 88n],
+    ]);
+  });
+});
+
+describe("the placer ABI the fees code calls", () => {
+  it("has pendingFees and a single-value collectFees, and none of the removed functions", () => {
+    expect(ABI_FUNCTIONS).toContain("pendingFees");
+    const collect = UniV4LiquidityPlacerAbi.find((e) => e.type === "function" && e.name === "collectFees");
+    expect(collect.outputs.map((o) => o.type)).toEqual(["uint256"]);
+    for (const gone of ["sweepDust", "totalClaimable", "setGate", "gate", "fee", "setPoolParams"]) {
+      expect(ABI_FUNCTIONS.has(gone), gone).toBe(false);
+    }
   });
 });
 
@@ -322,12 +349,6 @@ describe("validateNewRecipient", () => {
 });
 
 describe("formatting", () => {
-  it("abbreviates whole tokens and keeps a fraction of one", () => {
-    expect(formatFeeTokens(1_240_000n * E)).toBe("1.24M");
-    expect(formatFeeTokens(5n * 10n ** 17n)).toBe("0.5");
-    expect(formatFeeTokens(0n)).toBe("0");
-  });
-
   it("compares addresses case-insensitively", () => {
     expect(sameAddress(WALLET.toUpperCase(), WALLET)).toBe(true);
     expect(sameAddress(undefined, undefined)).toBe(false);

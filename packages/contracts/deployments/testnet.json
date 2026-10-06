@@ -1,7 +1,7 @@
 {
   "network": "base-sepolia",
   "chainId": 84532,
-  "deployedAt": "2026-10-01T05:07:14.935Z",
+  "deployedAt": "2026-10-06T07:09:17.444Z",
   "contracts": {
     "QuoteToken": "0xea8c2419cea4fcfeb040eeb886534041e195cb31",
     "Raffle": "0x6b40a36a5bff19994d837e71ab0a559525b21aff",
@@ -17,15 +17,14 @@
     "PrizeDistributor": "0xe01369712133ed3534a974d59ed1405110d27fc4",
     "RaffleOracleAdapter": "0xdb9498486a7b048793c34c537a8570f0f4cbc4ae",
     "SeasonGating": "0x0000000000000000000000000000000000000000",
-    "USDC": "0x0000000000000000000000000000000000000000",
+    "USDC": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
     "RolloverEscrow": "0x2894d0a965a55d60299806c79b7a19980147442a",
     "PoolManager": "0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408",
-    "TokenLaunchpad": "0x24c202f41960bd5821261ef3ff9989be796e414c",
-    "LiquidityPlacer": "0x467edbfd87aecc1710a3425c0861e9a6e115db36",
-    "LaunchPoolGate": "0xdde066d8499cb46f0937e3188d7d877513d56000",
-    "LaunchRouter": "0x3d64f9e59a2fa608315307ba5d577a14637254c8"
+    "TokenLaunchpad": "0x53f17d585f23dfff44e6c99b2556b1ce4a138bd0",
+    "LiquidityPlacer": "0xfeb4c0aefb2cdf5b96be3ae58b9e36cb802b20cc",
+    "LaunchRouter": "0xbdb82518994608723c3381d1ea4263b65df81625"
   },
   "deployBlocks": {
-    "TokenLaunchpad": 47531310
+    "TokenLaunchpad": 47751088
   }
 }

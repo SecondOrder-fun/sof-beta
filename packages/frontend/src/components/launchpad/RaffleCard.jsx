@@ -25,8 +25,8 @@
 //
 // Composed from existing primitives: Card in a Pastel Rose frame, Badge
 // (RaffleBadge), Button, CountdownTimer and MiniCurveChart. The prize pool is
-// shown in the token with an ETH equivalent from the pool price — never USD,
-// so there is no oracle.
+// shown in the token with an equivalent in the launch's quote token (ETH, USDC,
+// …) from the pool price — never an oracle's USD.
 
 import PropTypes from "prop-types";
 import { useNavigate } from "react-router-dom";
@@ -45,7 +45,8 @@ import { usePlayerPosition } from "@/hooks/usePlayerPosition";
 import { useTokenSeasons } from "@/hooks/useLaunchActivity";
 import { cn } from "@/lib/utils";
 import { shortAddress } from "@/lib/format";
-import { formatEthAmount, formatSupply, formatTokenAmount } from "@/lib/launchFormat";
+import { formatQuoteAmount, formatSupply, formatTokenAmount } from "@/lib/launchFormat";
+import { tokensToQuote } from "@/lib/v4PoolMath";
 import { grandPrizeWei } from "@/lib/prizeMath";
 
 const Frame = ({ tone, label, children }) => (
@@ -113,7 +114,7 @@ const LiveRaffle = ({ raffle, symbol, market }) => {
   // reads ticketsSold, which stands in with the summary's count.
   const prizePool = hasState ? curveReserves : BigInt(raffle.prizePool);
   const ticketsSold = hasState ? curveSupply : BigInt(raffle.tickets);
-  const prizeEthWei = market?.priceWei != null ? (prizePool * market.priceWei) / 10n ** 18n : null;
+  const prizeInQuote = tokensToQuote(prizePool, market);
   const myTickets = position?.tickets ?? 0n;
   // Skeleton only while a price read is in flight; a missing curve state (e.g.
   // a 404 from the indexer) falls back to the ladder rather than spinning.
@@ -139,9 +140,12 @@ const LiveRaffle = ({ raffle, symbol, market }) => {
         <div className="text-4xl font-semibold tracking-tight text-heading">
           {formatSupply(prizePool)} <span className="text-lg font-medium text-muted-foreground">{symbol}</span>
         </div>
-        {prizeEthWei != null ? (
+        {prizeInQuote != null && market?.quote ? (
           <div className="text-sm text-muted-foreground">
-            {t("raffle.prizeEth", { eth: formatEthAmount(prizeEthWei) })}
+            {t("raffle.prizeQuote", {
+              amount: formatQuoteAmount(prizeInQuote, market.quote.decimals),
+              quote: market.quote.symbol,
+            })}
           </div>
         ) : null}
       </div>
@@ -200,7 +204,7 @@ const LiveRaffle = ({ raffle, symbol, market }) => {
 LiveRaffle.propTypes = {
   raffle: PropTypes.object.isRequired,
   symbol: PropTypes.string,
-  market: PropTypes.shape({ priceWei: PropTypes.any }),
+  market: PropTypes.shape({ fdv: PropTypes.any, totalSupplyRaw: PropTypes.any, quote: PropTypes.object }),
 };
 
 const UpcomingRaffle = ({ raffle, symbol }) => {
@@ -323,7 +327,7 @@ const RaffleCard = ({ token, symbol, market }) => {
 RaffleCard.propTypes = {
   token: PropTypes.string.isRequired,
   symbol: PropTypes.string,
-  market: PropTypes.shape({ priceWei: PropTypes.any }),
+  market: PropTypes.shape({ fdv: PropTypes.any, totalSupplyRaw: PropTypes.any, quote: PropTypes.object }),
 };
 
 export default RaffleCard;

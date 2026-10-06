@@ -6,16 +6,20 @@ import {console2} from "forge-std/console2.sol";
 import {DeployedAddresses} from "./DeployedAddresses.sol";
 import {HelperConfig} from "./HelperConfig.s.sol";
 import {TokenLaunchpad} from "../../src/launchpad/TokenLaunchpad.sol";
-import {UniV4LiquidityPlacer} from "../../src/launchpad/UniV4LiquidityPlacer.sol";
-import {LaunchPoolGate} from "../../src/launchpad/LaunchPoolGate.sol";
+import {UniV4LiquidityPlacer, PLACER_HOOK_FLAGS} from "../../src/launchpad/UniV4LiquidityPlacer.sol";
 import {HookMiner} from "../../src/launchpad/HookMiner.sol";
-import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 
 /**
- * @notice Deploys the Uniswap v4 liquidity placer and wires it into the launchpad.
+ * @notice Deploys the Uniswap v4 liquidity placer — which is also every launch pool's
+ *         hook — and wires it into the launchpad.
  *
  * @dev Closes the circular dependency opened by 21_DeployTokenLaunchpad: the placer takes
  *      the launchpad address immutably, then `setPlacer` hands the launchpad the placer.
+ *
+ *      v4 reads a hook's permissions from its address, so the placer is deployed with
+ *      CREATE2 at a salt mined (`HookMiner`) for exactly `PLACER_HOOK_FLAGS`.
+ *      Broadcast CREATE2 goes through the standard CREATE2 factory, so it is mined against
+ *      that deployer; the constructor re-checks the address.
  *
  *      Requires a PoolManager. Locally 20_DeployPoolManager has already put one in `addrs`;
  *      elsewhere it comes from HelperConfig.getPoolManager() (POOL_MANAGER_ADDRESS, else the
@@ -26,21 +30,22 @@ import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
  *      this step with the address supplied.
  */
 contract DeployLiquidityPlacer is Script {
-    /// @notice Pool fee, in hundredths of a bip. 10_000 = 1%.
-    /// @dev High by AMM standards and deliberately so: the fee is the launchpad's revenue
-    ///      (split 88/12 creator/platform, design.md §6.7) and launch tokens trade on
-    ///      volatility, not on tight spreads. It matches what Clanker charges.
-    uint24 internal constant POOL_FEE = 10_000;
+    /// @notice The lowest trade fee a creator may choose, in pips (5_000 = 0.5%). The
+    ///         ceiling is the placer's compiled-in MAX_TRADE_FEE (10%).
+    /// @dev The fee is the launchpad's revenue (split 88/12 creator/platform, design.md
+    ///      §6.7), so a floor keeps every launch paying something. CONFIG_ROLE-adjustable.
+    uint24 internal constant MIN_TRADE_FEE = 5_000;
+
+    /// @notice The snipe tax: early buys pay a surcharge that starts at 80% and decays
+    ///         linearly to the launch's own trade fee over 30 seconds (15 Base blocks).
+    /// @dev Snipers land in the launch's first block or two; a person who saw the launch
+    ///      and waits half a minute pays the normal fee. CONFIG_ROLE-adjustable
+    ///      (`setSnipeTax`); each pool keeps the schedule it launched with.
+    uint16 internal constant SNIPE_START_BPS = 8_000;
+    uint16 internal constant SNIPE_DURATION = 30;
 
     /// @notice Tick spacing. Must divide the position's ticks.
     int24 internal constant TICK_SPACING = 200;
-
-    /// @notice How far below the start price the position extends.
-    /// @dev 1.0001**46_000 is roughly 100x, so the token can climb about two orders of
-    ///      magnitude before the position is fully sold and the supply is entirely in
-    ///      buyers' hands. Wide enough that no realistic launch exhausts it; narrow enough
-    ///      that the price actually moves on ordinary volume.
-    int24 internal constant RANGE_WIDTH_TICKS = 46_000;
 
     function run(DeployedAddresses memory addrs) public returns (DeployedAddresses memory) {
         require(addrs.tokenLaunchpad != address(0), "LiquidityPlacer: launchpad must be deployed first");
@@ -60,42 +65,38 @@ contract DeployLiquidityPlacer is Script {
 
         address admin = vm.addr(vm.envUint("PRIVATE_KEY"));
 
+        bytes memory initCode = abi.encodePacked(
+            type(UniV4LiquidityPlacer).creationCode,
+            abi.encode(poolManager, addrs.tokenLaunchpad, admin, TICK_SPACING, MIN_TRADE_FEE)
+        );
+        (address expected, bytes32 salt) = HookMiner.find(CREATE2_FACTORY, PLACER_HOOK_FLAGS, initCode);
+
         vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
 
-        UniV4LiquidityPlacer placer = new UniV4LiquidityPlacer(
-            poolManager, addrs.tokenLaunchpad, admin, POOL_FEE, TICK_SPACING, RANGE_WIDTH_TICKS
-        );
+        UniV4LiquidityPlacer placer =
+            new UniV4LiquidityPlacer{salt: salt}(poolManager, addrs.tokenLaunchpad, admin, TICK_SPACING, MIN_TRADE_FEE);
+        require(address(placer) == expected, "LiquidityPlacer: landed at an unexpected address");
 
         // The launchpad's half of the circular dependency. Deployer holds CONFIG_ROLE from
         // the launchpad's constructor.
-        TokenLaunchpad(addrs.tokenLaunchpad).setPlacer(address(placer));
+        TokenLaunchpad(payable(addrs.tokenLaunchpad)).setPlacer(address(placer));
 
-        // The pool-initialization gate (see LaunchPoolGate): a hook at a CREATE2 address
-        // mined so its permission bits are exactly before-initialize. Broadcast CREATE2
-        // goes through the standard CREATE2 factory, so mine against that deployer.
-        bytes memory gateInit = abi.encodePacked(type(LaunchPoolGate).creationCode, abi.encode(address(placer)));
-        (address expectedGate, bytes32 salt) = HookMiner.find(CREATE2_FACTORY, Hooks.BEFORE_INITIALIZE_FLAG, gateInit);
-        LaunchPoolGate gate = new LaunchPoolGate{salt: salt}(address(placer));
-        require(address(gate) == expectedGate, "LiquidityPlacer: gate landed at an unexpected address");
-        placer.setGate(address(gate));
-
-        // The platform's 12% of collected LP fees. TREASURY_ADDRESS, as step 16c uses;
-        // the deployer when unset (local).
+        // The platform's 12% of trade fees. TREASURY_ADDRESS, as step 16c uses; the
+        // deployer when unset (local).
         address feeTreasury = vm.envOr("TREASURY_ADDRESS", admin);
         placer.setFeeTreasury(feeTreasury);
+        placer.setSnipeTax(SNIPE_START_BPS, SNIPE_DURATION);
 
         vm.stopBroadcast();
 
-        addrs.launchPoolGate = address(gate);
-
         addrs.liquidityPlacer = address(placer);
 
-        console2.log("UniV4LiquidityPlacer:", address(placer));
+        console2.log("UniV4LiquidityPlacer (pool hook):", address(placer));
         console2.log("  PoolManager:", poolManager);
-        console2.log("  fee / tickSpacing / rangeWidth:", POOL_FEE, uint256(int256(TICK_SPACING)));
+        console2.log("  min trade fee (pips) / tickSpacing:", MIN_TRADE_FEE, uint256(int256(TICK_SPACING)));
         console2.log("  wired into TokenLaunchpad:", addrs.tokenLaunchpad);
-        console2.log("LaunchPoolGate:", address(gate));
-        console2.log("  LP fee treasury (12%):", feeTreasury);
+        console2.log("  trade fee treasury (12%):", feeTreasury);
+        console2.log("  snipe tax (bps, seconds):", SNIPE_START_BPS, SNIPE_DURATION);
 
         return addrs;
     }

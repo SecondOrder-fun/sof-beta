@@ -116,7 +116,7 @@ packages/contracts/
 │   ├── infofi/                     # InfoFiMarketFactory, InfoFiFPMMV2, InfoFiPriceOracle, InfoFiSettlement, ConditionalTokenSOF, MarketTypeRegistry, RaffleOracleAdapter
 │   ├── gating/                     # SeasonGating.sol, SeasonGatingStorage.sol
 │   ├── sponsor/                    # SponsorOnboarding.sol
-│   ├── launchpad/                  # TokenLaunchpad, LaunchToken, UniV4LiquidityPlacer, LaunchPoolGate, HookMiner, UniV4LaunchRouter (+ interfaces)
+│   ├── launchpad/                  # TokenLaunchpad, LaunchToken, UniV4LiquidityPlacer (also the pools' hook), HookMiner, UniV4LaunchRouter (+ interfaces)
 │   ├── lib/                        # Interfaces (IRaffle, ISeasonFactory, etc.) + RaffleTypes, RaffleLogic
 │   └── test-helpers/               # MockERC20.sol (placeholder quote token), MockUSDC.sol
 ├── test/                           # Forge tests + helpers/ + invariant/ + integration/
@@ -183,8 +183,8 @@ Access levels: 0=public, 1=connected, 2=allowlist, 3=beta, 4=admin.
 
 | Table | Key Columns | Used By |
 |-------|------------|---------|
-| `token_launches` | token_address (PK), launch_id, creator_address, name, symbol, metadata_uri, start_price_wei, implied_fdv_wei, pool_id (v4 PoolId, unique), launched_at, is_hidden, is_verified (023) | tokenLaunchedListener.js, launchTradeListener.js, tokenLaunchesDb.js, launchpadActivityDb.js |
-| `launch_trades` | (tx_hash, log_index) PK, token_address (FK token_launches), pool_id, trader, side, eth_amount, token_amount, price_wei, block_number, block_time (023); index (block_number DESC, log_index DESC) for the ticker (025) | launchTradeListener.js, tokenLaunchesDb.js, launchpadActivityDb.js |
+| `token_launches` | token_address (PK), launch_id, creator_address, name, symbol, metadata_uri, quote_token / quote_symbol / quote_decimals (ETH or an allowlisted ERC-20), start_price_e18 (quote raw units per whole token × 1e18), start_fdv (quote raw units), trade_fee (pips, 10000 = 1%; the creator's per-launch fee, 10000 on pre-0.42 launches), pool_id (v4 PoolId, unique), launched_at, is_hidden, is_verified (023, 029) | tokenLaunchedListener.js, launchTradeListener.js, tokenLaunchesDb.js, launchpadActivityDb.js |
+| `launch_trades` | (tx_hash, log_index) PK, token_address (FK token_launches), pool_id, trader, side, quote_amount (what the trader paid / received, trade fee included), fee_amount (hook trade fee, quote raw units; NULL on older rows and pre-0.42 LP-fee pools), token_amount, price_e18 (quote raw units per whole token × 1e18), block_number, block_time (023, 029); index (block_number DESC, log_index DESC) for the ticker (025) | launchTradeListener.js, tokenLaunchesDb.js, launchpadActivityDb.js |
 
 #### Infrastructure
 

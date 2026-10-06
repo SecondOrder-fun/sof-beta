@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
   formatFdvEth,
-  formatPriceGwei,
+  formatFdv,
+  formatQuoteAmount,
+  formatTokenPrice,
+  parseQuoteAmount,
   formatSupply,
   formatAge,
   formatMultiple,
@@ -10,6 +13,10 @@ import {
   formatTokenAmount,
   formatEthAmount,
   tokensToEthWei,
+  formatTradeFee,
+  formatFeeRate,
+  splitSeconds,
+  parseTradeFeePct,
 } from "@/lib/launchFormat";
 import { getCountdownParts, timeUntil } from "@/lib/utils";
 
@@ -28,15 +35,78 @@ describe("formatFdvEth", () => {
   });
 });
 
-describe("formatPriceGwei", () => {
+describe("formatTokenPrice", () => {
+  const USDC = { symbol: "USDC", decimals: 6 };
   // Why gwei: at the 1 ETH floor against a 1e9 supply the price is exactly
   // 1 gwei per token, and the ceiling is 1000. In ETH those are
   // 0.000000001 and 0.000001 — indistinguishable at a glance.
-  it("renders the floor price as 1 gwei", () => {
-    expect(formatPriceGwei(1_000_000_000n)).toBe("1");
+  it("renders the ETH floor and ceiling as 1 and 1000 gwei", () => {
+    expect(formatTokenPrice(10n ** 18n, null)).toEqual({ value: "1", unit: "gwei" });
+    expect(formatTokenPrice(1000n * 10n ** 18n, { symbol: "ETH", decimals: 18 })).toEqual({ value: "1000", unit: "gwei" });
   });
-  it("renders the ceiling price as 1000 gwei", () => {
-    expect(formatPriceGwei(1_000_000_000_000n)).toBe("1000");
+  // A 2,500 USDC launch is 2.5 raw units per token: taken from the valuation,
+  // the price keeps the half a floored per-token price would lose.
+  it("renders a USDC price in USDC, to four significant digits", () => {
+    expect(formatTokenPrice(2_500_000_000n, USDC)).toEqual({ value: "0.0000025", unit: "USDC" });
+    expect(formatTokenPrice(1_234_567_891n, USDC)).toEqual({ value: "0.000001234", unit: "USDC" });
+    expect(formatTokenPrice(2_500_000n * 10n ** 6n, USDC)).toEqual({ value: "0.0025", unit: "USDC" });
+  });
+  it("renders a missing valuation as a dash, keeping the unit", () => {
+    expect(formatTokenPrice(null, USDC)).toEqual({ value: "—", unit: "USDC" });
+  });
+});
+
+describe("formatFdv", () => {
+  it("renders a USDC valuation in whole USDC", () => {
+    expect(formatFdv(2_500n * 10n ** 6n, 6)).toBe("2,500");
+    expect(formatFdv(2_500_500_000n, 6, 2)).toBe("2,500.5");
+  });
+});
+
+describe("formatQuoteAmount", () => {
+  it("keeps cents from 0.01 up and significant digits below, in the quote's decimals", () => {
+    expect(formatQuoteAmount(1_250_000_000n, 6)).toBe("1,250");
+    expect(formatQuoteAmount(12_345n, 6)).toBe("0.01");
+    expect(formatQuoteAmount(4_720n, 6)).toBe("0.00472");
+    expect(formatQuoteAmount(0n, 6)).toBe("0");
+  });
+  it("defaults to 18 decimals, as formatEthAmount", () => {
+    expect(formatQuoteAmount(4n * 10n ** 15n)).toBe(formatEthAmount(4n * 10n ** 15n));
+  });
+});
+
+describe("parseQuoteAmount", () => {
+  it("parses in the quote's decimals", () => {
+    expect(parseQuoteAmount("2.5", 18)).toBe(2_500_000_000_000_000_000n);
+    expect(parseQuoteAmount("2500", 6)).toBe(2_500_000_000n);
+    expect(parseQuoteAmount("0.000001", 6)).toBe(1n);
+  });
+  it("is null for empty, zero, junk, or more decimals than the quote has", () => {
+    for (const bad of ["", " ", "0", "0.0", ".", "abc", "1e5", "-1", "0.0000001"]) {
+      expect(parseQuoteAmount(bad, 6)).toBeNull();
+    }
+  });
+});
+
+describe("trade fee percentages", () => {
+  it("formats pips as a percentage", () => {
+    expect(formatTradeFee(10_000)).toBe("1");
+    expect(formatTradeFee(5_000)).toBe("0.5");
+    expect(formatTradeFee(25_000)).toBe("2.5");
+    expect(formatTradeFee(100_000)).toBe("10");
+    expect(formatTradeFee(1)).toBe("0.0001");
+    expect(formatTradeFee(null)).toBe("—");
+  });
+  it("parses a typed percentage into pips", () => {
+    expect(parseTradeFeePct("1")).toBe(10_000);
+    expect(parseTradeFeePct("0.5")).toBe(5_000);
+    expect(parseTradeFeePct(" 2.5% ")).toBe(25_000);
+    expect(parseTradeFeePct("0.0001")).toBe(1);
+  });
+  it("is null for empty, zero, junk, or finer than a pip", () => {
+    for (const bad of ["", "0", "abc", "-1", "0.00001", "1e2"]) {
+      expect(parseTradeFeePct(bad)).toBeNull();
+    }
   });
 });
 
@@ -223,5 +293,25 @@ describe("formatTokenAmount", () => {
   it("accepts a wei string and dashes a missing amount", () => {
     expect(formatTokenAmount(String(3n * TOKEN))).toBe("3");
     expect(formatTokenAmount(null)).toBe("—");
+  });
+});
+
+describe("formatFeeRate", () => {
+  it("shows a moving rate to two decimals, rounded up so it never reads low", () => {
+    expect(formatFeeRate(800_000)).toBe("80");
+    expect(formatFeeRate(589_334)).toBe("58.94");
+    expect(formatFeeRate(405_000)).toBe("40.5");
+    expect(formatFeeRate(10_000)).toBe("1");
+    expect(formatFeeRate(10_001)).toBe("1.01");
+    expect(formatFeeRate(null)).toBe("—");
+  });
+});
+
+describe("splitSeconds", () => {
+  it("splits a countdown into minutes and seconds, rounding a fraction up", () => {
+    expect(splitSeconds(22)).toEqual({ minutes: 0, seconds: 22 });
+    expect(splitSeconds(90)).toEqual({ minutes: 1, seconds: 30 });
+    expect(splitSeconds(0.2)).toEqual({ minutes: 0, seconds: 1 });
+    expect(splitSeconds(-3)).toEqual({ minutes: 0, seconds: 0 });
   });
 });
