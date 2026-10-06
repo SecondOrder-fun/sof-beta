@@ -6,13 +6,13 @@ import TokenDetail from "@/routes/TokenDetail";
 import { useTokenLaunch } from "@/hooks/useTokenLaunches";
 import { useLaunchMarkets } from "@/hooks/useLaunchMarkets";
 import { usePlatform } from "@/hooks/usePlatform";
-import { useTokenSeasons } from "@/hooks/useLaunchActivity";
+import { useTokenLaunchRow, useTokenSeasons } from "@/hooks/useLaunchActivity";
 import { deriveMarketState } from "@/lib/v4PoolMath";
 
 vi.mock("@/hooks/useTokenLaunches", () => ({ useTokenLaunch: vi.fn() }));
 vi.mock("@/hooks/useLaunchMarkets", () => ({ useLaunchMarkets: vi.fn() }));
 vi.mock("@/hooks/usePlatform", () => ({ usePlatform: vi.fn() }));
-vi.mock("@/hooks/useLaunchActivity", () => ({ useTokenSeasons: vi.fn() }));
+vi.mock("@/hooks/useLaunchActivity", () => ({ useTokenSeasons: vi.fn(), useTokenLaunchRow: vi.fn() }));
 // The panel and the trade feed have their own tests; stub them to isolate the page.
 vi.mock("@/components/launchpad/BuyPanel", () => ({ default: () => <div>buy-panel</div> }));
 vi.mock("@/components/launchpad/LaunchTrades", () => ({ default: () => <div>trades</div> }));
@@ -53,10 +53,18 @@ const market = deriveMarketState({
   quote: { address: "0x0000000000000000000000000000000000000000", symbol: "ETH", decimals: 18 },
 });
 
-const setup = ({ data = launch, mobile = false, path = `/tokens/${TOKEN}`, featured = null } = {}) => {
+const setup = ({
+  data = launch,
+  mobile = false,
+  path = `/tokens/${TOKEN}`,
+  featured = null,
+  marketOverride = market,
+  row,
+} = {}) => {
   useTokenLaunch.mockReturnValue({ data, isLoading: false, isAvailable: true });
   useTokenSeasons.mockReturnValue({ data: { seasons: featured ? [featured] : [], featured } });
-  useLaunchMarkets.mockReturnValue({ markets: data ? { [TOKEN]: market } : {} });
+  useTokenLaunchRow.mockReturnValue({ data: row });
+  useLaunchMarkets.mockReturnValue({ markets: data && marketOverride ? { [TOKEN]: marketOverride } : {}, isLoading: false });
   usePlatform.mockReturnValue({ isMobile: mobile });
   return render(
     <MemoryRouter initialEntries={[path]}>
@@ -94,6 +102,7 @@ describe("TokenDetail", () => {
       isAvailable: true,
     }));
     useTokenSeasons.mockReturnValue({ data: { seasons: [], featured: null } });
+    useTokenLaunchRow.mockReturnValue({ data: undefined });
     useLaunchMarkets.mockReturnValue({ markets: {} });
     usePlatform.mockReturnValue({ isMobile: false });
     render(
@@ -149,6 +158,29 @@ describe("TokenDetail", () => {
     setup();
     expect(screen.getByText("detail.factTradeFee")).toBeInTheDocument();
     expect(screen.getByText("2% in ETH")).toBeInTheDocument();
+  });
+
+  describe("liquidity preset", () => {
+    it("states the preset from the placement, without asking the backend", () => {
+      setup({ marketOverride: { ...market, liquidityPreset: 1 } });
+      expect(screen.getByText("detail.factLiquidityPreset")).toBeInTheDocument();
+      expect(screen.getByText("liquidityPresets.steadyStart.name")).toBeInTheDocument();
+      expect(useTokenLaunchRow).toHaveBeenLastCalledWith(TOKEN, { enabled: false });
+    });
+
+    it("falls back to the backend's launch row when the pool cannot be read", () => {
+      setup({ marketOverride: null, row: { launch: { token: TOKEN, liquidityPreset: 3 } } });
+      expect(screen.getByText("liquidityPresets.wideOpen.name")).toBeInTheDocument();
+      expect(useTokenLaunchRow).toHaveBeenLastCalledWith(TOKEN, { enabled: true });
+    });
+
+    // An older backend's row has no preset: unknown, not guessed.
+    it("shows a dash when neither says", () => {
+      setup({ marketOverride: null, row: { launch: { token: TOKEN } } });
+      const fact = screen.getByText("detail.factLiquidityPreset").closest("div");
+      expect(fact).toHaveTextContent("—");
+      expect(screen.queryByText(/^liquidityPresets\./)).toBeNull();
+    });
   });
 
   it("renders not-found for an address that is not a launch", () => {

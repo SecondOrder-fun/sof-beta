@@ -53,6 +53,7 @@ const row = (over = {}) => ({
   start_price_e18: "1000000000000000000000000000",
   start_fdv: ONE_ETH,
   trade_fee: 25_000,
+  liquidity_preset: 1,
   total_supply: (1_000_000_000n * 10n ** 18n).toString(),
   pool_id: `0x${"ab".repeat(32)}`,
   launched_at: "2026-09-29T00:00:00.000Z",
@@ -99,6 +100,7 @@ describe("GET /api/launchpad/tokens", () => {
       quoteSymbol: "ETH",
       quoteDecimals: 18,
       tradeFee: 25_000,
+      liquidityPreset: 1,
     });
   });
 

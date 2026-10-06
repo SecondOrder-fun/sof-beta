@@ -64,8 +64,9 @@ contract UniV4LiquidityPlacerTest is Test, PlacerDeployer {
 
     function _launch(uint256 startPriceWei) internal returns (address token) {
         vm.prank(creator);
-        (, token) =
-            launchpad.launch("Launched", "LNCH", "ipfs://m", address(0), startPriceWei * 1e9, TEST_TRADE_FEE, 0, 0);
+        (, token) = launchpad.launch(
+            "Launched", "LNCH", "ipfs://m", address(0), startPriceWei * 1e9, TEST_TRADE_FEE, CLASSIC, 0, 0
+        );
     }
 
     // ------------------------------------------------------------------
@@ -142,7 +143,8 @@ contract UniV4LiquidityPlacerTest is Test, PlacerDeployer {
     function test_cheaperStartPriceGivesHigherTick() public {
         address cheap = _launch(1_000_000_000); // FDV 1 ETH
         vm.prank(creator);
-        (, address dear) = launchpad.launch("Dear", "DEAR", "", address(0), 100_000_000_000 * 1e9, TEST_TRADE_FEE, 0, 0); // FDV 100 ETH
+        (, address dear) =
+            launchpad.launch("Dear", "DEAR", "", address(0), 100_000_000_000 * 1e9, TEST_TRADE_FEE, CLASSIC, 0, 0); // FDV 100 ETH
 
         int24 cheapTick = placer.getPlacement(cheap).tickUpper;
         int24 dearTick = placer.getPlacement(dear).tickUpper;
@@ -284,7 +286,7 @@ contract UniV4LiquidityPlacerTest is Test, PlacerDeployer {
     function test_onlyLaunchpadCanPlace() public {
         vm.prank(address(0xBAD));
         vm.expectRevert(OnlyLaunchpad.selector);
-        placer.place(address(0x1234), 1e18, address(0), PRICE * 1e9, TEST_TRADE_FEE);
+        placer.place(address(0x1234), 1e18, address(0), PRICE * 1e9, TEST_TRADE_FEE, CLASSIC);
     }
 
     function test_unlockCallbackRejectsNonPoolManager() public {
@@ -296,7 +298,7 @@ contract UniV4LiquidityPlacerTest is Test, PlacerDeployer {
     function test_twoLaunchesGetSeparatePools() public {
         address a = _launch(PRICE);
         vm.prank(creator);
-        (, address b) = launchpad.launch("Second", "SEC", "", address(0), PRICE * 1e9, TEST_TRADE_FEE, 0, 0);
+        (, address b) = launchpad.launch("Second", "SEC", "", address(0), PRICE * 1e9, TEST_TRADE_FEE, CLASSIC, 0, 0);
 
         assertTrue(placer.poolIdOf(a) != placer.poolIdOf(b), "distinct pools");
         assertGt(IERC20(a).balanceOf(address(manager)), 0);
@@ -420,14 +422,15 @@ contract UniV4LiquidityPlacerTest is Test, PlacerDeployer {
 
         vm.startPrank(creator);
         vm.expectRevert(abi.encodeWithSelector(TradeFeeOutOfRange.selector, max + 1, TEST_MIN_TRADE_FEE, max));
-        launchpad.launch("Greedy", "GRD", "", address(0), PRICE * 1e9, max + 1, 0, 0);
+        launchpad.launch("Greedy", "GRD", "", address(0), PRICE * 1e9, max + 1, CLASSIC, 0, 0);
         vm.expectRevert(
             abi.encodeWithSelector(TradeFeeOutOfRange.selector, TEST_MIN_TRADE_FEE - 1, TEST_MIN_TRADE_FEE, max)
         );
-        launchpad.launch("Cheap", "CHP", "", address(0), PRICE * 1e9, TEST_MIN_TRADE_FEE - 1, 0, 0);
+        launchpad.launch("Cheap", "CHP", "", address(0), PRICE * 1e9, TEST_MIN_TRADE_FEE - 1, CLASSIC, 0, 0);
 
-        (, address atMax) = launchpad.launch("Max", "MAX", "", address(0), PRICE * 1e9, max, 0, 0);
-        (, address atMin) = launchpad.launch("Min", "MIN", "", address(0), PRICE * 1e9, TEST_MIN_TRADE_FEE, 0, 0);
+        (, address atMax) = launchpad.launch("Max", "MAX", "", address(0), PRICE * 1e9, max, CLASSIC, 0, 0);
+        (, address atMin) =
+            launchpad.launch("Min", "MIN", "", address(0), PRICE * 1e9, TEST_MIN_TRADE_FEE, CLASSIC, 0, 0);
         vm.stopPrank();
         assertEq(placer.tradeFeeOf(atMax), max);
         assertEq(placer.getPlacement(atMin).tradeFee, TEST_MIN_TRADE_FEE);
@@ -440,7 +443,7 @@ contract UniV4LiquidityPlacerTest is Test, PlacerDeployer {
         placer.setMinTradeFee(100_001);
         placer.setMinTradeFee(0);
         vm.prank(creator);
-        (, address free) = launchpad.launch("Free", "FRE", "", address(0), PRICE * 1e9, 0, 0, 0);
+        (, address free) = launchpad.launch("Free", "FRE", "", address(0), PRICE * 1e9, 0, CLASSIC, 0, 0);
         assertEq(placer.tradeFeeOf(free), 0);
     }
 }

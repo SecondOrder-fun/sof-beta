@@ -25,6 +25,7 @@ import {
 import {UniV4LaunchRouter} from "../src/launchpad/UniV4LaunchRouter.sol";
 import {MockUSDC} from "../src/test-helpers/MockUSDC.sol";
 import {PlacerDeployer} from "./helpers/PlacerDeployer.sol";
+import {DirectSwapper} from "./helpers/DirectSwapper.sol";
 
 /// @notice The trade fee the placer takes as every launch pool's hook, against a real
 ///         PoolManager.
@@ -90,8 +91,9 @@ contract LaunchTradeFeesTest is Test, PlacerDeployer {
 
     function _launch(address quote, uint24 fee) internal returns (address token) {
         vm.prank(creator);
-        (, token) =
-            launchpad.launch("Frog Pond", "POND", "", quote, quote == address(0) ? ETH_FDV : USDC_FDV, fee, 0, 0);
+        (, token) = launchpad.launch(
+            "Frog Pond", "POND", "", quote, quote == address(0) ? ETH_FDV : USDC_FDV, fee, CLASSIC, 0, 0
+        );
     }
 
     function _key(address token) internal view returns (PoolKey memory) {
@@ -341,7 +343,7 @@ contract LaunchTradeFeesTest is Test, PlacerDeployer {
         vm.deal(creator, 1 ether);
         vm.prank(creator);
         (, address token) = launchpad.launch{value: 0.1 ether}(
-            "Frog Pond", "POND", "", address(0), ETH_FDV, TEST_TRADE_FEE, 0.1 ether, 0
+            "Frog Pond", "POND", "", address(0), ETH_FDV, TEST_TRADE_FEE, CLASSIC, 0.1 ether, 0
         );
         assertEq(placer.pendingFees(token), 0.001 ether, "1% of the creator's 0.1 ETH");
         assertEq(placer.pendingSurcharge(token), 0);
@@ -500,7 +502,7 @@ contract LaunchTradeFeesTest is Test, PlacerDeployer {
         UniV4LiquidityPlacer bare = _deployPlacer(address(manager), address(launchpad), address(this), 200);
         launchpad.setPlacer(address(bare));
         vm.prank(creator);
-        (, address other) = launchpad.launch("Other", "OTH", "", address(0), ETH_FDV, TEST_TRADE_FEE, 0, 0);
+        (, address other) = launchpad.launch("Other", "OTH", "", address(0), ETH_FDV, TEST_TRADE_FEE, CLASSIC, 0, 0);
         vm.expectRevert(FeeTreasuryNotSet.selector);
         bare.collectFees(other);
     }
@@ -607,57 +609,6 @@ contract LaunchTradeFeesTest is Test, PlacerDeployer {
         placer.collectFees(token);
         assertEq(placer.claimable(address(0), creator), creatorBefore, "earlier credit unchanged");
         assertGt(placer.claimable(address(0), next), 0, "later fees go to the new recipient");
-    }
-}
-
-/// @dev Swaps straight through the PoolManager, as any third-party router would, paying
-///      from and receiving to its own balance.
-contract DirectSwapper is IUnlockCallback {
-    using CurrencyLibrary for Currency;
-
-    IPoolManager public immutable manager;
-
-    constructor(IPoolManager _manager) {
-        manager = _manager;
-    }
-
-    receive() external payable {}
-
-    function swap(PoolKey memory key, bool zeroForOne, int256 amountSpecified, uint160 limit)
-        external
-        returns (BalanceDelta)
-    {
-        return abi.decode(manager.unlock(abi.encode(key, zeroForOne, amountSpecified, limit)), (BalanceDelta));
-    }
-
-    function unlockCallback(bytes calldata data) external returns (bytes memory) {
-        (PoolKey memory key, bool zeroForOne, int256 amountSpecified, uint160 limit) =
-            abi.decode(data, (PoolKey, bool, int256, uint160));
-        BalanceDelta delta = manager.swap(
-            key,
-            IPoolManager.SwapParams({
-                zeroForOne: zeroForOne, amountSpecified: amountSpecified, sqrtPriceLimitX96: limit
-            }),
-            ""
-        );
-        _settle(key.currency0, delta.amount0());
-        _settle(key.currency1, delta.amount1());
-        return abi.encode(delta);
-    }
-
-    function _settle(Currency c, int128 d) private {
-        if (d < 0) {
-            uint256 owed = uint256(uint128(-d));
-            manager.sync(c);
-            if (c.isAddressZero()) {
-                manager.settle{value: owed}();
-            } else {
-                IERC20(Currency.unwrap(c)).transfer(address(manager), owed);
-                manager.settle();
-            }
-        } else if (d > 0) {
-            manager.take(c, address(this), uint256(uint128(d)));
-        }
     }
 }
 

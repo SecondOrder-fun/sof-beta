@@ -69,7 +69,8 @@ const launchLog = (over = {}) => ({
   transactionHash: "0xlaunch",
   args: {
     launchId: 0n, token: TOKEN, creator: "0x3333333333333333333333333333333333333333",
-    name: "Pond", symbol: "POND", metadataURI: "ipfs://x", startFdv: 10n ** 18n, tradeFee: 10_000, placementId: POOL,
+    name: "Pond", symbol: "POND", metadataURI: "ipfs://x", startFdv: 10n ** 18n, tradeFee: 10_000,
+    liquidityPreset: 3, placementId: POOL,
   },
   ...over,
 });
@@ -143,6 +144,21 @@ describe("tokenLaunchedListener.processTokenLaunchedLog", () => {
     expect(await processTokenLaunchedLog(launchLog(), SUPPLY, logger, sse)).toBe("inserted");
     expect(await processTokenLaunchedLog(launchLog(), SUPPLY, logger, sse)).toBe("exists");
     expect(launchedBroadcasts()).toHaveLength(1);
+  });
+
+  it("stores and broadcasts the launch's liquidity preset", async () => {
+    expect(await processTokenLaunchedLog(launchLog(), SUPPLY, logger, sse)).toBe("inserted");
+    expect(tokenLaunchesDb.insertTokenLaunch.mock.calls[0][0].liquidity_preset).toBe(3);
+    expect(launchedBroadcasts()[0][1]).toMatchObject({ liquidityPreset: 3, tradeFee: 10_000 });
+  });
+
+  // A log from before contracts 0.43 has no preset; storing it would let the
+  // column default (Classic) stand in for a value the event never gave.
+  it("skips a log without a liquidity preset, storing nothing", async () => {
+    const { liquidityPreset: _omit, ...args } = launchLog().args;
+    expect(await processTokenLaunchedLog(launchLog({ args }), SUPPLY, logger, sse)).toBe("skipped");
+    expect(tokenLaunchesDb.insertTokenLaunch).not.toHaveBeenCalled();
+    expect(sse.broadcast).not.toHaveBeenCalled();
   });
 
   // A row that can never be stored would otherwise fail its range forever,

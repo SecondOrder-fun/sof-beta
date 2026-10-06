@@ -30,11 +30,18 @@ interface ILiquidityPlacer {
      *                    raw units: the starting price is `startFdv / amount`.
      * @param tradeFee    The creator-chosen trade fee in pips (10_000 = 1%), charged in
      *                    `quoteToken` on every swap; the implementation bounds it.
+     * @param liquidityPreset Which fixed ladder spreads the supply along the price scale
+     *                    (implementation-defined; the v4 placer has four).
      * @return placementId Venue-specific handle (a v4 pool id, an LP token id, …).
      */
-    function place(address token, uint256 amount, address quoteToken, uint256 startFdv, uint24 tradeFee)
-        external
-        returns (bytes32 placementId);
+    function place(
+        address token,
+        uint256 amount,
+        address quoteToken,
+        uint256 startFdv,
+        uint24 tradeFee,
+        uint8 liquidityPreset
+    ) external returns (bytes32 placementId);
 
     /**
      * @notice Let the next buy of `token` in this transaction skip any early-buy surcharge.

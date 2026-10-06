@@ -136,6 +136,71 @@
   },
   {
     "type": "function",
+    "name": "PRESET_CLASSIC",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "PRESET_COUNT",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "PRESET_STEADY_START",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "PRESET_THICK_MIDDLE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "PRESET_WIDE_OPEN",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "afterSwap",
     "inputs": [
       {
@@ -221,6 +286,42 @@
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "bandsOf",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple[]",
+        "internalType": "struct UniV4LiquidityPlacer.Band[]",
+        "components": [
+          {
+            "name": "tickLower",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "tickUpper",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "liquidity",
+            "type": "uint128",
+            "internalType": "uint128"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -654,6 +755,11 @@
             "name": "tradeFee",
             "type": "uint24",
             "internalType": "uint24"
+          },
+          {
+            "name": "liquidityPreset",
+            "type": "uint8",
+            "internalType": "uint8"
           }
         ]
       }
@@ -813,6 +919,11 @@
         "name": "tradeFee",
         "type": "uint24",
         "internalType": "uint24"
+      },
+      {
+        "name": "liquidityPreset",
+        "type": "uint8",
+        "internalType": "uint8"
       }
     ],
     "outputs": [
@@ -855,6 +966,30 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "presetBands",
+    "inputs": [
+      {
+        "name": "preset",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "ends",
+        "type": "uint24[]",
+        "internalType": "uint24[]"
+      },
+      {
+        "name": "sharesBps",
+        "type": "uint16[]",
+        "internalType": "uint16[]"
+      }
+    ],
+    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -1317,6 +1452,12 @@
         "type": "uint24",
         "indexed": false,
         "internalType": "uint24"
+      },
+      {
+        "name": "liquidityPreset",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
       }
     ],
     "anonymous": false
@@ -1683,6 +1824,17 @@
         "name": "max",
         "type": "uint24",
         "internalType": "uint24"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnknownLiquidityPreset",
+    "inputs": [
+      {
+        "name": "preset",
+        "type": "uint8",
+        "internalType": "uint8"
       }
     ]
   },

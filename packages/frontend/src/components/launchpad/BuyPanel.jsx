@@ -99,6 +99,9 @@ const BuyPanel = ({ token, symbol, market, quote: quoteProp, className }) => {
     if (!market || amountIn == null) return null;
     const pool = {
       sqrtPriceX96: market.sqrtPriceX96,
+      // The ladder's bands: the quote steps across their edges. `liquidity` is only
+      // read without them.
+      bands: market.bands,
       liquidity: market.liquidity,
       tokenIsCurrency0: market.tokenIsCurrency0,
       sqrtLowerX96: market.sqrtLowerX96,
@@ -125,7 +128,7 @@ const BuyPanel = ({ token, symbol, market, quote: quoteProp, className }) => {
       : null;
   const snipeEndsIn = snipeOpen ? splitSeconds(snipe.endsInSec) : null;
   const feeAmount = swap && out ? swap.fee : null;
-  // With a trade fee, a buy the range cannot fill in full reverts (quoted as
+  // With a trade fee, a buy the ladder cannot fill in full reverts (quoted as
   // nothing out); a sell, or a buy in a zero-fee pool, fills partly.
   const buyCannotFill = isBuy && swap?.exceedsRange && !out;
 

@@ -19,6 +19,10 @@
 // schedule the placer holds for new launches (`snipeStartBps()` / `snipeDuration()`,
 // read with the bounds by useTradeFeeBounds).
 //
+// And the pool's liquidity preset (`liquidityPreset`, lib/liquidityPresets.js): how
+// the placer spreads the supply along the price scale, as one to three positions
+// laid end to end from the launch price. Classic (0) by default.
+//
 // The creator may also make a first buy inside the launch transaction
 // (`creatorBuyIn`), executed right after the pool is placed and before anyone
 // else can trade; the snipe tax does not apply to it.
@@ -35,6 +39,7 @@ import { TokenLaunchpadAbi, UniV4LiquidityPlacerAbi } from '@/utils/abis';
 import { useSmartTransactions } from '@/hooks/useSmartTransactions';
 import { approveCall } from '@/lib/launchTrade';
 import { MAX_TRADE_FEE } from '@/lib/v4PoolMath';
+import { DEFAULT_LIQUIDITY_PRESET, liquidityPreset as presetById } from '@/lib/liquidityPresets';
 
 /**
  * Contract limits, mirrored so the form can validate before asking for a signature.
@@ -212,6 +217,7 @@ export function useTradeFeeBounds() {
  * @param {`0x${string}`} p.quoteToken     address 0 for ETH
  * @param {bigint} p.startFdv              quote raw units
  * @param {number} p.tradeFee              pips (10_000 = 1%), within the placer's bounds
+ * @param {number} [p.liquidityPreset=DEFAULT_LIQUIDITY_PRESET]  a preset id (lib/liquidityPresets.js)
  * @param {bigint} [p.creatorBuyIn=0n]     quote raw units
  * @param {bigint} [p.minTokensOut=0n]
  * @returns {{ to: `0x${string}`, data: `0x${string}`, value?: bigint }[]}
@@ -224,16 +230,20 @@ export function buildLaunchCalls({
   quoteToken,
   startFdv,
   tradeFee,
+  liquidityPreset = DEFAULT_LIQUIDITY_PRESET,
   creatorBuyIn = 0n,
   minTokensOut = 0n,
 }) {
   if (!Number.isInteger(tradeFee) || tradeFee <= 0) throw new Error('A trade fee is required');
+  // UnknownLiquidityPreset otherwise — refuse before the wallet prompt.
+  const preset = presetById(liquidityPreset);
+  if (!preset) throw new Error(`Unknown liquidity preset: ${liquidityPreset}`);
   const launch = {
     to: launchpad,
     data: encodeFunctionData({
       abi: TokenLaunchpadAbi,
       functionName: 'launch',
-      args: [name, symbol, metadataURI ?? '', quoteToken, startFdv, tradeFee, creatorBuyIn, minTokensOut],
+      args: [name, symbol, metadataURI ?? '', quoteToken, startFdv, tradeFee, preset.id, creatorBuyIn, minTokensOut],
     }),
   };
   if (isNativeQuote(quoteToken)) return [creatorBuyIn > 0n ? { ...launch, value: creatorBuyIn } : launch];
@@ -256,14 +266,24 @@ export function useLaunchToken() {
   const [error, setError] = useState('');
 
   const mutation = useMutation({
-    mutationFn: async ({ name, symbol, metadataURI, quoteToken, startFdv, tradeFee, creatorBuyIn }) => {
+    mutationFn: async ({ name, symbol, metadataURI, quoteToken, startFdv, tradeFee, liquidityPreset, creatorBuyIn }) => {
       if (!isConnected) throw new Error('Wallet not connected');
       if (!launchpad) throw new Error('No launchpad on this network');
 
       setError('');
 
       return executeBatch(
-        buildLaunchCalls({ launchpad, name, symbol, metadataURI, quoteToken, startFdv, tradeFee, creatorBuyIn }),
+        buildLaunchCalls({
+          launchpad,
+          name,
+          symbol,
+          metadataURI,
+          quoteToken,
+          startFdv,
+          tradeFee,
+          liquidityPreset,
+          creatorBuyIn,
+        }),
       );
     },
     onSuccess: () => {

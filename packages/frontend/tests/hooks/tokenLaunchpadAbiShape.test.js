@@ -69,17 +69,42 @@ describe("TokenLaunchpad ABI decode shapes", () => {
     expect(config[2]).toBe(1000n * ONE_ETH);
   });
 
-  // useLaunchMarkets reads the placement by name, including the launch's trade fee.
-  it("decodes getPlacement as an object ending in tradeFee", () => {
+  // useLaunchMarkets reads the placement by name, including the launch's trade fee
+  // and liquidity preset.
+  it("decodes getPlacement as an object ending in tradeFee and liquidityPreset", () => {
     const fn = UniV4LiquidityPlacerAbi.find((e) => e.type === "function" && e.name === "getPlacement");
+    expect(fn.outputs[0].components.map((c) => c.name).slice(-2)).toEqual(["tradeFee", "liquidityPreset"]);
     const key = [USDC, TOKEN, 0, 200, PLACER];
     const data = encodeAbiParameters(fn.outputs, [
-      { key: { currency0: key[0], currency1: key[1], fee: key[2], tickSpacing: key[3], hooks: key[4] }, tickLower: -887200, tickUpper: 207200, liquidity: 5n, tokenIsCurrency0: false, tradeFee: 25_000 },
+      { key: { currency0: key[0], currency1: key[1], fee: key[2], tickSpacing: key[3], hooks: key[4] }, tickLower: -887200, tickUpper: 207200, liquidity: 5n, tokenIsCurrency0: false, tradeFee: 25_000, liquidityPreset: 2 },
     ]);
     const p = decodeFunctionResult({ abi: UniV4LiquidityPlacerAbi, functionName: "getPlacement", data });
     expect(p.tradeFee).toBe(25_000);
+    expect(p.liquidityPreset).toBe(2);
     expect(p.key.tickSpacing).toBe(200);
     expect(p.key.fee).toBe(0);
+  });
+
+  // A placer from before presets returns the struct without liquidityPreset, which
+  // the current ABI cannot decode — why useLaunchMarkets retries it without the field.
+  it("cannot decode a pre-preset placement with the current ABI", () => {
+    const data = encodeAbiParameters(
+      parseAbiParameters("((address,address,uint24,int24,address),int24,int24,uint128,bool,uint24)"),
+      [[[USDC, TOKEN, 0, 200, PLACER], -887200, 207200, 5n, false, 10_000]],
+    );
+    expect(() => decodeFunctionResult({ abi: UniV4LiquidityPlacerAbi, functionName: "getPlacement", data })).toThrow();
+  });
+
+  // deriveMarketState reads each band by name.
+  it("decodes bandsOf as an array of { tickLower, tickUpper, liquidity }", () => {
+    const fn = UniV4LiquidityPlacerAbi.find((e) => e.type === "function" && e.name === "bandsOf");
+    const bands = [
+      { tickLower: 196200, tickUpper: 207200, liquidity: 22473968353028949577470n },
+      { tickLower: 173200, tickUpper: 196200, liquidity: 44208603119777946811819n },
+      { tickLower: -887200, tickUpper: 173200, liquidity: 26018909033662068996986n },
+    ];
+    const data = encodeAbiParameters(fn.outputs, [bands]);
+    expect(decodeFunctionResult({ abi: UniV4LiquidityPlacerAbi, functionName: "bandsOf", data })).toEqual(bands);
   });
 
   // useLaunchMarkets hands snipeTaxOf's result to deriveMarketState, which reads it
@@ -92,16 +117,17 @@ describe("TokenLaunchpad ABI decode shapes", () => {
 
   it("exposes the placer views the launchpad reads", () => {
     const names = new Set(UniV4LiquidityPlacerAbi.filter((e) => e.type === "function").map((e) => e.name));
-    for (const fn of ["getPlacement", "snipeTaxOf", "snipeStartBps", "snipeDuration", "minTradeFee", "MAX_TRADE_FEE"]) {
+    for (const fn of ["getPlacement", "bandsOf", "presetBands", "snipeTaxOf", "snipeStartBps", "snipeDuration", "minTradeFee", "MAX_TRADE_FEE"]) {
       expect(names, `${fn} missing from the exported placer ABI`).toContain(fn);
     }
   });
 
-  it("takes the trade fee in launch(), between startFdv and creatorBuyIn", () => {
+  it("takes the trade fee and the liquidity preset in launch(), between startFdv and creatorBuyIn", () => {
     const launch = TokenLaunchpadAbi.find((e) => e.type === "function" && e.name === "launch");
     expect(launch.inputs.map((i) => i.type)).toEqual([
-      "string", "string", "string", "address", "uint256", "uint24", "uint256", "uint256",
+      "string", "string", "string", "address", "uint256", "uint24", "uint8", "uint256", "uint256",
     ]);
+    expect(launch.inputs.map((i) => i.name).slice(5, 7)).toEqual(["tradeFee", "liquidityPreset"]);
   });
 
   it("exposes every function the launch routes call", () => {

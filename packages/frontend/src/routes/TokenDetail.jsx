@@ -3,7 +3,8 @@
 // One launched token, per the approved launchpad design: identity and raffle
 // badge, the FDV price chart, supply sold, trades, the buy panel, the creator
 // fees card (only for the launch's fee recipient), the raffle card and the token
-// facts, which include the launch's trade fee (from its placement, via the market). Desktop
+// facts, which include the launch's trade fee (from its placement, via the market)
+// and its liquidity preset (the placement's, else the backend's launch row). Desktop
 // puts the panel and both cards in a sticky side column; mobile opens the same
 // panel in the existing Sheet from a bar above the bottom nav, and the cards
 // stay in the page. Every amount is in the launch's quote token (ETH or an
@@ -33,10 +34,11 @@ import CreatorFeesCard from "@/components/launchpad/CreatorFeesCard";
 import { usePlatform } from "@/hooks/usePlatform";
 import { useTokenLaunch } from "@/hooks/useTokenLaunches";
 import { useLaunchMarkets } from "@/hooks/useLaunchMarkets";
-import { useTokenSeasons } from "@/hooks/useLaunchActivity";
+import { useTokenLaunchRow, useTokenSeasons } from "@/hooks/useLaunchActivity";
 import { shortAddress } from "@/lib/format";
 import { formatAge, formatTradeFee } from "@/lib/launchFormat";
 import { ETH_QUOTE } from "@/config/launchQuoteTokens";
+import { liquidityPreset, presetNameKey } from "@/lib/liquidityPresets";
 
 const Fact = ({ label, children }) => (
   <div className="flex justify-between gap-4 text-sm">
@@ -60,6 +62,12 @@ const TokenDetail = () => {
   const { markets, isLoading: isMarketLoading } = useLaunchMarkets(launch ? [launch] : [], { enabled: Boolean(launch) });
   const market = launch ? markets[launch.token.toLowerCase()] : undefined;
   const { data: seasons } = useTokenSeasons(launch?.token);
+  // The preset is the placement's; the indexed row is asked only when the pool
+  // cannot be read. A row without the field (an older backend) leaves it unknown.
+  const { data: launchRow } = useTokenLaunchRow(launch?.token, {
+    enabled: Boolean(launch) && !isMarketLoading && market?.liquidityPreset == null,
+  });
+  const preset = liquidityPreset(market?.liquidityPreset ?? launchRow?.launch?.liquidityPreset);
 
   const [copied, setCopied] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -186,6 +194,7 @@ const TokenDetail = () => {
                 <Fact label={t("detail.factSupply")}>{(launch.totalSupply / 10n ** 18n).toLocaleString()}</Fact>
                 <Fact label={t("detail.factAllocation")}>{t("detail.factAllocationValue")}</Fact>
                 <Fact label={t("detail.factLiquidity")}>{t("detail.factLiquidityValue")}</Fact>
+                <Fact label={t("detail.factLiquidityPreset")}>{preset ? t(presetNameKey(preset)) : "—"}</Fact>
                 <Fact label={t("detail.factTradeFee")}>
                   {market?.tradeFee != null
                     ? t("detail.factTradeFeeValue", {

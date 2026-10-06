@@ -9,6 +9,8 @@ import {HookMiner} from "../../src/launchpad/HookMiner.sol";
 abstract contract PlacerDeployer {
     /// @dev The default trade-fee floor tests deploy with: 0.5%.
     uint24 internal constant TEST_MIN_TRADE_FEE = 5_000;
+    /// @dev The single-range liquidity preset (UniV4LiquidityPlacer.PRESET_CLASSIC).
+    uint8 internal constant CLASSIC = 0;
     /// @dev The trade fee tests launch with unless they say otherwise: 1%.
     uint24 internal constant TEST_TRADE_FEE = 10_000;
 

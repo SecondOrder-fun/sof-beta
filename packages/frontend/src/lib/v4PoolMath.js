@@ -4,31 +4,40 @@
 // FDV, the multiple since launch, how much supply has sold, and exact
 // buy/sell quotes.
 //
-// Everything is derived from two reads with no quoter contract and no
+// Everything is derived from a few reads with no quoter contract and no
 // indexer: the pool's slot0 and liquidity (via PoolManager.extsload), plus the
-// placement's tick range and orientation (UniV4LiquidityPlacer.getPlacement) and
-// its snipe-tax schedule (UniV4LiquidityPlacer.snipeTaxOf).
+// placement's span and orientation (UniV4LiquidityPlacer.getPlacement), its bands
+// (UniV4LiquidityPlacer.bandsOf) and its snipe-tax schedule
+// (UniV4LiquidityPlacer.snipeTaxOf).
 //
 // Orientation — which side of the pool the launch token is on. v4 sorts the two
 // currencies by address and prices the pool as currency1/currency0 in raw units:
 //   - QUOTE is currency0 (always for ETH, address 0; and an ERC-20 below the
 //     token): v4 price = TOKENS PER QUOTE. A buy (quote in) is zeroForOne and
-//     moves sqrtPrice DOWN. The position is [minUsableTick, tickUpper] and the
+//     moves sqrtPrice DOWN. The ladder spans [minUsableTick, tickUpper] and the
 //     pool opens at tickUpper.
 //   - TOKEN is currency0 (`placement.tokenIsCurrency0`, an ERC-20 quote above the
 //     token): v4 price = QUOTE PER TOKEN. A buy is oneForZero and moves sqrtPrice
-//     UP. The position is [tickLower, maxUsableTick] and the pool opens at
+//     UP. The ladder spans [tickLower, maxUsableTick] and the pool opens at
 //     tickLower.
-// Either way the range runs from the launch price to the end of v4's price
+// Either way the ladder runs from the launch price to the end of v4's price
 // scale, so there is liquidity at every price and the token never sells out.
+//
+// Bands. The supply is placed as one to three single-sided positions laid end to
+// end from the launch price (the creator's liquidity preset, lib/liquidityPresets.js),
+// each with its own liquidity. A swap trades against the sum of the bands whose
+// range contains the price and, like v4 crossing an initialized tick, steps at
+// every band edge, where that sum changes. Classic is one band, the single
+// position every launch had before presets.
 //
 // Amounts are in raw units throughout: the quote token's (wei for ETH, 1e-6 for
 // USDC) and the launch token's (always 18 decimals).
 //
 // The swap math mirrors v4-core's SqrtPriceMath, SwapMath and Pool.swap's step
-// loop (a step per tick-bitmap word, given the pool's tick spacing), and is
-// pinned to the wei against real PoolManager swaps by
-// test_fixture_quoteMathForFrontend in the contracts package.
+// loop (a step per tick-bitmap word, given the pool's tick spacing, and at every
+// band edge), and is pinned to the wei against real PoolManager swaps by
+// test_fixture_quoteMathForFrontend (one band) and
+// test_fixture_presetQuoteMathForFrontend (three) in the contracts package.
 //
 // Trade fee. Launch pools have a ZERO LP fee; the placer is each pool's v4 hook
 // and charges the launch's own `tradeFee` (pips, 10_000 = 1%, chosen by the
@@ -109,23 +118,75 @@ export function decodeSlot0(word) {
 }
 
 /**
- * The liquidity a swap from the current price will actually trade against.
+ * The liquidity a swap from the current price will actually trade against, given
+ * v4's active liquidity and the placer's liquidity at that price (liquidityAt).
  *
- * The position is the pool's only liquidity, so whenever the price is out of its
- * [lower, upper) range v4 reports active liquidity as 0, yet the next swap back
- * toward the range crosses that edge at zero cost and trades against the whole
- * position. Range ends that hit this:
+ * Whenever the price is out of every band's [lower, upper) range v4 reports active
+ * liquidity as 0, yet the next swap back toward the ladder crosses that edge at
+ * zero cost and trades against the band there. Ladder ends that hit this:
  *   - A launch whose quote is currency0 (every ETH launch) opens EXACTLY on the
  *     upper tick, outside the half-open range, so the first buy would quote nothing.
- *   - A price parked on the upper edge of a token-is-currency0 range — the far
+ *   - A price parked on the upper edge of a token-is-currency0 ladder — the far
  *     end of the price scale — reads 0 the same way.
- * This returns what the swap will really use; the quote functions cap each
- * direction at the range edge it cannot cross.
  *
  * @param {{ activeLiquidity: bigint, placementLiquidity: bigint }} s
  */
 export function tradableLiquidity({ activeLiquidity, placementLiquidity }) {
   return activeLiquidity > 0n ? activeLiquidity : placementLiquidity;
+}
+
+/**
+ * A launch's bands, each with its edges as exact sqrt prices, from the placer's
+ * `bandsOf(token)`; or, from a placer without bands (before liquidity presets),
+ * the placement's single range with `placement.liquidity`.
+ * @param {{ tickLower: number, tickUpper: number, liquidity: bigint }[] | null | undefined} bands
+ * @param {{ tickLower: number, tickUpper: number, liquidity: bigint }} placement
+ * @returns {{ tickLower: number, tickUpper: number, liquidity: bigint, sqrtLowerX96: bigint, sqrtUpperX96: bigint }[]}
+ */
+export function normalizeBands(bands, placement) {
+  const list = bands?.length ? bands : [placement];
+  return list.map((b) => {
+    const tickLower = Number(b.tickLower);
+    const tickUpper = Number(b.tickUpper);
+    return {
+      tickLower,
+      tickUpper,
+      liquidity: BigInt(b.liquidity ?? 0n),
+      sqrtLowerX96: sqrtPriceX96AtTick(tickLower),
+      sqrtUpperX96: sqrtPriceX96AtTick(tickUpper),
+    };
+  });
+}
+
+/**
+ * The bands' summed liquidity over the price interval [a, b] (either order): what
+ * v4 trades against between two prices with no band edge in between.
+ */
+function liquidityBetween(bands, a, b) {
+  const [lo, hi] = a < b ? [a, b] : [b, a];
+  let sum = 0n;
+  for (const band of bands) if (band.sqrtLowerX96 <= lo && band.sqrtUpperX96 >= hi) sum += band.liquidity;
+  return sum;
+}
+
+/**
+ * The placer's liquidity a swap from `sqrtPriceX96` trades against first, in its
+ * direction: the bands containing the price just below it (zeroForOne) or just
+ * above it. On a band edge that is the band the swap moves into, as v4 sees it
+ * once it has crossed the edge's tick.
+ * @param {{ sqrtLowerX96: bigint, sqrtUpperX96: bigint, liquidity: bigint }[]} bands
+ * @param {bigint} sqrtPriceX96
+ * @param {boolean} zeroForOne
+ */
+export function liquidityAt(bands, sqrtPriceX96, zeroForOne) {
+  let sum = 0n;
+  for (const b of bands) {
+    const inside = zeroForOne
+      ? b.sqrtLowerX96 < sqrtPriceX96 && sqrtPriceX96 <= b.sqrtUpperX96
+      : b.sqrtLowerX96 <= sqrtPriceX96 && sqrtPriceX96 < b.sqrtUpperX96;
+    if (inside) sum += b.liquidity;
+  }
+  return sum;
 }
 
 // ---------------------------------------------------------------------------
@@ -163,7 +224,7 @@ const TICK_FACTORS = [
  *
  * Must be exact, not a float: capping a quote at the range floor with a float
  * approximation (53 bits standing in for 160) overstated the tokens out past the
- * whole supply. A quote may never promise more than the position holds.
+ * whole supply. A quote may never promise more than the bands hold.
  */
 export function sqrtPriceX96AtTick(tick) {
   const absTick = BigInt(Math.abs(tick));
@@ -217,7 +278,7 @@ export function fdvAt(sqrtPriceX96, wholeSupply, tokenIsCurrency0 = false) {
 
 /**
  * How many times the price has multiplied since launch.
- * Measured from the pool's launch sqrtPrice (the range's start edge), not from
+ * Measured from the pool's launch sqrtPrice (the ladder's start edge), not from
  * the creator's requested valuation, which the placer snaps to a tick — so a
  * fresh launch reads exactly 1×.
  * @param {bigint} sqrtNowX96
@@ -234,28 +295,50 @@ export function multipleSinceLaunch(sqrtNowX96, sqrtLaunchX96, tokenIsCurrency0 
 
 /**
  * Fraction of the placed supply that has left the pool, 0..1 — what has actually
- * sold, from the position's own token balance.
+ * sold, from the bands' own token balances.
  *
- * Quote is currency0: the position holds amount1 = L·(√P − √P_lower) tokens, all
- * of the supply at launch (√P_upper). Token is currency0: it holds
- * amount0 = L·(1/√P − 1/√P_upper), all of it at launch (√P_lower). L cancels, so
- * this is a pure function of where the price sits in the range.
+ * Quote is currency0: a band holds amount1 = L·(√P − √P_lower) tokens (√P clamped
+ * to its range), all of its share at launch (√P_upper). Token is currency0: it
+ * holds amount0 = L·(1/√P − 1/√P_upper), all of it at launch (√P_lower). Summed
+ * over the bands and divided by what they held at launch, so each band weighs in
+ * with its own liquidity; for one band L cancels.
  *
- * The range runs to the end of v4's price scale, so 100% is never reached and
- * the scale is not linear in price: half the supply has sold at 4× the launch
- * price, 90% at 100×. There is no graduation; this is the launch's progress.
+ * The ladder runs to the end of v4's price scale, so 100% is never reached and
+ * the scale is not linear in price: under Classic (one band) half the supply has
+ * sold at 4× the launch price, 90% at 100×. There is no graduation; this is the
+ * launch's progress.
+ * @param {bigint} sqrtNowX96
+ * @param {{ sqrtLowerX96: bigint, sqrtUpperX96: bigint, liquidity: bigint }[]} bands  normalizeBands()
+ * @param {boolean} [tokenIsCurrency0=false]
+ */
+export function bandsSoldFraction(sqrtNowX96, bands, tokenIsCurrency0 = false) {
+  const now = Number(sqrtNowX96);
+  if (!(now > 0) || !bands?.length) return 0;
+  let placed = 0;
+  let held = 0;
+  for (const b of bands) {
+    const lo = Number(b.sqrtLowerX96);
+    const hi = Number(b.sqrtUpperX96);
+    const L = Number(b.liquidity);
+    if (!(hi > lo) || !(L > 0)) continue;
+    const p = Math.min(hi, Math.max(lo, now));
+    placed += tokenIsCurrency0 ? L * (1 / lo - 1 / hi) : L * (hi - lo);
+    held += tokenIsCurrency0 ? L * (1 / p - 1 / hi) : L * (p - lo);
+  }
+  if (!(placed > 0)) return 0;
+  return Math.min(1, Math.max(0, 1 - held / placed));
+}
+
+/**
+ * soldFraction for a single range [tickLower, tickUpper] — one band, where the
+ * liquidity cancels. See bandsSoldFraction.
  * @param {bigint} sqrtNowX96
  * @param {number} tickLower
  * @param {number} tickUpper
  * @param {boolean} [tokenIsCurrency0=false]
  */
 export function soldFraction(sqrtNowX96, tickLower, tickUpper, tokenIsCurrency0 = false) {
-  const now = Number(sqrtNowX96);
-  const lo = Number(sqrtPriceX96AtTick(tickLower));
-  const hi = Number(sqrtPriceX96AtTick(tickUpper));
-  if (!(hi > lo) || !(now > 0)) return 0;
-  const f = tokenIsCurrency0 ? (1 / lo - 1 / now) / (1 / lo - 1 / hi) : (hi - now) / (hi - lo);
-  return Math.min(1, Math.max(0, f));
+  return bandsSoldFraction(sqrtNowX96, normalizeBands(null, { tickLower, tickUpper, liquidity: 1n }), tokenIsCurrency0);
 }
 
 /**
@@ -342,13 +425,14 @@ function computeSwapStep(sqrtPriceX96, target, liquidity, remaining, feePips, ze
 /**
  * The prices at which v4 ends a swap step on its own, nearest first, in the swap's
  * direction from `sqrtPriceX96`: the edges of the tick bitmap's 256-spacing words
- * (TickBitmap.nextInitializedTickWithinOneWord with nothing initialized inside the
- * range). A step that reaches one snaps the price to TickMath's exact value there,
- * which is why a quote must step where v4 does to match it to the wei.
+ * (TickBitmap.nextInitializedTickWithinOneWord where nothing in the word is
+ * initialized). A step that reaches one snaps the price to TickMath's exact value
+ * there, which is why a quote must step where v4 does to match it to the wei.
  *
  * Going down (zeroForOne) a step ends at each word's first tick at or below the
- * price; going up, at each word's last tick above it. Generated lazily; the range
- * edges themselves are the swap's limit, applied by the caller.
+ * price; going up, at each word's last tick above it. Generated lazily; the band
+ * edges (v4's initialized ticks) and the ladder's far edge, the swap's limit, are
+ * added by the caller.
  */
 function* wordEdges(sqrtPriceX96, tickSpacing, zeroForOne) {
   const word = 256 * tickSpacing;
@@ -374,36 +458,76 @@ function* wordEdges(sqrtPriceX96, tickSpacing, zeroForOne) {
 const rawPrice = (sqrtPriceX96) => Number(sqrtPriceX96) ** 2 / 2 ** 192;
 
 /**
+ * The pool's liquidity for a quote: `bands` (normalizeBands) when given, else one
+ * band of `liquidity` over [sqrtLowerX96, sqrtUpperX96] (the whole price scale
+ * where an edge is missing).
+ */
+function quoteBands({ bands, liquidity, sqrtLowerX96, sqrtUpperX96 }) {
+  if (bands?.length) return bands;
+  return [{ sqrtLowerX96: sqrtLowerX96 || 0n, sqrtUpperX96: sqrtUpperX96 || MAX_UINT160, liquidity: BigInt(liquidity ?? 0n) }];
+}
+
+/**
+ * The nearest band edge strictly beyond `price` in the swap's direction, or
+ * undefined past the last one.
+ */
+function nextBandEdge(bands, price, zeroForOne) {
+  let next;
+  for (const b of bands) {
+    for (const edge of [b.sqrtLowerX96, b.sqrtUpperX96]) {
+      if (zeroForOne ? edge < price && (next === undefined || edge > next) : edge > price && (next === undefined || edge < next)) {
+        next = edge;
+      }
+    }
+  }
+  return next;
+}
+
+/**
  * One exact-input swap in either direction, as v4's Pool.swap runs it: a step to
- * each tick-bitmap word edge (when `tickSpacing` is known; else one step) until
- * the input is spent or the price reaches the range edge it moves toward. The
- * position is the pool's only liquidity, so it is constant inside the range.
+ * whichever comes first of the next tick-bitmap word edge (when `tickSpacing` is
+ * known), the next band edge and the ladder's far edge, until the input is spent
+ * or the price reaches that far edge. Each step trades against the summed
+ * liquidity of the bands covering it, so the liquidity changes exactly where v4's
+ * does when it crosses a band's initialized tick.
  *
- * Outside [lower, upper] the pool has no liquidity, and anyone can push its
- * price there with a zero-amount swap; the next trade crosses back to the edge
- * for free and fills from there. So a price past the edge this swap starts
- * from is quoted from that edge — quoting from the pushed price would promise
- * more than the fill, and the minimum-out built from it would revert. A price
- * at or past the edge this swap moves TOWARD has nothing left to fill.
+ * The quote uses the placer's bands only. Liquidity anyone else adds to the pool
+ * can only deepen it, which fills an exact-input trade at least as well, so the
+ * quote (and the minimum-out built from it) errs low, never high.
+ *
+ * Outside [lower, upper] — the whole ladder — the pool has no liquidity, and
+ * anyone can push its price there with a zero-amount swap; the next trade crosses
+ * back to the edge for free and fills from there. So a price past the edge this
+ * swap starts from is quoted from that edge — quoting from the pushed price would
+ * promise more than the fill, and the minimum-out built from it would revert. A
+ * price at or past the edge this swap moves TOWARD has nothing left to fill.
  *
  * `swapFee` is v4's own fee inside the swap (slot0's LP fee plus any protocol
  * fee); the launch's trade fee is the hook's, applied by quoteBuy / quoteSell.
  */
 function quoteStep({
   sqrtPriceX96: raw,
+  bands: bandsIn,
   liquidity,
   swapFee = 0,
   amountIn,
   zeroForOne,
-  sqrtLowerX96,
-  sqrtUpperX96,
+  sqrtLowerX96: lowerIn,
+  sqrtUpperX96: upperIn,
   tickSpacing,
 }) {
+  const bands = quoteBands({ bands: bandsIn, liquidity, sqrtLowerX96: lowerIn, sqrtUpperX96: upperIn });
+  // The ladder's span; from the bands when the caller gave none.
+  const fromBands = Boolean(bandsIn?.length);
+  const sqrtLowerX96 = lowerIn || (fromBands ? bands.reduce((m, b) => (b.sqrtLowerX96 < m ? b.sqrtLowerX96 : m), bands[0].sqrtLowerX96) : undefined);
+  const sqrtUpperX96 = upperIn || (fromBands ? bands.reduce((m, b) => (b.sqrtUpperX96 > m ? b.sqrtUpperX96 : m), bands[0].sqrtUpperX96) : undefined);
+
   let sqrtPriceX96 = raw;
   if (zeroForOne && sqrtUpperX96 && raw > sqrtUpperX96) sqrtPriceX96 = sqrtUpperX96;
   if (!zeroForOne && sqrtLowerX96 && raw < sqrtLowerX96) sqrtPriceX96 = sqrtLowerX96;
   const empty = { out: 0n, sqrtPriceAfter: sqrtPriceX96, priceImpact: 0, exceedsRange: false };
-  if (!amountIn || amountIn <= 0n || !liquidity || !sqrtPriceX96) return empty;
+  const totalLiquidity = bands.reduce((sum, b) => sum + b.liquidity, 0n);
+  if (!amountIn || amountIn <= 0n || !totalLiquidity || !sqrtPriceX96) return empty;
   const limit = zeroForOne ? sqrtLowerX96 : sqrtUpperX96;
   if (limit && (zeroForOne ? sqrtPriceX96 <= limit : sqrtPriceX96 >= limit)) return { ...empty, exceedsRange: true };
 
@@ -411,20 +535,27 @@ function quoteStep({
   if (amountLessFee === 0n) return empty;
 
   const pastLimit = (p) => limit && (zeroForOne ? p <= limit : p >= limit);
+  const beyond = (p, from) => (zeroForOne ? p < from : p > from);
   const edges = tickSpacing ? wordEdges(sqrtPriceX96, Number(tickSpacing), zeroForOne) : null;
+  let wordEdge = edges ? edges.next().value : undefined;
   let price = sqrtPriceX96;
   let remaining = amountIn;
   let out = 0n;
   while (remaining > 0n && !(limit && price === limit)) {
-    let target = edges ? edges.next().value : zeroForOne ? limit || 1n : limit || MAX_UINT160;
+    // A word edge the price already sits on is a zero-length step in v4: skip it.
+    while (wordEdge !== undefined && !beyond(wordEdge, price)) wordEdge = edges.next().value;
+    let target = edges ? wordEdge : zeroForOne ? limit || 1n : limit || MAX_UINT160;
     if (target === undefined) break; // past the end of the price scale with no limit
+    // v4 also ends a step at every initialized tick: here, each band edge.
+    const bandEdge = nextBandEdge(bands, price, zeroForOne);
+    if (bandEdge !== undefined && !beyond(bandEdge, target)) target = bandEdge;
     // SwapMath.getSqrtPriceTarget: never step past the swap's price limit.
     if (pastLimit(target)) target = limit;
-    const step = computeSwapStep(price, target, liquidity, remaining, swapFee, zeroForOne);
+    if (target === price) break;
+    const step = computeSwapStep(price, target, liquidityBetween(bands, price, target), remaining, swapFee, zeroForOne);
     remaining -= step.spent;
     out += step.out;
     price = step.sqrtNext;
-    if (!edges && !limit) break;
   }
 
   // Impact vs. spot, fees excluded — the part of the cost that is the curve.
@@ -501,16 +632,19 @@ export function snipeWindowEnd(tradeFee, snipeTax) {
  * Quote a buy: exactly `quoteIn` raw quote units in, launch tokens out.
  * The hook takes the buy's fee off the top (`fee` = the rate of quoteIn, rounded
  * up) and the pool swaps the rest. Quote is currency0 → zeroForOne, toward the
- * range floor; token is currency0 → oneForZero, toward the ceiling.
+ * ladder's floor; token is currency0 → oneForZero, toward the ceiling.
  *
  * A buy whose fee would be all of it reverts on-chain (`SwapTooSmallForFee`), and
- * so does one the pool cannot fill in full when a fee is charged
+ * so does one the ladder cannot fill in full when a fee is charged
  * (`PartialFillWithFee`): both quote no tokens out — the second with
  * `exceedsRange`, so the caller can say why.
  *
  * @param {object} p
  * @param {bigint} p.sqrtPriceX96       current price
- * @param {bigint} p.liquidity          from tradableLiquidity()
+ * @param {{ sqrtLowerX96: bigint, sqrtUpperX96: bigint, liquidity: bigint }[]} [p.bands]
+ *                                      market.bands (normalizeBands); the swap steps at
+ *                                      their edges. Without them, `liquidity` over the range
+ * @param {bigint} [p.liquidity]        one band's liquidity, used only without `bands`
  * @param {number} [p.tradeFee=0]       the rate this buy pays, in pips: the launch's trade
  *                                      fee (market.tradeFee) or, inside the snipe window,
  *                                      buyFeeAt(market.tradeFee, market.snipeTax, now)
@@ -518,8 +652,8 @@ export function snipeWindowEnd(tradeFee, snipeTax) {
  *                                      (LP fee, 0 on a launch pool, plus any protocol fee)
  * @param {bigint} p.quoteIn            raw quote units (wei for ETH), fee included
  * @param {boolean} [p.tokenIsCurrency0=false]
- * @param {bigint} [p.sqrtLowerX96]     the range's lower edge
- * @param {bigint} [p.sqrtUpperX96]     the range's upper edge
+ * @param {bigint} [p.sqrtLowerX96]     the ladder's lower edge (from the bands when omitted)
+ * @param {bigint} [p.sqrtUpperX96]     the ladder's upper edge (from the bands when omitted)
  * @param {number} [p.tickSpacing]      the pool's tick spacing — market.tickSpacing; without
  *                                      it the swap is quoted as one step, which can differ
  *                                      from v4 by rounding at its word edges
@@ -535,8 +669,8 @@ export function quoteBuy({ quoteIn, tradeFee = 0, tokenIsCurrency0 = false, ...p
     amountIn: quoteIn == null ? quoteIn : quoteIn - fee,
     zeroForOne: !tokenIsCurrency0,
   });
-  // The hook priced its fee on the whole amount, so a fill cut short at the range
-  // edge reverts rather than spend part of it.
+  // The hook priced its fee on the whole amount, so a fill cut short at the ladder's
+  // far edge reverts rather than spend part of it.
   if (rest.exceedsRange && fee > 0n) return { ...rest, tokensOut: 0n, fee: 0n };
   return { tokensOut: out, fee: out > 0n ? fee : 0n, ...rest };
 }
@@ -550,7 +684,8 @@ export function quoteBuy({ quoteIn, tradeFee = 0, tokenIsCurrency0 = false, ...p
  *
  * @param {object} p
  * @param {bigint} p.sqrtPriceX96
- * @param {bigint} p.liquidity
+ * @param {{ sqrtLowerX96: bigint, sqrtUpperX96: bigint, liquidity: bigint }[]} [p.bands]  as quoteBuy
+ * @param {bigint} [p.liquidity]        as quoteBuy
  * @param {number} [p.tradeFee=0]       the launch's trade fee in pips — market.tradeFee
  * @param {number} [p.swapFee=0]        v4's own fee inside the swap — market.sellSwapFee
  * @param {bigint} p.tokensIn
@@ -602,14 +737,24 @@ function normalizeSnipeTax(raw) {
   return { startBps: Number(startBps ?? 0), duration: Number(duration ?? 0), launchedAt: Number(launchedAt ?? 0) };
 }
 
+/** getPlacement's liquidityPreset as a number; null when the placement has none. */
+function presetOf(placement) {
+  const raw = placement.liquidityPreset;
+  return raw == null ? null : Number(raw);
+}
+
 /**
  * Turn the raw reads for one launch into display state.
  *
  * @param {object} p
  * @param {`0x${string}`} p.slot0Word          extsload(poolStateSlot)
  * @param {`0x${string}`} p.liquidityWord      extsload(poolLiquiditySlot)
- * @param {{ tickLower: number, tickUpper: number, liquidity: bigint, tokenIsCurrency0?: boolean, tradeFee?: number }} p.placement
- *   UniV4LiquidityPlacer.getPlacement(token)
+ * @param {{ tickLower: number, tickUpper: number, liquidity: bigint, tokenIsCurrency0?: boolean, tradeFee?: number, liquidityPreset?: number }} p.placement
+ *   UniV4LiquidityPlacer.getPlacement(token): the whole ladder's span, the
+ *   launch-price band's liquidity and the preset it was placed with
+ * @param {{ tickLower: number, tickUpper: number, liquidity: bigint }[] | null} [p.bands]
+ *   UniV4LiquidityPlacer.bandsOf(token); null or empty from a placer before liquidity
+ *   presets, whose one position is the placement's range and liquidity
  * @param {bigint} p.wholeSupply               TOKEN_SUPPLY / 1e18
  * @param {{ address: string, symbol: string, decimals: number }} [p.quote]
  *   what the launch is paired with; carried through for formatting
@@ -618,7 +763,7 @@ function normalizeSnipeTax(raw) {
  *   object; null for a placer without one (it charges the trade fee alone)
  * @returns {object | null} null when the pool is not initialised (no placement)
  */
-export function deriveMarketState({ slot0Word, liquidityWord, placement, wholeSupply, quote, snipeTax }) {
+export function deriveMarketState({ slot0Word, liquidityWord, placement, bands: rawBands, wholeSupply, quote, snipeTax }) {
   if (!placement || !slot0Word) return null;
   const { sqrtPriceX96: poolSqrtPriceX96, tick, lpFee, protocolFee } = decodeSlot0(slot0Word);
   if (poolSqrtPriceX96 === 0n) return null;
@@ -626,20 +771,19 @@ export function deriveMarketState({ slot0Word, liquidityWord, placement, wholeSu
   const tokenIsCurrency0 = Boolean(placement.tokenIsCurrency0);
   const tickLower = Number(placement.tickLower);
   const tickUpper = Number(placement.tickUpper);
-  const placementLiquidity = BigInt(placement.liquidity);
   const activeLiquidity = BigInt(liquidityWord ?? 0n) & ((1n << 128n) - 1n);
+  const bands = normalizeBands(rawBands, placement);
 
   const sqrtLowerX96 = sqrtPriceX96AtTick(tickLower);
   const sqrtUpperX96 = sqrtPriceX96AtTick(tickUpper);
-  // The pool was initialised AT the range's token-only edge, so that IS the
+  // The pool was initialised AT the ladder's token-only edge, so that IS the
   // launch price — exact.
   const launchSqrtX96 = tokenIsCurrency0 ? sqrtLowerX96 : sqrtUpperX96;
 
-  // The price the position actually trades at. Outside the range the pool has
-  // no liquidity, and anyone can move its price there for free with a
-  // zero-amount swap; the next trade crosses back to the edge at no cost. So the
-  // edge, not the pushed pool price, is the token's price — for display and for
-  // quotes alike.
+  // The price the ladder actually trades at. Outside it the pool has no
+  // liquidity, and anyone can move its price there for free with a zero-amount
+  // swap; the next trade crosses back to the edge at no cost. So the edge, not the
+  // pushed pool price, is the token's price — for display and for quotes alike.
   const sqrtPriceX96 =
     poolSqrtPriceX96 > sqrtUpperX96 ? sqrtUpperX96 : poolSqrtPriceX96 < sqrtLowerX96 ? sqrtLowerX96 : poolSqrtPriceX96;
 
@@ -652,6 +796,9 @@ export function deriveMarketState({ slot0Word, liquidityWord, placement, wholeSu
     // The launch's trade fee in pips (10_000 = 1%), charged by the hook in the quote
     // token on every buy and sell; fixed for the pool's life.
     tradeFee: Number(placement.tradeFee ?? 0),
+    // Which ladder the supply was placed with (lib/liquidityPresets.js); null when the
+    // placement does not say.
+    liquidityPreset: presetOf(placement),
     // The launch's snipe-tax schedule, { startBps, duration, launchedAt } (seconds), or
     // null. A buy pays buyFeeAt(tradeFee, snipeTax, now): more than tradeFee for
     // `duration` seconds after launch. Sells never pay it.
@@ -662,6 +809,7 @@ export function deriveMarketState({ slot0Word, liquidityWord, placement, wholeSu
     // the quote is currency0.
     buySwapFee: swapFeeFor(protocolFee, lpFee, !tokenIsCurrency0),
     sellSwapFee: swapFeeFor(protocolFee, lpFee, tokenIsCurrency0),
+    // The whole ladder's span.
     tickLower,
     tickUpper,
     // The pool key's tick spacing: where v4 splits a swap into steps (quoteBuy / quoteSell).
@@ -669,7 +817,13 @@ export function deriveMarketState({ slot0Word, liquidityWord, placement, wholeSu
     sqrtLowerX96,
     sqrtUpperX96,
     launchSqrtX96,
-    liquidity: tradableLiquidity({ activeLiquidity, placementLiquidity }),
+    // The placer's positions, launch-price band first; quotes step across their edges.
+    bands,
+    // What the next buy trades against at this price.
+    liquidity: tradableLiquidity({
+      activeLiquidity,
+      placementLiquidity: liquidityAt(bands, sqrtPriceX96, !tokenIsCurrency0),
+    }),
     totalSupplyRaw: supply * WAD,
     // Quote raw units per whole token (coarse in a 6-decimal quote; see pricePerToken).
     price: pricePerToken(sqrtPriceX96, tokenIsCurrency0),
@@ -679,6 +833,6 @@ export function deriveMarketState({ slot0Word, liquidityWord, placement, wholeSu
     fdv: fdvAt(sqrtPriceX96, supply, tokenIsCurrency0),
     launchFdv: fdvAt(launchSqrtX96, supply, tokenIsCurrency0),
     multiple: multipleSinceLaunch(sqrtPriceX96, launchSqrtX96, tokenIsCurrency0),
-    soldFraction: soldFraction(sqrtPriceX96, tickLower, tickUpper, tokenIsCurrency0),
+    soldFraction: bandsSoldFraction(sqrtPriceX96, bands, tokenIsCurrency0),
   };
 }

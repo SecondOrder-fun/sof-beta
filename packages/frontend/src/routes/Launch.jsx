@@ -18,9 +18,12 @@
 // for the pool's life. For the pool's first seconds buys pay a snipe tax falling
 // to that fee (the placer's snipeStartBps() / snipeDuration(), via
 // useTradeFeeBounds); the summary says so, and that the creator's own first buy
-// is exempt. An optional first buy, in the same quote, is made inside
-// the launch transaction before anyone else can trade (an ERC-20 one is approved
-// in the same batch). The per-token price is derived and shown, never typed.
+// is exempt. "Liquidity" picks how the supply is spread along the price scale:
+// one of the placer's fixed presets (LiquidityPresetPicker, lib/liquidityPresets.js),
+// Classic by default, sent to launch() as its id. An optional first buy, in the
+// same quote, is made inside the launch transaction before anyone else can trade
+// (an ERC-20 one is approved in the same batch). The per-token price is derived
+// and shown, never typed.
 
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
@@ -37,6 +40,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useLoginModal } from "@/hooks/useLoginModal";
 import { useLaunchRouter } from "@/hooks/useLaunchTrade";
+import LiquidityPresetPicker from "@/components/launchpad/LiquidityPresetPicker";
+import { DEFAULT_LIQUIDITY_PRESET, liquidityPreset, presetNameKey } from "@/lib/liquidityPresets";
 import {
   CREATOR_FEE_PCT,
   DEFAULT_TRADE_FEE,
@@ -69,6 +74,7 @@ const EMPTY_FORM = {
   metadataURI: "",
   fdv: "",
   tradeFee: formatTradeFee(DEFAULT_TRADE_FEE),
+  liquidityPreset: DEFAULT_LIQUIDITY_PRESET,
   firstBuy: "",
   quote: ETH_QUOTE.address,
 };
@@ -162,6 +168,7 @@ const Launch = () => {
       quoteToken: quote.address,
       startFdv: fdv,
       tradeFee,
+      liquidityPreset: form.liquidityPreset,
       creatorBuyIn: firstBuy ?? 0n,
     });
     // The token address comes from the receipt's TokenLaunched event, which the
@@ -382,6 +389,11 @@ const Launch = () => {
               )}
             </div>
 
+            <LiquidityPresetPicker
+              value={form.liquidityPreset}
+              onChange={(id) => setForm((prev) => ({ ...prev, liquidityPreset: id }))}
+            />
+
             <div className="space-y-2">
               <Label htmlFor="launch-first-buy">{t("form.firstBuy")}</Label>
               <div className="flex items-center gap-2">
@@ -471,7 +483,9 @@ const Launch = () => {
                 <p className="text-xs text-muted-foreground">{t("summary.allocationNote")}</p>
                 <div className="flex justify-between gap-4 pt-3 border-t">
                   <dt className="text-muted-foreground">{t("summary.liquidity")}</dt>
-                  <dd className="font-medium text-foreground">{t("summary.liquidityValue")}</dd>
+                  <dd className="font-medium text-foreground" data-testid="summary-liquidity">
+                    {t(presetNameKey(liquidityPreset(form.liquidityPreset)))}
+                  </dd>
                 </div>
                 <p className="text-xs text-muted-foreground">{t("summary.liquidityNote")}</p>
               </dl>

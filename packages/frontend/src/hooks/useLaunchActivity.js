@@ -9,6 +9,9 @@
 //   useRaffleBadges   — GET /api/launchpad/raffles?tokens=: one badge per card
 //   useCreatorLaunches — GET /api/launchpad/tokens?creator=: the launches an
 //                       account created, for the profile's creator fees
+//   useTokenLaunchRow — GET /api/launchpad/tokens/:address: one launch's indexed
+//                       row, only where the chain has not answered (the token page's
+//                       liquidity preset when its pool cannot be read)
 //
 // These have no on-chain fallback: they are built from indexed history, which
 // the chain cannot answer in one read. Callers render nothing (ticker, badge,
@@ -32,6 +35,21 @@ export function useTokenChart(token, range) {
     enabled: Boolean(token),
     refetchInterval: 30_000,
     staleTime: 15_000,
+  });
+}
+
+/**
+ * One launch's indexed row, `{ launch }` (404 for a token not indexed yet). The
+ * token page reads it only as a fallback, so it is off unless `enabled`.
+ * @param {string | undefined} token
+ * @param {{ enabled?: boolean }} [options]
+ */
+export function useTokenLaunchRow(token, { enabled = true } = {}) {
+  return useWarmRead({
+    path: '/launchpad/tokens/:address',
+    params: { address: token?.toLowerCase() ?? '' },
+    enabled: Boolean(token && enabled),
+    staleTime: 60_000,
   });
 }
 

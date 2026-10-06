@@ -148,7 +148,62 @@ describe("Launch form", () => {
       quoteToken: ZERO,
       startFdv: 2n * ONE_ETH,
       tradeFee: 10_000,
+      liquidityPreset: 0,
       creatorBuyIn: 0n,
+    });
+  });
+
+  describe("liquidity preset", () => {
+    const group = () => screen.getByRole("radiogroup", { name: "form.liquidity" });
+    const option = (key) => within(group()).getByRole("radio", { name: `liquidityPresets.${key}.name` });
+
+    it("offers the four presets as a radio group, Classic chosen, and says so in the summary", () => {
+      setup();
+      expect(within(group()).getAllByRole("radio")).toHaveLength(4);
+      expect(option("classic")).toHaveAttribute("aria-checked", "true");
+      for (const key of ["steadyStart", "thickMiddle", "wideOpen"]) {
+        expect(option(key)).toHaveAttribute("aria-checked", "false");
+      }
+      // Each card describes itself and shows its ladder.
+      expect(within(option("wideOpen")).getByText("liquidityPresets.wideOpen.description")).toBeInTheDocument();
+      expect(option("wideOpen").querySelector("svg path")).not.toBeNull();
+      expect(screen.getByTestId("summary-liquidity")).toHaveTextContent("liquidityPresets.classic.name");
+      expect(screen.getByText("form.liquidityFootnote")).toBeInTheDocument();
+    });
+
+    it("submits the chosen preset's id and names it in the summary", async () => {
+      setup();
+      fill({ fdv: "2" });
+      fireEvent.click(option("steadyStart"));
+      expect(option("steadyStart")).toHaveAttribute("aria-checked", "true");
+      expect(option("classic")).toHaveAttribute("aria-checked", "false");
+      expect(screen.getByTestId("summary-liquidity")).toHaveTextContent("liquidityPresets.steadyStart.name");
+      await submit();
+      expect(launchMock.mock.calls[0][0]).toMatchObject({ liquidityPreset: 1 });
+    });
+
+    // WAI-ARIA radio group: one tab stop, arrows move (and wrap), Home / End jump.
+    it("is keyboard accessible: one tab stop, arrow keys move the choice and focus", () => {
+      setup();
+      expect(option("classic")).toHaveAttribute("tabindex", "0");
+      expect(option("steadyStart")).toHaveAttribute("tabindex", "-1");
+
+      fireEvent.keyDown(option("classic"), { key: "ArrowRight" });
+      expect(option("steadyStart")).toHaveAttribute("aria-checked", "true");
+      expect(option("steadyStart")).toHaveFocus();
+      expect(option("steadyStart")).toHaveAttribute("tabindex", "0");
+      expect(option("classic")).toHaveAttribute("tabindex", "-1");
+
+      fireEvent.keyDown(option("steadyStart"), { key: "End" });
+      expect(option("wideOpen")).toHaveAttribute("aria-checked", "true");
+      fireEvent.keyDown(option("wideOpen"), { key: "ArrowDown" });
+      expect(option("classic")).toHaveAttribute("aria-checked", "true");
+      expect(option("classic")).toHaveFocus();
+      fireEvent.keyDown(option("classic"), { key: "ArrowUp" });
+      expect(option("wideOpen")).toHaveAttribute("aria-checked", "true");
+      fireEvent.keyDown(option("wideOpen"), { key: "Home" });
+      expect(option("classic")).toHaveAttribute("aria-checked", "true");
+      expect(screen.getByTestId("summary-liquidity")).toHaveTextContent("liquidityPresets.classic.name");
     });
   });
 
@@ -319,7 +374,7 @@ describe("Launch form", () => {
 
   it("states the liquidity honestly: locked, at every price", () => {
     setup();
-    expect(screen.getByText("summary.liquidityValue")).toBeInTheDocument();
+    expect(screen.getByText("summary.liquidityNote")).toBeInTheDocument();
     expect(screen.getByText("summary.firstBuyNone")).toBeInTheDocument();
   });
 

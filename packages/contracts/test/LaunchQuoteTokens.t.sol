@@ -85,7 +85,7 @@ contract LaunchQuoteTokensTest is Test, PlacerDeployer {
 
     function _launch(address quote) internal returns (address token) {
         vm.prank(creator);
-        (, token) = launchpad.launch("Paired", "PAIR", "", quote, USDC_FDV, TEST_TRADE_FEE, 0, 0);
+        (, token) = launchpad.launch("Paired", "PAIR", "", quote, USDC_FDV, TEST_TRADE_FEE, CLASSIC, 0, 0);
     }
 
     function _buy(address token, uint256 quoteIn) internal returns (uint256) {
@@ -272,7 +272,7 @@ contract LaunchQuoteTokensTest is Test, PlacerDeployer {
         fdv = bound(fdv, USDC_MIN_FDV, USDC_MAX_FDV);
         address quote = high ? HIGH : LOW;
         vm.prank(creator);
-        (, address token) = launchpad.launch("Fuzzed", "FUZZ", "", quote, fdv, TEST_TRADE_FEE, 0, 0);
+        (, address token) = launchpad.launch("Fuzzed", "FUZZ", "", quote, fdv, TEST_TRADE_FEE, CLASSIC, 0, 0);
 
         uint256 opened = _currentFdv(token);
         assertGe(opened, (fdv * 9999) / 10000, "never below the requested valuation");
@@ -292,8 +292,9 @@ contract LaunchQuoteTokensTest is Test, PlacerDeployer {
     function test_anEthCreatorBuyIsTheFirstTradeAtTheLaunchPrice() public {
         vm.deal(creator, 1 ether);
         vm.prank(creator);
-        (uint256 id, address token) =
-            launchpad.launch{value: 0.1 ether}("Mine", "MINE", "", address(0), 1 ether, TEST_TRADE_FEE, 0.1 ether, 0);
+        (uint256 id, address token) = launchpad.launch{value: 0.1 ether}(
+            "Mine", "MINE", "", address(0), 1 ether, TEST_TRADE_FEE, CLASSIC, 0.1 ether, 0
+        );
 
         assertEq(IERC20(token).balanceOf(creator), FIXTURE_BUY1_OUT, "creator bought first, at the launch price");
         assertEq(creator.balance, 0.9 ether, "exactly the buy was spent");
@@ -307,7 +308,7 @@ contract LaunchQuoteTokensTest is Test, PlacerDeployer {
         vm.startPrank(creator);
         IERC20(HIGH).approve(address(launchpad), 100e6);
         vm.recordLogs();
-        (, address token) = launchpad.launch("Mine", "MINE", "", HIGH, USDC_FDV, TEST_TRADE_FEE, 100e6, 1);
+        (, address token) = launchpad.launch("Mine", "MINE", "", HIGH, USDC_FDV, TEST_TRADE_FEE, CLASSIC, 100e6, 1);
         vm.stopPrank();
 
         uint256 got = IERC20(token).balanceOf(creator);
@@ -322,7 +323,7 @@ contract LaunchQuoteTokensTest is Test, PlacerDeployer {
         vm.prank(creator);
         vm.expectRevert();
         launchpad.launch{value: 0.1 ether}(
-            "Mine", "MINE", "", address(0), 1 ether, TEST_TRADE_FEE, 0.1 ether, FIXTURE_BUY1_OUT + 1
+            "Mine", "MINE", "", address(0), 1 ether, TEST_TRADE_FEE, CLASSIC, 0.1 ether, FIXTURE_BUY1_OUT + 1
         );
         assertEq(launchpad.launchCount(), 0, "no token was launched");
         assertEq(creator.balance, 1 ether, "nothing was spent");
@@ -332,14 +333,16 @@ contract LaunchQuoteTokensTest is Test, PlacerDeployer {
         vm.deal(creator, 1 ether);
         vm.startPrank(creator);
         vm.expectRevert(abi.encodeWithSelector(LaunchEthAmountMismatch.selector, 0.1 ether, 0));
-        launchpad.launch{value: 0.1 ether}("NoBuy", "NOB", "", address(0), 1 ether, TEST_TRADE_FEE, 0, 0);
+        launchpad.launch{value: 0.1 ether}("NoBuy", "NOB", "", address(0), 1 ether, TEST_TRADE_FEE, CLASSIC, 0, 0);
 
         vm.expectRevert(abi.encodeWithSelector(LaunchEthAmountMismatch.selector, 0.05 ether, 0.1 ether));
-        launchpad.launch{value: 0.05 ether}("Short", "SHT", "", address(0), 1 ether, TEST_TRADE_FEE, 0.1 ether, 0);
+        launchpad.launch{value: 0.05 ether}(
+            "Short", "SHT", "", address(0), 1 ether, TEST_TRADE_FEE, CLASSIC, 0.1 ether, 0
+        );
 
         // An ERC-20 launch takes no ETH, even alongside a creator buy.
         vm.expectRevert(abi.encodeWithSelector(LaunchEthAmountMismatch.selector, 0.1 ether, 0));
-        launchpad.launch{value: 0.1 ether}("Usdc", "USD", "", HIGH, USDC_FDV, TEST_TRADE_FEE, 100e6, 0);
+        launchpad.launch{value: 0.1 ether}("Usdc", "USD", "", HIGH, USDC_FDV, TEST_TRADE_FEE, CLASSIC, 100e6, 0);
         vm.stopPrank();
     }
 
@@ -348,9 +351,11 @@ contract LaunchQuoteTokensTest is Test, PlacerDeployer {
         vm.deal(creator, 1 ether);
         vm.startPrank(creator);
         vm.expectRevert(CreatorBuyNeedsRouter.selector);
-        launchpad.launch{value: 0.1 ether}("Mine", "MINE", "", address(0), 1 ether, TEST_TRADE_FEE, 0.1 ether, 0);
+        launchpad.launch{value: 0.1 ether}(
+            "Mine", "MINE", "", address(0), 1 ether, TEST_TRADE_FEE, CLASSIC, 0.1 ether, 0
+        );
 
-        launchpad.launch("Plain", "PLN", "", address(0), 1 ether, TEST_TRADE_FEE, 0, 0);
+        launchpad.launch("Plain", "PLN", "", address(0), 1 ether, TEST_TRADE_FEE, CLASSIC, 0, 0);
         vm.stopPrank();
         assertEq(launchpad.launchCount(), 1);
     }
@@ -376,7 +381,7 @@ contract LaunchQuoteTokensTest is Test, PlacerDeployer {
 
     function test_buyingAnEthPairNeedsTheValueToMatch() public {
         vm.prank(creator);
-        (, address token) = launchpad.launch("Eth", "ETHP", "", address(0), 1 ether, TEST_TRADE_FEE, 0, 0);
+        (, address token) = launchpad.launch("Eth", "ETHP", "", address(0), 1 ether, TEST_TRADE_FEE, CLASSIC, 0, 0);
         vm.deal(trader, 1 ether);
         vm.prank(trader);
         vm.expectRevert(abi.encodeWithSelector(EthAmountMismatch.selector, 0.05 ether, 0.1 ether));
@@ -419,7 +424,7 @@ contract LaunchQuoteTokensTest is Test, PlacerDeployer {
         MockERC20(high18).mint(trader, 100e18);
 
         vm.prank(creator);
-        (, address token) = launchpad.launch("Eighteen", "EIGHT", "", high18, 10e18, TEST_TRADE_FEE, 0, 0);
+        (, address token) = launchpad.launch("Eighteen", "EIGHT", "", high18, 10e18, TEST_TRADE_FEE, CLASSIC, 0, 0);
         assertTrue(placer.getPlacement(token).tokenIsCurrency0);
 
         vm.startPrank(trader);

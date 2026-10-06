@@ -20,6 +20,9 @@
     "tradeFeePresets": "Trade fee presets",
     "tradeFeePercent": "{{fee}}%",
     "tradeFeeHelp": "Charged on every buy and sell, always in {{quote}}. {{share}}% goes to you, {{platform}}% to SecondOrder. Up to {{max}}%, fixed at launch.",
+    "liquidity": "Liquidity",
+    "liquidityHelp": "Where the supply sits along the price scale, fixed at launch. Each chart runs from the launch price to {{max}}×; taller is deeper, so trades there move the price less.",
+    "liquidityFootnote": "Every preset keeps liquidity to the end of the price scale, so a token never sells out.",
     "firstBuy": "Your first buy",
     "firstBuyPlaceholder": "Optional",
     "firstBuyHelp": "Optional. Bought for you in the launch transaction, right after the pool opens and before anyone else can trade — at the opening price and the same trade fee as everyone.",
@@ -43,8 +46,28 @@
     "allocationValue": "None",
     "allocationNote": "The entire supply goes into the pool. If you want a position, make a first buy: same price and fee as anyone, just first in line.",
     "liquidity": "Liquidity",
-    "liquidityValue": "Locked for good, at every price",
-    "liquidityNote": "The whole supply goes into one Uniswap v4 position that nobody can withdraw. It runs from your starting price to the end of the price scale, so the token never sells out. No bonding curve, no graduation."
+    "liquidityNote": "The whole supply goes into Uniswap v4 positions that nobody can withdraw, laid end to end from your starting price to the end of the price scale, so the token never sells out. No bonding curve, no graduation."
+  },
+  "liquidityPresets": {
+    "classic": {
+      "name": "Classic",
+      "description": "Even depth from the launch price up. Simple and predictable."
+    },
+    "steadyStart": {
+      "name": "Steady start",
+      "description": "A light front so the opening isn't jumpy, then the deepest middle. For projects that want to settle."
+    },
+    "thickMiddle": {
+      "name": "Thick middle",
+      "description": "A fast first climb, then the calmest market from 3× up."
+    },
+    "wideOpen": {
+      "name": "Wide open",
+      "description": "Deep at the launch price: early buyers get the most tokens. Thinner later."
+    },
+    "band": "{{share}}% at {{from}}–{{to}}×",
+    "bandLast": "{{share}}% from {{from}}×",
+    "separator": "·"
   },
   "errors": {
     "nameRequired": "A name is required",
@@ -111,6 +134,7 @@
     "factAllocationValue": "None",
     "factLiquidity": "Liquidity",
     "factLiquidityValue": "Whole supply · locked at every price",
+    "factLiquidityPreset": "Liquidity preset",
     "factTradeFee": "Trade fee",
     "factTradeFeeValue": "{{fee}}% of every buy and sell, in {{quote}}",
     "factControls": "Mint / pause / blocklist",
