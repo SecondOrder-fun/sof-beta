@@ -26,7 +26,7 @@
 // and shown, never typed.
 
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAccount, useBalance } from "wagmi";
 
@@ -81,6 +81,7 @@ const EMPTY_FORM = {
 
 const Launch = () => {
   const { t } = useTranslation(["launchpad", "common"]);
+  const navigate = useNavigate();
   const { address, isConnected } = useAccount();
   const { openLoginModal } = useLoginModal();
 
@@ -201,8 +202,8 @@ const Launch = () => {
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">{t("success.body")}</p>
             <div className="flex gap-3">
-              <Button asChild>
-                <Link to="/tokens">{t("success.viewToken")}</Link>
+              <Button variant="default" onClick={() => navigate("/tokens")}>
+                {t("success.viewToken")}
               </Button>
               <Button
                 variant="outline"
