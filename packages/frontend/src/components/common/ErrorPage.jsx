@@ -1,10 +1,11 @@
 import PropTypes from 'prop-types';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 
 const ErrorPage = ({ error, resetErrorBoundary }) => {
   const { t } = useTranslation(['errors', 'common']);
+  const navigate = useNavigate();
   const handleRetry = () => {
     if (typeof resetErrorBoundary === 'function') {
       resetErrorBoundary();
@@ -37,8 +38,8 @@ const ErrorPage = ({ error, resetErrorBoundary }) => {
           <Button onClick={handleRetry} size="lg">
             {t('common:retry')}
           </Button>
-          <Button asChild variant="outline" size="lg">
-            <Link to="/">{t('navigation:home', { defaultValue: 'Home' })}</Link>
+          <Button variant="outline" size="lg" onClick={() => navigate('/')}>
+            {t('navigation:home', { defaultValue: 'Home' })}
           </Button>
         </div>
       </div>

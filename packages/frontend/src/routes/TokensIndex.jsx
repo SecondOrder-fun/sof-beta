@@ -5,7 +5,7 @@
 // Uniswap v4 pools. Built only from existing primitives — see the UI Gym.
 
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { LayoutGrid, List, Search, ArrowRight } from "lucide-react";
 
@@ -25,6 +25,10 @@ import { SORTS, filterLaunches, sortLaunches } from "@/lib/launchSort";
 
 const TokensIndex = () => {
   const { t } = useTranslation("launchpad");
+  // useNavigate rather than <Button asChild><Link>: Button's asChild renders a
+  // <span> that the global button styles never reach, so the link showed as
+  // white text on the white page.
+  const navigate = useNavigate();
   const [limit, setLimit] = useState(LAUNCHES_PAGE_SIZE);
   const { launches, total, hasMore, isLoading, isFetching, isAvailable } = useTokenLaunches({ limit });
   const { markets } = useLaunchMarkets(launches);
@@ -59,11 +63,9 @@ const TokensIndex = () => {
           </h1>
           <p className="text-muted-foreground">{t("hero.body")}</p>
         </div>
-        <Button asChild size="lg" className="shrink-0">
-          <Link to="/launch" className="inline-flex items-center gap-2 text-primary-foreground">
-            {t("hero.cta")}
-            <ArrowRight className="h-4 w-4" aria-hidden="true" />
-          </Link>
+        <Button variant="default" size="lg" className="shrink-0 gap-2" onClick={() => navigate("/launch")}>
+          {t("hero.cta")}
+          <ArrowRight className="h-4 w-4" aria-hidden="true" />
         </Button>
       </section>
 
@@ -141,8 +143,8 @@ const TokensIndex = () => {
       ) : launches.length === 0 ? (
         <div className="text-center py-16 space-y-4">
           <p className="text-muted-foreground">{t("list.empty")}</p>
-          <Button asChild>
-            <Link to="/launch" className="text-primary-foreground">{t("list.emptyCta")}</Link>
+          <Button variant="default" onClick={() => navigate("/launch")}>
+            {t("list.emptyCta")}
           </Button>
         </div>
       ) : visible.length === 0 ? (
