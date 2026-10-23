@@ -7,8 +7,10 @@ import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/Safe
 /**
  * @title ConditionalTokenSOF
  * @notice SecondOrder.fun implementation of Gnosis Conditional Tokens Framework
- * @dev Production-ready implementation optimized for binary outcome markets
- *      Compatible with Solidity 0.8.20, implements complete CTF interface
+ * @dev Binary-outcome subset of the Gnosis CTF. Position balances follow ERC-1155
+ *      authorization: only the owner or an operator it approved (setApprovalForAll)
+ *      can move them, and every balance change emits TransferSingle (mint from and
+ *      burn to address(0)). There are no receiver hooks (onERC1155Received).
  */
 contract ConditionalTokenSOF {
     using SafeERC20 for IERC20;
@@ -18,6 +20,16 @@ contract ConditionalTokenSOF {
 
     // ERC1155 balances: account => positionId => balance
     mapping(address => mapping(uint256 => uint256)) private _balances;
+    // ERC1155 operators: owner => operator => approved
+    mapping(address => mapping(address => bool)) private _operatorApprovals;
+
+    error NotOwnerNorApproved(address operator, address from);
+    error TransferToZeroAddress();
+
+    event TransferSingle(
+        address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value
+    );
+    event ApprovalForAll(address indexed account, address indexed operator, bool approved);
 
     event ConditionPreparation(
         bytes32 indexed conditionId, address indexed oracle, bytes32 indexed questionId, uint256 outcomeSlotCount
@@ -75,12 +87,27 @@ contract ConditionalTokenSOF {
         return _balances[account][positionId];
     }
 
+    function isApprovedForAll(address account, address operator) public view returns (bool) {
+        return _operatorApprovals[account][operator];
+    }
+
+    /// @notice Let `operator` move all of the caller's positions (e.g. an FPMM, to sell into it).
+    function setApprovalForAll(address operator, bool approved) external {
+        _operatorApprovals[msg.sender][operator] = approved;
+        emit ApprovalForAll(msg.sender, operator, approved);
+    }
+
     function safeTransferFrom(address from, address to, uint256 positionId, uint256 amount, bytes calldata /* data */ )
         external
     {
+        if (from != msg.sender && !_operatorApprovals[from][msg.sender]) {
+            revert NotOwnerNorApproved(msg.sender, from);
+        }
+        if (to == address(0)) revert TransferToZeroAddress();
         require(_balances[from][positionId] >= amount, "Insufficient balance");
         _balances[from][positionId] -= amount;
         _balances[to][positionId] += amount;
+        emit TransferSingle(msg.sender, from, to, positionId, amount);
     }
 
     // ========== Conditional Tokens Functions ==========
@@ -112,6 +139,7 @@ contract ConditionalTokenSOF {
             bytes32 collectionId = this.getCollectionId(bytes32(0), conditionId, partition[i]);
             uint256 positionId = this.getPositionId(collateralToken, collectionId);
             _balances[msg.sender][positionId] += amount;
+            emit TransferSingle(msg.sender, address(0), msg.sender, positionId, amount);
         }
     }
 
@@ -128,6 +156,7 @@ contract ConditionalTokenSOF {
             uint256 positionId = this.getPositionId(collateralToken, collectionId);
             require(_balances[msg.sender][positionId] >= amount, "Insufficient balance");
             _balances[msg.sender][positionId] -= amount;
+            emit TransferSingle(msg.sender, msg.sender, address(0), positionId, amount);
         }
 
         // Transfer collateral back to sender
@@ -159,6 +188,7 @@ contract ConditionalTokenSOF {
 
                 totalPayout += payout;
                 _balances[msg.sender][positionId] = 0;
+                emit TransferSingle(msg.sender, msg.sender, address(0), positionId, balance);
             }
         }
 

@@ -251,6 +251,21 @@ Version-controlled in `deployments/`:
   them (sending through `script/ops/RevokeSmaRoles.s.sol`); on Base Sepolia this is done —
   `0xE0bDdb3B2bA1f707D8cc994757389168A2D1Dc96` holds none of them (2026-10-02).
 
+## InfoFi positions and trades
+
+- **Outcome shares only move with the owner's consent.** `ConditionalTokenSOF.safeTransferFrom`
+  requires `msg.sender == from` or an operator `from` approved with `setApprovalForAll`
+  (`NotOwnerNorApproved` otherwise; `TransferToZeroAddress` for `to == 0`). So a seller first
+  approves the pool: `ctf.setApprovalForAll(fpmm, true)`, once per market, then
+  `SimpleFPMM.sell`. Every balance change emits ERC-1155 `TransferSingle` (split mints from
+  `address(0)`, merge and redeem burn to it). There are no receiver hooks. Before 0.44 anyone
+  could move anyone's shares.
+- **`SimpleFPMM.Trade` says which way the trade went.**
+  `Trade(trader, isBuy, yes, collateral, shares, fee)`: a buy pays `collateral` (fee included)
+  for `shares`; a sell gives up `shares` for `collateral` (net of the fee). The pre-0.44 event,
+  `Trade(trader, buyYes, amountIn, amountOut)`, was the same for both sides with the amounts
+  swapped, so an indexer could not tell a sell from a buy.
+
 ## Quote tokens and InfoFi collateral
 
 - **A season's `quoteToken` must be a launch token or admin-allowlisted.** `Raffle.isAllowedQuoteToken`

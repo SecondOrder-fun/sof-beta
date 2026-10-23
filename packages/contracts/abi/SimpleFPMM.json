@@ -769,19 +769,31 @@
         "internalType": "address"
       },
       {
-        "name": "buyYes",
+        "name": "isBuy",
         "type": "bool",
         "indexed": false,
         "internalType": "bool"
       },
       {
-        "name": "amountIn",
+        "name": "yes",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      },
+      {
+        "name": "collateral",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
       },
       {
-        "name": "amountOut",
+        "name": "shares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "fee",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"

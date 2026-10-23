@@ -201,8 +201,9 @@ contract InfoFiFPMMTest is Test {
         sof.approve(address(fpmm), betAmount);
         uint256 bought = fpmm.buy(true, betAmount, 0);
 
-        // Sell back — try to get 5 SOF back
-        // Note: ConditionalTokenSOF mock doesn't enforce approval checks
+        // Sell back — try to get 5 SOF back. The pool pulls the shares, so the
+        // seller approves it on the conditional tokens first.
+        ctf.setApprovalForAll(address(fpmm), true);
         uint256 sellCollateral = 5e18;
         uint256 tokensNeeded = fpmm.calcSellAmount(true, sellCollateral);
         assertLe(tokensNeeded, bought, "Should have enough tokens to sell");
@@ -214,6 +215,84 @@ contract InfoFiFPMMTest is Test {
 
         assertEq(sofAfter - sofBefore, sellCollateral, "Should receive exact collateral");
         assertEq(tokensSold, tokensNeeded, "Tokens sold match calc");
+    }
+
+    // ─────────────────── AUTHORIZATION + EVENTS ───────────────────
+
+    event Trade(address indexed trader, bool isBuy, bool yes, uint256 collateral, uint256 shares, uint256 fee);
+    event TransferSingle(
+        address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value
+    );
+
+    function test_sellWithoutApprovalReverts() public {
+        vm.startPrank(trader1);
+        sof.approve(address(fpmm), 10e18);
+        fpmm.buy(true, 10e18, 0);
+        uint256 tokensNeeded = fpmm.calcSellAmount(true, 5e18);
+        vm.expectRevert(
+            abi.encodeWithSelector(ConditionalTokenSOF.NotOwnerNorApproved.selector, address(fpmm), trader1)
+        );
+        fpmm.sell(true, 5e18, tokensNeeded);
+        vm.stopPrank();
+    }
+
+    function test_strangerCannotMoveSomeoneElsesShares() public {
+        vm.startPrank(trader1);
+        sof.approve(address(fpmm), 10e18);
+        uint256 bought = fpmm.buy(true, 10e18, 0);
+        vm.stopPrank();
+
+        uint256 yesId = fpmm.positionIds(0);
+        vm.prank(trader2);
+        vm.expectRevert(abi.encodeWithSelector(ConditionalTokenSOF.NotOwnerNorApproved.selector, trader2, trader1));
+        ctf.safeTransferFrom(trader1, trader2, yesId, bought, "");
+        assertEq(ctf.balanceOf(trader1, yesId), bought, "shares untouched");
+    }
+
+    function test_ownerAndOperatorCanTransfer() public {
+        vm.startPrank(trader1);
+        sof.approve(address(fpmm), 10e18);
+        uint256 bought = fpmm.buy(true, 10e18, 0);
+        uint256 yesId = fpmm.positionIds(0);
+
+        vm.expectEmit(true, true, true, true, address(ctf));
+        emit TransferSingle(trader1, trader1, trader2, yesId, 1e18);
+        ctf.safeTransferFrom(trader1, trader2, yesId, 1e18, "");
+
+        ctf.setApprovalForAll(trader2, true);
+        assertTrue(ctf.isApprovedForAll(trader1, trader2));
+        vm.stopPrank();
+
+        vm.prank(trader2);
+        ctf.safeTransferFrom(trader1, trader2, yesId, 1e18, "");
+        assertEq(ctf.balanceOf(trader1, yesId), bought - 2e18);
+        assertEq(ctf.balanceOf(trader2, yesId), 2e18);
+
+        vm.prank(trader2);
+        vm.expectRevert(ConditionalTokenSOF.TransferToZeroAddress.selector);
+        ctf.safeTransferFrom(trader2, address(0), yesId, 1e18, "");
+    }
+
+    function test_tradeEventStatesSideAndAmounts() public {
+        uint256 betAmount = 10e18;
+        uint256 expectedOut = fpmm.calcBuyAmount(false, betAmount);
+        uint256 buyFee = (betAmount * fpmm.FEE_BPS()) / 10000;
+
+        vm.startPrank(trader1);
+        sof.approve(address(fpmm), betAmount);
+        vm.expectEmit(true, false, false, true, address(fpmm));
+        emit Trade(trader1, true, false, betAmount, expectedOut, buyFee);
+        uint256 bought = fpmm.buy(false, betAmount, 0);
+
+        uint256 sellCollateral = 4e18;
+        uint256 sharesIn = fpmm.calcSellAmount(false, sellCollateral);
+        uint256 sellFee = (sellCollateral * fpmm.FEE_BPS()) / (10000 - fpmm.FEE_BPS());
+        assertLe(sharesIn, bought);
+        ctf.setApprovalForAll(address(fpmm), true);
+        vm.expectEmit(true, false, false, true, address(fpmm));
+        emit Trade(trader1, false, false, sellCollateral, sharesIn, sellFee);
+        fpmm.sell(false, sellCollateral, sharesIn);
+        vm.stopPrank();
     }
 
     // ─────────────────── FEE TESTS ───────────────────

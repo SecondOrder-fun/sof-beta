@@ -88,7 +88,16 @@ contract SimpleFPMM is ERC20, ReentrancyGuard {
 
     event LiquidityAdded(address indexed provider, uint256 amount, uint256 lpTokens);
     event LiquidityRemoved(address indexed provider, uint256 lpTokens, uint256 amount);
-    event Trade(address indexed trader, bool buyYes, uint256 amountIn, uint256 amountOut);
+    /// @notice One per trade, buy or sell, so an indexer needs nothing else to tell them
+    ///         apart (like the ticket curve's TokensPurchased / TokensSold).
+    /// @param isBuy true: collateral in, shares out; false: shares in, collateral out
+    /// @param yes the outcome traded (YES or NO)
+    /// @param collateral collateral the trader paid (buy, fee included) or received (sell, net)
+    /// @param shares outcome tokens the trader received (buy) or sold (sell)
+    /// @param fee collateral taken as fee
+    event Trade(
+        address indexed trader, bool isBuy, bool yes, uint256 collateral, uint256 shares, uint256 fee
+    );
 
     constructor(
         address _collateralToken,
@@ -266,7 +275,7 @@ contract SimpleFPMM is ERC20, ReentrancyGuard {
         // Transfer outcome tokens to buyer
         conditionalTokens.safeTransferFrom(address(this), trader, positionIds[outcomeIndex], amountOut, "");
 
-        emit Trade(trader, buyYes, amountIn, amountOut);
+        emit Trade(trader, true, buyYes, amountIn, amountOut, fee);
     }
 
     /**
@@ -323,7 +332,8 @@ contract SimpleFPMM is ERC20, ReentrancyGuard {
         amountIn = calcSellAmount(sellYes, amountOut);
         require(amountIn <= maxAmountIn, "Slippage exceeded");
 
-        // Take user's outcome tokens
+        // Take user's outcome tokens (the seller must have approved this pool:
+        // conditionalTokens.setApprovalForAll(address(this), true))
         conditionalTokens.safeTransferFrom(msg.sender, address(this), positionIds[outcomeIndex], amountIn, "");
 
         // Calculate fee
@@ -350,7 +360,7 @@ contract SimpleFPMM is ERC20, ReentrancyGuard {
         // Return collateral to seller
         require(collateralToken.transfer(msg.sender, amountOut), "Transfer failed");
 
-        emit Trade(msg.sender, sellYes, amountIn, amountOut);
+        emit Trade(msg.sender, false, sellYes, amountOut, amountIn, fee);
     }
 
     /**
