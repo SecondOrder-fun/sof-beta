@@ -4,7 +4,7 @@
  */
 
 import { useTranslation } from "react-i18next";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Construction } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,6 +17,7 @@ import {
 
 export function MaintenancePage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
 
   return (
     <div className="flex items-center justify-center min-h-screen p-4">
@@ -35,8 +36,8 @@ export function MaintenancePage() {
             <p>{t('maintenance_patience')}</p>
           </div>
           <div className="flex flex-col gap-2">
-            <Button asChild>
-              <Link to="/">{t('return_home')}</Link>
+            <Button variant="default" onClick={() => navigate("/")}>
+              {t('return_home')}
             </Button>
           </div>
         </CardContent>

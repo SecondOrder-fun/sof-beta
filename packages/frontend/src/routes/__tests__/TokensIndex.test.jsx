@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import TokensIndex from "@/routes/TokensIndex";
@@ -46,7 +46,10 @@ const setup = ({ list = launches, isLoading = false, isAvailable = true, priced 
   useLaunchMarkets.mockReturnValue({ markets: priced, isLoading: false, isAvailable: true });
   return render(
     <MemoryRouter>
-      <TokensIndex />
+      <Routes>
+        <Route path="/" element={<TokensIndex />} />
+        <Route path="/launch" element={<p>launch page</p>} />
+      </Routes>
     </MemoryRouter>,
   );
 };
@@ -153,7 +156,14 @@ describe("TokensIndex", () => {
   it("offers a launch call to action when nothing has launched yet", () => {
     setup({ list: [] });
     expect(screen.getByText("list.empty")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "list.emptyCta" })).toHaveAttribute("href", "/launch");
+    fireEvent.click(screen.getByRole("button", { name: "list.emptyCta" }));
+    expect(screen.getByText("launch page")).toBeInTheDocument();
+  });
+
+  it("opens the launch form from the hero button", () => {
+    setup();
+    fireEvent.click(screen.getByRole("button", { name: "hero.cta" }));
+    expect(screen.getByText("launch page")).toBeInTheDocument();
   });
 
   it("explains itself when the network has no launchpad", () => {
