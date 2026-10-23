@@ -76,8 +76,12 @@ export async function userRoutes(fastify, options) {
           market_id,
           user_address,
           outcome,
+          side,
           amount,
+          shares,
           price,
+          tx_hash,
+          block_time,
           created_at,
           infofi_markets!infofi_positions_market_id_fkey (
             id,

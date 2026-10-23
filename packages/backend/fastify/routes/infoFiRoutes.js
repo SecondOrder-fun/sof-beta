@@ -238,7 +238,7 @@ export default async function infoFiRoutes(fastify) {
 
       const { data, error } = await supabase
         .from("infofi_positions")
-        .select("id, market_id, user_address, outcome, amount, price, tx_hash, created_at")
+        .select("id, market_id, user_address, outcome, side, amount, shares, fee, price, tx_hash, log_index, block_number, block_time, created_at")
         .eq("market_id", marketId)
         .order("created_at", { ascending: false })
         .limit(limit);
@@ -293,13 +293,13 @@ export default async function infoFiRoutes(fastify) {
 
         const { data: yesRaw, error: yesRawErr } = await supabase
           .from("infofi_positions")
-          .select("user_address, amount")
+          .select("user_address, side, amount")
           .eq("market_id", marketId)
           .eq("outcome", "YES");
 
         const { data: noRaw, error: noRawErr } = await supabase
           .from("infofi_positions")
-          .select("user_address, amount")
+          .select("user_address, side, amount")
           .eq("market_id", marketId)
           .eq("outcome", "NO");
 
@@ -315,10 +315,13 @@ export default async function infoFiRoutes(fastify) {
           const map = {};
           for (const pos of positions || []) {
             const addr = pos.user_address;
-            map[addr] = (map[addr] || 0) + parseFloat(pos.amount || 0);
+            // Net collateral: a SELL row is collateral taken back out.
+            const sign = pos.side === "SELL" ? -1 : 1;
+            map[addr] = (map[addr] || 0) + sign * parseFloat(pos.amount || 0);
           }
           return Object.entries(map)
             .map(([address, total_amount]) => ({ address, total_amount }))
+            .filter((h) => h.total_amount > 0)
             .sort((a, b) => b.total_amount - a.total_amount)
             .slice(0, 3);
         };
@@ -1145,7 +1148,8 @@ export default async function infoFiRoutes(fastify) {
 
           // Calculate winnings for each user who bet on the winning outcome
           for (const pos of positions) {
-            if (pos.outcome === winningOutcome) {
+            // A SELL row is shares given back, not a stake in the outcome.
+            if (pos.outcome === winningOutcome && pos.side !== "SELL") {
               // Check if winning already exists
               const { data: existingWinning } = await supabase
                 .from("infofi_winnings")

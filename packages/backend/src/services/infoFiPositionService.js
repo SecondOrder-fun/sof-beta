@@ -2,6 +2,7 @@ import { publicClient } from "../lib/viemClient.js";
 import { db } from "../../shared/supabaseClient.js";
 import { SimpleFPMMABI as simpleFpmmAbi } from '@sof/contracts';
 import { queryLogsInChunks } from "../utils/blockRangeQuery.js";
+import { buildInfoFiTradeRow } from "./infoFiTradeRow.js";
 import {
   cacheRead,
   cacheInvalidate,
@@ -18,123 +19,41 @@ const POSITION_CACHE_TTL_SECONDS = 20;
  */
 class InfoFiPositionService {
   /**
-   * Record a position from a Trade event (idempotent via tx_hash)
+   * Record one FPMM Trade log (contracts 0.44: Trade(trader, isBuy, yes, collateral,
+   * shares, fee)) as an infofi_positions row. Idempotent on (tx_hash, log_index):
+   * a replayed log inserts nothing and returns { alreadyRecorded: true }.
+   * Throws on any read or write failure so the caller can retry the log.
    * @param {Object} params
-   * @param {string} params.fpmmAddress - FPMM contract address
-   * @param {string} params.trader - User address
-   * @param {boolean} params.buyYes - true for YES, false for NO
-   * @param {bigint} params.amountIn - SOF amount spent
-   * @param {bigint} params.amountOut - Shares received
-   * @param {string} params.txHash - Transaction hash
-   * @returns {Promise<Object>} Result with success status
+   * @param {string} params.fpmmAddress
+   * @param {Object} params.args - decoded Trade args
+   * @param {string} params.txHash
+   * @param {number|bigint} params.logIndex
+   * @param {bigint} params.blockNumber
+   * @param {Date} params.blockTime
+   * @returns {Promise<{ alreadyRecorded: boolean, data?: Object }>}
    */
-  async recordPosition({
-    fpmmAddress,
-    trader,
-    buyYes,
-    amountIn,
-    amountOut,
-    txHash,
-  }) {
-    try {
-      console.log(`[recordPosition] Starting for tx: ${txHash}`);
-      console.log(`[recordPosition] FPMM: ${fpmmAddress}, Trader: ${trader}`);
-
-      // 1. Check if already recorded (idempotency)
-      console.log(`[recordPosition] Checking if tx already recorded...`);
-      const { data: existing, error: checkError } = await db.client
-        .from("infofi_positions")
-        .select("id")
-        .eq("tx_hash", txHash)
-        .maybeSingle();
-
-      if (checkError) {
-        console.error(
-          `[recordPosition] Error checking existing position:`,
-          checkError
-        );
-        throw checkError;
-      }
-
-      if (existing) {
-        console.log(
-          `[recordPosition] Position already recorded with id: ${existing.id}`
-        );
-        return { alreadyRecorded: true, id: existing.id };
-      }
-
-      // 2. Get market_id from FPMM address
-      console.log(
-        `[recordPosition] Looking up market_id for FPMM: ${fpmmAddress}`
-      );
-      const marketId = await this.getMarketIdFromFpmm(fpmmAddress);
-      console.log(`[recordPosition] Market ID: ${marketId}`);
-
-      if (!marketId) {
-        console.error(
-          `[recordPosition] No market found for FPMM: ${fpmmAddress}`
-        );
-        throw new Error(`No market found for FPMM: ${fpmmAddress}`);
-      }
-
-      // 3. Convert from wei to human-readable units (divide by 10^18)
-      const amountInNum = Number(amountIn) / 1e18;
-      const amountOutNum = Number(amountOut) / 1e18;
-      const price = amountOutNum > 0 ? amountInNum / amountOutNum : 0;
-
-      console.log(
-        `[recordPosition] Converted amounts - In: ${amountInNum}, Out: ${amountOutNum}, Price: ${price}`
-      );
-
-      // 4. Map outcome
-      const outcome = buyYes ? "YES" : "NO";
-      console.log(`[recordPosition] Outcome: ${outcome}`);
-
-      // 5. Insert position (player_id auto-populated by trigger)
-      const insertData = {
-        market_id: marketId,
-        user_address: trader.toLowerCase(),
-        outcome,
-        amount: amountInNum.toString(),
-        price: price.toString(),
-        tx_hash: txHash,
-        created_at: new Date().toISOString(),
-      };
-
-      console.log(`[recordPosition] Inserting position:`, insertData);
-
-      const { data, error } = await db.client
-        .from("infofi_positions")
-        .insert(insertData)
-        .select()
-        .single();
-
-      if (error) {
-        console.error(`[recordPosition] Database insert error:`, error);
-        console.error(`[recordPosition] Error details:`, {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code,
-        });
-        throw error;
-      }
-
-      console.log(
-        `[recordPosition] Successfully inserted position with id: ${data.id}`
-      );
-
-      // Trade just landed — bust this market's cached positions and market_info
-      // volume so a trader sees their own update within one poll, not after TTL.
-      await cacheInvalidatePattern(`${POSITIONS_KEY_PREFIX}net:${marketId}:*`);
-      await cacheInvalidate(`${MARKET_INFO_KEY_PREFIX}${marketId}`);
-
-      return { success: true, data };
-    } catch (error) {
-      console.error("[recordPosition] Fatal error:", error);
-      console.error("[recordPosition] Error stack:", error.stack);
-      throw error;
+  async recordPosition({ fpmmAddress, args, txHash, logIndex, blockNumber, blockTime }) {
+    const marketId = await this.getMarketIdFromFpmm(fpmmAddress);
+    if (!marketId) {
+      throw new Error(`No market found for FPMM: ${fpmmAddress}`);
     }
+
+    const row = buildInfoFiTradeRow({ marketId, args, txHash, logIndex, blockNumber, blockTime });
+
+    // player_id is filled by the table's trigger.
+    const { data, error } = await db.client
+      .from("infofi_positions")
+      .upsert(row, { onConflict: "tx_hash,log_index", ignoreDuplicates: true })
+      .select();
+    if (error) throw error;
+    if (!data || data.length === 0) return { alreadyRecorded: true };
+
+    // Trade just landed — bust this market's cached positions and market_info
+    // volume so a trader sees their own update within one poll, not after TTL.
+    await cacheInvalidatePattern(`${POSITIONS_KEY_PREFIX}net:${marketId}:*`);
+    await cacheInvalidate(`${MARKET_INFO_KEY_PREFIX}${marketId}`);
+
+    return { alreadyRecorded: false, data: data[0] };
   }
 
   /**
@@ -222,18 +141,22 @@ class InfoFiPositionService {
       let skipped = 0;
       let errors = 0;
 
+      const blockTimes = new Map();
       for (const log of logs) {
-        const { trader, buyYes, amountIn, amountOut } = log.args;
-
         try {
+          let blockTime = blockTimes.get(log.blockNumber);
+          if (!blockTime) {
+            const block = await publicClient.getBlock({ blockNumber: log.blockNumber });
+            blockTime = new Date(Number(block.timestamp) * 1000);
+            blockTimes.set(log.blockNumber, blockTime);
+          }
           const result = await this.recordPosition({
             fpmmAddress,
-            trader,
-            buyYes,
-            amountIn,
-            amountOut,
+            args: log.args,
             txHash: log.transactionHash,
+            logIndex: log.logIndex,
             blockNumber: log.blockNumber,
+            blockTime,
           });
 
           if (result.alreadyRecorded) {

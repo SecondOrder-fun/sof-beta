@@ -309,7 +309,11 @@ const InfoFiPositionsTab = ({ address }) => {
                           : marketTrades
                               .filter((t) => t.outcome === "YES")
                               .reduce(
-                                (sum, t) => sum + parseFloat(t.amount || 0),
+                                // A SELL is collateral taken back out.
+                                (sum, t) =>
+                                  sum +
+                                  (t.side === "SELL" ? -1 : 1) *
+                                    parseFloat(t.amount || 0),
                                 0
                               );
                         const noTotal = hasOnchainPos
@@ -317,7 +321,11 @@ const InfoFiPositionsTab = ({ address }) => {
                           : marketTrades
                               .filter((t) => t.outcome === "NO")
                               .reduce(
-                                (sum, t) => sum + parseFloat(t.amount || 0),
+                                // A SELL is collateral taken back out.
+                                (sum, t) =>
+                                  sum +
+                                  (t.side === "SELL" ? -1 : 1) *
+                                    parseFloat(t.amount || 0),
                                 0
                               );
 

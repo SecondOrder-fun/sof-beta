@@ -4,86 +4,27 @@
  * Run this to populate infofi_positions table with existing trades
  */
 
-import { publicClient } from "../lib/viemClient.js";
 import { infoFiPositionService } from "../services/infoFiPositionService.js";
-import { SimpleFPMMABI as simpleFpmmAbi } from '@sof/contracts';
 import { db } from "../../shared/supabaseClient.js";
 
-async function backfillMarketTrades(fpmmAddress, fromBlock = "earliest") {
+async function backfillMarketTrades(fpmmAddress, fromBlock = 0n) {
   console.log(`\n🔄 Backfilling trades for market: ${fpmmAddress}`);
   console.log(`   From block: ${fromBlock}\n`);
 
+  // Same path as the market sync route: one infofi_positions row per Trade log,
+  // idempotent on (tx_hash, log_index), so a re-run only fills gaps.
   try {
-    // Get Trade events from contract
-    const logs = await publicClient.getLogs({
-      address: fpmmAddress,
-      event: {
-        type: "event",
-        name: "Trade",
-        inputs: simpleFpmmAbi.find((item) => item.name === "Trade").inputs,
-      },
-      fromBlock: fromBlock === "earliest" ? 0n : BigInt(fromBlock),
-      toBlock: "latest",
-    });
-
-    console.log(`   Found ${logs.length} Trade events`);
-
-    if (logs.length === 0) {
-      console.log(`   ✅ No trades to backfill\n`);
-      return { success: true, count: 0 };
-    }
-
-    let successCount = 0;
-    let skipCount = 0;
-    let errorCount = 0;
-
-    for (const log of logs) {
-      try {
-        const { trader, buyYes, amountIn, amountOut } = log.args;
-
-        // Record position (will skip if already exists due to tx_hash uniqueness)
-        const result = await infoFiPositionService.recordPosition({
-          fpmmAddress,
-          trader,
-          buyYes,
-          amountIn,
-          amountOut,
-          txHash: log.transactionHash,
-        });
-
-        if (result.skipped) {
-          skipCount++;
-          console.log(
-            `   ⏭️  Skipped (already exists): ${log.transactionHash}`
-          );
-        } else {
-          successCount++;
-          console.log(
-            `   ✅ Recorded: ${trader} - ${
-              buyYes ? "YES" : "NO"
-            } - ${amountIn} SOF (${log.transactionHash})`
-          );
-        }
-      } catch (error) {
-        errorCount++;
-        console.error(
-          `   ❌ Error processing trade ${log.transactionHash}: ${error.message}`
-        );
-      }
-    }
-
-    console.log(`\n📊 Backfill Summary for ${fpmmAddress}:`);
-    console.log(`   ✅ Recorded: ${successCount}`);
-    console.log(`   ⏭️  Skipped: ${skipCount}`);
-    console.log(`   ❌ Errors: ${errorCount}`);
-    console.log(`   📝 Total: ${logs.length}\n`);
-
+    const result = await infoFiPositionService.syncMarketPositions(fpmmAddress, BigInt(fromBlock));
+    if (result.error) return { success: false, error: result.error };
+    console.log(
+      `   ✅ Recorded: ${result.recorded}  ⏭️  Skipped: ${result.skipped}  ❌ Errors: ${result.errors ?? 0}  📝 Total: ${result.totalEvents}\n`,
+    );
     return {
       success: true,
-      total: logs.length,
-      recorded: successCount,
-      skipped: skipCount,
-      errors: errorCount,
+      total: result.totalEvents,
+      recorded: result.recorded,
+      skipped: result.skipped,
+      errors: result.errors ?? 0,
     };
   } catch (error) {
     console.error(`❌ Failed to backfill trades for ${fpmmAddress}:`, error);

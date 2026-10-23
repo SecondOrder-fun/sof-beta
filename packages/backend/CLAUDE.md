@@ -214,6 +214,22 @@ Shaping for all of them is pure, in `src/services/activityFeed.js`. Rules they s
   known; season summaries carry `grandPrizeBps`. Entry items have no `logIndex`
   (`raffle_transactions` records none; it is unique on `tx_hash` + `season_id`).
 
+### InfoFi Trades
+`tradeListener` (one poller per FPMM) stores every `SimpleFPMM.Trade` as one
+`infofi_positions` row (migration 032), built by `src/services/infoFiTradeRow.js` and
+written by `infoFiPositionService.recordPosition` with an upsert on `(tx_hash, log_index)`,
+so a replayed log inserts nothing. Contracts 0.44 emit
+`Trade(trader, isBuy, yes, collateral, shares, fee)`: `side` is `BUY`/`SELL`, `amount` the
+collateral paid (buy, fee included) or received (sell, net), always positive, plus
+`shares`, `fee`, `block_number` and `block_time`. A pre-0.44 log (`buyYes, amountIn,
+amountOut`) cannot say which side it was, and `buildInfoFiTradeRow` refuses it. A trade
+that fails to store (block read, market lookup, insert) or whose sentiment step throws
+fails the poller's batch after the rest are processed, so the range is retried. Readers
+that add up `amount` net it by side: `user_market_positions.total_amount`, the holders
+route, the profile's InfoFi tab; settlement never counts a SELL row as a stake.
+`src/scripts/backfillMarketTrades.js` re-runs `syncMarketPositions` for every active
+market.
+
 ### Database Access
 The backend is the database's only client and connects with the service role key
 (`shared/supabaseClient.js`), which bypasses row level security. Every table in

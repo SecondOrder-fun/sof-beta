@@ -1,10 +1,12 @@
 /**
  * @file tradeListener.js
- * @description Listens to Trade events from SimpleFPMM contracts and updates market sentiment on oracle
+ * @description Listens to Trade events from SimpleFPMM contracts, records each trade
+ *   (infofi_positions, one row per log) and updates market sentiment on the oracle
  * @date Oct 26, 2025
  *
  * Handles:
  * - Real-time Trade event detection from SimpleFPMM contracts
+ * - Trade records: side (buy/sell), collateral, shares and fee from the 0.44 event
  * - Market sentiment calculation based on trade volume/direction
  * - Oracle sentiment updates via oracleCallService
  * - Graceful error handling and logging
@@ -77,13 +79,19 @@ export async function startTradeListener(fpmmAddresses, fpmmAbi, logger) {
             `[TRADE_LISTENER] 📥 Received ${logs.length} Trade event(s) for FPMM ${fpmmAddress}`,
           );
 
+          // A trade that could not be stored fails the batch (after the rest are
+          // processed), so the poller retries the range; recordPosition is
+          // idempotent on (tx_hash, log_index).
+          let recordFailure = null;
+          const blockTimes = new Map();
+
           for (const log of logs) {
             const txHash = log.transactionHash;
             const blockNum = log.blockNumber;
 
             try {
               // Extract trade data from event
-              const { trader, buyYes, amountIn, amountOut } = log.args;
+              const { trader, isBuy, yes, collateral, shares } = log.args;
 
               logger.info(
                 `[TRADE_LISTENER] 📊 Processing Trade: Block ${blockNum}, Tx ${txHash}`,
@@ -92,7 +100,7 @@ export async function startTradeListener(fpmmAddresses, fpmmAbi, logger) {
                 `[TRADE_LISTENER]    FPMM: ${fpmmAddress}, Trader: ${trader}`,
               );
               logger.info(
-                `[TRADE_LISTENER]    BuyYes: ${buyYes}, AmountIn: ${amountIn}, AmountOut: ${amountOut}`,
+                `[TRADE_LISTENER]    ${isBuy ? "BUY" : "SELL"} ${yes ? "YES" : "NO"}, collateral: ${collateral}, shares: ${shares}`,
               );
 
               // Read on-chain FPMM prices to get actual market sentiment
@@ -170,48 +178,35 @@ export async function startTradeListener(fpmmAddresses, fpmmAbi, logger) {
                 );
               }
 
-              // Record position to database
+              // Record the trade (one infofi_positions row per Trade log)
               try {
-                logger.info(
-                  `[TRADE_LISTENER] Step 3/3: Recording position to database...`,
-                );
-                logger.info(`[TRADE_LISTENER]    Calling recordPosition with:`);
-                logger.info(
-                  `[TRADE_LISTENER]    - fpmmAddress: ${fpmmAddress}`,
-                );
-                logger.info(`[TRADE_LISTENER]    - trader: ${trader}`);
-                logger.info(`[TRADE_LISTENER]    - buyYes: ${buyYes}`);
-                logger.info(`[TRADE_LISTENER]    - txHash: ${txHash}`);
-
-                const recordResult = await infoFiPositionService.recordPosition(
-                  {
-                    fpmmAddress,
-                    trader,
-                    buyYes,
-                    amountIn,
-                    amountOut,
-                    txHash,
-                  },
-                );
+                let blockTime = blockTimes.get(blockNum);
+                if (!blockTime) {
+                  const block = await publicClient.getBlock({ blockNumber: blockNum });
+                  blockTime = new Date(Number(block.timestamp) * 1000);
+                  blockTimes.set(blockNum, blockTime);
+                }
+                const recordResult = await infoFiPositionService.recordPosition({
+                  fpmmAddress,
+                  args: log.args,
+                  txHash,
+                  logIndex: log.logIndex,
+                  blockNumber: blockNum,
+                  blockTime,
+                });
 
                 if (recordResult.alreadyRecorded) {
-                  logger.info(
-                    `[TRADE_LISTENER] ℹ️  Position already recorded (id: ${recordResult.id})`,
-                  );
+                  logger.info(`[TRADE_LISTENER] ℹ️  Trade already recorded (${txHash}#${log.logIndex})`);
                 } else {
-                  logger.info(
-                    `[TRADE_LISTENER] ✅ SUCCESS: Position recorded (id: ${recordResult.data?.id})`,
-                  );
-                }
-
-                if (!recordResult.alreadyRecorded) {
+                  logger.info(`[TRADE_LISTENER] ✅ Trade recorded (id: ${recordResult.data?.id})`);
                   sseService.broadcast('infofi', {
                     type: 'Trade',
                     fpmmAddress,
                     trader,
-                    buyYes: Boolean(buyYes),
-                    amountIn: amountIn.toString(),
-                    amountOut: amountOut.toString(),
+                    isBuy: Boolean(isBuy),
+                    yes: Boolean(yes),
+                    collateral: collateral.toString(),
+                    shares: shares.toString(),
                     sentimentBps: sentiment,
                     txHash,
                     blockNumber: Number(blockNum),
@@ -219,15 +214,9 @@ export async function startTradeListener(fpmmAddresses, fpmmAbi, logger) {
                 }
               } catch (positionError) {
                 logger.error(
-                  `[TRADE_LISTENER] ❌ FAILED to record position for tx ${txHash}`,
+                  `[TRADE_LISTENER] ❌ FAILED to record trade ${txHash}#${log.logIndex}: ${positionError.message}`,
                 );
-                logger.error(
-                  `[TRADE_LISTENER]    Error: ${positionError.message}`,
-                );
-                logger.error(
-                  `[TRADE_LISTENER]    Stack: ${positionError.stack}`,
-                );
-                // Don't crash listener - just log and continue
+                recordFailure = recordFailure ?? positionError;
               }
             } catch (tradeError) {
               logger.error(
@@ -238,8 +227,12 @@ export async function startTradeListener(fpmmAddresses, fpmmAbi, logger) {
               );
               logger.error(`[TRADE_LISTENER]    Error: ${tradeError.message}`);
               logger.error(`[TRADE_LISTENER]    Stack: ${tradeError.stack}`);
+              // The trade was not recorded either: retry the range.
+              recordFailure = recordFailure ?? tradeError;
             }
           }
+
+          if (recordFailure) throw recordFailure;
         },
         onError: (error) => {
           try {
