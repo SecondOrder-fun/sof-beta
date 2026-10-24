@@ -8,7 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { buildPlaceBetCalls, readBet } from '@/services/onchainInfoFi';
+import { formatUnits } from 'viem';
+import { buildPlaceBetCalls, readBet, readCollateralBalance } from '@/services/onchainInfoFi';
+import InfoFiSellPanel from '@/components/infofi/InfoFiSellPanel';
 import { useSmartTransactions } from '@/hooks/useSmartTransactions';
 import { useTransactionStatus } from '@/hooks/useTransactionStatus';
 import TransactionModal from '@/components/admin/TransactionModal';
@@ -19,8 +21,8 @@ import { TrendingUp, TrendingDown } from 'lucide-react';
 
 /**
  * BuySellWidget Component
- * Polymarket-style trading interface for prediction markets
- * Allows users to buy YES or NO positions
+ * Polymarket-style trading interface for prediction markets: buy YES or NO
+ * shares with the market's collateral, or sell them back (InfoFiSellPanel).
  */
 const BuySellWidget = ({ marketId, market }) => {
   const { t } = useTranslation('market');
@@ -32,20 +34,31 @@ const BuySellWidget = ({ marketId, market }) => {
   const [outcome, setOutcome] = React.useState('YES');
   const [amount, setAmount] = React.useState('');
 
-  // Read user's current positions — invalidated explicitly in placeBet.onSuccess
+  const fpmmAddress = market?.contract_address;
+
+  // Read user's current positions — invalidated explicitly after a buy or sell
   const yesPosition = useQuery({
     queryKey: ['infofiBet', marketId, address, true],
-    enabled: !!address && !!marketId,
-    queryFn: () => readBet({ marketId, account: address, prediction: true }),
+    enabled: !!address && !!fpmmAddress,
+    queryFn: () => readBet({ account: address, prediction: true, fpmmAddress }),
     staleTime: 5_000,
   });
 
   const noPosition = useQuery({
     queryKey: ['infofiBet', marketId, address, false],
-    enabled: !!address && !!marketId,
-    queryFn: () => readBet({ marketId, account: address, prediction: false }),
+    enabled: !!address && !!fpmmAddress,
+    queryFn: () => readBet({ account: address, prediction: false, fpmmAddress }),
     staleTime: 5_000,
   });
+
+  // The market's collateral (its season's quote token): symbol and balance
+  const collateral = useQuery({
+    queryKey: ['infofiCollateral', fpmmAddress, address],
+    enabled: !!address && !!fpmmAddress,
+    queryFn: () => readCollateralBalance({ fpmmAddress, account: address }),
+    staleTime: 10_000,
+  });
+  const symbol = collateral.data?.symbol ?? '';
 
   // Place bet mutation
   const placeBet = useMutation({
@@ -55,13 +68,15 @@ const BuySellWidget = ({ marketId, market }) => {
         prediction: outcome === 'YES',
         amount: amt,
         account: address,
-        fpmmAddress: market?.contract_address,
+        fpmmAddress,
       });
       return executeBatch(calls);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['infofiBet', marketId, address, true] });
       qc.invalidateQueries({ queryKey: ['infofiBet', marketId, address, false] });
+      qc.invalidateQueries({ queryKey: ['infofiCollateral'] });
+      qc.invalidateQueries({ queryKey: ['infofiSellState'] });
       // Positions/trade queries no longer poll — refresh them on trade success.
       // Prefix match (partial key) covers all address/season/network variants:
       //   InfoFiPositionsTab: ["infofiTrades", ...], ["infofiPositionsOnchainActive", ...]
@@ -95,8 +110,8 @@ const BuySellWidget = ({ marketId, market }) => {
   const potentialPayout = calculatePayout(amount, outcome === 'YES');
   const potentialProfit = potentialPayout - Number(amount || 0);
 
-  // Format SOF amounts using shared hook
-  const formatSOF = useFormatSOF(18); // SOF uses 18 decimals
+  // Collateral and shares are both 18-decimal (a season's quote token must be)
+  const formatSOF = useFormatSOF(18);
 
   const yesAmount = formatSOF(yesPosition.data?.amount ?? 0n);
   const noAmount = formatSOF(noPosition.data?.amount ?? 0n);
@@ -169,8 +184,19 @@ const BuySellWidget = ({ marketId, market }) => {
                 className="text-lg"
               />
               <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>{t('balance')}: 0.00 SOF</span>
-                <Button variant="link" size="sm" className="h-auto p-0">{t('max')}</Button>
+                <span>
+                  {t('balance')}: {formatSOF(collateral.data?.balance ?? 0n)} {symbol}
+                </span>
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0"
+                  disabled={!collateral.data?.balance}
+                  onClick={() => setAmount(formatUnits(collateral.data.balance, 18))}
+                >
+                  {t('max')}
+                </Button>
               </div>
             </div>
 
@@ -179,12 +205,12 @@ const BuySellWidget = ({ marketId, market }) => {
               <div className="bg-muted/50 rounded-lg p-3 space-y-2">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">{t('potentialPayout')}</span>
-                  <span className="font-semibold">{potentialPayout.toFixed(2)} SOF</span>
+                  <span className="font-semibold">{potentialPayout.toFixed(2)} {symbol}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">{t('potentialProfit')}</span>
                   <span className={`font-semibold ${potentialProfit > 0 ? 'text-success' : 'text-muted-foreground'}`}>
-                    +{potentialProfit.toFixed(2)} SOF
+                    +{potentialProfit.toFixed(2)} {symbol}
                   </span>
                 </div>
               </div>
@@ -211,9 +237,7 @@ const BuySellWidget = ({ marketId, market }) => {
           </TabsContent>
 
           <TabsContent value="sell" className="space-y-4 mt-4">
-            <div className="text-sm text-muted-foreground text-center py-8">
-              {t('sellComingSoon')}
-            </div>
+            <InfoFiSellPanel fpmmAddress={fpmmAddress} collateralSymbol={symbol} defaultOutcome={outcome} />
           </TabsContent>
         </Tabs>
 

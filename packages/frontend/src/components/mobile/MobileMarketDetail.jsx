@@ -6,11 +6,13 @@ import { ArrowLeft } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useEffect, useRef, useState } from "react";
 import { useAccount } from "wagmi";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import OddsChart from "@/components/infofi/OddsChart";
 import BettingInterface from "@/components/infofi/BettingInterface";
+import InfoFiSellPanel from "@/components/infofi/InfoFiSellPanel";
 import UsernameDisplay from "@/components/user/UsernameDisplay";
 import { buildPlaceBetCalls } from "@/services/onchainInfoFi";
 import { useSmartTransactions } from "@/hooks/useSmartTransactions";
@@ -18,7 +20,8 @@ import SignInRequiredOverlay from "@/components/auth/SignInRequiredOverlay";
 
 /**
  * MobileMarketDetail - Full market detail view for mobile.
- * Displays market info + compact OddsChart + BettingInterface.
+ * Displays market info + compact OddsChart, then Buy (BettingInterface) and
+ * Sell (InfoFiSellPanel) tabs.
  */
 const MobileMarketDetail = ({ market, marketId }) => {
   const navigate = useNavigate();
@@ -67,6 +70,8 @@ const MobileMarketDetail = ({ market, marketId }) => {
       queryClient.invalidateQueries({
         queryKey: ["oddsHistory", marketId],
       });
+      queryClient.invalidateQueries({ queryKey: ["infofiSellState"] });
+      queryClient.invalidateQueries({ queryKey: ["infofiBet"] });
     },
   });
 
@@ -128,14 +133,25 @@ const MobileMarketDetail = ({ market, marketId }) => {
 
           <Separator />
 
-          {/* Betting Interface (question hidden, shown above) */}
-          <BettingInterface
-            market={market}
-            onBet={handleBet}
-            isConnected={isConnected}
-            isLoading={placeBetMutation.isPending}
-            showQuestion={false}
-          />
+          <Tabs defaultValue="buy">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="buy">{t("buy")}</TabsTrigger>
+              <TabsTrigger value="sell">{t("sell")}</TabsTrigger>
+            </TabsList>
+            <TabsContent value="buy" className="mt-4">
+              {/* Betting Interface (question hidden, shown above) */}
+              <BettingInterface
+                market={market}
+                onBet={handleBet}
+                isConnected={isConnected}
+                isLoading={placeBetMutation.isPending}
+                showQuestion={false}
+              />
+            </TabsContent>
+            <TabsContent value="sell" className="mt-4">
+              <InfoFiSellPanel fpmmAddress={market.contract_address} />
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
     </div>

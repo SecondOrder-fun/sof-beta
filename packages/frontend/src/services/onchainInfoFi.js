@@ -19,6 +19,7 @@ import {
 } from "@/utils/abis";
 import { getNetworkByKey, getDefaultNetworkKey } from "@/config/networks";
 import { getContractAddresses } from "@/config/contracts";
+import { quoteSellCollateral, minCollateralOut } from "@/lib/infofiSellMath";
 import {
   queryLogsInChunks,
   estimateBlockFromTimestamp,
@@ -632,55 +633,45 @@ export async function listSeasonWinnerMarketsByEvents({
 }
 
 // Read a user's bet position for a given marketId and side
+/**
+ * A wallet's outcome shares in one FPMM market: its conditional-token balance for
+ * the market's YES (positionIds[0]) or NO (positionIds[1]) position. Read through
+ * the FPMM's own conditionalTokens, so it needs no deployment config.
+ * @param {Object} params
+ * @param {string} params.account
+ * @param {boolean} params.prediction - true for YES, false for NO
+ * @param {string} params.fpmmAddress
+ * @param {string} [params.networkKey]
+ * @returns {Promise<{amount: bigint}>}
+ */
 export async function readBet({
   account,
   prediction,
   networkKey = getDefaultNetworkKey(),
   fpmmAddress,
 }) {
-  const { publicClient } = buildClients(networkKey);
-
-  // FPMM address is required - must be provided from market data
   if (!fpmmAddress) {
     throw new Error(
       "fpmmAddress is required. Market contract address must be provided from market data."
     );
   }
-
-  try {
-    const fpmmAbi = [
-      {
-        type: "function",
-        name: "balanceOf",
-        inputs: [
-          { name: "account", type: "address" },
-          { name: "id", type: "uint256" },
-        ],
-        outputs: [{ name: "", type: "uint256" }],
-        stateMutability: "view",
-      },
-    ];
-
-    // Conditional token IDs: 0 = NO, 1 = YES
-    const tokenId = prediction ? 1n : 0n;
-
-    const balance = await publicClient.readContract({
+  const { publicClient } = buildClients(networkKey);
+  const [ctf, positionId] = await Promise.all([
+    publicClient.readContract({ address: fpmmAddress, abi: fpmmTradeAbi, functionName: "conditionalTokens" }),
+    publicClient.readContract({
       address: fpmmAddress,
-      abi: fpmmAbi,
-      functionName: "balanceOf",
-      args: [getAddress(account), tokenId],
-    });
-
-    return { amount: balance };
-  } catch (error) {
-    // Contract reverted - likely user has no position or token ID doesn't exist yet
-    // This is expected for users who haven't placed bets, so just return 0
-    if (error.message?.includes("reverted")) {
-      return { amount: 0n };
-    }
-    // Return empty position
-    return { amount: 0n };
-  }
+      abi: fpmmTradeAbi,
+      functionName: "positionIds",
+      args: [prediction ? 0n : 1n],
+    }),
+  ]);
+  const amount = await publicClient.readContract({
+    address: ctf,
+    abi: conditionalTokensAbi,
+    functionName: "balanceOf",
+    args: [getAddress(account), positionId],
+  });
+  return { amount };
 }
 
 /**
@@ -796,8 +787,8 @@ export async function readFpmmPosition({
   }
 }
 
-// SimpleFPMM ABI fragment for buy + calcBuyAmount (shared by builder and read helpers)
-const fpmmBuyAbi = [
+// SimpleFPMM fragments for trading and quoting (shared by builders and read helpers)
+const fpmmTradeAbi = [
   {
     type: "function",
     name: "buy",
@@ -818,6 +809,73 @@ const fpmmBuyAbi = [
     ],
     outputs: [{ name: "amountOut", type: "uint256" }],
     stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "sell",
+    inputs: [
+      { name: "sellYes", type: "bool" },
+      { name: "amountOut", type: "uint256" },
+      { name: "maxAmountIn", type: "uint256" },
+    ],
+    outputs: [{ name: "amountIn", type: "uint256" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "calcSellAmount",
+    inputs: [
+      { name: "sellYes", type: "bool" },
+      { name: "amountOut", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  { type: "function", name: "yesReserve", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+  { type: "function", name: "noReserve", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+  { type: "function", name: "FEE_BPS", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+  {
+    type: "function",
+    name: "positionIds",
+    inputs: [{ name: "", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  { type: "function", name: "conditionalTokens", inputs: [], outputs: [{ name: "", type: "address" }], stateMutability: "view" },
+];
+
+// ConditionalTokenSOF fragments: balances and the operator approval a sell needs
+// (contracts 0.44: the pool can only pull shares the seller approved it to move).
+const conditionalTokensAbi = [
+  {
+    type: "function",
+    name: "balanceOf",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "positionId", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "isApprovedForAll",
+    inputs: [
+      { name: "account", type: "address" },
+      { name: "operator", type: "address" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "setApprovalForAll",
+    inputs: [
+      { name: "operator", type: "address" },
+      { name: "approved", type: "bool" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
   },
 ];
 
@@ -894,7 +952,7 @@ export async function buildPlaceBetCalls({
   try {
     const expectedOut = await publicClient.readContract({
       address: fpmmAddress,
-      abi: fpmmBuyAbi,
+      abi: fpmmTradeAbi,
       functionName: "calcBuyAmount",
       args: [Boolean(prediction), parsed],
     });
@@ -929,13 +987,115 @@ export async function buildPlaceBetCalls({
   calls.push({
     to: fpmmAddress,
     data: encodeFunctionData({
-      abi: fpmmBuyAbi,
+      abi: fpmmTradeAbi,
       functionName: "buy",
       args: [Boolean(prediction), parsed, minAmountOut],
     }),
   });
 
   return calls;
+}
+
+/**
+ * What the sell form needs for one market and wallet: reserves and fee (to quote),
+ * the wallet's YES/NO shares, and whether it has approved the pool to pull them.
+ * @param {{ fpmmAddress: string, account: string, networkKey?: string }} p
+ */
+export async function readInfoFiSellState({ fpmmAddress, account, networkKey = getDefaultNetworkKey() }) {
+  const { publicClient } = buildClients(networkKey);
+  const read = (functionName, args) =>
+    publicClient.readContract({ address: fpmmAddress, abi: fpmmTradeAbi, functionName, args });
+  const [yesReserve, noReserve, feeBps, ctf, yesId, noId] = await Promise.all([
+    read("yesReserve"),
+    read("noReserve"),
+    read("FEE_BPS"),
+    read("conditionalTokens"),
+    read("positionIds", [0n]),
+    read("positionIds", [1n]),
+  ]);
+  const holder = getAddress(account);
+  const readCtf = (functionName, args) =>
+    publicClient.readContract({ address: ctf, abi: conditionalTokensAbi, functionName, args });
+  const [yesShares, noShares, approved] = await Promise.all([
+    readCtf("balanceOf", [holder, yesId]),
+    readCtf("balanceOf", [holder, noId]),
+    readCtf("isApprovedForAll", [holder, getAddress(fpmmAddress)]),
+  ]);
+  return { yesReserve, noReserve, feeBps, ctf, yesShares, noShares, approved };
+}
+
+/**
+ * Calls to sell `shares` YES or NO shares back to the pool: the one-off
+ * setApprovalForAll(pool) when the wallet has not approved it, then
+ * sell(sellYes, minCollateral, shares). The pool is asked for the quote less the
+ * slippage allowance, so it takes at most `shares` (it may take fewer).
+ * @param {{ prediction: boolean, shares: bigint, account: string, fpmmAddress: string,
+ *   slippageBps?: number, networkKey?: string }} p
+ * @returns {Promise<{ calls: Array<{to: string, data: string}>, quote: bigint, minCollateral: bigint }>}
+ */
+export async function buildSellCalls({
+  prediction,
+  shares,
+  account,
+  fpmmAddress,
+  slippageBps = 200,
+  networkKey = getDefaultNetworkKey(),
+}) {
+  if (!fpmmAddress || fpmmAddress === "0x0000000000000000000000000000000000000000") {
+    throw new Error("Invalid FPMM market address");
+  }
+  if (!account) throw new Error("account address is required");
+  if (typeof shares !== "bigint" || shares <= 0n) throw new Error("Nothing to sell");
+
+  const state = await readInfoFiSellState({ fpmmAddress, account, networkKey });
+  const held = prediction ? state.yesShares : state.noShares;
+  if (shares > held) throw new Error("You hold fewer shares than that");
+
+  const quote = quoteSellCollateral({
+    yesReserve: state.yesReserve,
+    noReserve: state.noReserve,
+    feeBps: state.feeBps,
+    sellYes: Boolean(prediction),
+    sharesIn: shares,
+  });
+  const minCollateral = minCollateralOut(quote, slippageBps);
+  if (minCollateral <= 0n) throw new Error("Too few shares to sell");
+
+  const calls = [];
+  if (!state.approved) {
+    calls.push({
+      to: state.ctf,
+      data: encodeFunctionData({
+        abi: conditionalTokensAbi,
+        functionName: "setApprovalForAll",
+        args: [getAddress(fpmmAddress), true],
+      }),
+    });
+  }
+  calls.push({
+    to: fpmmAddress,
+    data: encodeFunctionData({
+      abi: fpmmTradeAbi,
+      functionName: "sell",
+      args: [Boolean(prediction), minCollateral, shares],
+    }),
+  });
+  return { calls, quote, minCollateral };
+}
+
+/**
+ * The market's collateral token, its symbol and the wallet's balance of it, for
+ * the buy form's balance line and Max.
+ * @param {{ fpmmAddress: string, account: string, networkKey?: string }} p
+ */
+export async function readCollateralBalance({ fpmmAddress, account, networkKey = getDefaultNetworkKey() }) {
+  const { publicClient } = buildClients(networkKey);
+  const token = await readMarketCollateral(publicClient, fpmmAddress);
+  const [symbol, balance] = await Promise.all([
+    publicClient.readContract({ address: token, abi: ERC20Abi, functionName: "symbol" }),
+    publicClient.readContract({ address: token, abi: ERC20Abi, functionName: "balanceOf", args: [getAddress(account)] }),
+  ]);
+  return { token, symbol, balance };
 }
 
 /**

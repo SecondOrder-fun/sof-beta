@@ -307,6 +307,29 @@ ETH price without an oracle, so it shows none). Submission is blocked until a to
 always send `config.quoteToken` (`useRaffleWrite`'s `QUOTE_TOKEN` fallback serves
 other callers).
 
+## InfoFi trading
+
+Prediction-market trades go straight to the market's `SimpleFPMM` through `executeBatch`
+(`src/services/onchainInfoFi.js`). Collateral is the season's quote token, read off the
+market (`collateralToken()`), never the deployment config; it and the outcome shares are
+18-decimal.
+- **Buy** (`buildPlaceBetCalls`): approve the collateral if the allowance is short, then
+  `buy(yes, amount, minOut)` with `minOut` = 98% of `calcBuyAmount`. The desktop widget
+  shows the wallet's collateral balance and symbol (`readCollateralBalance`), and its Max
+  fills it.
+- **Sell** (`InfoFiSellPanel`, the Sell tab on the desktop `BuySellWidget` and the mobile
+  market page): the form takes a share count. `lib/infofiSellMath.quoteSellCollateral`
+  inverts the contract's `calcSellAmount` from the pool's reserves, rounding down so the
+  pool never needs more shares than offered (checked against a line-for-line port of the
+  contract formula in `tests/lib/infofiSellMath.test.js`). `buildSellCalls` asks for the
+  quote less 2% (`sell(yes, minCollateral, shares)`), so a moved price still fills within
+  the shares offered. Since contracts 0.44 the pool can only pull shares the seller
+  approved it to move, so the first sale in a market adds
+  `ConditionalTokenSOF.setApprovalForAll(pool, true)` to the batch.
+- **Positions** (`readBet`): the wallet's conditional-token balance for the market's
+  `positionIds(0)` (YES) or `positionIds(1)` (NO), read through the market's own
+  `conditionalTokens()`.
+
 ## ABI Imports
 
 ```js

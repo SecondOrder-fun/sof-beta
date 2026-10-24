@@ -159,22 +159,14 @@ const InfoFiPositionsTab = ({ address }) => {
           }
 
           for (const addr of queryAddresses) {
+            // One market that cannot be read shows no on-chain position rather
+            // than failing the whole list (its trades still show below).
+            const readSide = (prediction) =>
+              readBet({ account: addr, prediction, networkKey: netKey, fpmmAddress }).catch(() => ({
+                amount: 0n,
+              }));
             // eslint-disable-next-line no-await-in-loop
-            const yes = await readBet({
-              marketId: m.id,
-              account: addr,
-              prediction: true,
-              networkKey: netKey,
-              fpmmAddress,
-            });
-            // eslint-disable-next-line no-await-in-loop
-            const no = await readBet({
-              marketId: m.id,
-              account: addr,
-              prediction: false,
-              networkKey: netKey,
-              fpmmAddress,
-            });
+            const [yes, no] = await Promise.all([readSide(true), readSide(false)]);
 
             const yesAmt = yes?.amount ?? 0n;
             const noAmt = no?.amount ?? 0n;
